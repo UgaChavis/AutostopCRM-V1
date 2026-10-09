@@ -434,13 +434,19 @@ class AgentWebToolsTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "brave-key"}, clear=True),
             patch("minimal_kanban.agent.web_tools.httpx.Client", BraveClient),
+            patch.object(client, "_resolve_public_host", return_value=["8.8.8.8"]),
         ):
             payload = client.search_multi("oil filter", limit=1)
 
         self.assertEqual(
-            payload["providers"],
+            [
+                {key: item[key] for key in ("provider", "status", "result_count", "added_count")}
+                for item in payload["providers"]
+            ],
             [{"provider": "brave", "status": "success", "result_count": 1, "added_count": 1}],
         )
+        self.assertEqual(payload["providers"][0]["network_request_count"], 1)
+        self.assertGreaterEqual(payload["providers"][0]["elapsed_ms"], 0)
         self.assertFalse(payload["fallback_used"])
         self.assertEqual(payload["results"][0]["provider"], "brave")
         self.assertEqual(payload["results"][0]["title"], "Specs")
@@ -458,12 +464,10 @@ class AgentWebToolsTests(unittest.TestCase):
             def __exit__(self, exc_type, exc, tb) -> None:
                 _ = (exc_type, exc, tb)
 
-            def get(self, *args, **kwargs):  # noqa: ANN001
-                _ = (args, kwargs)
-                raise RuntimeError("brave-key should not leak")
-
             def stream(self, *args, **kwargs):  # noqa: ANN001
-                _ = (args, kwargs)
+                request_url = str(args[1] if len(args) > 1 else kwargs.get("url", ""))
+                if request_url.startswith("https://api.search.brave.com/"):
+                    raise RuntimeError("brave-key should not leak")
                 return _client_factory(
                     text=_result_html(1),
                     url="https://html.duckduckgo.com/html/",
@@ -473,12 +477,15 @@ class AgentWebToolsTests(unittest.TestCase):
         with (
             patch.dict(os.environ, {"BRAVE_SEARCH_API_KEY": "brave-key"}, clear=True),
             patch("minimal_kanban.agent.web_tools.httpx.Client", MixedClient),
+            patch.object(client, "_resolve_public_host", return_value=["8.8.8.8"]),
         ):
             payload = client.search_multi("oil filter", limit=1)
 
         self.assertEqual(payload["providers"][0]["provider"], "brave")
         self.assertEqual(payload["providers"][0]["status"], "error")
-        self.assertNotIn("brave-key", payload["providers"][0]["error"])
+        self.assertEqual(payload["providers"][0]["error_code"], "cause_unknown")
+        self.assertFalse(payload["providers"][0]["retryable"])
+        self.assertNotIn("brave-key", json.dumps(payload))
         self.assertEqual(payload["results"][0]["provider"], "duckduckgo")
 
     def test_search_multi_parses_tavily_and_google_cse_results(self) -> None:

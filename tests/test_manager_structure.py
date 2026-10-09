@@ -31,6 +31,65 @@ from minimal_kanban.services.manager_structure_routing import (  # noqa: E402
 from minimal_kanban.services.telegram_behavior_graph import initial_graph  # noqa: E402
 
 
+def routable_synthetic_reference() -> dict:
+    """Exercise routing independently from the retained owner's conflicted layout."""
+    elements = [
+        {
+            "id": ident,
+            "title": ident,
+            "kind": "module",
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "instruction": f"Synthetic instruction {ident}",
+            "color": "#79b9d9",
+            "indicator": "yellow",
+            "indicator_mode": "manual",
+            "indicator_state": "yellow",
+        }
+        for ident, x, y, width, height in (
+            ("A", 100, 100, 160, 100),
+            ("G1", 1150, 100, 160, 100),
+            ("B", 100, 500, 160, 100),
+            ("C", 1150, 500, 160, 100),
+            ("OB1", 620, 70, 160, 240),
+            ("OB2", 620, 450, 160, 230),
+        )
+    ]
+    next(node for node in elements if node["id"] == "B")["parent"] = "A"
+    return {
+        "schema_version": "autostopcrm.manager-structure.v1",
+        "canvas": {"width": 1600, "height": 900},
+        "elements": elements,
+        "relations": [
+            {
+                "id": ident,
+                "from": source,
+                "to": target,
+                "kind": "exchange",
+                "direction": "both",
+                "label": ident,
+                "protocol": "synthetic-routing",
+                "description": "Synthetic obstacle-routing contract",
+                "color": "#654321",
+                "route_mode": "auto",
+                "label_mode": "auto",
+                "show_label": True,
+                "path": path,
+                "label_x": label_x,
+                "label_y": label_y,
+            }
+            for ident, source, target, path, label_x, label_y in (
+                ("L24", "A", "G1", "M260 150 H1150", 460, 150),
+                ("L25", "B", "C", "M260 550 H1150", 460, 550),
+                ("L26", "A", "B", "M180 200 V500", 180, 350),
+                ("L27", "G1", "C", "M1230 200 V500", 1230, 350),
+            )
+        ],
+    }
+
+
 class ManagerStructureTests(unittest.TestCase):
     def setUp(self) -> None:
         owner = patch.dict("os.environ", {"AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN": "ADMIN"})
@@ -522,11 +581,9 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(self.service.read()["relations"], reference["relations"])
 
     def test_reroute_preview_exact_geometry_and_semantic_preservation(self) -> None:
-        reference = json.loads(
-            (
-                Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
-            ).read_text(encoding="utf-8")
-        )
+        reference = routable_synthetic_reference()
+        obstacle = next(node for node in reference["elements"] if node["id"] == "OB1")
+        self.assertTrue(_blocked_by_node((260, 150), (1150, 150), obstacle))
         self.apply(0, "reroute-reference-001", "replace", diagram=reference)
         before = self.service.read()
         stored = self.path.read_bytes()
@@ -536,6 +593,8 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), stored)
         self.assertEqual(preview["version"], 1)
         self.assertEqual(preview["diagram"]["elements"], before["elements"])
+        self.assertEqual(preview["diagram"]["canvas"], before["canvas"])
+        self.assertEqual(route_conflicts(preview["diagram"]), [])
         geometry = {"path", "label_x", "label_y", "auto_hidden_label"}
         self.assertEqual(
             [{k: v for k, v in edge.items() if k not in geometry} for edge in before["relations"]],
@@ -547,6 +606,8 @@ class ManagerStructureTests(unittest.TestCase):
         written = self.apply(1, "reroute-save-001", "reroute")
         saved = self.service.read()
         self.assertEqual(written["version"], 2)
+        self.assertEqual(saved["elements"], before["elements"])
+        self.assertEqual(saved["canvas"], before["canvas"])
         self.assertEqual(written["routes"], preview["routes"])
         self.assertEqual(written["labels"], preview["labels"])
         self.assertEqual(
@@ -556,6 +617,15 @@ class ManagerStructureTests(unittest.TestCase):
         nodes = {node["id"]: node for node in saved["elements"]}
         for edge in saved["relations"]:
             points = _points_from_path(edge["path"])
+            self.assertFalse(
+                any(
+                    _blocked_by_node(a, b, obstacle)
+                    for obstacle in saved["elements"]
+                    if obstacle["id"] not in {edge["from"], edge["to"]}
+                    for a, b in _segments(points)
+                ),
+                edge["id"],
+            )
             for endpoint, first, second in (
                 ("from", points[0], points[1]),
                 ("to", points[-1], points[-2]),
@@ -704,11 +774,7 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(ManagerStructureService(self.path).read()["elements"][0]["x"], 176)
 
     def test_reference_move_rebuilds_all_paths_without_conflicts(self) -> None:
-        reference = json.loads(
-            (
-                Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
-            ).read_text(encoding="utf-8")
-        )
+        reference = routable_synthetic_reference()
         self.apply(0, "reference-fixture-001", "replace", diagram=reference)
         current = next(node for node in reference["elements"] if node["id"] == "G1")
         saved = self.apply(
@@ -719,7 +785,22 @@ class ManagerStructureTests(unittest.TestCase):
         )
         after = ManagerStructureService(self.path).read()
         self.assertEqual(saved["accepted_element"]["x"], current["x"] + 30)
-        self.assertEqual(len(saved["routes"]), 37)
+        self.assertEqual(set(saved["routes"]), {edge["id"] for edge in reference["relations"]})
+        self.assertEqual(after["canvas"], reference["canvas"])
+        expected = copy.deepcopy(reference["elements"])
+        next(node for node in expected if node["id"] == "G1")["x"] += 30
+        self.assertEqual(after["elements"], expected)
+        geometry = {"path", "label_x", "label_y", "auto_hidden_label"}
+        self.assertEqual(
+            [
+                {key: value for key, value in edge.items() if key not in geometry}
+                for edge in after["relations"]
+            ],
+            [
+                {key: value for key, value in edge.items() if key not in geometry}
+                for edge in reference["relations"]
+            ],
+        )
         self.assertEqual(route_conflicts(after), [])
 
 

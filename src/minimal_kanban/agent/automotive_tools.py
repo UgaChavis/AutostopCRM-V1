@@ -15,6 +15,7 @@ from .source_registry import (
     E8_PART_EVIDENCE_SOURCES,
     PARTS_CATALOG_SOURCES,
     PARTS_PRICE_SOURCES,
+    public_catalog_page_read_policy,
     public_part_evidence_domains,
     trusted_domains,
 )
@@ -379,6 +380,18 @@ class AutomotiveLookupService:
                 "access_status": "not_checked",
                 "access_flags": [],
             }
+            source_policy = public_catalog_page_read_policy(result["url"])
+            if source_policy:
+                entry.update(
+                    {
+                        "access_status": source_policy["reason"],
+                        "access_flags": [source_policy["reason"]],
+                        "source_policy": source_policy,
+                        "error": {"code": source_policy["reason"], "retryable": False},
+                    }
+                )
+                evidence.append(entry)
+                continue
             try:
                 page = self._search.fetch_page_excerpt(result["url"], max_chars=1200)
             except InternetToolError:
@@ -404,7 +417,9 @@ class AutomotiveLookupService:
         if (
             results
             and evidence
-            and all(item["access_status"] == "unavailable" for item in evidence)
+            and all(
+                item["access_status"] in {"unavailable", "robots_disallowed"} for item in evidence
+            )
         ):
             status = "partial_evidence"
         return {

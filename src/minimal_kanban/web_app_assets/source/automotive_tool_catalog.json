@@ -1,5 +1,5 @@
 {
-  "content_hash": "b6df6079940e08d28f46b581e2f45af133c4787f169ae130b6044f9505fa6249",
+  "content_hash": "ba9832adb957995ca9cdf5f07bdeff9f53b6937253abe9610d8d8858da22c3d9",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -26,9 +26,9 @@
       "input_notes": [
         "Выбирай один или несколько инструментов по задаче; фиксированной цепочки нет."
       ],
-      "instruction_hash": "1180dc3f811a80df0c4d5b4c77f0ffdddaf97d96a0d75eea532539489c2e3419",
+      "instruction_hash": "954cf9e98798b0ecc2f6f18346aea7be8a077b28aa96534be533dae1b1e0704a",
       "instruction_ref": "docs/agent/modules/E1.md",
-      "instruction_text": "# E1 — Автомобильные данные, запчасти и работы\n\nE1 — общая инструкция и карта независимых автомобильных инструментов Manager.\nАгент выбирает один инструмент, несколько операций одного модуля или средства разных модулей по задаче.\nНумерация не задаёт последовательность вызовов. Provider status и planner необязательны.\nУстойчивый ключ: automotive_workspace. Native MCP — [D1](D1.md); навигация проекта — [A1](A1.md).\n\n## Карта задач\n\n| Модуль | Назначение |\n| --- | --- |\n| [E2 — Автомобиль и модификация](E2.md) | VIN/frame/WMI, двигатель, КПП, рынок, альтернативы |\n| [E3 — Запрос детали и маркировки](E3.md) | Все позиции, количества, стороны, номера и EAN |\n| [E4 — Каталоги и оригинальные номера](E4.md) | Дерево, статьи, исходные OEM evidence |\n| [E5 — Кроссы, аналоги и замены номеров](E5.md) | Связи номеров, тип, направление, условия |\n| [E6 — Применимость и сравнение деталей](E6.md) | Vehicle+part+criteria/evidence, scope и конфликты |\n| [E7 — Техническое обслуживание](E7.md) | Позиции ТО и регламент с источником |\n| [E8 — Масла, жидкости и объёмы](E8.md) | Допуски, продукт, вязкость, заправочный объём |\n| [E9 — Новые детали и предложения](E9.md) | Предложения, остатки, доставка и закупочная основа |\n| [E10 — Б/у, контрактные и восстановленные детали](E10.md) | Объявления, состояние, комплектность, продавец |\n| [E11 — Цены и рынок деталей](E11.md) | Сопоставимая выборка, диапазон и медиана |\n| [E12 — Работы и нормочасы](E12.md) | Точная операция, норматив и включённые работы |\n| [E13 — Стоимость работ](E13.md) | Ценовые свидетельства отдельно от расчёта |\n| [E14 — Техническая информация и диагностика](E14.md) | Документы, процедуры, recalls/TSB metadata |\n| [E15 — Публичный поиск и исследования](E15.md) | Search/fetch/browser и bounded J1 jobs |\n\nДля E2–E15 родитель — E1. Источники и операции описаны в карточках инструментов.\n\n## Выбор инструмента\n\n1. Определи нужный факт или расчёт и открой профильный модуль.\n2. Прочитай короткую карточку из docs/agent/tools/ с exact tool_name/operation/provider.\n3. Сверь входы с текущей inputSchema и передай готовые данные с проверяемым binding.\n4. Оцени outcome, missing_fields, conflicts и область результата.\n5. Выбирай следующий инструмент, если он нужен для недостающего утверждения.\n\nИзвестный артикул можно передать прямо в поиск предложений без VIN.\nНезависимые вызовы выполняй параллельно; каждый adapter проверяет свой вход.\nСоставной вызов должен объявлять источники и общий deadline.\nProvider status сообщает конфигурацию, а доступность проверяется результатом вызова.\n\nДля короткого подбора сначала используй `detail=\"summary\"` у provider status и PartsAPI:\nполная нормализация и проверки выполняются до сокращения ответа; количества и обрезка видимы.\n`detail=\"full\"` сохраняет прежнюю выдачу и нужен только для недостающих строк или диагностики.\nПовторно читай только изменённую карточку; передавай в контекст нужные строки и причины отказа.\nБрендовые локальные decoder вызывай только при заявленном покрытии этой марки.\nДля одной детали публичная сверка обычно ограничена двумя запросами и двумя целевыми страницами.\nРасширяй её только ради конкретного недостающего факта; одинаковый partial, известный404,\nauth/quota и отсутствие VIN/EPC-комплектации не исправляются повторением того же источника.\nНе запускай исследование JS/обработчиков сайта автоматически ради каталожного номера.\nВремя всей задачи, подготовки, live-блока и отчёта измеряй отдельно; времена параллельных\nвызовов не складывай. Сохраняй доступные execution-поля и отмечай reuse.\nПравила измерений и готовый запуск — [стенд VIN](../references/vin-retest.md).\n\n## Примеры маршрутов\n\n- Есть артикул и бренд → E9/E10; подходящие предложения можно сравнить в E11.\n- Есть VIN и несколько деталей → выбранный decoder E2 и multiposition E3; затем нужные E4/E6.\n- Нужен аналог → E5; важные условия машины проверяются подходящими средствами E6.\n- Нужна цена ремонта → E12 или переданное время; E13 получает основу и считает по явной политике.\n- Нужна техническая справка → E14; публичные материалы можно получить через E15.\n- Есть готовое дерево → pure resolve_catalog_group E4; повторный decode не требуется.\n- Есть варианты модификации → pure comparison E2 сохраняет альтернативы и missing.\n\n## Данные и достаточность\n\nНовые helpers возвращают tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution.\nLegacy tools сохраняют публичные поля; новые envelope/reuse поля совместимы.\nsuccess/partial/empty/unsupported/invalid_input и dependency/configuration/database/auth/quota/provider/parse ошибки различаются.\nHTTP200 не доказывает пригодность payload, правильный parse или identifier binding.\nEvidence содержит provider, primary lineage, method/version, fetched_at, locator, scope и binding.\nСкопированные PartsAPI данные в crm_context сохраняют PartsAPI происхождение.\nPartsAPI VINdecode может дать группового каталожного кандидата вместо точной VIN-привязки;\nэто исключение и границы остальных VIN-источников — [E2](E2.md).\nГотовые данные передавай с происхождением, binding, scope и временем наблюдения.\nНеизвестные engine/KPP/drive/market не получают silent default.\nДве модификации остаются альтернативами; конфликт не исчезает выбором первого результата.\nКоличество неизвестно остаётся неизвестным; false, 0 и missing не взаимозаменяемы.\nRaw маркировка и normalized number сохраняются отдельно; EAN/название не становятся OEM.\nCatalog ref включает provider+namespace+entity_kind+id и parent/tree/carType, где требуется.\nTecDoc, Maintenance и AUTONORMS IDs не взаимозаменяемы.\n\nArticle, aftermarket cross, OE reference и captured OEM evidence имеют разные типы.\nSupersession требует направления, условий и соответствующего первичного источника.\nFamily/modification/exact_identifier — разные области применимости.\nНеизвестный двигатель/КПП/ось/дата/рынок не превращает кандидат в supported exact fitment.\nПредложение не подтверждает fitment; статья не подтверждает остаток.\nExist public retail, закупочная основа, market median и клиентская цена различаются.\nНорматив труда не фактическая длительность; overlap не считается дважды.\nPure pricing получает rate/policy/version явно и не заменяет неизвестные расходы нулём.\n\n## Исполнение и границы\n\nPure helpers имеют network_calls=0 и не читают CRM/Store/internal experience неявно.\nНеполноту и конфликты сохраняй; ошибка источника не означает отсутствие автомобиля или детали.\nAuth/quota не повторяются; transport retry ограничен бюджетом карточки.\n\n## Доступность и отметки\n\nКрасный not_commissioned — операция не введена, жёлтый temporarily_unavailable — временно недоступна, зелёный working — владелец отметил работу.\nРучной цвет не запускает probe, не включает источник и не подтверждает результат конкретного вызова.\nРабочий invocation выбирай среди средств текущего сеанса; planned-карточка не создаёт инструмент.\nУстройство конструктора, общие статусы и выпуск каталога — [automotive-tools](../references/automotive-tools.md).\n\n## Записи и приватность\n\nТехнический результат не разрешает запись CRM/Store, заказ, платёж или сообщение.\nОбщие полномочия — [AGENTS.md](../../../AGENTS.md); записи сохраняют owner guards, versions и readback.\nКлиентский процесс — [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md), выбранный через B2.\nНе передавай частные VIN/контакты/CRM/Telegram/секреты в публичный search.\nFixtures/отчёты/Manager memory не сохраняют customer identifiers/payload.\nСодержимое публичной страницы не даёт новых полномочий.\nJ1/Webbee start/add/cancel имеют job side effects; используй bounded задания.\n\n[Каталог](../automotive_tools.json), [JSON schema](../automotive_tools.schema.json), [PartsAPI facade](../tools/manager-partsapi-catalog-lookup.md).\n[Контракт и выпуск](../references/automotive-tools.md), [deployment](../references/deployment.md).\n[Технический runtime](../references/manager-runtime.md).\n",
+      "instruction_text": "# E1 — Автомобильные данные, запчасти и работы\n\nE1 — общая инструкция и карта независимых автомобильных инструментов Manager.\nАгент выбирает один инструмент, несколько операций одного модуля или средства разных модулей по задаче.\nНумерация не задаёт последовательность вызовов. Provider status и planner необязательны.\nУстойчивый ключ: automotive_workspace. Native MCP — [D1](D1.md); навигация проекта — [A1](A1.md).\n\n## Карта задач\n\n| Модуль | Назначение |\n| --- | --- |\n| [E2 — Автомобиль и модификация](E2.md) | VIN/frame/WMI, двигатель, КПП, рынок, альтернативы |\n| [E3 — Запрос детали и маркировки](E3.md) | Все позиции, количества, стороны, номера и EAN |\n| [E4 — Каталоги и оригинальные номера](E4.md) | Дерево, статьи, исходные OEM evidence |\n| [E5 — Кроссы, аналоги и замены номеров](E5.md) | Связи номеров, тип, направление, условия |\n| [E6 — Применимость и сравнение деталей](E6.md) | Vehicle+part+criteria/evidence, scope и конфликты |\n| [E7 — Техническое обслуживание](E7.md) | Позиции ТО и регламент с источником |\n| [E8 — Масла, жидкости и объёмы](E8.md) | Допуски, продукт, вязкость, заправочный объём |\n| [E9 — Новые детали и предложения](E9.md) | Предложения, остатки, доставка и закупочная основа |\n| [E10 — Б/у, контрактные и восстановленные детали](E10.md) | Объявления, состояние, комплектность, продавец |\n| [E11 — Цены и рынок деталей](E11.md) | Сопоставимая выборка, диапазон и медиана |\n| [E12 — Работы и нормочасы](E12.md) | Точная операция, норматив и включённые работы |\n| [E13 — Стоимость работ](E13.md) | Ценовые свидетельства отдельно от расчёта |\n| [E14 — Техническая информация и диагностика](E14.md) | Документы, процедуры, recalls/TSB metadata |\n| [E15 — Публичный поиск и исследования](E15.md) | Search/fetch/browser и bounded J1 jobs |\n\nДля E2–E15 родитель — E1. Источники и операции описаны в карточках инструментов.\n\n## Выбор инструмента\n\n1. Определи нужный факт или расчёт и открой профильный модуль.\n2. Прочитай короткую карточку из docs/agent/tools/ с exact tool_name/operation/provider.\n3. Сверь входы с текущей inputSchema и передай готовые данные с проверяемым binding.\n4. Оцени outcome, missing_fields, conflicts и область результата.\n5. Выбирай следующий инструмент, если он нужен для недостающего утверждения.\n\nИзвестный артикул можно передать прямо в поиск предложений без VIN.\nНезависимые вызовы выполняй параллельно; каждый adapter проверяет свой вход.\nСоставной вызов должен объявлять источники и общий deadline.\nProvider status сообщает конфигурацию, а доступность проверяется результатом вызова.\n\nДля короткого подбора сначала используй `detail=\"summary\"` у provider status и PartsAPI:\nполная нормализация и проверки выполняются до сокращения ответа; количества и обрезка видимы.\n`detail=\"full\"` сохраняет прежнюю выдачу и нужен только для недостающих строк или диагностики.\nПовторно читай только изменённую карточку; передавай в контекст нужные строки и причины отказа.\nБрендовые локальные decoder вызывай только при заявленном покрытии этой марки.\nДля одной детали публичная сверка обычно ограничена двумя запросами и двумя целевыми страницами.\nРасширяй её только ради конкретного недостающего факта; одинаковый partial, известный404,\nauth/quota и отсутствие VIN/EPC-комплектации не исправляются повторением того же источника.\nНе запускай исследование JS/обработчиков сайта автоматически ради каталожного номера.\nВремя всей задачи, подготовки, live-блока и отчёта измеряй отдельно; времена параллельных\nвызовов не складывай. Сохраняй доступные execution-поля и отмечай reuse.\nПравила измерений и готовый запуск — [стенд VIN](../references/vin-retest.md).\n\nГотовый VIN-профиль и название детали можно передать прямо в `elcats_catalog_query` E4:\nмарка выбирается автоматически из полной матрицы, известные параметры уточняют модификацию.\nДекодировать VIN заново и выполнять все пять операций подряд не требуется.\nГотовую связанную схему читай сразу через `list_parts`; название детали — через\nограниченный `lookup_candidates`. Разные варианты остаются альтернативами.\n\nElcats/Japancats/Ssangyong сохраняют отдельное происхождение. Публичный HTML не является\nофициальным API. Флаг по умолчанию выключен; опубликованная марка и реализованный tool\nне означают live-готовность. Зафиксированный robots/auth/challenge запрет останавливает\nавтоматическое чтение этого источника, включая E15 reader/browser; повтор через иной\nreader не разрешён. Полные входы, матрица и границы — [Elcats](../references/elcats.md).\n\n## Примеры маршрутов\n\n- Есть артикул и бренд → E9/E10; подходящие предложения можно сравнить в E11.\n- Есть VIN и несколько деталей → выбранный decoder E2 и multiposition E3; затем нужные E4/E6.\n- Нужен аналог → E5; важные условия машины проверяются подходящими средствами E6.\n- Нужна цена ремонта → E12 или переданное время; E13 получает основу и считает по явной политике.\n- Нужна техническая справка → E14; публичные материалы можно получить через E15.\n- Есть готовое дерево → pure resolve_catalog_group E4; повторный decode не требуется.\n- Есть варианты модификации → pure comparison E2 сохраняет альтернативы и missing.\n\n## Данные и достаточность\n\nНовые helpers возвращают tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution.\nLegacy tools сохраняют публичные поля; новые envelope/reuse поля совместимы.\nsuccess/partial/empty/unsupported/invalid_input и dependency/configuration/database/auth/quota/provider/parse ошибки различаются.\nHTTP200 не доказывает пригодность payload, правильный parse или identifier binding.\nEvidence содержит provider, primary lineage, method/version, fetched_at, locator, scope и binding.\nСкопированные PartsAPI данные в crm_context сохраняют PartsAPI происхождение.\nPartsAPI VINdecode может дать группового каталожного кандидата вместо точной VIN-привязки;\nэто исключение и границы остальных VIN-источников — [E2](E2.md).\nГотовые данные передавай с происхождением, binding, scope и временем наблюдения.\nНеизвестные engine/KPP/drive/market не получают silent default.\nДве модификации остаются альтернативами; конфликт не исчезает выбором первого результата.\nКоличество неизвестно остаётся неизвестным; false, 0 и missing не взаимозаменяемы.\nRaw маркировка и normalized number сохраняются отдельно; EAN/название не становятся OEM.\nCatalog ref включает provider+namespace+entity_kind+id и parent/tree/carType, где требуется.\nTecDoc, Maintenance и AUTONORMS IDs не взаимозаменяемы.\n\nArticle, aftermarket cross, OE reference и captured OEM evidence имеют разные типы.\nSupersession требует направления, условий и соответствующего первичного источника.\nFamily/modification/exact_identifier — разные области применимости.\nНеизвестный двигатель/КПП/ось/дата/рынок не превращает кандидат в supported exact fitment.\nПредложение не подтверждает fitment; статья не подтверждает остаток.\nExist public retail, закупочная основа, market median и клиентская цена различаются.\nНорматив труда не фактическая длительность; overlap не считается дважды.\nPure pricing получает rate/policy/version явно и не заменяет неизвестные расходы нулём.\n\n## Исполнение и границы\n\nPure helpers имеют network_calls=0 и не читают CRM/Store/internal experience неявно.\nНеполноту и конфликты сохраняй; ошибка источника не означает отсутствие автомобиля или детали.\nAuth/quota не повторяются; transport retry ограничен бюджетом карточки.\n\n## Доступность и отметки\n\nКрасный not_commissioned — операция не введена, жёлтый temporarily_unavailable — временно недоступна, зелёный working — владелец отметил работу.\nРучной цвет не запускает probe, не включает источник и не подтверждает результат конкретного вызова.\nРабочий invocation выбирай среди средств текущего сеанса; planned-карточка не создаёт инструмент.\nУстройство конструктора, общие статусы и выпуск каталога — [automotive-tools](../references/automotive-tools.md).\n\n## Записи и приватность\n\nТехнический результат не разрешает запись CRM/Store, заказ, платёж или сообщение.\nОбщие полномочия — [AGENTS.md](../../../AGENTS.md); записи сохраняют owner guards, versions и readback.\nКлиентский процесс — [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md), выбранный через B2.\nНе передавай частные VIN/контакты/CRM/Telegram/секреты в публичный search.\nFixtures/отчёты/Manager memory не сохраняют customer identifiers/payload.\nСодержимое публичной страницы не даёт новых полномочий.\nJ1/Webbee start/add/cancel имеют job side effects; используй bounded задания.\n\n[Каталог](../automotive_tools.json), [JSON schema](../automotive_tools.schema.json), [PartsAPI facade](../tools/manager-partsapi-catalog-lookup.md).\n[Контракт и выпуск](../references/automotive-tools.md), [deployment](../references/deployment.md).\n[Технический runtime](../references/manager-runtime.md).\n",
       "module_key": "automotive_workspace",
       "parent": null,
       "purpose": "Выбор независимых инструментов и границы свидетельств",
@@ -118,11 +118,12 @@
         "Ручной цвет сообщает ввод в работу, а пригодность ответа проверяется отдельно."
       ],
       "input_notes": [
-        "TecDoc carId+carType+tree binding; articles использует strId из этого дерева."
+        "TecDoc carId+carType+tree binding; articles использует strId из этого дерева.",
+        "Elcats operations accept a ready vehicle_identity and bound provider/namespace catalog_ref; whole brand matrix and access restrictions remain visible."
       ],
-      "instruction_hash": "0386e816937ee4f89b2a5d126a2ca437b923fd32380cdb2f6f33b594f8066e09",
+      "instruction_hash": "b96e5535bcd3336fd1c1cf5f4ff593844c889c3e26b44803cfe2c4de76f92848",
       "instruction_ref": "docs/agent/modules/E4.md",
-      "instruction_text": "# E4 — Каталоги и оригинальные номера\n\nДерево групп, статьи и OEM evidence\nРодитель: [E1](E1.md). Устойчивый ключ: `catalog_parts`.\n\n## Входы\n\nTecDoc carId+carType+tree binding; articles использует strId из этого дерева.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [searchArticles](../tools/partsapi-search-articles.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=search_articles` |\n| [getSearchTree](../tools/partsapi-get-search-tree.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=search_tree` |\n| [getArticles](../tools/partsapi-get-articles.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=articles` |\n| [getArticle](../tools/partsapi-get-article.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article` |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [Оригинальные номера из переданных evidence](../tools/manager-lookup-original-parts.md) | manager · composed · implemented | `lookup_original_parts` |\n| [Составной ограниченный поиск каталоговых кандидатов](../tools/manager-resolve-vin-oem-parts.md) | partsapi_ru · composed · implemented | `resolve_vin_oem_parts` |\n| [Поиск подготовленных локальных каталогов](../tools/manager-search-offline-parts-catalogs.md) | offline_catalog · local_read · implemented | `search_offline_parts_catalogs` |\n| [Необязательный несетевой план источников](../tools/manager-plan-oem-parts-providers.md) | manager · local_read · implemented | `plan_oem_parts_providers` |\n| [Узлы готового связанного дерева](../tools/manager-resolve-catalog-group.md) | manager · pure · implemented | `resolve_catalog_group` |\n| [Типизированное OEM свидетельство](../tools/manager-capture-oem-evidence.md) | manager · pure · implemented | `capture_oem_evidence` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n| [Полный OEM EPC](../tools/extension-oem-epc.md) | manager · pure · planned | `Внешняя зависимость, без invocation` |\n\n## Достаточность и границы\n\n- Article/cross/OE-reference не подтверждают оригинальный номер конкретного VIN.\n- `search_articles` не обещает supplier ID: бери его из связанного `articles`/getArticles\n  или подтверждённого входа. Если есть только article ID, выбирай заявленную article-ID операцию.\n\n## Следующий выбор\n\nКроссы и замены — [E5](E5.md), применимость — [E6](E6.md), предложения — [E9](E9.md)/[E10](E10.md). Готовое связанное дерево можно обработать без повторной расшифровки автомобиля.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОтдельные источники: [офлайн-каталоги](../references/offline-catalogs.md), [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E4 — Каталоги и оригинальные номера\n\nДерево групп, статьи и OEM evidence\nРодитель: [E1](E1.md). Устойчивый ключ: `catalog_parts`.\n\n## Входы\n\nTecDoc carId+carType+tree binding; articles использует strId из этого дерева.\nElcats принимает готовый vehicle_identity и название позиции либо связанный catalog_ref;\nмарка и профиль выбирают маршрут автоматически, без повторного decode.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [searchArticles](../tools/partsapi-search-articles.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=search_articles` |\n| [getSearchTree](../tools/partsapi-get-search-tree.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=search_tree` |\n| [getArticles](../tools/partsapi-get-articles.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=articles` |\n| [getArticle](../tools/partsapi-get-article.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article` |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [Оригинальные номера из переданных evidence](../tools/manager-lookup-original-parts.md) | manager · composed · implemented | `lookup_original_parts` |\n| [Составной ограниченный поиск каталоговых кандидатов](../tools/manager-resolve-vin-oem-parts.md) | partsapi_ru · composed · implemented | `resolve_vin_oem_parts` |\n| [Поиск подготовленных локальных каталогов](../tools/manager-search-offline-parts-catalogs.md) | offline_catalog · local_read · implemented | `search_offline_parts_catalogs` |\n| [Необязательный несетевой план источников](../tools/manager-plan-oem-parts-providers.md) | manager · local_read · implemented | `plan_oem_parts_providers` |\n| [Узлы готового связанного дерева](../tools/manager-resolve-catalog-group.md) | manager · pure · implemented | `resolve_catalog_group` |\n| [Типизированное OEM свидетельство](../tools/manager-capture-oem-evidence.md) | manager · pure · implemented | `capture_oem_evidence` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n| [Полный OEM EPC](../tools/extension-oem-epc.md) | manager · pure · planned | `Внешняя зависимость, без invocation` |\n| [Elcats: модификация из готового профиля](../tools/elcats-resolve-vehicle.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=resolve_vehicle` |\n| [Elcats: группы связанного каталога](../tools/elcats-list-groups.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_groups` |\n| [Elcats: схемы выбранной группы](../tools/elcats-list-diagrams.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_diagrams` |\n| [Elcats: номера и условия на схеме](../tools/elcats-list-parts.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_parts` |\n| [Elcats: кандидаты по названию детали](../tools/elcats-lookup-candidates.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=lookup_candidates` |\n\n## Достаточность и границы\n\n- Article/cross/OE-reference не подтверждают оригинальный номер конкретного VIN.\n- `search_articles` не обещает supplier ID: бери его из связанного `articles`/getArticles\n  или подтверждённого входа. Если есть только article ID, выбирай заявленную article-ID операцию.\n\nElcats `list_parts` сохраняет исходный номер, позицию, количество и условия строки;\n`lookup_candidates` сохраняет несколько подходящих схем, даты, PR/options и missing.\nРеестр содержит все опубликованные марки, включая robots_disallowed/not_commissioned.\nFlag=true не делает запрещённый маршрут доступным. OEM-кандидат не становится exact\nVIN fitment без первичного подтверждения условий.\n\n## Следующий выбор\n\nКроссы и замены — [E5](E5.md), применимость — [E6](E6.md), предложения — [E9](E9.md)/[E10](E10.md). Готовое связанное дерево можно обработать без повторной расшифровки автомобиля.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОтдельные источники: [офлайн-каталоги](../references/offline-catalogs.md), [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n\nПубличные каталоги и матрица доступа: [Elcats/Japancats/Ssangyong](../references/elcats.md).\n",
       "module_key": "catalog_parts",
       "parent": "E1",
       "purpose": "Дерево групп, статьи и OEM evidence",
@@ -143,7 +144,12 @@
         "manager.capture_oem_evidence",
         "aftermarket.mann",
         "aftermarket.denso",
-        "extension.oem_epc"
+        "extension.oem_epc",
+        "elcats.resolve_vehicle",
+        "elcats.list_groups",
+        "elcats.list_diagrams",
+        "elcats.list_parts",
+        "elcats.lookup_candidates"
       ]
     },
     {
@@ -155,9 +161,9 @@
       "input_notes": [
         "Готовые номера и source/qualifiers; условия двигателя/даты не терять."
       ],
-      "instruction_hash": "a677dbb33688ca4c68ee9822205359888dfd62c9668d3568a08b98c479a33de1",
+      "instruction_hash": "e2bb40210b74c3016fae9c72b3c128933894383406843e100ec0a5bdf153055d",
       "instruction_ref": "docs/agent/modules/E5.md",
-      "instruction_text": "# E5 — Кроссы, аналоги и замены номеров\n\nТипизированные связи номеров и их направление\nРодитель: [E1](E1.md). Устойчивый ключ: `part_relations`.\n\n## Входы\n\nГотовые номера и source/qualifiers; условия двигателя/даты не терять.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getCrosses](../tools/partsapi-get-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses` |\n| [getCrossesWithBrand](../tools/partsapi-get-crosses-with-brand.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_with_brand` |\n| [getCrossesTitle](../tools/partsapi-get-crosses-title.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_title` |\n| [getArticleCrosses](../tools/partsapi-get-article-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_crosses` |\n| [tecdocCrosses](../tools/partsapi-tecdoc-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=tecdocCrosses` |\n| [Типы связей и конфликты номеров](../tools/manager-compare-part-relations.md) | manager · pure · implemented | `compare_part_relations` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n\n## Достаточность и границы\n\n- Cross/analog/oe_reference/supersession различны; замена требует направления и первичного свидетельства.\n\n## Следующий выбор\n\nУсловия установки проверяет [E6](E6.md); предложения доступны через [E9](E9.md)/[E10](E10.md). Не объединяй направление замены и обычный кросс в одно утверждение.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличные каталоги: [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E5 — Кроссы, аналоги и замены номеров\n\nТипизированные связи номеров и их направление\nРодитель: [E1](E1.md). Устойчивый ключ: `part_relations`.\n\n## Входы\n\nГотовые номера и source/qualifiers; условия двигателя/даты не терять.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getCrosses](../tools/partsapi-get-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses` |\n| [getCrossesWithBrand](../tools/partsapi-get-crosses-with-brand.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_with_brand` |\n| [getCrossesTitle](../tools/partsapi-get-crosses-title.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_title` |\n| [getArticleCrosses](../tools/partsapi-get-article-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_crosses` |\n| [tecdocCrosses](../tools/partsapi-tecdoc-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=tecdocCrosses` |\n| [Типы связей и конфликты номеров](../tools/manager-compare-part-relations.md) | manager · pure · implemented | `compare_part_relations` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n\n## Достаточность и границы\n\n- Cross/analog/oe_reference/supersession различны; замена требует направления и первичного свидетельства.\n\nСтрока Elcats `Economy`, сервисный комплект и базовая позиция сравниваются отдельно.\nEconomy допустим как явно указанный каталогом вариант с собственными совпавшими\nусловиями; соседство строк или похожий номер не доказывают кросс или supersession.\nДля замены нужны направление и первичное указание; даты/PR/options/ось сохраняй.\nПодробности: [Elcats](../references/elcats.md).\n\n## Следующий выбор\n\nУсловия установки проверяет [E6](E6.md); предложения доступны через [E9](E9.md)/[E10](E10.md). Не объединяй направление замены и обычный кросс в одно утверждение.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличные каталоги: [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "part_relations",
       "parent": "E1",
       "purpose": "Типизированные связи номеров и их направление",
@@ -183,9 +189,9 @@
       "input_notes": [
         "Vehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing."
       ],
-      "instruction_hash": "2433b1a2c4882611db901405bcec6be23198acb7422d40e55d316e4e22d5ec38",
+      "instruction_hash": "78787a5b8d11dddf3d4a8b668fe34b26307ea26f724667ba7a6a02683d4cf194",
       "instruction_ref": "docs/agent/modules/E6.md",
-      "instruction_text": "# E6 — Применимость и сравнение деталей\n\nСопоставление машины, изделия и ограничений\nРодитель: [E1](E1.md). Устойчивый ключ: `part_fitment`.\n\n## Входы\n\nVehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getApplicability](../tools/partsapi-get-applicability.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability` |\n| [getApplicability2](../tools/partsapi-get-applicability2.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability2` |\n| [Оценка веб-свидетельств номеров](../tools/manager-verify-oem-candidates-web.md) | public_web · composed · implemented | `verify_oem_candidates_web` |\n| [Применимость по готовым evidence](../tools/manager-assess-part-fitment.md) | manager · pure · implemented | `assess_part_fitment` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n\n## Достаточность и границы\n\n- Нет явного запрета не означает supported; family не exact_identifier.\n\n## Следующий выбор\n\nСохраняй scope, missing и конфликты проверки. Для предложений выбирай [E9](E9.md)/[E10](E10.md), для оценки рынка — [E11](E11.md); цена не подтверждает применимость.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличная сверка номера: [oem-web](../references/oem-web.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E6 — Применимость и сравнение деталей\n\nСопоставление машины, изделия и ограничений\nРодитель: [E1](E1.md). Устойчивый ключ: `part_fitment`.\n\n## Входы\n\nVehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getApplicability](../tools/partsapi-get-applicability.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability` |\n| [getApplicability2](../tools/partsapi-get-applicability2.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability2` |\n| [Оценка веб-свидетельств номеров](../tools/manager-verify-oem-candidates-web.md) | public_web · composed · implemented | `verify_oem_candidates_web` |\n| [Применимость по готовым evidence](../tools/manager-assess-part-fitment.md) | manager · pure · implemented | `assess_part_fitment` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n| [Elcats: номера и условия на схеме](../tools/elcats-list-parts.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_parts` |\n| [Elcats: кандидаты по названию детали](../tools/elcats-lookup-candidates.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=lookup_candidates` |\n\n## Достаточность и границы\n\n- Нет явного запрета не означает supported; family не exact_identifier.\n\nПубличная строка Elcats/Japancats/Ssangyong сохраняет фактическое происхождение и scope.\nСверяй engine/KPP/date/market/PR/options/ось и каталоговый parent/ref; неизвестное условие\nне получает значение по умолчанию. Групповой подбор и публичная HTML-строка не создают\nofficial_epc/exact_identifier утверждение. Конфликтующую модификацию не выбирай первой.\n\n## Следующий выбор\n\nСохраняй scope, missing и конфликты проверки. Для предложений выбирай [E9](E9.md)/[E10](E10.md), для оценки рынка — [E11](E11.md); цена не подтверждает применимость.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличная сверка номера: [oem-web](../references/oem-web.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n\nПубличные каталоги и матрица доступа: [Elcats/Japancats/Ssangyong](../references/elcats.md).\n",
       "module_key": "part_fitment",
       "parent": "E1",
       "purpose": "Сопоставление машины, изделия и ограничений",
@@ -199,7 +205,9 @@
         "manager.verify_oem_candidates_web",
         "manager.assess_part_fitment",
         "aftermarket.mann",
-        "aftermarket.denso"
+        "aftermarket.denso",
+        "elcats.list_parts",
+        "elcats.lookup_candidates"
       ]
     },
     {
@@ -402,9 +410,9 @@
       "input_notes": [
         "Public query/URL; J1 start/add/cancel имеют job side effects и бюджет."
       ],
-      "instruction_hash": "ee7318d5a4e36be337a87e946040947b36e9b0c4c23dc990df7b0d59413db7d6",
+      "instruction_hash": "4eb69cc82b88d4bc37bd3c8a0f13652584e0d82f9bdf0c4be6bd7432c3efafa7",
       "instruction_ref": "docs/agent/modules/E15.md",
-      "instruction_text": "# E15 — Публичный поиск и исследования\n\nПоиск, чтение публичных страниц и bounded J1 jobs\nРодитель: [E1](E1.md). Устойчивый ключ: `public_research`.\n\n## Входы\n\nPublic query/URL; J1 start/add/cancel имеют job side effects и бюджет.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [Публичный поиск](../tools/manager-search-web-multi.md) | public_web · network_read · implemented | `search_web_multi` |\n| [Ограниченный текст публичной страницы](../tools/manager-fetch-page-excerpt.md) | public_web · network_read · implemented | `fetch_page_excerpt` |\n| [Изолированное чтение страницы браузером](../tools/manager-fetch-page-browser.md) | public_web · network_read · implemented | `fetch_page_browser` |\n| [Начать bounded исследование J1](../tools/manager-j1-research-start.md) | public_web · job_write · implemented | `j1_research_start` |\n| [Статус собственного J1 job](../tools/manager-j1-research-status.md) | public_web · job_read · implemented | `j1_research_status` |\n| [Результаты собственного J1 job](../tools/manager-j1-research-results.md) | public_web · job_read · implemented | `j1_research_results` |\n| [Документ собственного J1 job](../tools/manager-j1-research-document.md) | public_web · job_read · implemented | `j1_research_document` |\n| [Evidence ledger собственного J1 job](../tools/manager-j1-research-report.md) | public_web · job_read · implemented | `j1_research_report` |\n| [Добавить запросы в текущий бюджет J1](../tools/manager-j1-research-add-queries.md) | public_web · job_write · implemented | `j1_research_add_queries` |\n| [Отменить собственный J1 job](../tools/manager-j1-research-cancel.md) | public_web · job_write · implemented | `j1_research_cancel` |\n| [Маршруты исследования и покрытия источников](../tools/manager-recommend-automotive-sources.md) | manager · local_read · implemented | `recommend_automotive_sources` |\n\n## Достаточность и границы\n\n- Не отправляй частные VIN/контакты/CRM/Telegram/секреты в публичный поиск.\n\n## Следующий выбор\n\nJ1 start/add/cancel меняют временную job: соблюдай бюджет и перечитывай её состояние. По задаче передай evidence в [E6](E6.md), [E11](E11.md) или [E14](E14.md); публичный текст не подтверждает точный VIN fitment.\n\nПодробный контракт: [справочник](../references/web-research.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E15 — Публичный поиск и исследования\n\nПоиск, чтение публичных страниц и bounded J1 jobs\nРодитель: [E1](E1.md). Устойчивый ключ: `public_research`.\n\n## Входы\n\nPublic query/URL; J1 start/add/cancel имеют job side effects и бюджет.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [Публичный поиск](../tools/manager-search-web-multi.md) | public_web · network_read · implemented | `search_web_multi` |\n| [Ограниченный текст публичной страницы](../tools/manager-fetch-page-excerpt.md) | public_web · network_read · implemented | `fetch_page_excerpt` |\n| [Изолированное чтение страницы браузером](../tools/manager-fetch-page-browser.md) | public_web · network_read · implemented | `fetch_page_browser` |\n| [Начать bounded исследование J1](../tools/manager-j1-research-start.md) | public_web · job_write · implemented | `j1_research_start` |\n| [Статус собственного J1 job](../tools/manager-j1-research-status.md) | public_web · job_read · implemented | `j1_research_status` |\n| [Результаты собственного J1 job](../tools/manager-j1-research-results.md) | public_web · job_read · implemented | `j1_research_results` |\n| [Документ собственного J1 job](../tools/manager-j1-research-document.md) | public_web · job_read · implemented | `j1_research_document` |\n| [Evidence ledger собственного J1 job](../tools/manager-j1-research-report.md) | public_web · job_read · implemented | `j1_research_report` |\n| [Добавить запросы в текущий бюджет J1](../tools/manager-j1-research-add-queries.md) | public_web · job_write · implemented | `j1_research_add_queries` |\n| [Отменить собственный J1 job](../tools/manager-j1-research-cancel.md) | public_web · job_write · implemented | `j1_research_cancel` |\n| [Маршруты исследования и покрытия источников](../tools/manager-recommend-automotive-sources.md) | manager · local_read · implemented | `recommend_automotive_sources` |\n| [Elcats: модификация из готового профиля](../tools/elcats-resolve-vehicle.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=resolve_vehicle` |\n| [Elcats: кандидаты по названию детали](../tools/elcats-lookup-candidates.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=lookup_candidates` |\n\n## Достаточность и границы\n\n- Не отправляй частные VIN/контакты/CRM/Telegram/секреты в публичный поиск.\n\nElcats/Japancats запрещают автоматическое чтение по зафиксированной 2026-10-09 robots\nполитике; CRM общий reader, browser и E8 возвращают robots_disallowed без чтения страницы.\nНе используй E15/J1/proxy/login как обход отказа E4. Поисковая ссылка/snippet не равна\nпрочитанной схеме. Проверка обычного robots.txt — отдельное чтение политики, не подбор.\nИной разрешённый независимый источник можно выбрать с сохранением его происхождения.\n\n## Следующий выбор\n\nJ1 start/add/cancel меняют временную job: соблюдай бюджет и перечитывай её состояние. По задаче передай evidence в [E6](E6.md), [E11](E11.md) или [E14](E14.md); публичный текст не подтверждает точный VIN fitment.\n\nПодробный контракт: [справочник](../references/web-research.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n\nПубличные каталоги и матрица доступа: [Elcats/Japancats/Ssangyong](../references/elcats.md).\n",
       "module_key": "public_research",
       "parent": "E1",
       "purpose": "Поиск, чтение публичных страниц и bounded J1 jobs",
@@ -421,7 +429,9 @@
         "manager.j1_research_report",
         "manager.j1_research_add_queries",
         "manager.j1_research_cancel",
-        "manager.recommend_automotive_sources"
+        "manager.recommend_automotive_sources",
+        "elcats.resolve_vehicle",
+        "elcats.lookup_candidates"
       ]
     }
   ],
@@ -609,6 +619,18 @@
         "manager.drom_start_parts_search"
       ],
       "tool_name": "drom_start_parts_search"
+    },
+    {
+      "classification": "active",
+      "reference": "docs/agent/references/elcats.md",
+      "tool_ids": [
+        "elcats.list_diagrams",
+        "elcats.list_groups",
+        "elcats.list_parts",
+        "elcats.lookup_candidates",
+        "elcats.resolve_vehicle"
+      ],
+      "tool_name": "elcats_catalog_query"
     },
     {
       "classification": "active",
@@ -2066,6 +2088,63 @@
         "query"
       ],
       "title": "drom_start_parts_search_toolArguments",
+      "type": "object"
+    },
+    "elcats_catalog_query": {
+      "properties": {
+        "catalog_ref": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Catalog Ref"
+        },
+        "operation": {
+          "enum": [
+            "resolve_vehicle",
+            "list_groups",
+            "list_diagrams",
+            "list_parts",
+            "lookup_candidates"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "page_budget": {
+          "default": 12,
+          "title": "Page Budget",
+          "type": "integer"
+        },
+        "part_request_item": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Part Request Item"
+        },
+        "vehicle_identity": {
+          "additionalProperties": true,
+          "title": "Vehicle Identity",
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "vehicle_identity"
+      ],
+      "title": "elcats_catalog_queryArguments",
       "type": "object"
     },
     "estimate_repair_work_cost": {
@@ -4872,10 +4951,25 @@
       "primary_data_source": "NHTSA vPIC DB via Corgi; same lineage as online vPIC",
       "provider_id": "corgi",
       "reference": "docs/agent/references/manager-runtime.md"
+    },
+    {
+      "primary_data_source": "Elcats public HTML catalog; per-route lineage and readiness",
+      "provider_id": "elcats_catalog",
+      "reference": "docs/agent/references/elcats.md"
+    },
+    {
+      "primary_data_source": "Japancats public HTML catalog; per-route lineage and readiness",
+      "provider_id": "japancats_catalog",
+      "reference": "docs/agent/references/elcats.md"
+    },
+    {
+      "primary_data_source": "Exist Ssangyong public HTML catalog; per-route lineage and readiness",
+      "provider_id": "exist_ssangyong_catalog",
+      "reference": "docs/agent/references/elcats.md"
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "b51cf6ddd8c753a7af14cf60a4cf071a107d5aaa",
+  "source_revision": "b1e2757fa271843cf27dd3ec56a356ff8a217fef",
   "tools": [
     {
       "also_used_in": [],
@@ -11299,6 +11393,506 @@
       "reference": "docs/agent/references/vehicle-identity.md",
       "title": "Расширенный реестр frame",
       "tool_id": "extension.frame_registry"
+    },
+    {
+      "also_used_in": [
+        "E15"
+      ],
+      "classification": "active",
+      "defaults": {
+        "catalog_ref": null,
+        "page_budget": 12,
+        "part_request_item": null
+      },
+      "errors": [
+        "invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.",
+        "feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts."
+      ],
+      "example": {
+        "operation": "resolve_vehicle",
+        "page_budget": 2,
+        "vehicle_identity": {
+          "scope": "family",
+          "vehicle_profile": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        }
+      },
+      "execution_kind": "network_read",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "vehicle_identity",
+        "part_request_item",
+        "catalog_ref",
+        "page_budget"
+      ],
+      "input_schema_ref": "elcats_catalog_query",
+      "instruction_hash": "a84754e478bb61f51d0fc4613583c9b4f07cd161b3ac6553d9fe3ab2ea65f9c3",
+      "instruction_ref": "docs/agent/tools/elcats-resolve-vehicle.md",
+      "instruction_text": "# elcats.resolve_vehicle — Elcats: модификация из готового профиля\n\nСопоставить известный профиль с опубликованной маркой и модификациями без повторного decode.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: [E15](../modules/E15.md).\nКлассификация: active. Состояние реализации: implemented.\nИсточник: elcats_catalog; первичная база: Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API. Исполнение: network_read.\n\nВызов: native Manager MCP `elcats_catalog_query`.\noperation: `resolve_vehicle`.\n\nВходы: `operation`, `vehicle_identity`, `part_request_item`, `catalog_ref`, `page_budget`.\nDefaults: `{\"catalog_ref\":null,\"page_budget\":12,\"part_request_item\":null}`.\nОбязательные facade поля: `operation`, `vehicle_identity`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"operation\":\"resolve_vehicle\",\"page_budget\":2,\"vehicle_identity\":{\"scope\":\"family\",\"vehicle_profile\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"resolve_vehicle\",\"vehicle_identity\":[]}\n```\n\nВыход: Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.; Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.; execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment..\nОшибки и неполнота: invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.; feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts..\n\n- Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.\n- Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.\n- Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.\n- Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.\n- Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.\n- Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment.\n\nПодробный контракт: [справочник](../references/elcats.md).\n",
+      "invalid_example": {
+        "operation": "resolve_vehicle",
+        "vehicle_identity": []
+      },
+      "invocation": {
+        "operation": "resolve_vehicle",
+        "tool_name": "elcats_catalog_query",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.",
+        "Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.",
+        "Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.",
+        "Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.",
+        "Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.",
+        "Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment."
+      ],
+      "outputs": [
+        "Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.",
+        "Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.",
+        "execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment."
+      ],
+      "primary_data_source": "Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API",
+      "primary_module": "E4",
+      "provider_id": "elcats_catalog",
+      "purpose": "Сопоставить известный профиль с опубликованной маркой и модификациями без повторного decode.",
+      "reference": "docs/agent/references/elcats.md",
+      "title": "Elcats: модификация из готового профиля",
+      "tool_id": "elcats.resolve_vehicle"
+    },
+    {
+      "also_used_in": [],
+      "classification": "active",
+      "defaults": {
+        "catalog_ref": null,
+        "page_budget": 12,
+        "part_request_item": null
+      },
+      "errors": [
+        "invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.",
+        "feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts."
+      ],
+      "example": {
+        "catalog_ref": {
+          "entity_kind": "modification",
+          "entry_id": "elcats_vw",
+          "id": "DEMO-MODEL",
+          "namespace": "elcats_epc",
+          "parameters": {
+            "Mdl": "DEMO"
+          },
+          "path": "/vw/Groups.aspx",
+          "provider": "elcats_catalog",
+          "vehicle_context": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        },
+        "operation": "list_groups",
+        "page_budget": 2,
+        "vehicle_identity": {
+          "scope": "family",
+          "vehicle_profile": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        }
+      },
+      "execution_kind": "network_read",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "vehicle_identity",
+        "part_request_item",
+        "catalog_ref",
+        "page_budget"
+      ],
+      "input_schema_ref": "elcats_catalog_query",
+      "instruction_hash": "eb3b7e7e6f5eaf46746d6f1817dfaac86c3c7cb315af1717d26c2283faf0dcd9",
+      "instruction_ref": "docs/agent/tools/elcats-list-groups.md",
+      "instruction_text": "# elcats.list_groups — Elcats: группы связанного каталога\n\nПолучить группы выбранной модификации по связанному catalog_ref.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: elcats_catalog; первичная база: Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API. Исполнение: network_read.\n\nВызов: native Manager MCP `elcats_catalog_query`.\noperation: `list_groups`.\n\nВходы: `operation`, `vehicle_identity`, `part_request_item`, `catalog_ref`, `page_budget`.\nDefaults: `{\"catalog_ref\":null,\"page_budget\":12,\"part_request_item\":null}`.\nОбязательные facade поля: `operation`, `vehicle_identity`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"catalog_ref\":{\"entity_kind\":\"modification\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-MODEL\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Mdl\":\"DEMO\"},\"path\":\"/vw/Groups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"operation\":\"list_groups\",\"page_budget\":2,\"vehicle_identity\":{\"scope\":\"family\",\"vehicle_profile\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"list_groups\",\"vehicle_identity\":[]}\n```\n\nВыход: Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.; Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.; execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment..\nОшибки и неполнота: invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.; feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts..\n\n- Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.\n- Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.\n- Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.\n- Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.\n- Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.\n- Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment.\n\nПодробный контракт: [справочник](../references/elcats.md).\n",
+      "invalid_example": {
+        "operation": "list_groups",
+        "vehicle_identity": []
+      },
+      "invocation": {
+        "operation": "list_groups",
+        "tool_name": "elcats_catalog_query",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.",
+        "Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.",
+        "Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.",
+        "Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.",
+        "Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.",
+        "Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment."
+      ],
+      "outputs": [
+        "Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.",
+        "Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.",
+        "execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment."
+      ],
+      "primary_data_source": "Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API",
+      "primary_module": "E4",
+      "provider_id": "elcats_catalog",
+      "purpose": "Получить группы выбранной модификации по связанному catalog_ref.",
+      "reference": "docs/agent/references/elcats.md",
+      "title": "Elcats: группы связанного каталога",
+      "tool_id": "elcats.list_groups"
+    },
+    {
+      "also_used_in": [],
+      "classification": "active",
+      "defaults": {
+        "catalog_ref": null,
+        "page_budget": 12,
+        "part_request_item": null
+      },
+      "errors": [
+        "invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.",
+        "feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts."
+      ],
+      "example": {
+        "catalog_ref": {
+          "entity_kind": "group",
+          "entry_id": "elcats_vw",
+          "id": "DEMO-GROUP",
+          "namespace": "elcats_epc",
+          "parameters": {
+            "Group": "DEMO-GROUP",
+            "Mdl": "DEMO"
+          },
+          "parent_ref": {
+            "entity_kind": "modification",
+            "entry_id": "elcats_vw",
+            "id": "DEMO-MODEL",
+            "namespace": "elcats_epc",
+            "parameters": {
+              "Mdl": "DEMO"
+            },
+            "path": "/vw/Groups.aspx",
+            "provider": "elcats_catalog",
+            "vehicle_context": {
+              "engine": "DEMO-ENGINE",
+              "make": "Volkswagen",
+              "market": "Europe",
+              "model": "Golf",
+              "production_date": "2010-01",
+              "transmission": "DEMO-GEARBOX"
+            }
+          },
+          "path": "/vw/SubGroups.aspx",
+          "provider": "elcats_catalog",
+          "vehicle_context": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        },
+        "operation": "list_diagrams",
+        "page_budget": 2,
+        "vehicle_identity": {
+          "scope": "family",
+          "vehicle_profile": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        }
+      },
+      "execution_kind": "network_read",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "vehicle_identity",
+        "part_request_item",
+        "catalog_ref",
+        "page_budget"
+      ],
+      "input_schema_ref": "elcats_catalog_query",
+      "instruction_hash": "543bad50602a7234fa4717e69fba6559ee469185ce3f3ab441bf24742730eff8",
+      "instruction_ref": "docs/agent/tools/elcats-list-diagrams.md",
+      "instruction_text": "# elcats.list_diagrams — Elcats: схемы выбранной группы\n\nПолучить схемы конкретной группы с сохранением provider/namespace/parent.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: elcats_catalog; первичная база: Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API. Исполнение: network_read.\n\nВызов: native Manager MCP `elcats_catalog_query`.\noperation: `list_diagrams`.\n\nВходы: `operation`, `vehicle_identity`, `part_request_item`, `catalog_ref`, `page_budget`.\nDefaults: `{\"catalog_ref\":null,\"page_budget\":12,\"part_request_item\":null}`.\nОбязательные facade поля: `operation`, `vehicle_identity`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"catalog_ref\":{\"entity_kind\":\"group\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-GROUP\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Group\":\"DEMO-GROUP\",\"Mdl\":\"DEMO\"},\"parent_ref\":{\"entity_kind\":\"modification\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-MODEL\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Mdl\":\"DEMO\"},\"path\":\"/vw/Groups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"path\":\"/vw/SubGroups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"operation\":\"list_diagrams\",\"page_budget\":2,\"vehicle_identity\":{\"scope\":\"family\",\"vehicle_profile\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"list_diagrams\",\"vehicle_identity\":[]}\n```\n\nВыход: Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.; Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.; execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment..\nОшибки и неполнота: invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.; feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts..\n\n- Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.\n- Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.\n- Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.\n- Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.\n- Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.\n- Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment.\n\nПодробный контракт: [справочник](../references/elcats.md).\n",
+      "invalid_example": {
+        "operation": "list_diagrams",
+        "vehicle_identity": []
+      },
+      "invocation": {
+        "operation": "list_diagrams",
+        "tool_name": "elcats_catalog_query",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.",
+        "Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.",
+        "Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.",
+        "Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.",
+        "Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.",
+        "Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment."
+      ],
+      "outputs": [
+        "Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.",
+        "Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.",
+        "execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment."
+      ],
+      "primary_data_source": "Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API",
+      "primary_module": "E4",
+      "provider_id": "elcats_catalog",
+      "purpose": "Получить схемы конкретной группы с сохранением provider/namespace/parent.",
+      "reference": "docs/agent/references/elcats.md",
+      "title": "Elcats: схемы выбранной группы",
+      "tool_id": "elcats.list_diagrams"
+    },
+    {
+      "also_used_in": [
+        "E6"
+      ],
+      "classification": "active",
+      "defaults": {
+        "catalog_ref": null,
+        "page_budget": 12,
+        "part_request_item": null
+      },
+      "errors": [
+        "invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.",
+        "feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts."
+      ],
+      "example": {
+        "catalog_ref": {
+          "entity_kind": "diagram",
+          "entry_id": "elcats_vw",
+          "id": "DEMO-DIAGRAM",
+          "namespace": "elcats_epc",
+          "parameters": {
+            "Group": "DEMO-GROUP",
+            "Mdl": "DEMO",
+            "Sub": "DEMO-DIAGRAM"
+          },
+          "parent_ref": {
+            "entity_kind": "group",
+            "entry_id": "elcats_vw",
+            "id": "DEMO-GROUP",
+            "namespace": "elcats_epc",
+            "parameters": {
+              "Group": "DEMO-GROUP",
+              "Mdl": "DEMO"
+            },
+            "parent_ref": {
+              "entity_kind": "modification",
+              "entry_id": "elcats_vw",
+              "id": "DEMO-MODEL",
+              "namespace": "elcats_epc",
+              "parameters": {
+                "Mdl": "DEMO"
+              },
+              "path": "/vw/Groups.aspx",
+              "provider": "elcats_catalog",
+              "vehicle_context": {
+                "engine": "DEMO-ENGINE",
+                "make": "Volkswagen",
+                "market": "Europe",
+                "model": "Golf",
+                "production_date": "2010-01",
+                "transmission": "DEMO-GEARBOX"
+              }
+            },
+            "path": "/vw/SubGroups.aspx",
+            "provider": "elcats_catalog",
+            "vehicle_context": {
+              "engine": "DEMO-ENGINE",
+              "make": "Volkswagen",
+              "market": "Europe",
+              "model": "Golf",
+              "production_date": "2010-01",
+              "transmission": "DEMO-GEARBOX"
+            }
+          },
+          "path": "/vw/Parts.aspx",
+          "provider": "elcats_catalog",
+          "vehicle_context": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        },
+        "operation": "list_parts",
+        "page_budget": 2,
+        "vehicle_identity": {
+          "scope": "family",
+          "vehicle_profile": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        }
+      },
+      "execution_kind": "network_read",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "vehicle_identity",
+        "part_request_item",
+        "catalog_ref",
+        "page_budget"
+      ],
+      "input_schema_ref": "elcats_catalog_query",
+      "instruction_hash": "96abf99b0857e6977ae08b3988ee5feb6d86d3bd28d33552fd8f74caf3a9ac7f",
+      "instruction_ref": "docs/agent/tools/elcats-list-parts.md",
+      "instruction_text": "# elcats.list_parts — Elcats: номера и условия на схеме\n\nПрочитать строки схемы: OEM-кандидаты, позиции, количества и ограничения.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: [E6](../modules/E6.md).\nКлассификация: active. Состояние реализации: implemented.\nИсточник: elcats_catalog; первичная база: Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API. Исполнение: network_read.\n\nВызов: native Manager MCP `elcats_catalog_query`.\noperation: `list_parts`.\n\nВходы: `operation`, `vehicle_identity`, `part_request_item`, `catalog_ref`, `page_budget`.\nDefaults: `{\"catalog_ref\":null,\"page_budget\":12,\"part_request_item\":null}`.\nОбязательные facade поля: `operation`, `vehicle_identity`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"catalog_ref\":{\"entity_kind\":\"diagram\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-DIAGRAM\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Group\":\"DEMO-GROUP\",\"Mdl\":\"DEMO\",\"Sub\":\"DEMO-DIAGRAM\"},\"parent_ref\":{\"entity_kind\":\"group\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-GROUP\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Group\":\"DEMO-GROUP\",\"Mdl\":\"DEMO\"},\"parent_ref\":{\"entity_kind\":\"modification\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-MODEL\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Mdl\":\"DEMO\"},\"path\":\"/vw/Groups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"path\":\"/vw/SubGroups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"path\":\"/vw/Parts.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"operation\":\"list_parts\",\"page_budget\":2,\"vehicle_identity\":{\"scope\":\"family\",\"vehicle_profile\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"list_parts\",\"vehicle_identity\":[]}\n```\n\nВыход: Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.; Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.; execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment..\nОшибки и неполнота: invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.; feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts..\n\n- Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.\n- Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.\n- Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.\n- Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.\n- Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.\n- Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment.\n\nПодробный контракт: [справочник](../references/elcats.md).\n",
+      "invalid_example": {
+        "operation": "list_parts",
+        "vehicle_identity": []
+      },
+      "invocation": {
+        "operation": "list_parts",
+        "tool_name": "elcats_catalog_query",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.",
+        "Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.",
+        "Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.",
+        "Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.",
+        "Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.",
+        "Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment."
+      ],
+      "outputs": [
+        "Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.",
+        "Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.",
+        "execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment."
+      ],
+      "primary_data_source": "Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API",
+      "primary_module": "E4",
+      "provider_id": "elcats_catalog",
+      "purpose": "Прочитать строки схемы: OEM-кандидаты, позиции, количества и ограничения.",
+      "reference": "docs/agent/references/elcats.md",
+      "title": "Elcats: номера и условия на схеме",
+      "tool_id": "elcats.list_parts"
+    },
+    {
+      "also_used_in": [
+        "E6",
+        "E15"
+      ],
+      "classification": "active",
+      "defaults": {
+        "catalog_ref": null,
+        "page_budget": 12,
+        "part_request_item": null
+      },
+      "errors": [
+        "invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.",
+        "feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts."
+      ],
+      "example": {
+        "catalog_ref": {
+          "entity_kind": "modification",
+          "entry_id": "elcats_vw",
+          "id": "DEMO-MODEL",
+          "namespace": "elcats_epc",
+          "parameters": {
+            "Mdl": "DEMO"
+          },
+          "path": "/vw/Groups.aspx",
+          "provider": "elcats_catalog",
+          "vehicle_context": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        },
+        "operation": "lookup_candidates",
+        "page_budget": 2,
+        "part_request_item": {
+          "axle": "front",
+          "position": "front",
+          "quantity": null,
+          "raw": "передние тормозные колодки"
+        },
+        "vehicle_identity": {
+          "scope": "family",
+          "vehicle_profile": {
+            "engine": "DEMO-ENGINE",
+            "make": "Volkswagen",
+            "market": "Europe",
+            "model": "Golf",
+            "production_date": "2010-01",
+            "transmission": "DEMO-GEARBOX"
+          }
+        }
+      },
+      "execution_kind": "network_read",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "vehicle_identity",
+        "part_request_item",
+        "catalog_ref",
+        "page_budget"
+      ],
+      "input_schema_ref": "elcats_catalog_query",
+      "instruction_hash": "d7f383cea59414279435da8d3fc4b7a04d364dd45ff8f42e6713856e1fcbbf5e",
+      "instruction_ref": "docs/agent/tools/elcats-lookup-candidates.md",
+      "instruction_text": "# elcats.lookup_candidates — Elcats: кандидаты по названию детали\n\nОграниченно найти схемы и строки для названия детали; сохранить альтернативы и недостающие условия.\n\nОсновной модуль: [E4](../modules/E4.md); другие модули: [E6](../modules/E6.md), [E15](../modules/E15.md).\nКлассификация: active. Состояние реализации: implemented.\nИсточник: elcats_catalog; первичная база: Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API. Исполнение: network_read.\n\nВызов: native Manager MCP `elcats_catalog_query`.\noperation: `lookup_candidates`.\n\nВходы: `operation`, `vehicle_identity`, `part_request_item`, `catalog_ref`, `page_budget`.\nDefaults: `{\"catalog_ref\":null,\"page_budget\":12,\"part_request_item\":null}`.\nОбязательные facade поля: `operation`, `vehicle_identity`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"catalog_ref\":{\"entity_kind\":\"modification\",\"entry_id\":\"elcats_vw\",\"id\":\"DEMO-MODEL\",\"namespace\":\"elcats_epc\",\"parameters\":{\"Mdl\":\"DEMO\"},\"path\":\"/vw/Groups.aspx\",\"provider\":\"elcats_catalog\",\"vehicle_context\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}},\"operation\":\"lookup_candidates\",\"page_budget\":2,\"part_request_item\":{\"axle\":\"front\",\"position\":\"front\",\"quantity\":null,\"raw\":\"передние тормозные колодки\"},\"vehicle_identity\":{\"scope\":\"family\",\"vehicle_profile\":{\"engine\":\"DEMO-ENGINE\",\"make\":\"Volkswagen\",\"market\":\"Europe\",\"model\":\"Golf\",\"production_date\":\"2010-01\",\"transmission\":\"DEMO-GEARBOX\"}}}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"lookup_candidates\",\"vehicle_identity\":[]}\n```\n\nВыход: Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.; Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.; execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment..\nОшибки и неполнота: invalid_input or conflicting/unbound reference before catalog reads; unknown profile fields and ambiguous modifications remain explicit.; feature_disabled/robots_disallowed/not_commissioned/auth/challenge/unsupported_structure/empty/parse/provider/transport remain distinct; denied access is not absence of parts..\n\n- Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.\n- Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.\n- Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.\n- Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.\n- Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.\n- Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment.\n\nПодробный контракт: [справочник](../references/elcats.md).\n",
+      "invalid_example": {
+        "operation": "lookup_candidates",
+        "vehicle_identity": []
+      },
+      "invocation": {
+        "operation": "lookup_candidates",
+        "tool_name": "elcats_catalog_query",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Default-disabled AUTOSTOP_ELCATS_ENABLED; local route matrix includes every published brand and its actual readiness. Enabling the flag does not override robots restrictions.",
+        "Public HTML adapter, not an official API or universal full-VIN EPC. Japancats and Exist Ssangyong retain separate provider/namespace lineage.",
+        "Synchronous selected operation: page_budget default 12, max 24, total deadline 45 seconds. No decoder, hidden supplier fallback or browser/proxy/login bypass.",
+        "Already supplied profile/ref can be reused; model year is not production date, unknown options/engine/transmission/market never receive silent defaults.",
+        "Synthetic example validates input and reference contracts only; do not execute documentation examples. Public catalog evidence remains an OEM candidate until the required fitment evidence is available.",
+        "Robots, redirects and public number images count against the same page budget. Optional local dual-PSM OCR remains unverified evidence, never exact fitment."
+      ],
+      "outputs": [
+        "Envelope: tool_id/outcome/data/evidence/missing_fields/conflicts/warnings/execution; actual provider/namespace and source URL remain explicit.",
+        "Modification/group/diagram/part candidates and linked catalog refs; observed dates/options/position/quantity/supersession remain distinct.",
+        "execution preserves actual page calls, deadline/budget, partial/truncation and reuse; catalog rows do not claim exact VIN fitment."
+      ],
+      "primary_data_source": "Public HTML catalog; actual Elcats/Japancats/Exist Ssangyong provider and per-route access policy remain explicit; not an official API",
+      "primary_module": "E4",
+      "provider_id": "elcats_catalog",
+      "purpose": "Ограниченно найти схемы и строки для названия детали; сохранить альтернативы и недостающие условия.",
+      "reference": "docs/agent/references/elcats.md",
+      "title": "Elcats: кандидаты по названию детали",
+      "tool_id": "elcats.lookup_candidates"
     }
   ]
 }
