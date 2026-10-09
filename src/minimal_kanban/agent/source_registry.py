@@ -210,7 +210,7 @@ def public_catalog_page_read_policy(url: str) -> dict[str, str] | None:
     """
     try:
         parsed = urlparse(url)
-        hostname = str(parsed.hostname or "").casefold().rstrip(".")
+        hostname = str(parsed.hostname or "").strip().casefold().rstrip(".")
     except ValueError:
         return None
     if parsed.path == "/robots.txt" and not parsed.params and not parsed.query:
