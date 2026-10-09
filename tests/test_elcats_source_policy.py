@@ -23,11 +23,26 @@ from minimal_kanban.agent.web_tools import (  # noqa: E402
     _PublicBrowserRequestGuard,
 )
 
+BLOCKED_CATALOG_URLS = (
+    "https://www.elcats.ru/vw/parts.aspx?id=DEMO",
+    "https://japancats.ru/toyota/parts.aspx?id=DEMO",
+    "https://WWW.ELCATS.RU./vw/",
+    "https:// elcats.ru/vw/parts.aspx?id=DEMO",
+    "https://www.elcats.ru /vw/parts.aspx?id=DEMO",
+    "https:// WWW.ELCATS.RU. /vw/parts.aspx?id=DEMO",
+    "https:// japancats.ru/toyota/parts.aspx?id=DEMO",
+    "https:// JAPANCATS.RU. /toyota/parts.aspx?id=DEMO",
+)
+
 
 class ElcatsSourcePolicyTests(unittest.TestCase):
     def test_redirect_failure_remains_denied_evidence_without_target_dns_or_http(self) -> None:
+        for target_url in BLOCKED_CATALOG_URLS:
+            with self.subTest(target_url=target_url):
+                self._assert_redirect_denied(target_url)
+
+    def _assert_redirect_denied(self, target_url: str) -> None:
         original_url = "https://partsouq.com/redirect/DEMO"
-        target_url = "https://www.elcats.ru/vw/Parts.aspx?id=DEMO"
         requests = []
 
         class RedirectClient:
@@ -162,17 +177,12 @@ class ElcatsSourcePolicyTests(unittest.TestCase):
 
     def test_static_and_browser_deny_known_catalog_pages_before_dns_or_network(self) -> None:
         client = DuckDuckGoSearchClient()
-        urls = (
-            "https://www.elcats.ru/vw/parts.aspx?id=DEMO",
-            "https://japancats.ru/toyota/parts.aspx?id=DEMO",
-            "https://WWW.ELCATS.RU./vw/",
-        )
         with (
             patch("minimal_kanban.agent.web_tools.socket.getaddrinfo") as dns,
             patch("minimal_kanban.agent.web_tools.httpx.Client") as http,
             patch("minimal_kanban.agent.web_tools._load_sync_playwright") as browser,
         ):
-            for url in urls:
+            for url in BLOCKED_CATALOG_URLS:
                 for method in (client.fetch_page_excerpt, client.fetch_page_browser):
                     with self.subTest(url=url, method=method.__name__):
                         with self.assertRaises(InternetToolError) as raised:
@@ -188,17 +198,18 @@ class ElcatsSourcePolicyTests(unittest.TestCase):
     ) -> None:
         client = DuckDuckGoSearchClient()
         transport = Mock()
-        url = "https://elcats.ru/vw/parts.aspx?id=DEMO"
         with patch.object(client, "_resolve_public_host") as dns:
-            with self.assertRaises(InternetToolError) as raised:
-                with client._stream_public_request(transport, "GET", url):
-                    self.fail("blocked stream opened")
-            self.assertEqual(raised.exception.code, "robots_disallowed")
-            route = Mock()
-            request = Mock(url=url, method="GET", resource_type="document")
-            _PublicBrowserRequestGuard(client)(route, request)
-            route.abort.assert_called_once()
-            route.continue_.assert_not_called()
+            for url in BLOCKED_CATALOG_URLS:
+                with self.subTest(url=url):
+                    with self.assertRaises(InternetToolError) as raised:
+                        with client._stream_public_request(transport, "GET", url):
+                            self.fail("blocked stream opened")
+                    self.assertEqual(raised.exception.code, "robots_disallowed")
+                    route = Mock()
+                    request = Mock(url=url, method="GET", resource_type="document")
+                    _PublicBrowserRequestGuard(client)(route, request)
+                    route.abort.assert_called_once()
+                    route.continue_.assert_not_called()
             dns.assert_not_called()
         transport.stream.assert_not_called()
 
