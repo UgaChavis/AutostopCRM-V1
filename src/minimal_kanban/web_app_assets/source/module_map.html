@@ -23,6 +23,7 @@
     #map { display:block; width:100%; height:100%; touch-action:none; user-select:none; cursor:grab; }
     #map.is-panning { cursor:grabbing; }
     #map [data-id] { cursor:pointer; outline:none; }
+    .edge-caption { cursor:pointer; }
     .card { fill:#1e2c39; stroke:var(--color); stroke-width:1.45; filter:drop-shadow(0 3px 7px rgba(1,9,16,.23)); }
     .node[data-id="A2"]>.card { fill:#203140; }
     .node[data-id="G1"]>.card { fill:#1c3435; filter:drop-shadow(0 0 9px rgba(86,217,163,.18)); }
@@ -40,9 +41,9 @@
     .edge:hover .wire,.edge:focus-visible .wire,.edge.is-selected .wire { stroke:#eef6ff; stroke-width:3; }
     .edge.is-related .wire { stroke-width:2.8; }
     .edge-label { fill:#1b2b39; stroke:#557087; stroke-width:1; }
-    .edge text { fill:#dce7ee; font-family:"Segoe UI",Arial,sans-serif; }
+    .edge text,.edge-caption text { fill:#dce7ee; font-family:"Segoe UI",Arial,sans-serif; }
     .connection-port { fill:var(--color); stroke:#172631; stroke-width:1.2; pointer-events:none; }
-    .edge.is-selected .edge-label,.edge:focus-visible .edge-label { stroke:#eef6ff; stroke-width:2; }
+    .edge-caption.is-selected .edge-label,.edge-caption:hover .edge-label { stroke:#eef6ff; stroke-width:2; }
     .detail-layer { position:absolute; inset:0; z-index:5; display:grid; place-items:center; padding:24px; }
     .detail-backdrop { position:absolute; inset:0; background:rgba(10,15,21,.76); }
     .detail { position:relative; width:min(920px,100%); max-height:min(820px,calc(100dvh - 48px)); overflow:auto; padding:32px; background:#252d37; border:1px solid #61707f; border-radius:18px; box-shadow:0 28px 85px rgba(0,0,0,.42); }
@@ -303,7 +304,7 @@
       mail:'M2 5 H26 V23 H2 Z M2 6 L14 16 L26 6'
     };
     const AUTOMATION_POLL_MS=5000;
-    let data, items = new Map(), nodes = new Map(), stage, selected = '', zoom = 1, tx = 0, ty = 0, fitMode = true;
+    let data, items = new Map(), nodes = new Map(), stage, edgeCaptions, selected = '', zoom = 1, tx = 0, ty = 0, fitMode = true;
     let pointer = null, suppressClick = false, loading = false, previousFocus = null;
     let automationStatus=null,automationRequest=null,automationPollTimer=0,automationPending=null,automationLastError='';
     const el = (name, attrs={}, content) => {
@@ -317,15 +318,25 @@
       measureContext.font=`${weight} ${size}px \"Segoe UI\",Arial,sans-serif`;
       return measureContext.measureText(value).width;
     }
-    function linesFor(value, width, size) {
+    function linesFor(value, width, size, weight='normal') {
       const words = value.split(/\s+/), lines = []; let line = '';
       for (const word of words) {
         const next = line ? line+' '+word : word;
-        if (line && measure(next,size) > width) { lines.push(line); line = word; } else line = next;
+        if (line && measure(next,size,weight) > width) { lines.push(line); line = word; } else line = next;
       }
       if (line) lines.push(line);
       return lines;
     }
+    function previewLines(lines, width, size, limit, weight='normal') {
+      const visible=lines.slice(0,limit);
+      return visible.map((line,index)=>{
+        const truncated=measure(line,size,weight)>width || (index===visible.length-1&&lines.length>limit);
+        if(!truncated)return line;
+        while(line&&measure(line+'…',size,weight)>width)line=line.slice(0,-1);
+        return line.trimEnd()+'…';
+      });
+    }
+    function textHeight(lines,size) {return size*1.4+Math.max(0,lines.length-1)*size*1.22;}
     function textLines(group, lines, x, y, size, cls='', weight='normal') {
       const text = el('text',{x,y,'font-size':size,'font-weight':weight,class:cls});
       lines.forEach((line,index) => text.append(el('tspan',{x,dy:index ? size*1.22 : 0},line)));
@@ -336,21 +347,25 @@
       const g = el('g', {class:'node',transform:`translate(${n.x} ${n.y})`,'data-id':n.id,tabindex:0,role:'button','aria-label':`${n.id}: ${n.title}${indicator ? '. '+indicator.label : ''}`,'aria-pressed':'false',style:`--color:${colors[n.tone||n.group]}`});
       g.append(el('title',{},`${n.id} · ${n.title}`));
       g.append(el('rect',{class:'card',width:n.width,height:n.height,rx:n.kind==='item'?6:n.compact?9:13}));
-      if (n.icon) g.append(el('path',{d:icons[n.icon],transform:'translate(18 24)',fill:'none',stroke:colors[n.tone||n.group],'stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round','aria-hidden':true}));
+      const small=n.height<85;
+      if (n.icon) g.append(el('path',{d:icons[n.icon],transform:small?'translate(12 10) scale(.65)':'translate(18 24)',fill:'none',stroke:colors[n.tone||n.group],'stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round','aria-hidden':true}));
       const nested = n.kind==='item';
       let font = n.compact?14:n.id==='A2'?26:nested?15:n.kind==='condition'?15:19;
-      const start = n.compact?12:nested?49:n.icon?59:15;
+      const start = n.compact?12:nested?49:n.icon?(small?37:59):15;
       const available=n.width-start-12-(indicator?18:0);
-      if(!nested&&n.kind!=='condition') {
-        while(font>15&&measure(n.title,font,'600')>available) font-=.5;
-      }
-      while(nested&&font>11&&linesFor(n.title,available,font).length*font*1.22>n.height-7) font-=.5;
-      const titleLines = linesFor(n.title,available,font);
-      textLines(g,titleLines,start,n.compact?(n.height+font*.7)/2:nested?Math.max(20,(n.height-titleLines.length*font*1.22)/2+font):n.kind==='condition'?21:31,font,'',nested?'normal':'600');
+      const weight=nested?'normal':'600',padding=5,gap=4,subtitleSize=small?12:14;
+      const titleBudget=n.height-padding*2-(n.lines.length?subtitleSize*1.4+gap:0);
+      while(font>12&&(textHeight(linesFor(n.title,available,font,weight),font)>titleBudget||measure(n.title,font,weight)>available))font-=.5;
+      const titleLimit=Math.max(1,Math.floor((titleBudget-font*1.4)/(font*1.22))+1);
+      const titleLines=previewLines(linesFor(n.title,available,font,weight),available,font,titleLimit,weight);
+      const top=n.lines.length||(!nested&&!n.compact)?(small?padding:Math.max(padding,31-font*1.1)):Math.max(padding,(n.height-textHeight(titleLines,font))/2);
+      textLines(g,titleLines,start,top+font*1.1,font,'',weight);
       if (n.lines.length) {
-        const y = Math.max(n.height>=105?68:55,31+titleLines.length*font*1.22+4);
-        const sx=n.icon&&n.height<105?59:14;
-        textLines(g,n.lines.flatMap(t => linesFor(t,n.width-sx-10,14)),sx,y,14,'subtitle');
+        const sx=12,width=n.width-sx-10,y=top+textHeight(titleLines,font)+gap;
+        const limit=Math.max(1,Math.floor((n.height-padding-y-subtitleSize*1.4)/(subtitleSize*1.22))+1);
+        const lines=n.lines.flatMap(t=>linesFor(t,width,subtitleSize));
+        textLines(g,previewLines(lines,width,subtitleSize,limit),sx,y+subtitleSize*1.1,subtitleSize,'subtitle');
+        g.querySelector('.subtitle').setAttribute('aria-label',n.lines.join('\n'));
       }
       const bx = nested?5:-9, by = nested?(n.height-23)/2:-12;
       g.append(el('rect',{class:'badge',x:bx,y:by,width:39,height:24,rx:4}));
@@ -375,12 +390,25 @@
       g.append(el('path',attrs));
       if(r.show_label===false) {stage.append(g);return;}
       const label = r.compact_label?'':r.label;
-      const labelLines = linesFor(label,r.label_max_width||220,14);
-      const w=label?55+Math.max(...labelLines.map(t=>measure(t,14))):42;
-      const h=Math.max(28,labelLines.length*17+10), x=r.label_x-w/2, y=r.label_y-h/2;
-      g.append(el('rect',{class:'edge-label',x,y,width:w,height:h,rx:5}));
-      textLines(g,[r.id],x+7,y+19,15,'','600');
-      if(label) textLines(g,labelLines,x+46,y+19,14);
+      let labelLines = linesFor(label,r.label_max_width||220,14),offset=46;
+      let w=label?55+Math.max(...labelLines.map(t=>measure(t,14))):42;
+      const h=Math.max(28,labelLines.length*17+10);
+      for(const other of data.relations) {
+        if(other===r||!other.compact_label||other.show_label===false||Math.abs(other.label_y-r.label_y)>=(h+28)/2)continue;
+        const limit=2*Math.abs(other.label_x-r.label_x)-42-4;
+        if(label&&limit<w) {
+          offset=7+measure(r.id,15,'600')+5;
+          labelLines=previewLines(labelLines,Math.max(measure('…',14),limit-offset-8),14,1);
+          w=offset+Math.max(...labelLines.map(t=>measure(t,14)))+8;
+        }
+      }
+      const x=r.label_x-w/2,y=r.label_y-h/2;
+      const caption=el('g',{class:'edge-caption','data-edge-owner':r.id,'aria-hidden':true});
+      caption.append(el('title',{},`${r.id} · ${r.label}`));
+      caption.append(el('rect',{class:'edge-label',x,y,width:w,height:h,rx:5}));
+      textLines(caption,[r.id],x+7,y+19,15,'','600');
+      if(label) textLines(caption,labelLines,x+offset,y+19,14);
+      edgeCaptions.append(caption);
       stage.append(g);
     }
     function renderConnectionPorts() {
@@ -406,13 +434,14 @@
         const marker=el('marker',{id:`arrow-${group}`,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'});
         marker.append(el('path',{d:'M1 1 L9 5 L1 9 Z',fill:color})); defs.append(marker);
       });
-      $('map').append(defs); stage=el('g',{id:'stage'}); $('map').append(stage);
+      $('map').append(defs); stage=el('g',{id:'stage'}); edgeCaptions=el('g',{class:'edge-captions'}); $('map').append(stage);
       const nestedRelations=data.relations.filter(r=>nodes.get(r.from)?.parent||nodes.get(r.to)?.parent);
       data.relations.filter(r=>!nestedRelations.includes(r)).forEach(renderEdge);
       data.elements.filter(n=>!n.parent).forEach(renderNode);
       nestedRelations.forEach(renderEdge);
       data.elements.filter(n=>n.parent).forEach(renderNode);
       renderConnectionPorts();
+      stage.append(edgeCaptions);
     }
     function applyTransform() {
       if (!stage) return;
@@ -918,6 +947,9 @@
       stage.querySelectorAll('[data-id]').forEach(group=>{
         const active=group.dataset.id===id;group.classList.toggle('is-selected',active);group.classList.toggle('is-related',related.has(group.dataset.id));group.setAttribute('aria-pressed',String(active));
       });
+      edgeCaptions.querySelectorAll('[data-edge-owner]').forEach(group=>{
+        group.classList.toggle('is-selected',group.dataset.edgeOwner===id);group.classList.toggle('is-related',related.has(group.dataset.edgeOwner));
+      });
     }
     function openAutomationCenter(focus=false) {
       const id='G1',item=items.get(id),related=relationships(id);selected=id;
@@ -957,6 +989,9 @@
         [['Направление',`${item.from} ${item.direction==='both'?'↔':'→'} ${item.to}`],['Протокол',item.protocol]].forEach(([key,value])=>{
           const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=value;$('detailFacts').append(dt,dd);
         });
+      } else if(item.lines?.length) {
+        const dt=document.createElement('dt'),dd=document.createElement('dd');
+        dt.textContent='Подпись';dd.textContent=item.lines.join('\n');$('detailFacts').append(dt,dd);
       }
       related.forEach(other=>{
         const target=items.get(other),button=document.createElement('button');
@@ -973,6 +1008,7 @@
     function clearSelection() {
       selected=''; $('detail').hidden=true; $('detailLayer').hidden=true;$('automationDrawer').hidden=true;$('automationLayer').hidden=true;$('automationWizard').hidden=true;clearTimeout(automationPollTimer);automationPollTimer=0;$('viewport').inert=false;
       if(stage) stage.querySelectorAll('[data-id]').forEach(g=>{g.classList.remove('is-selected','is-related');g.setAttribute('aria-pressed','false');});
+      if(edgeCaptions) edgeCaptions.querySelectorAll('[data-edge-owner]').forEach(g=>g.classList.remove('is-selected','is-related'));
       history.replaceState(null,'',location.pathname+location.search);
     }
     function closeDetail() {
@@ -1003,7 +1039,7 @@
     }
     $('map').addEventListener('click',event=>{
       if(suppressClick) {suppressClick=false;return;}
-      const target=event.target.closest('[data-id]');if(target)select(target.dataset.id);else clearSelection();
+      const target=event.target.closest('[data-id],[data-edge-owner]');if(target)select(target.dataset.id||target.dataset.edgeOwner);else clearSelection();
     });
     $('map').addEventListener('keydown',event=>{
       const target=event.target.closest('[data-id]');
@@ -1020,7 +1056,7 @@
     },{passive:false});
     $('map').addEventListener('pointerdown',event=>{
       suppressClick=false;
-      if(!data||event.button!==0||event.target.closest('[data-id]')) return;
+      if(!data||event.button!==0||event.target.closest('[data-id],[data-edge-owner]')) return;
       pointer={id:event.pointerId,x:event.clientX,y:event.clientY,tx,ty,moved:false};
       $('map').setPointerCapture(event.pointerId);
     });
