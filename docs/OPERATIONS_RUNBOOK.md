@@ -335,11 +335,14 @@ Both profiles create a disposable local CRM with synthetic data. They provide
 local regression evidence; verify the deployed interface separately under
 [Production Verification](#production-verification).
 
-Set `AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR` to a new owned, ignored directory
-for each smoke run, then restore the caller's environment. Timer and dashboard
-screenshots and completion-act artifacts use that directory. When unset or blank,
-the timer screenshot remains disabled, the dashboard uses `output/playwright`,
-and completion-act artifacts use the temporary runtime's `playwright` directory.
+Set `AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR` to a new owned directory outside
+versioned files for each smoke run, then restore the caller's environment. The
+full CI profile preserves that override and otherwise selects a fresh ignored
+`output/browser-smoke-core-*` directory. Timer and dashboard screenshots and
+completion-act artifacts use the selected directory. For standalone smoke runs
+with no override, the timer screenshot remains disabled, the dashboard uses
+`output/playwright`, and completion-act artifacts use the temporary runtime's
+`playwright` directory.
 `tests/test_browser_smoke_artifacts.py` checks the resolver and all three callers.
 
 ### Desktop Build and Release
@@ -680,9 +683,9 @@ Deploy only with explicit owner intent. Normal sequence:
    they do not open or modify the Manager database.
 5. Run the cross-project documentation gate with the exact Manager candidate:
    `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root /opt/AutostopManager --format text`.
-   It independently requires all 44 mapped module instructions (43 module
-   Markdown files plus `AGENTS.md`), four Manager skills and 13 technical
-   references, discovers additional guides, and checks
+   It independently requires all module instructions, Manager skills and technical
+   references declared by the current instruction inventory, discovers additional
+   guides, and checks
    CRM's canonical Manager GitHub file links against that checkout. The runtime
    inventory must include the full package, not only the six startup documents.
    Use the CRM interpreter, which supplies both CRM and Manager probe dependencies;

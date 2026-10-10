@@ -104,9 +104,11 @@ try {
     $env:COVERAGE_FILE = Join-Path $ciPycachePath ".coverage"
     $env:QT_QPA_PLATFORM = "offscreen"
     $env:QTWEBENGINE_DISABLE_SANDBOX = "1"
-    $env:AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR = Join-Path (
-        Join-Path $projectRoot "output"
-    ) "browser-smoke-core-$ciRunId"
+    if ([string]::IsNullOrWhiteSpace($savedEnvironment["AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR"])) {
+        $env:AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR = Join-Path (
+            Join-Path $projectRoot "output"
+        ) "browser-smoke-core-$ciRunId"
+    }
 
     Invoke-Python -StepName "Full Ruff format" -Arguments @("-m", "ruff", "format", "--check", ".")
     Invoke-Python -StepName "Full Ruff lint" -Arguments @("-m", "ruff", "check", ".")

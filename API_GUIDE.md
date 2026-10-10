@@ -71,7 +71,7 @@ optional parent, short `lines`, icon, color, brief `description`, and separate
 full `instruction` text. Optional `indicator_mode` is `none`, `manual`, or
 `automation`; manual indicators use `indicator_state` (`green`, `yellow`, or
 `red`). Relations have endpoints, SVG path, direction
-(`forward` or `both`), kind (`exchange` or `event`), label position and display
+(`forward`, `reverse`, `both`, or `none`), kind (`exchange` or `event`), label position and display
 options. The old read-only infrastructure route is unaffected.
 
 `POST /api/manager_structure/apply` requires the configured owner session. Supply

@@ -247,6 +247,17 @@ class ManagerToolConcurrencyBrowserTests(unittest.TestCase):
             arg=revision,
         )
         self.assertEqual(fetched, [bundle["content_hash"]])
+        self.assertIn(
+            f"/blob/{revision}/",
+            self.page.locator("#toolDialogMeta a").get_attribute("href"),
+        )
+        self.assertTrue(
+            self.page.locator(".tool-card .tool-technical a").evaluate_all(
+                "(links, revision) => links.length > 0 && links.every(link => "
+                "link.href.includes('/blob/' + revision + '/'))",
+                revision,
+            )
+        )
         self.assertEqual(card.locator("select").input_value(), "temporarily_unavailable")
         self.assertEqual(
             self.page.locator("#toolDialogScroll").evaluate("el => el.scrollTop"), scroll

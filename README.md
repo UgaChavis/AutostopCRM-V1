@@ -115,8 +115,12 @@ shows larger and nested module codes, status indicators, and only relation IDs.
 Full relation labels remain in hover hints and the properties panel. G1 reads
 automation status; other modules can use manual green, yellow, or red states.
 E1–E15 use the canonical Manager Markdown exported in the pinned automotive
-bundle. In clean view, click a module or press Enter/Space to open its central
-instruction and operation dialog; editor mode retains geometry and text editing.
+bundle. In clean view, click a module or press Enter/Space to read its instruction;
+E1–E15 also show their operation cards. Source references and Markdown links open
+the matching Manager document at the catalog's exact GitHub revision; relative
+links resolve from their source document and code examples remain plain text.
+Other modules display the instruction saved in CRM, with a separate canonical
+source link. Editor mode retains geometry and text editing.
 The dialog shows provider, implementation state, invocation and limitations for
 each stable operation ID. The configured owner can save a red **«Ещё не введена»**,
 yellow **«Временно не работает»**, or green **«Работает нормально»** commissioning

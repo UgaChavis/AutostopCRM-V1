@@ -5,11 +5,23 @@
 Open `/manager-structure` from the board button **Конструктор структуры
 менеджера**. Any operator with a session can open a module and read its
 instruction. Only the configured owner can save, create or remove modules and
-relations. In clean view, clicking an E1–E15 module (or pressing Enter/Space)
-opens its central automotive instruction and operation dialog. Escape closes
+relations. In clean view, clicking a module (or pressing Enter/Space) opens its
+instruction. E1–E15 also show their central automotive instruction and operation
+cards from the pinned catalog; other modules show the instruction saved in CRM.
+Escape closes
 the dialog and returns focus to the original module without moving the viewport.
 The corner button switches to the editor; there the same click selects properties
 and keeps drag, resize and connection editing.
+
+The source reference and Markdown links open in a separate tab. Relative links
+resolve from the corresponding Manager document in GitHub at the catalog's exact
+`source_revision`, including one percent-decoding pass and `file:line` links to
+`#Lline`. A line suffix takes precedence over a heading fragment; ordinary heading
+links keep their fragment. Inline, full reference, collapsed and shortcut links
+are supported. Code literals, images and unsafe URL schemes remain text; raw HTML
+is never inserted. Explicit HTTP/HTTPS links retain their external destination.
+The canonical source link for a saved CRM instruction does not assert that an
+owner's custom instruction has the same text as that source document.
 
 Set `AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN` to the owner CRM login. During
 transition, the older `AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` setting is a
@@ -166,6 +178,26 @@ private preview/write bodies outside the repository and never invokes an API.
 Before a later authorized application, read the complete live graph again and
 regenerate the patch against its current version. The existing L30/L36 conflict
 is retained; instruction refresh is not a layout repair.
+
+### Coordinated documentation publication
+
+Commit and publish the Manager documentation first. From that clean producer,
+run `scripts/export-automotive-tools.py --revision EXACT_MANAGER_SHA --output PATH`
+with its Manager Python. It exports a Git snapshot of that exact commit; it does
+not export dirty files. Copy the output only into the selected CRM source
+`src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json`.
+Validate it with `scripts/check_automotive_tool_catalog.py
+--expected-source-revision EXACT_MANAGER_SHA`; a sealed snapshot carrying
+`REVISION` additionally permits `--manager-root PATH --manager-python PYTHON` to
+check every referenced instruction and the complete registry/schema producer.
+Use the offline instruction-refresh helper for the portable template/blueprint.
+
+A GitHub publication leaves the installed catalog and live graph on their
+existing revision. Follow the [operations runbook](../../OPERATIONS_RUNBOOK.md)
+for a later explicitly authorized coordinated release. After that release,
+reread the full live graph, prepare fresh instruction-only preview/apply requests
+against its current version, and verify instructions and catalog pin together.
+Keep geometry, manual paths and commissioning records intact.
 
 ## Local demonstration
 

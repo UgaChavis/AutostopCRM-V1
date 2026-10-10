@@ -863,15 +863,18 @@ class DocsAuditTests(unittest.TestCase):
         module = load_docs_audit_module()
         required = module.MANAGER_REQUIRED_INSTRUCTION_PATHS
 
-        self.assertEqual(61, len(required))
+        self.assertEqual(66, len(required))
         self.assertEqual(len(required), len(set(required)))
-        self.assertEqual(43, len(module.MANAGER_REQUIRED_MODULE_CODES))
+        self.assertEqual(47, len(module.MANAGER_REQUIRED_MODULE_CODES))
         self.assertEqual(13, len(module.MANAGER_REQUIRED_REFERENCE_NAMES))
         self.assertIn("AGENTS.md", required)
         self.assertIn("docs/agent/modules/A4.md", required)
         self.assertIn("docs/agent/modules/A5.md", required)
         self.assertIn("docs/agent/modules/M1.md", required)
         self.assertIn("docs/agent/modules/M2.md", required)
+        for code in ("E12", "E13", "E14", "E15"):
+            self.assertIn(f"docs/agent/modules/{code}.md", required)
+        self.assertIn(".agents/skills/manage-autostop-client/SKILL.md", required)
         self.assertIn(".agents/skills/manage-owner-instagram/SKILL.md", required)
         for path in required:
             with self.subTest(path=path), tempfile.TemporaryDirectory() as temp_dir:
