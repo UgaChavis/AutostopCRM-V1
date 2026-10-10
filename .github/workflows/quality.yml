@@ -51,7 +51,7 @@ jobs:
           cache-from: type=gha,scope=crm-runtime
           cache-to: type=gha,scope=crm-runtime,mode=max
 
-      - name: Verify runtime PNG contract
+      - name: Verify runtime context contract
         run: |
           docker run --rm \
             --entrypoint sh \
@@ -59,6 +59,18 @@ jobs:
             -eu -c '
               test -s /app/src/minimal_kanban/static/favicon.png
               test ! -e /app/output/docker-context-probe/ignored.png
+              test ! -e /app/docs/reports
+              for document in \
+                AGENTS.md README.md API_GUIDE.md MCP_GUIDE.md CHATGPT_CONNECTOR_SETUP.md \
+                docs/OPERATIONS_RUNBOOK.md \
+                docs/agent/module_operations/README.md \
+                docs/agent/module_operations/crm_commands.md \
+                docs/agent/module_operations/crm_gateway.md \
+                docs/agent/module_operations/crm_runtime.md \
+                docs/agent/module_operations/manager_structure.md
+              do
+                test -s "/app/${document}"
+              done
             '
 
       - name: Verify pinned automotive instruction bundle offline

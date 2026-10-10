@@ -24,13 +24,14 @@ template и blueprint. Все записи сравниваются с общи�
 и исходный CRM checkout сохранены. На исходном live-срезе CRM graph version 164:
 48 узлов, 37 связей, каталог Manager `bb1172845036…`. Этот срез не обновлялся.
 
-## Три итерации и публикация
+## Итерации и публикация
 
 | Итерация | Manager main `AutostopManager` | CRM main `autostopcrm-v1` | Результат |
 | --- | --- | --- | --- |
 | 1 | [bb1490d](https://github.com/UgaChavis/AutostopManager/commit/bb1490d35c9bd258c77b44d236634d1d76da848e) | [3ca93a6](https://github.com/UgaChavis/AutostopCRM-V1/commit/3ca93a6bdb4dd83fbc6eb42777312d22f5ddd780) | полный реестр, ссылки, каталоги, safe DOM и revision pin |
 | 2 | [da9ac13](https://github.com/UgaChavis/AutostopManager/commit/da9ac13094c14b5e93b138ce6572870fa4074014) | [2065ec5](https://github.com/UgaChavis/AutostopCRM-V1/commit/2065ec533398d4fa1fe8de158cb18efb1d6f4c42) | параметры/контракты, CommonMark audit, A5 pointer и подтверждённые literal edge cases |
-| 3 | [53ea64c](https://github.com/UgaChavis/AutostopManager/commit/53ea64c2149d10039037475da00e251fa26bb9f1) | коммит, содержащий этот отчёт | независимый полный review, последние исправления, общий browser parser и согласованный final bundle |
+| 3 | [53ea64c](https://github.com/UgaChavis/AutostopManager/commit/53ea64c2149d10039037475da00e251fa26bb9f1) | [e852313](https://github.com/UgaChavis/AutostopCRM-V1/commit/e852313d8744ffc1aeffb3768de68fa11227a190) | независимый полный review, общий browser parser и согласованный final bundle; локальный профиль прошёл, Docker CI обнаружил ошибку упаковки |
+| 4 | повторный полный review опубликованного `53ea64c…`, без изменений Manager | коммит, содержащий эту версию отчёта | исключение исторических отчётов из runtime image, повторная проверка всего корпуса и Docker packaging |
 
 Каждая публикация использует отдельный commit и обычный push. Remote SHA и CI
 сверяются по точному коммиту; independent readback повторяет весь реестр.
@@ -54,6 +55,14 @@ literal HTML/reference definitions кликабельными. Независи�
 Проверка cross-repository links теперь разрешает исходный путь до чтения и
 отклоняет symlink за пределы CRM; отдельный regression подтверждает отсутствие
 чтения внешнего файла для общих инструкций, root/nested reports и blueprint JSON.
+
+GitHub Docker CI третьей CRM итерации обнаружил отдельную ошибку: вложенный
+исторический отчёт попадал в image и ссылался на проектный скилл, исключённый
+из runtime context. Четвёртая итерация явно исключает `docs/reports/` из Docker
+context. Исторические GitHub отчёты по-прежнему полностью проверяются в source
+audit; canonical runtime документы и их ссылки остаются в образе. Проверка
+ссылок не ослаблена. Упаковка проверяется настоящим Docker build и штатным
+`scripts/docs_audit.py` внутри отдельного контейнера без production data.
 
 HTML не исполняется; code и image literals не создают переходы. Небезопасные URL
 и абсолютные host paths остаются текстом. Относительные пути разрешаются от
@@ -91,8 +100,13 @@ browser/performance gates. Скриншоты и test data остаются то
 прошёл. Локальные первые два CRM профиля: 3 047 / 3 057 runtime tests,
 по 36 backup/restore tests, coverage 82,11%; все без пропусков.
 [CI второй CRM итерации](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38041197802)
-прошёл на точном SHA `2065ec5…`; третья итерация принимается только после
-полного локального профиля и успешного GitHub CI её точного коммита.
+прошёл на точном SHA `2065ec5…`. Третий локальный профиль прошёл:
+3 064 runtime tests и 36 backup/restore tests без пропусков, coverage 82,11%.
+[CI третьей CRM итерации](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38043751135)
+выявил описанную ошибку packaged documentation и не считается успешным.
+Окончательный результат принимается только после полного локального профиля,
+успешных всех GitHub CI jobs точного CRM коммита четвёртой итерации и полного
+независимого перечитывания опубликованной ревизии после последнего исправления.
 
 Реальный browser тестирует clean/editor view, owner/viewer, focus/popup,
 relative revision links, опасные URL, session/cache races и Markdown fixtures.
@@ -104,6 +118,7 @@ relative revision links, опасные URL, session/cache races и Markdown fix
 
 Все 23 исходных документа перечитаны в каждой итерации; этот отчёт — 24-й.
 Датированные отчёты проверяются на ссылки отдельно от текущих инструкций.
+Они публикуются в GitHub и исключены из runtime image.
 Карточки `tech_debt` описывают остающуюся работу по обслуживанию кода.
 
 | Документ | Назначение |

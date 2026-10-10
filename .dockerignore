@@ -21,6 +21,7 @@ backups
 tmp
 tests
 tools/codex
+docs/reports/
 data
 .codex-remote-attachments
 scripts/*.example

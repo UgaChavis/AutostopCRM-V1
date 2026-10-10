@@ -266,6 +266,66 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
 
+    @unittest.skipUnless(
+        os.environ.get("AUTOSTOPCRM_DOCKER_CONTEXT_TESTS") == "1",
+        "Set AUTOSTOPCRM_DOCKER_CONTEXT_TESTS=1 to verify packaging with real Docker BuildKit",
+    )
+    def test_real_docker_context_excludes_history_and_preserves_canonical_link_audit(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            source.mkdir()
+            (source / ".dockerignore").write_bytes((ROOT / ".dockerignore").read_bytes())
+            (source / "Dockerfile").write_text("FROM scratch\nCOPY . /app\n", encoding="utf-8")
+            canonical = (
+                *module.CRM_CANONICAL_DOCS,
+                "docs/agent/module_operations/README.md",
+                "docs/agent/module_operations/manager_structure.md",
+            )
+            for relative in canonical:
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# Canonical instruction\n", encoding="utf-8")
+            skill = source / "tools/codex/skills/autostopcrm-maintain/SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("# Source-only skill\n", encoding="utf-8")
+            reports = ("docs/reports/review.md", "docs/reports/2026/10/review.md")
+            for relative in reports:
+                path = source / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                link = os.path.relpath(skill, path.parent).replace(os.sep, "/")
+                path.write_text(f"# Historical review\n[Evidence]({link})\n", encoding="utf-8")
+            self.assertEqual([], module._check_canonical_local_links(source))
+            skill.unlink()
+            issues = module._check_canonical_local_links(source)
+            self.assertEqual(set(reports), {issue.path for issue in issues})
+            self.assertEqual({"canonical_doc_link_missing"}, {issue.code for issue in issues})
+            skill.write_text("# Source-only skill\n", encoding="utf-8")
+            exported = Path(temp_dir) / "exported"
+            result = subprocess.run(
+                [
+                    "docker",
+                    "buildx",
+                    "build",
+                    "--network=none",
+                    "--progress=plain",
+                    "--output",
+                    f"type=local,dest={exported}",
+                    str(source),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, (result.stdout + result.stderr)[-4096:])
+            packaged = exported / "app"
+            for relative in canonical:
+                self.assertTrue((packaged / relative).is_file(), relative)
+            self.assertFalse((packaged / "tools/codex").exists())
+            self.assertEqual([], module._check_canonical_local_links(packaged))
+            self.assertFalse((packaged / "docs/reports").exists())
+
     def test_docs_audit_detects_missing_dockerignore_canonical_markdown_keep_rule(self) -> None:
         module = load_docs_audit_module()
 
