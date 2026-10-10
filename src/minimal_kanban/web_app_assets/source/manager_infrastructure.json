@@ -547,7 +547,7 @@
       "icon": "document",
       "id": "A5",
       "indicator": "off",
-      "instruction": "# A5 — Указатель действующих инструкций\n\nКаноническая инструкция установленного Manager: [A5](/opt/autostop-manager-releases/current/docs/agent/modules/A5.md).\nВыбор источника инструкций — по [A3](/opt/autostop-manager-releases/current/docs/agent/modules/A3.md); схемы аргументов — по [D1](/opt/autostop-manager-releases/current/docs/agent/modules/D1.md).\nДля source-задачи используй те же пути относительно корня выбранного Manager worktree. Полный индекс и его изменяемые счётчики здесь не дублируются.\n",
+      "instruction": "# A5 — Указатель действующих инструкций\n\nКаноническая инструкция выбранного snapshot Manager: [A5](A5.md).\nВыбор источника инструкций — по [A3](A3.md); схемы аргументов — по [D1](D1.md).\nДля рабочей операции выбери installed snapshot по A3; для source-задачи — выбранный Manager worktree. Ссылки относительны к этому документу, а CRM открывает их на revision своего каталога. Полный индекс и его изменяемые счётчики здесь не дублируются.\n",
       "kind": "module",
       "lines": [
         "100 действующих материалов",

@@ -22,13 +22,14 @@ from minimal_kanban.services.manager_tool_catalog import validate_bundle  # noqa
 BLUEPRINT_SCHEMA = "autostopmanager.infrastructure-map.v1"
 A5_POINTER = (
     "# A5 — Указатель действующих инструкций\n\n"
-    "Каноническая инструкция установленного Manager: "
-    "[A5](/opt/autostop-manager-releases/current/docs/agent/modules/A5.md).\n"
+    "Каноническая инструкция выбранного snapshot Manager: [A5](A5.md).\n"
     "Выбор источника инструкций — по "
-    "[A3](/opt/autostop-manager-releases/current/docs/agent/modules/A3.md); "
+    "[A3](A3.md); "
     "схемы аргументов — по "
-    "[D1](/opt/autostop-manager-releases/current/docs/agent/modules/D1.md).\n"
-    "Для source-задачи используй те же пути относительно корня выбранного Manager worktree. "
+    "[D1](D1.md).\n"
+    "Для рабочей операции выбери installed snapshot по A3; для source-задачи — "
+    "выбранный Manager worktree. Ссылки относительны к этому документу, "
+    "а CRM открывает их на revision своего каталога. "
     "Полный индекс и его изменяемые счётчики здесь не дублируются.\n"
 )
 

@@ -64,6 +64,19 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 "~~~~",
                 "    [Indented](E3.md)",
                 r"\[Escaped](E3.md) ![Image](E3.md)",
+                "![sample [NestedImageLink](E3.md)](img.png)",
+                "![sample [NestedImageReference](E3.md)][image-ref] ![ImageShortcut]",
+                "[image-ref]: img.png",
+                "[imageshortcut]: img.png",
+                r"\![EscapedBang](E3.md)",
+                "Inline <!-- [HiddenInline](E3.md) --> [AfterInlineComment](E3.md)",
+                "<!--",
+                "[HiddenComment](E3.md)",
+                "[hidden-ref]: E3.md",
+                "```",
+                "[HiddenCommentFence](E3.md)",
+                "--> [HiddenClosingSuffix](E3.md)",
+                "[AfterComment](E3.md) [HiddenReference][hidden-ref]",
                 "[Script](javascript:alert(1)) [Data](data:text/html,<b>x</b>)",
                 "[File](file:///etc/passwd) [Protocol](//example.com/read)",
                 "[Absolute](/etc/passwd) [Escape](../../../../etc/passwd)",
@@ -71,6 +84,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 "[Zero](E3.md:0) [Negative](E3.md:-1) [PositiveSign](E3.md:+1)",
                 "[UnicodeLine](E3.md:١٢) [EncodedScript](javascript%3Aalert(1))",
                 '<img src="x" onerror="window.instructionInjected=true">',
+                "<!-- Unclosed [HiddenUnclosed](E3.md)",
             ]
         )
         tool = next(item for item in bundle["tools"] if item["tool_id"] == module["tool_ids"][0])
@@ -103,6 +117,9 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
             "Shortcut": base + "AGENTS.md",
             "External": "https://example.com/read",
             "HTTP": "http://example.com/read",
+            "EscapedBang": base + "docs/agent/modules/E3.md",
+            "AfterInlineComment": base + "docs/agent/modules/E3.md",
+            "AfterComment": base + "docs/agent/modules/E3.md",
         }
         for name, href in expected.items():
             with self.subTest(link=name):
@@ -136,6 +153,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 self.assertEqual(self.page.url, self.runtime.base_url + "/manager-structure")
                 self.assertEqual(self.page.title(), "Конструктор структуры менеджера · AutoStop")
                 self.assertFalse(dialog.evaluate("el => el.scrollWidth > el.clientWidth"))
+                self.page.locator("#toolDialogScroll").evaluate("el => {el.scrollTop=0}")
                 if screenshots:
                     output = Path(screenshots)
                     output.mkdir(parents=True, exist_ok=True)
@@ -180,27 +198,33 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
         self.assertEqual(self.console_issues, [])
 
     def test_saved_module_links_keep_viewer_access_and_graph_unchanged(self):
+        from sync_manager_structure_instructions import A5_POINTER
+
         bundle = self.automotive_fixture()
-        response = self.context.request.post(
-            self.runtime.base_url + "/api/manager_structure/apply",
-            headers={"X-Operator-Session": self.admin},
-            data={
-                "operation": "upsert_element",
-                "element": {
-                    "id": "A2",
-                    "title": "Инструкция агента",
-                    "kind": "module",
-                    "x": 430,
-                    "y": 30,
-                    "width": 320,
-                    "height": 200,
-                    "instruction": "[Navigation](docs/agent/modules/A1.md)",
+        for ident, y, instruction in (
+            ("A2", 30, "[Navigation](docs/agent/modules/A1.md)"),
+            ("A5", 280, A5_POINTER),
+        ):
+            response = self.context.request.post(
+                self.runtime.base_url + "/api/manager_structure/apply",
+                headers={"X-Operator-Session": self.admin},
+                data={
+                    "operation": "upsert_element",
+                    "element": {
+                        "id": ident,
+                        "title": "Инструкция агента",
+                        "kind": "module",
+                        "x": 430,
+                        "y": y,
+                        "width": 320,
+                        "height": 200,
+                        "instruction": instruction,
+                    },
+                    "expected_version": self.read()["version"],
+                    "idempotency_key": "instruction-viewer-fixture-" + ident,
                 },
-                "expected_version": self.read()["version"],
-                "idempotency_key": "instruction-viewer-fixture",
-            },
-        )
-        self.assertEqual(response.status, 200)
+            )
+            self.assertEqual(response.status, 200)
         created = self.context.request.post(
             self.runtime.base_url + "/api/save_operator_user",
             headers={"X-Operator-Session": self.admin},
@@ -230,10 +254,34 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
             self.page.locator("#toolDialogInstruction").get_by_role("link").get_attribute("href"),
             base + "docs/agent/modules/A1.md",
         )
+        self.page.keyboard.press("Escape")
+        self.page.locator('.node[data-id="A5"]').click()
+        self.page.locator("#toolDialog").wait_for(state="visible")
+        self.page.locator("#toolDialogInstruction").get_by_role(
+            "link", name="A5", exact=True
+        ).wait_for()
+        self.assertEqual(
+            self.page.locator("#toolDialogMeta a").get_attribute("href"),
+            base + "docs/agent/modules/A5.md",
+        )
+        links = self.page.locator("#toolDialogInstruction").get_by_role("link")
+        self.assertEqual(links.count(), 3)
+        for name in ("A5", "A3", "D1"):
+            self.assertEqual(
+                self.page.locator("#toolDialogInstruction")
+                .get_by_role("link", name=name, exact=True)
+                .get_attribute("href"),
+                base + "docs/agent/modules/" + name + ".md",
+            )
         self.assertFalse(self.page.locator("#toolStatusHelp").is_visible())
         self.assertEqual(self.page.locator(".tool-card").count(), 0)
         self.assertFalse(self.page.locator("#actions").is_visible())
         self.assertFalse(before["can_edit"])
         self.assertEqual(self.read(viewer), before)
+        screenshots = os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR")
+        if screenshots:
+            output = Path(screenshots)
+            output.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(output / "instruction-links-a5-viewer.png"))
         self.assertEqual(self.errors, [])
         self.assertEqual(self.console_issues, [])

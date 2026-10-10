@@ -9,10 +9,15 @@ import re
 import stat
 import subprocess
 import sys
+import unicodedata
 from dataclasses import asdict, dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -62,7 +67,38 @@ ACTIVE_DOC_GLOBS = (
     f"{REPOSITORY_SKILL}/references/*.md",
 )
 
-MARKDOWN_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\((?P<target><[^>]+>|[^)\s]+)")
+_MARKDOWN = MarkdownIt("commonmark").enable("table")
+_BARE_FILE_LINK_SUFFIXES = frozenset(
+    {
+        ".md",
+        ".markdown",
+        ".json",
+        ".jsonl",
+        ".py",
+        ".pyi",
+        ".toml",
+        ".yaml",
+        ".yml",
+        ".txt",
+        ".rst",
+        ".sh",
+        ".bash",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".html",
+        ".htm",
+        ".css",
+        ".scss",
+        ".sql",
+        ".xml",
+        ".csv",
+        ".ini",
+        ".cfg",
+        ".conf",
+    }
+)
 
 SCRIPT_INSTRUCTION_SUFFIXES = (
     ".ps1",
@@ -612,6 +648,136 @@ class Issue:
     detail: str
 
 
+@dataclass(frozen=True)
+class LocalDocumentLink:
+    path: str
+    line: int | None = None
+    fragment: str = ""
+
+
+def _markdown_body(text: str) -> str:
+    """Hide closed leading YAML metadata while keeping CommonMark source lines."""
+    if not text.startswith("---"):
+        return text
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if lines[0].rstrip(" \t") != "---":
+        return text
+    for index in range(1, len(lines)):
+        if lines[index].rstrip(" \t") == "---":
+            return "\n" * (index + 1) + "\n".join(lines[index + 1 :])
+    return text
+
+
+def visible_markdown_links(text: str) -> list[str]:
+    """Only rendered inline/reference links navigate; image alt children do not.
+
+    Keep the pure CommonMark contract aligned with Manager's document helpers,
+    without importing an installed or adjacent Manager checkout in portable CI.
+    """
+    links: list[str] = []
+    for token in _MARKDOWN.parse(_markdown_body(text)):
+        if token.type != "inline":
+            continue
+        for child in token.children or ():
+            if child.type == "link_open":
+                href = child.attrGet("href")
+                if isinstance(href, str):
+                    links.append(href)
+    return links
+
+
+class _HtmlAnchors(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.anchors: set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        for name, value in attrs:
+            if value and (name == "id" or (tag == "a" and name == "name")):
+                self.anchors.add(value)
+
+
+def _heading_text(children: list[Token]) -> str:
+    return "".join(
+        _heading_text(child.children or []) if child.type == "image" else child.content
+        for child in children
+        if child.type in {"text", "code_inline", "image", "softbreak", "hardbreak"}
+    )
+
+
+def visible_markdown_anchors(text: str) -> frozenset[str]:
+    """GitHub heading IDs and explicit HTML IDs, excluding literals and metadata."""
+    tokens = _MARKDOWN.parse(_markdown_body(text))
+    headings: set[str] = set()
+    html = _HtmlAnchors()
+    for index, token in enumerate(tokens):
+        if token.type == "heading_open":
+            title = _heading_text(tokens[index + 1].children or []).lower()
+            base = "".join(
+                char
+                for char in title
+                if char in {" ", "-"}
+                or unicodedata.category(char)[0] in {"L", "M", "N"}
+                or unicodedata.category(char) == "Pc"
+            ).replace(" ", "-")
+            anchor, number = base, 0
+            while anchor in headings:
+                number += 1
+                anchor = f"{base}-{number}"
+            headings.add(anchor)
+        if token.type == "html_block":
+            html.feed(token.content)
+        for child in token.children or []:
+            if child.type == "html_inline":
+                html.feed(child.content)
+    return frozenset(headings | html.anchors)
+
+
+def parse_local_document_link(link: str) -> LocalDocumentLink | None:
+    """Decode once and separate a local path, positive ASCII :line and fragment."""
+    parsed = urlsplit(link)
+    if parsed.netloc or (not parsed.path and not parsed.fragment):
+        return None
+    fragment = unquote(parsed.fragment)
+    if not parsed.path:
+        return LocalDocumentLink("", fragment=fragment)
+    if parsed.scheme:
+        basename = link.partition(":")[0]
+        line = unquote(parsed.path)
+        if Path(basename).suffix.lower() not in _BARE_FILE_LINK_SUFFIXES or not re.fullmatch(
+            r"[+-]?\d+", line
+        ):
+            return None
+        target = basename + ":" + line
+    else:
+        target = unquote(parsed.path)
+    path, separator, line = target.rpartition(":")
+    if separator and re.fullmatch(r"[+-]?\d+", line):
+        if not re.fullmatch(r"[0-9]+", line) or not line.strip("0"):
+            raise ValueError("document_link_line_invalid")
+        return LocalDocumentLink(path, int(line.lstrip("0")), fragment)
+    return LocalDocumentLink(target, fragment=fragment)
+
+
+def document_source_lines(text: str) -> list[str]:
+    """CR/LF source lines match CommonMark; Unicode separators stay in content."""
+    if not text:
+        return []
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def _document_reference_issue_code(link: LocalDocumentLink, target: Path, text: str) -> str | None:
+    if link.line is not None and link.line > len(document_source_lines(text)):
+        return "canonical_doc_link_line_out_of_range"
+    if link.fragment and target.suffix.lower() in {".md", ".markdown"}:
+        if link.fragment not in visible_markdown_anchors(text):
+            return "canonical_doc_link_anchor_missing"
+    return None
+
+
 def _display_path(path: Path, root: Path) -> str:
     try:
         return path.resolve().relative_to(root.resolve()).as_posix()
@@ -731,26 +897,61 @@ def _check_canonical_local_links(root: Path) -> list[Issue]:
         path = root / relative_path
         if path.suffix.lower() != ".md" or not path.exists():
             continue
-        for match in MARKDOWN_LINK_PATTERN.finditer(_read_text(path)):
-            target = match.group("target").strip().strip("<>")
-            if (
-                not target
-                or target.startswith(("#", "//"))
-                or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target)
-            ):
+        display_path = _display_lexical_path(path, root)
+        try:
+            resolved_source = path.resolve(strict=True)
+            if not resolved_source.is_relative_to(root):
+                issues.append(
+                    Issue(
+                        "canonical_doc_source_outside_root",
+                        display_path,
+                        "documentation source leaves repository",
+                    )
+                )
                 continue
-            target_path = unquote(target.split("#", 1)[0].split("?", 1)[0])
-            if not target_path:
-                continue
-            resolved = (path.parent / target_path).resolve()
+            text = _read_text(resolved_source)
+        except (OSError, RuntimeError, ValueError):
+            issues.append(
+                Issue(
+                    "canonical_doc_source_audit_error",
+                    display_path,
+                    "documentation source could not be audited",
+                )
+            )
+            continue
+        for target in visible_markdown_links(text):
             try:
+                link = parse_local_document_link(target)
+            except ValueError as exc:
+                code = (
+                    "canonical_doc_link_line_invalid"
+                    if str(exc) == "document_link_line_invalid"
+                    else "canonical_doc_link_invalid"
+                )
+                issues.append(
+                    Issue(code, display_path, f"invalid local documentation reference: {target}")
+                )
+                continue
+            if link is None:
+                continue
+            try:
+                resolved = (path.parent / link.path).resolve() if link.path else resolved_source
                 resolved.relative_to(root)
             except ValueError:
                 issues.append(
                     Issue(
                         "canonical_doc_link_outside_root",
-                        _display_path(path, root),
+                        display_path,
                         f"local documentation link leaves repository: {target}",
+                    )
+                )
+                continue
+            except (OSError, RuntimeError):
+                issues.append(
+                    Issue(
+                        "canonical_doc_link_audit_error",
+                        display_path,
+                        f"local documentation target could not be resolved: {target}",
                     )
                 )
                 continue
@@ -758,9 +959,30 @@ def _check_canonical_local_links(root: Path) -> list[Issue]:
                 issues.append(
                     Issue(
                         "canonical_doc_link_missing",
-                        _display_path(path, root),
+                        display_path,
                         f"local documentation link target is missing: {target}",
                     )
+                )
+                continue
+            if link.line is None and not (
+                link.fragment and resolved.suffix.lower() in {".md", ".markdown"}
+            ):
+                continue
+            try:
+                target_text = text if resolved == resolved_source else _read_text(resolved)
+            except (OSError, ValueError):
+                issues.append(
+                    Issue(
+                        "canonical_doc_link_audit_error",
+                        display_path,
+                        f"local documentation target could not be audited: {target}",
+                    )
+                )
+                continue
+            code = _document_reference_issue_code(link, resolved, target_text)
+            if code:
+                issues.append(
+                    Issue(code, display_path, f"invalid local documentation reference: {target}")
                 )
     return issues
 
@@ -1160,7 +1382,17 @@ def _check_manager_repository_file_links(root: Path, manager_root: Path) -> list
     for path in dict.fromkeys(paths):
         if not path.is_file():
             continue
-        for match in MANAGER_REPOSITORY_FILE_LINK_PATTERN.finditer(_read_text(path)):
+        text = _read_text(path)
+        if path.suffix.lower() == ".md":
+            matches = [
+                match
+                for target in visible_markdown_links(text)
+                if (match := MANAGER_REPOSITORY_FILE_LINK_PATTERN.fullmatch(target)) is not None
+            ]
+        else:
+            # JSON's explicit URL fields are data, not Markdown navigation.
+            matches = list(MANAGER_REPOSITORY_FILE_LINK_PATTERN.finditer(text))
+        for match in matches:
             relative_path = unquote(match.group("path").split("#", 1)[0].split("?", 1)[0])
             candidate = manager_root / relative_path
             try:

@@ -274,6 +274,219 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(["canonical_doc_link_missing"], [issue.code for issue in issues])
         self.assertEqual("tech_debt/README.md", issues[0].path)
 
+    def test_docs_audit_checks_used_references_without_literal_or_metadata_navigation(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs.md").write_text("# Document\n", encoding="utf-8")
+            (root / "README.md").write_text(
+                '---\nname: demo\ndescription: "[metadata](missing-meta.md)"\n---\n\n'
+                "`[literal](missing-literal.md)`\n\n"
+                "```md\n[example](missing-fenced.md)\n```\n\n"
+                "    [example](missing-indented.md)\n\n"
+                "<!-- [comment](missing-comment.md) -->\n\n"
+                "![image](missing-image.png)\n"
+                "![nested [alt](missing-alt.md)](missing-image.png)\n\n"
+                "[visible][used]\n"
+                "[encoded](docs%2Emd:1)\n\n"
+                "[used]: missing-ref.md\n"
+                "[unused]: missing-unused.md\n",
+                encoding="utf-8",
+            )
+            issues = module._check_canonical_local_links(root)
+        self.assertEqual(["canonical_doc_link_missing"], [issue.code for issue in issues])
+        self.assertEqual(
+            "local documentation link target is missing: missing-ref.md", issues[0].detail
+        )
+
+    def test_docs_audit_checks_inline_reference_and_table_links(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "README.md").write_text(
+                "[inline](missing-inline.md)\n"
+                "[reference][used]\n\n"
+                "| Guide |\n| --- |\n| [table](missing-table.md) |\n\n"
+                "[used]: missing-reference.md\n",
+                encoding="utf-8",
+            )
+            issues = module._check_canonical_local_links(root)
+        self.assertEqual(["canonical_doc_link_missing"] * 3, [issue.code for issue in issues])
+        self.assertEqual(
+            [
+                f"local documentation link target is missing: missing-{name}.md"
+                for name in ("inline", "reference", "table")
+            ],
+            [issue.detail for issue in issues],
+        )
+
+    def test_docs_audit_accepts_line_query_fragment_and_exactly_one_path_decode(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "My%20Guide.md").write_text("# Literal\nbody\n", encoding="utf-8")
+            (docs / "My Guide.md").write_text("# Other\n", encoding="utf-8")
+            (root / "README.md").write_text(
+                "# Local heading\n\n"
+                "[self](#local-heading)\n"
+                "[line](docs/My%2520Guide.md:0002?download=true#literal)\n"
+                "[absolute](<" + str(docs / "My%20Guide.md").replace("%", "%25") + ":1#literal>)\n"
+                "[outside URI](https://example.invalid/docs.md:0#missing)\n"
+                "[authority](//example.invalid/docs.md:0#missing)\n"
+                "[mail](mailto:owner@example.invalid)\n",
+                encoding="utf-8",
+            )
+            issues = module._check_canonical_local_links(root)
+        self.assertEqual([], issues)
+
+    def test_docs_audit_rejects_invalid_ascii_lines_and_lines_beyond_source_eof(self) -> None:
+        module = load_docs_audit_module()
+        cases = (
+            ("docs.md:0", "canonical_doc_link_line_invalid"),
+            ("docs.md:-1", "canonical_doc_link_line_invalid"),
+            ("docs.md:+1", "canonical_doc_link_line_invalid"),
+            ("docs.md:２", "canonical_doc_link_line_invalid"),
+            ("docs.md:٣", "canonical_doc_link_line_invalid"),
+            ("docs.md:0003", "canonical_doc_link_line_out_of_range"),
+            ("docs%2Emd:3", "canonical_doc_link_line_out_of_range"),
+            ("./docs.md:3#heading", "canonical_doc_link_line_out_of_range"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs.md").write_text(
+                "# Heading\nfirst\u2028second\x85third\u2029fourth\n", encoding="utf-8"
+            )
+            for destination, code in cases:
+                with self.subTest(destination=destination):
+                    (root / "README.md").write_text(f"[line]({destination})\n", encoding="utf-8")
+                    issues = module._check_canonical_local_links(root)
+                    self.assertEqual([code], [issue.code for issue in issues])
+            (root / "README.md").write_text("[valid](docs.md:2#heading)\n", encoding="utf-8")
+            self.assertEqual([], module._check_canonical_local_links(root))
+
+    def test_docs_audit_counts_crlf_source_lines_without_terminal_phantom_line(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs.md").write_bytes(b"# Heading\r\nbody\r\n")
+            (root / "README.md").write_text(
+                "[valid](docs.md:2)\n[invalid](docs.md:3)\n", encoding="utf-8"
+            )
+            issues = module._check_canonical_local_links(root)
+        self.assertEqual(["canonical_doc_link_line_out_of_range"], [issue.code for issue in issues])
+
+    def test_docs_audit_validates_unicode_duplicate_and_html_heading_anchors(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs.md").write_text(
+                '---\nname: ghost\ndescription: "# Metadata"\n---\n\n'
+                "## Привет, мир!\n## Привет, мир!\n## Привет, мир!-1\n## Привет, мир!\n"
+                "## Café *été* `Код`\n\n"
+                "First\nSecond\n---\n\n"
+                '<a id="explicit-anchor"></a>\n'
+                '<a name="named-anchor"></a>\n'
+                '<div id="div-anchor"></div>\n\n'
+                '<!-- <a id="comment-ghost"></a> -->\n\n'
+                '```md\n## Literal ghost\n<a id="code-ghost"></a>\n```\n',
+                encoding="utf-8",
+            )
+            valid = (
+                "привет-мир",
+                "привет-мир-1",
+                "привет-мир-1-1",
+                "привет-мир-2",
+                "café-été-код",
+                "firstsecond",
+                "explicit-anchor",
+                "named-anchor",
+                "div-anchor",
+            )
+            (root / "README.md").write_text(
+                "\n".join(f"[valid](docs.md#{anchor})" for anchor in valid), encoding="utf-8"
+            )
+            self.assertEqual([], module._check_canonical_local_links(root))
+            for anchor in (
+                "missing",
+                "metadata",
+                "name-ghostdescription--metadata",
+                "literal-ghost",
+                "code-ghost",
+                "comment-ghost",
+                "café-été-Код",
+            ):
+                with self.subTest(anchor=anchor):
+                    (root / "README.md").write_text(
+                        f"[invalid](docs.md#{anchor})\n", encoding="utf-8"
+                    )
+                    issues = module._check_canonical_local_links(root)
+                    self.assertEqual(
+                        ["canonical_doc_link_anchor_missing"], [issue.code for issue in issues]
+                    )
+
+    def test_docs_audit_self_fragment_uses_the_original_document(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs/agent/module_operations"
+            docs.mkdir(parents=True)
+            (root / "README.md").write_text("# Root only\n", encoding="utf-8")
+            (docs / "example.md").write_text(
+                "# Nested only\n[valid](#nested-only)\n[invalid](#root-only)\n", encoding="utf-8"
+            )
+            issues = module._check_canonical_local_links(root)
+        self.assertEqual(["canonical_doc_link_anchor_missing"], [issue.code for issue in issues])
+        self.assertEqual("docs/agent/module_operations/example.md", issues[0].path)
+
+    def test_docs_audit_preserves_containment_before_reading_symlink_targets(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "repo"
+            root.mkdir()
+            outside = base / "outside.md"
+            outside.write_text("PRIVATE_FIXTURE\n", encoding="utf-8")
+            alias = root / "alias.md"
+            try:
+                alias.symlink_to(outside)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable")
+            readme = root / "README.md"
+            readme.write_text("[outside](alias.md:1#private)\n", encoding="utf-8")
+            real_read = module._read_text
+            reads = []
+
+            def read_inside_only(path: Path) -> str:
+                self.assertTrue(path.is_relative_to(root))
+                reads.append(path)
+                return real_read(path)
+
+            with patch.object(module, "_read_text", side_effect=read_inside_only):
+                issues = module._check_canonical_local_links(root)
+            self.assertEqual([readme], reads)
+            self.assertEqual(["canonical_doc_link_outside_root"], [issue.code for issue in issues])
+            readme.unlink()
+            readme.symlink_to(outside)
+            with patch.object(module, "_read_text") as read:
+                issues = module._check_canonical_local_links(root)
+            read.assert_not_called()
+            self.assertEqual(
+                ["canonical_doc_source_outside_root"], [issue.code for issue in issues]
+            )
+
+    def test_docs_audit_reports_bounded_target_read_failure_without_payload(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "README.md").write_text("[line](docs.md:1)\n", encoding="utf-8")
+            (root / "docs.md").write_text("PRIVATE_FIXTURE_PAYLOAD" * 3, encoding="utf-8")
+            with patch.object(module, "DOCS_AUDIT_TEXT_MAX_BYTES", 32):
+                issues = module._check_canonical_local_links(root)
+        self.assertEqual(["canonical_doc_link_audit_error"], [issue.code for issue in issues])
+        self.assertNotIn("PRIVATE_FIXTURE_PAYLOAD", repr(issues))
+
     def test_scan_forbidden_text_detects_stale_references(self) -> None:
         module = load_docs_audit_module()
 
@@ -1005,6 +1218,33 @@ class DocsAuditTests(unittest.TestCase):
         self.assertEqual(
             {"README.md", "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json"},
             {issue.path for issue in issues},
+        )
+
+    def test_manager_github_markdown_links_exclude_literals_and_use_reference_navigation(
+        self,
+    ) -> None:
+        module = load_docs_audit_module()
+        prefix = "https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "crm"
+            manager_root = Path(temp_dir) / "manager"
+            root.mkdir()
+            manager_root.mkdir()
+            (manager_root / "AGENTS.md").write_text("ok\n", encoding="utf-8")
+            (root / "README.md").write_text(
+                f'---\nname: demo\ndescription: "[metadata]({prefix}missing-meta.md)"\n---\n\n'
+                f"`[literal]({prefix}missing-literal.md)`\n\n"
+                f"![image]({prefix}missing-image.md)\n\n"
+                f"<!-- [comment]({prefix}missing-comment.md) -->\n\n"
+                f"[valid]({prefix}AGENTS.md)\n[Missing][used]\n\n"
+                f"[used]: {prefix}missing-reference.md\n"
+                f"[unused]: {prefix}missing-unused.md\n",
+                encoding="utf-8",
+            )
+            issues = module._check_manager_repository_file_links(root, manager_root)
+        self.assertEqual(["manager_repository_link_missing"], [issue.code for issue in issues])
+        self.assertEqual(
+            "Manager candidate has no linked file: missing-reference.md", issues[0].detail
         )
 
     def test_manager_runtime_contract_probe_rejects_unsafe_inventory(self) -> None:
