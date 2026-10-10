@@ -67,6 +67,9 @@ ACTIVE_DOC_GLOBS = (
     f"{REPOSITORY_SKILL}/references/*.md",
 )
 
+# Dated reports remain link-audited documents, outside current instructions.
+HISTORICAL_DOC_GLOBS = ("docs/reports/*.md", "docs/reports/**/*.md")
+
 _MARKDOWN = MarkdownIt("commonmark").enable("table")
 _BARE_FILE_LINK_SUFFIXES = frozenset(
     {
@@ -844,7 +847,7 @@ def _check_unclassified_tracked_docs(root: Path) -> list[Issue]:
             continue
         if relative_path in allowed:
             continue
-        if _matches_relative_glob(path, root, ACTIVE_DOC_GLOBS):
+        if _matches_relative_glob(path, root, ACTIVE_DOC_GLOBS + HISTORICAL_DOC_GLOBS):
             continue
         if _matches_relative_glob(path, root, RETIRED_DOC_GLOBS):
             continue
@@ -889,7 +892,7 @@ def _check_canonical_local_links(root: Path) -> list[Issue]:
     root = root.resolve()
     issues: list[Issue] = []
     relative_paths = list(CRM_CANONICAL_DOCS)
-    for pattern in ACTIVE_DOC_GLOBS:
+    for pattern in ACTIVE_DOC_GLOBS + HISTORICAL_DOC_GLOBS:
         relative_paths.extend(
             _display_path(path, root) for path in sorted(root.glob(pattern)) if path.is_file()
         )
@@ -1373,16 +1376,50 @@ def _discover_manager_document_instructions(manager_root: Path) -> tuple[str, ..
 
 def _check_manager_repository_file_links(root: Path, manager_root: Path) -> list[Issue]:
     """Check CRM's canonical Manager GitHub links against the release candidate."""
+    root = root.resolve()
     paths = [root / path for path in CRM_CANONICAL_DOCS]
     paths.append(root / "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json")
-    for pattern in ACTIVE_DOC_GLOBS:
+    for pattern in ACTIVE_DOC_GLOBS + HISTORICAL_DOC_GLOBS:
         paths.extend(sorted(root.glob(pattern)))
     issues: list[Issue] = []
     manager_root = manager_root.resolve()
     for path in dict.fromkeys(paths):
-        if not path.is_file():
+        display_path = _display_lexical_path(path, root)
+        try:
+            resolved_source = path.resolve(strict=True)
+        except FileNotFoundError:
             continue
-        text = _read_text(path)
+        except (OSError, RuntimeError):
+            issues.append(
+                Issue(
+                    "manager_repository_source_audit_error",
+                    display_path,
+                    "CRM documentation source could not be resolved",
+                )
+            )
+            continue
+        if not resolved_source.is_relative_to(root):
+            issues.append(
+                Issue(
+                    "manager_repository_source_outside_root",
+                    display_path,
+                    "CRM documentation source leaves repository",
+                )
+            )
+            continue
+        if not resolved_source.is_file():
+            continue
+        try:
+            text = _read_text(resolved_source)
+        except (OSError, RuntimeError, ValueError):
+            issues.append(
+                Issue(
+                    "manager_repository_source_audit_error",
+                    display_path,
+                    "CRM documentation source could not be audited",
+                )
+            )
+            continue
         if path.suffix.lower() == ".md":
             matches = [
                 match

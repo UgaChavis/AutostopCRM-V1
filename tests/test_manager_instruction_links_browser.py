@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from pathlib import Path
@@ -48,6 +49,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 "[Line](E3.md:001?version=2#section) [EncodedLine](E3%2Emd:%31%32)",
                 "[Colon](E3.md%3A12) [Once](encoded%2520name.md)",
                 "[Full][nav] [Collapsed][] [Shortcut]",
+                "",
                 '[nav]: E3.md "Navigation"',
                 "[collapsed]: ../references/host-operations.md",
                 "[shortcut]: ../../../AGENTS.md",
@@ -66,6 +68,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 r"\[Escaped](E3.md) ![Image](E3.md)",
                 "![sample [NestedImageLink](E3.md)](img.png)",
                 "![sample [NestedImageReference](E3.md)][image-ref] ![ImageShortcut]",
+                "",
                 "[image-ref]: img.png",
                 "[imageshortcut]: img.png",
                 r"\![EscapedBang](E3.md)",
@@ -129,7 +132,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                 self.assertEqual(link.get_attribute("rel"), "noopener noreferrer")
         self.assertEqual(content.get_by_role("link").count(), len(expected))
         self.assertIn("[Script](javascript:alert(1))", content.inner_text())
-        self.assertIn("`[Inline](E3.md)`", content.inner_text())
+        self.assertIn("[Inline](E3.md)", content.locator("code").all_text_contents())
         self.assertEqual(content.locator("img,script,b").count(), 0)
         self.assertFalse(self.page.evaluate("Boolean(window.instructionInjected)"))
         self.assertEqual(
@@ -197,6 +200,137 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
         self.assertEqual(self.console_issues, [])
 
+    def test_commonmark_links_match_independent_oracles_without_html_execution(self):
+        cases = json.loads(
+            (
+                Path(__file__).parent / "fixtures" / "manager_instruction_commonmark_cases.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(len(cases), 26)
+        module_path = "docs/agent/modules/E3.md"
+        for name, source, label in (
+            (
+                "closed-frontmatter",
+                '---\nnav: "[Hidden](E3.md)"\n---\n\n[Visible](E3.md)',
+                "Visible",
+            ),
+            ("cr-frontmatter", '---\rnav: "[Hidden](E3.md)"\r---\r\r[Visible](E3.md)', "Visible"),
+            ("unclosed-frontmatter", '---\nnav: "[Visible](E3.md)"\n', "Visible"),
+            ("table-link", "| Docs |\n| --- |\n| [Visible](E3.md) |", "Visible"),
+            ("code-emphasis-label", "[Read `code` &amp; **bold**](E3.md)", "Read code & bold"),
+            (
+                "literal-script-block",
+                "<script>\nwindow.instructionInjected=true;\n[Hidden](E3.md)\n</script>\n\n[Visible](E3.md)",
+                "Visible",
+            ),
+            (
+                "literal-html-events",
+                '<span onclick="window.instructionInjected=true" title="[Hidden](E3.md)">text</span> [Visible](E3.md)',
+                "Visible",
+            ),
+            (
+                "literal-image-data",
+                "![sample [Hidden](E3.md)](data:image/png;base64,AA==) [Visible](E3.md)",
+                "Visible",
+            ),
+        ):
+            cases.append(
+                {"name": name, "source": source, "links": [{"label": label, "path": module_path}]}
+            )
+        # CommonMark rejects SVG data image destinations, so the inner Markdown
+        # falls back to ordinary visible text/link tokens. Neither data URL nor
+        # an actual image may reach the DOM.
+        cases.append(
+            {
+                "name": "invalid-image-data-fallback",
+                "source": "![sample [Hidden](E3.md)](data:image/svg+xml;base64,PHN2Zz4=) [Visible](E3.md)",
+                "links": [
+                    {"label": "Hidden", "path": module_path},
+                    {"label": "Visible", "path": module_path},
+                ],
+            }
+        )
+        bundle = self.automotive_fixture()
+        base = (
+            "https://github.com/UgaChavis/AutostopManager/blob/" + bundle["source_revision"] + "/"
+        )
+        module = next(item for item in bundle["modules"] if item["element_id"] == "E2")
+        self.page.route(
+            self.runtime.base_url + "/api/manager_structure/tool_catalog",
+            lambda route: route.fulfill(json={"ok": True, "data": bundle}),
+        )
+        before = self.read()
+        results = []
+        for case in cases:
+            with self.subTest(markdown=case["name"]):
+                module["instruction_text"] = case["source"]
+                self.page.reload()
+                self.page.locator('.node[data-id="E2"]').click()
+                self.page.locator(".tool-card").first.wait_for()
+                content = self.page.locator("#toolDialogInstruction")
+                actual = content.evaluate(
+                    'el => [...el.querySelectorAll("a")].map(a => ({label:a.textContent,href:a.getAttribute("href")}))'
+                )
+                expected = [
+                    {"label": link["label"], "href": base + link["path"]} for link in case["links"]
+                ]
+                results.append(
+                    {
+                        "name": case["name"],
+                        "source": case["source"],
+                        "expected": expected,
+                        "actual": actual,
+                    }
+                )
+                self.assertEqual(actual, expected)
+                self.assertEqual(content.locator("img,script,svg,iframe,object,embed").count(), 0)
+                self.assertFalse(self.page.evaluate("Boolean(window.instructionInjected)"))
+                for anchor in content.locator("a").all():
+                    self.assertEqual(anchor.get_attribute("target"), "_blank")
+                    self.assertEqual(anchor.get_attribute("rel"), "noopener noreferrer")
+        self.assertEqual(self.read(), before)
+        screenshots = os.environ.get("AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR")
+        if screenshots:
+            output = Path(screenshots)
+            output.mkdir(parents=True, exist_ok=True)
+            (output / "instruction-commonmark-dom.json").write_text(
+                json.dumps(
+                    {
+                        "revision": bundle["source_revision"],
+                        "cases": results,
+                        "graph_unchanged": True,
+                        "page_errors": self.errors,
+                        "console_issues": self.console_issues,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            module["instruction_text"] = (
+                "# CommonMark documentation\n\n"
+                "[Full][nav] · [Read [label]](E3.md) · [Read `code` &amp; **bold**](E3.md)\n\n"
+                "[nav]:\n  E3.md\n\n"
+                "- List\n\n    [Nested](E3.md)\n\n"
+                "| Docs |\n| --- |\n| [Visible](E3.md) |\n\n"
+                '<span title="[Ghost](E3.md)">Literal HTML</span> [Visible](E3.md)\n\n'
+                "`[Literal](E3.md)`\n"
+            )
+            self.page.reload()
+            self.page.locator('.node[data-id="E2"]').click()
+            self.page.locator(".tool-card").first.wait_for()
+            for label, width, height in (("desktop", 1440, 900), ("mobile", 390, 844)):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.assertFalse(
+                    self.page.locator("#toolDialog").evaluate(
+                        "el => el.scrollWidth > el.clientWidth"
+                    )
+                )
+                self.page.screenshot(path=str(output / f"instruction-commonmark-{label}.png"))
+        self.assertEqual(self.errors, [])
+        self.assertEqual(self.console_issues, [])
+
     def test_saved_module_links_keep_viewer_access_and_graph_unchanged(self):
         from sync_manager_structure_instructions import A5_POINTER
 
@@ -204,6 +338,11 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
         for ident, y, instruction in (
             ("A2", 30, "[Navigation](docs/agent/modules/A1.md)"),
             ("A5", 280, A5_POINTER),
+            (
+                "X99",
+                500,
+                "[Unbased](E3.md) [External](https://example.com/read) [HTTP](http://example.com/read)",
+            ),
         ):
             response = self.context.request.post(
                 self.runtime.base_url + "/api/manager_structure/apply",
@@ -217,7 +356,7 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
                         "x": 430,
                         "y": y,
                         "width": 320,
-                        "height": 200,
+                        "height": 80 if ident == "X99" else 200,
                         "instruction": instruction,
                     },
                     "expected_version": self.read()["version"],
@@ -283,5 +422,22 @@ class ManagerInstructionLinksBrowserTests(unittest.TestCase):
             output = Path(screenshots)
             output.mkdir(parents=True, exist_ok=True)
             self.page.screenshot(path=str(output / "instruction-links-a5-viewer.png"))
+        self.page.keyboard.press("Escape")
+        self.page.locator('.node[data-id="X99"]').click()
+        self.page.locator("#toolDialog").wait_for(state="visible")
+        content = self.page.locator("#toolDialogInstruction")
+        self.assertIn("Unbased", content.inner_text())
+        self.assertEqual(content.get_by_role("link", name="Unbased", exact=True).count(), 0)
+        self.assertEqual(self.page.locator("#toolDialogMeta a").count(), 0)
+        self.assertEqual(content.get_by_role("link").count(), 2)
+        for name, href in (
+            ("External", "https://example.com/read"),
+            ("HTTP", "http://example.com/read"),
+        ):
+            self.assertEqual(
+                content.get_by_role("link", name=name, exact=True).get_attribute("href"), href
+            )
+        self.assertFalse(self.page.locator("#actions").is_visible())
+        self.assertEqual(self.read(viewer), before)
         self.assertEqual(self.errors, [])
         self.assertEqual(self.console_issues, [])

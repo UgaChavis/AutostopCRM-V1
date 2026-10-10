@@ -5062,7 +5062,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "da9ac13094c14b5e93b138ce6572870fa4074014",
+  "source_revision": "53ea64c2149d10039037475da00e251fa26bb9f1",
   "tools": [
     {
       "also_used_in": [],

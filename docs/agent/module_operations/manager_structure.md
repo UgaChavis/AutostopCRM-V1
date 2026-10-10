@@ -17,11 +17,30 @@ The source reference and Markdown links open in a separate tab. Relative links
 resolve from the corresponding Manager document in GitHub at the catalog's exact
 `source_revision`, including one percent-decoding pass and `file:line` links to
 `#Lline`. A line suffix takes precedence over a heading fragment; ordinary heading
-links keep their fragment. Inline, full reference, collapsed and shortcut links
-are supported. Code literals, images and unsafe URL schemes remain text; raw HTML
-is never inserted. Explicit HTTP/HTTPS links retain their external destination.
+links keep their fragment. The instruction parser uses CommonMark with tables: inline, full reference,
+collapsed and shortcut links, balanced labels/destinations and multiline
+definitions follow the same visible-link rules as the Manager documentation
+audit. A closed leading YAML block is metadata and creates no navigation. Code
+literals and image alt text remain literal; raw HTML tokens and their attributes
+are displayed through text nodes, so they cannot create elements or extra links.
+Only allowed semantic tags are built with `createElement` and `textContent`.
+Unsafe URL schemes stay text. Explicit HTTP/HTTPS links retain their external
+destination. A custom module without a canonical source keeps relative links
+as text because their document base is unknown.
 The canonical source link for a saved CRM instruction does not assert that an
 owner's custom instruction has the same text as that source document.
+
+The browser parser is the locally packaged [markdown-it 15.0.2](https://github.com/markdown-it/markdown-it/tree/15.0.2)
+UMD distribution, loaded through the same guarded source include assembler as
+other CRM assets; no CDN or runtime parser download is used. Its immutable
+[provenance manifest](../../../src/minimal_kanban/web_app_assets/source/markdown_it.provenance.json)
+records the official tarball integrity, byte count and SHA-256
+`635972b985228e8af9f0143647c68616b7a3bb09f6946e7e4a52e43dcf5e7be5`.
+The [license notices](../../../src/minimal_kanban/web_app_assets/source/markdown_it.LICENSE)
+retain the parser's MIT license, the licenses of all compiled dependencies and
+the original Node URL-parser notice. Vendor bytes are unchanged; development
+source maps are omitted. Future vendor updates must verify the checksum/notices,
+CommonMark oracle cases and browser interactions before publication.
 
 Set `AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN` to the owner CRM login. During
 transition, the older `AUTOSTOP_TELEGRAM_BEHAVIOR_OWNER_LOGIN` setting is a

@@ -13,8 +13,10 @@ input[type=color]{height:38px;padding:3px}.node text.code{fill:var(--node-color)
 .bridge-mask{pointer-events:none;fill:#132330;stroke:none}.bridge{pointer-events:none;fill:none;stroke-width:2.3;stroke-linecap:round}
 body.clean .bridge-mask{fill:#101d28}.relation-tooltip{position:absolute;z-index:5;max-width:min(360px,90%);padding:9px 12px;border:1px solid #7291a2;border-radius:7px;background:#203444;color:#eef4f7;line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none;box-shadow:0 4px 12px #07141dbb}
 
-.tool-dialog{width:min(1120px,calc(100vw - 36px));height:min(86vh,940px);max-width:none;max-height:none;padding:0;border:1px solid #7291a2;border-radius:12px;background:#152736;color:#eef4f7;box-shadow:0 18px 70px #06121ecc}.tool-dialog[open]{display:flex;flex-direction:column}.tool-dialog::backdrop{background:#07141dcc}.tool-dialog-head{display:flex;gap:16px;align-items:start;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #345064}.tool-dialog-head h2{margin:0;font-size:23px}.tool-dialog-head p{margin:8px 0 0;color:#b9cbd4;overflow-wrap:anywhere}.tool-dialog-scroll{flex:1;min-height:0;overflow:auto;padding:20px 24px;overscroll-behavior:contain}.tool-instruction,.tool-mini-instruction{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}.tool-instruction{padding:16px;border:1px solid #345064;border-radius:8px;background:#10212e}.tool-cards{display:grid;gap:14px;margin-top:22px}.tool-card{padding:16px;border:1px solid #446479;border-radius:9px;background:#1d3445;overflow-wrap:anywhere}.tool-card h3{margin:0 0 8px;font-size:18px}.tool-card p{margin:8px 0;line-height:1.4}.tool-card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}.tool-status-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}.tool-status-label{display:flex;align-items:center;gap:8px}.tool-status-dot{width:12px;height:12px;display:inline-block;border-radius:50%;border:1px solid #e2edf0}.tool-card select{width:auto;max-width:100%}.tool-status-error{color:#b7cad2}.tool-status-error.is-error{color:#ffb1a7}.tool-dialog-head>div{min-width:0}.tool-technical{font-size:13px;color:#beced7}.tool-card details{margin-top:12px}.tool-catalog-message{white-space:pre-wrap;padding:14px;color:#ffb1a7}.tool-status-help{color:#b7cad2;line-height:1.5}
+.tool-dialog{width:min(1120px,calc(100vw - 36px));height:min(86vh,940px);max-width:none;max-height:none;padding:0;border:1px solid #7291a2;border-radius:12px;background:#152736;color:#eef4f7;box-shadow:0 18px 70px #06121ecc}.tool-dialog[open]{display:flex;flex-direction:column}.tool-dialog::backdrop{background:#07141dcc}.tool-dialog-head{display:flex;gap:16px;align-items:start;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #345064}.tool-dialog-head h2{margin:0;font-size:23px}.tool-dialog-head p{margin:8px 0 0;color:#b9cbd4;overflow-wrap:anywhere}.tool-dialog-scroll{flex:1;min-height:0;overflow:auto;padding:20px 24px;overscroll-behavior:contain}.tool-instruction,.tool-mini-instruction{white-space:normal;overflow-wrap:anywhere;line-height:1.5}.tool-instruction{padding:16px;border:1px solid #345064;border-radius:8px;background:#10212e}.tool-cards{display:grid;gap:14px;margin-top:22px}.tool-card{padding:16px;border:1px solid #446479;border-radius:9px;background:#1d3445;overflow-wrap:anywhere}.tool-card h3{margin:0 0 8px;font-size:18px}.tool-card p{margin:8px 0;line-height:1.4}.tool-card pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace}.tool-status-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}.tool-status-label{display:flex;align-items:center;gap:8px}.tool-status-dot{width:12px;height:12px;display:inline-block;border-radius:50%;border:1px solid #e2edf0}.tool-card select{width:auto;max-width:100%}.tool-status-error{color:#b7cad2}.tool-status-error.is-error{color:#ffb1a7}.tool-dialog-head>div{min-width:0}.tool-technical{font-size:13px;color:#beced7}.tool-card details{margin-top:12px}.tool-catalog-message{white-space:pre-wrap;padding:14px;color:#ffb1a7}.tool-status-help{color:#b7cad2;line-height:1.5}
 @media(max-width:760px){.tool-dialog{width:calc(100vw - 16px);height:92vh}.tool-dialog-head{padding:14px;min-height:80px}.tool-dialog-head h2{font-size:18px}.tool-dialog-scroll{padding:14px}.tool-card{padding:12px}.tool-status-row select{width:100%}}
+
+.tool-instruction>:first-child,.tool-mini-instruction>:first-child{margin-top:0}.tool-instruction>:last-child,.tool-mini-instruction>:last-child{margin-bottom:0}.tool-instruction h1{font-size:20px}.tool-instruction h2{font-size:18px}.tool-instruction h3{font-size:16px}.tool-instruction pre,.tool-mini-instruction pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,monospace;padding:10px;border:1px solid #345064;border-radius:6px}.tool-instruction table,.tool-mini-instruction table{width:100%;table-layout:fixed;border-collapse:collapse}.tool-instruction th,.tool-instruction td,.tool-mini-instruction th,.tool-mini-instruction td{padding:6px;border:1px solid #345064;text-align:left;vertical-align:top}.tool-instruction blockquote,.tool-mini-instruction blockquote{margin-left:0;padding-left:12px;border-left:3px solid #496276}.instruction-literal{white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
 </head>
 <body class="clean">
@@ -34,7 +36,10 @@ body.clean .bridge-mask{fill:#101d28}.relation-tooltip{position:absolute;z-index
 <label class="wide">Подпись<input name="label" maxlength="200"></label><label class="wide">Протокол / примечание<input name="protocol" maxlength="200"></label><label class="wide">Описание связи<textarea name="edge_description" rows="3" maxlength="5000"></textarea></label>
 <label class="wide">Маршрут SVG (M, L, H, V, Q, C)<textarea name="path" class="route" maxlength="2000" aria-describedby="routeHelp"></textarea><span id="routeHelp">Абсолютные команды; концы маршрута закрепляются на карточках.</span></label><label>Начало · сторона<select name="from_side"><option value="left">Слева</option><option value="right">Справа</option><option value="top">Сверху</option><option value="bottom">Снизу</option></select></label><label>Начало · смещение 0–1<input name="from_offset" type="number" min="0" max="1" step="0.01"></label><label>Конец · сторона<select name="to_side"><option value="left">Слева</option><option value="right">Справа</option><option value="top">Сверху</option><option value="bottom">Снизу</option></select></label><label>Конец · смещение 0–1<input name="to_offset" type="number" min="0" max="1" step="0.01"></label><button id="routeAuto" class="wide" type="button">Построить маршрут по модулям</button><label>X подписи<input name="label_x" type="number" min="0" max="10000" step="any"></label><label>Y подписи<input name="label_y" type="number" min="0" max="10000" step="any"></label><label>Ширина подписи<input name="label_max_width" type="number" min="40" max="800"></label><label><span>Показать подпись <input name="show_label" type="checkbox" style="width:auto"></span></label><label><span>Только ID связи <input name="compact_label" type="checkbox" style="width:auto"></span></label>
 </div></form></div><div class="form-actions" id="actions" hidden><button id="remove" class="danger" type="button">Удалить</button><button id="cancel" type="button">Отмена</button><button id="save" class="primary" type="submit" form="editor">Сохранить</button></div></aside></div>
-<dialog id="toolDialog" class="tool-dialog" aria-labelledby="toolDialogTitle"><div class="tool-dialog-head"><div><h2 id="toolDialogTitle">Инструменты модуля</h2><p id="toolDialogMeta"></p></div><button id="closeToolDialog" type="button" aria-label="Закрыть инструменты">×</button></div><div id="toolDialogScroll" class="tool-dialog-scroll"><p id="toolDialogPurpose"></p><p id="toolStatusHelp" class="tool-status-help">Ручная отметка относится к вводу инструмента в работу. Она не проверяет источник, применимость детали или наличие.</p><p id="toolCatalogMessage" class="tool-catalog-message" role="status" hidden></p><pre id="toolDialogInstruction" class="tool-instruction"></pre><div id="toolCards" class="tool-cards"></div></div></dialog>
+<dialog id="toolDialog" class="tool-dialog" aria-labelledby="toolDialogTitle"><div class="tool-dialog-head"><div><h2 id="toolDialogTitle">Инструменты модуля</h2><p id="toolDialogMeta"></p></div><button id="closeToolDialog" type="button" aria-label="Закрыть инструменты">×</button></div><div id="toolDialogScroll" class="tool-dialog-scroll"><p id="toolDialogPurpose"></p><p id="toolStatusHelp" class="tool-status-help">Ручная отметка относится к вводу инструмента в работу. Она не проверяет источник, применимость детали или наличие.</p><p id="toolCatalogMessage" class="tool-catalog-message" role="status" hidden></p><div id="toolDialogInstruction" class="tool-instruction"></div><div id="toolCards" class="tool-cards"></div></div></dialog>
+<script>
+    // @include markdown_it.js
+</script>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id),svgNS='http://www.w3.org/2000/svg';let diagram=null,selection=null,draft=null,scale=1,offsetX=0,offsetY=0,pan=null,requesting=false,gesture=null,dirty=false,editingVersion=null,previewSeq=0,automationState='yellow',ignoreNextClick=false,anchorTouched=false;
@@ -53,137 +58,7 @@ let toolBundle=null,toolBundleSession=null,toolBundleRequest=null,toolDialogModu
 const toolCards=new Map(),toolAttempts=new Map(),toolDrafts=new Map();
 function sessionIdentity(){try{return localStorage.getItem('kanban-operator-session')||''}catch(_error){return ''}}
 function textElement(tag,text,className=''){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element}
-function managerDocumentUrl(reference,revision,source=''){
-  const value=String(reference||'');
-  if(/[\u0000-\u001f\u007f\\]/.test(value)||value.startsWith('//'))return null;
-  if(/^https?:/i.test(value)){
-    try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)?url.href:null}catch(_error){return null}
-  }
-  if(!/^[a-f\d]{40}$/.test(revision||''))return null;
-  let path,fragment='';
-  try{const hash=value.indexOf('#');path=decodeURIComponent((hash<0?value:value.slice(0,hash)).split('?')[0]);if(hash>=0)fragment=decodeURIComponent(value.slice(hash+1))}catch(_error){return null}
-  if(/[\u0000-\u001f\u007f\\]/.test(path)||path.startsWith('/'))return null;
-  let line=null;const hint=/^(.+):([+-]?\p{Decimal_Number}+)$/u.exec(path);
-  if(hint){
-    const bareExtension=/\.(?:md|markdown|jsonl?|pyi?|toml|yaml|yml|txt|rst|sh|bash|jsx?|tsx?|html?|css|scss|sql|xml|csv|ini|cfg|conf)$/i.test(hint[1]);
-    if(!hint[1].includes('/')&&!bareExtension)return null;
-    line=Number(hint[2]);if(!/^[0-9]+$/.test(hint[2])||!Number.isSafeInteger(line)||line<=0)return null;path=hint[1];
-  }
-  if(/^[a-z][a-z\d+.-]*:/i.test(path))return null;
-  let sourcePath;try{sourcePath=decodeURIComponent(source||'')}catch(_error){return null}
-  if(/[\u0000-\u001f\u007f\\:?#]/.test(sourcePath)||sourcePath.startsWith('/'))return null;
-  const parts=[];
-  for(const part of sourcePath.split('/')){
-    if(!part||part==='.')continue;
-    if(part==='..'){if(!parts.length)return null;parts.pop()}else parts.push(part);
-  }
-  const sourceFile=parts.pop();
-  if(!path&&sourceFile)parts.push(sourceFile);
-  for(const part of path.split('/')){
-    if(!part||part==='.')continue;
-    if(part==='..'){if(!parts.length)return null;parts.pop()}else parts.push(part);
-  }
-  if(!parts.length)return null;
-  const url=new URL(`https://github.com/UgaChavis/AutostopManager/blob/${revision}/${parts.map(encodeURIComponent).join('/')}`);
-  if(line!==null)url.hash=`L${line}`;else if(fragment)url.hash=fragment;
-  return url.href;
-}
-function documentLink(label,reference,revision,source=''){
-  const href=managerDocumentUrl(reference,revision,source);
-  if(!href)return document.createTextNode(label);
-  const anchor=textElement('a',label);anchor.href=href;anchor.target='_blank';anchor.rel='noopener noreferrer';return anchor;
-}
-function inlineLiteralEnd(text,index){
-  const marker=/^`+/.exec(text.slice(index))[0];let end=index+marker.length;
-  while(end<text.length){end=text.indexOf(marker,end);if(end<0)break;if(text[end-1]!=='`'&&text[end+marker.length]!=='`')return end+marker.length;end+=marker.length}
-  return index+marker.length;
-}
-function inlineCommentEnd(text,index){const end=text.indexOf('-->',index+4);return end<0?text.length:end+3}
-function imageLiteralEnd(text,index,references){
-  let end=index+2,depth=1;
-  while(end<text.length&&depth){
-    if(text[end]==='\\'){end+=2;continue}
-    if(text[end]==='[')depth++;else if(text[end]===']')depth--;end++;
-  }
-  if(depth)return null;
-  const label=text.slice(index+2,end-1),inline=/^\((<[^>\n]+>|(?:[^\s()\n]|\([^()\n]*\))*)(?:\s+["'][^"'\n]*["'])?\)/.exec(text.slice(end));
-  if(inline)return end+inline[0].length;
-  const ref=/^[ \t]*\[([^\]\n]*)\]/.exec(text.slice(end));
-  if(ref&&references.has(referenceKey(ref[1]||label)))return end+ref[0].length;
-  return references.has(referenceKey(label))?end:null;
-}
-function referenceKey(label){return label.trim().replace(/\s+/g,' ').toLowerCase()}
-function instructionReferences(parts){
-  const references=new Map();
-  for(const part of parts){
-    if(part.code)continue;
-    const literals=[];
-    for(let index=0;index<part.text.length;index++){
-      if(part.text[index]==='\\')index++;
-      else if(part.text[index]==='`'){const end=inlineLiteralEnd(part.text,index);literals.push([index,end]);index=end-1}
-      else if(part.text.startsWith('<!--',index)){const end=inlineCommentEnd(part.text,index);literals.push([index,end]);index=end-1}
-    }
-    const pattern=/^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^>\n]+>|[^\s\n]+)(?:[ \t]+(?:["'][^"'\n]*["']|\([^\n]*\)))?[ \t]*$/gm;
-    for(const match of part.text.matchAll(pattern)){
-      if(literals.some(([start,end])=>match.index>=start&&match.index<end))continue;
-      const key=referenceKey(match[1]),destination=match[2].startsWith('<')?match[2].slice(1,-1):match[2];
-      if(!references.has(key))references.set(key,destination);
-    }
-  }
-  return references;
-}
-function appendInstructionLine(target,text,reference,revision,references){
-  let index=0,start=0;
-  while(index<text.length){
-    if(text[index]==='\\'){index+=2;continue}
-    if(text[index]==='`'){index=inlineLiteralEnd(text,index);continue}
-    if(text.startsWith('<!--',index)){index=inlineCommentEnd(text,index);continue}
-    if(text.startsWith('![',index)){const end=imageLiteralEnd(text,index,references);if(end!==null){index=end;continue}}
-    if(text[index]==='['){
-      const inline=/^\[([^\]\n]+)\]\((<[^>\n]+>|(?:[^\s()\n]|\([^()\n]*\))*)(?:\s+["'][^"'\n]*["'])?\)/.exec(text.slice(index));
-      const ref=inline?null:/^\[([^\]\n]+)\](?:[ \t]*\[([^\]\n]*)\])?/.exec(text.slice(index));
-      const match=inline||ref;
-      if(match){
-        const definition=ref&&text[index+match[0].length]===':'&&/^ {0,3}$/.test(text.slice(text.lastIndexOf('\n',index-1)+1,index));
-        const destination=definition?undefined:inline?(match[2].startsWith('<')?match[2].slice(1,-1):match[2]):references.get(referenceKey(match[2]||match[1]));
-        if(destination!==undefined&&(reference||/^https?:/i.test(destination))&&managerDocumentUrl(destination,revision,reference)){
-          target.append(document.createTextNode(text.slice(start,index)),documentLink(match[1],destination,revision,reference));
-          index+=match[0].length;start=index;continue;
-        }
-        index+=match[0].length;continue;
-      }
-    }
-    index++;
-  }
-  target.append(document.createTextNode(text.slice(start)));
-}
-function instructionLinks(target,text,reference,revision){
-  target.replaceChildren();let fence=null,prose='',offset=0,opaqueEnd=0,commentBlockEnd=0;const parts=[],input=String(text||'');
-  function flush(){if(prose){parts.push({text:prose,code:false});prose=''}}
-  const lines=input.split('\n');
-  lines.forEach((line,index)=>{
-    const marker=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line),content=line+(index<lines.length-1?'\n':'');
-    if(!fence&&opaqueEnd<=offset&&/^ {0,3}<!--/.test(line)){
-      const closing=input.indexOf('-->',offset+line.indexOf('<!--')+4),newline=closing<0?-1:input.indexOf('\n',closing+3);
-      commentBlockEnd=newline<0?input.length:newline+1;
-    }
-    if(commentBlockEnd>offset){flush();parts.push({text:content,code:true})}
-    else if(fence){parts.push({text:content,code:true});if(marker&&marker[1][0]===fence[0]&&marker[1].length>=fence.length&&!marker[2].trim())fence=null}
-    else if(opaqueEnd<=offset&&marker){flush();fence=marker[1];parts.push({text:content,code:true})}
-    else if(opaqueEnd<=offset&&/^(?: {4}|\t)/.test(line)){flush();parts.push({text:content,code:true})}
-    else{
-      prose+=content;
-      for(let cursor=Math.max(offset,opaqueEnd);cursor<offset+content.length;cursor++){
-        if(input[cursor]==='\\')cursor++;
-        else if(input[cursor]==='`'){opaqueEnd=inlineLiteralEnd(input,cursor);cursor=opaqueEnd-1}
-        else if(input.startsWith('<!--',cursor)){opaqueEnd=inlineCommentEnd(input,cursor);cursor=opaqueEnd-1}
-      }
-    }
-    offset+=content.length;
-  });flush();
-  const references=instructionReferences(parts);
-  for(const part of parts){if(part.code)target.append(document.createTextNode(part.text));else appendInstructionLine(target,part.text,reference,revision,references)}
-}
+    // @include manager_documentation.js
 function moduleDocumentRef(id){return id==='A2'?'AGENTS.md':/^(?:A[1-5]|B[1-4]|C[2-7]|D[1-5]|E(?:[1-9]|1[0-5])|F[1-5]|G1|H[12]|I[12]|J1|M[12])$/.test(id)?`docs/agent/modules/${id}.md`:''}
 function instructionMetadata(target,reference,bundle){target.replaceChildren(documentLink(reference,reference,bundle.source_revision),document.createTextNode(` · Manager ${bundle.source_revision.slice(0,12)} · каталог ${bundle.content_hash.slice(0,12)}`));target.title=`Manager ${bundle.source_revision} · ${bundle.content_hash}`}
 function cardMessage(card,message,error=false){card.error.textContent=message;card.error.classList.toggle('is-error',error)}
@@ -199,7 +74,7 @@ function updateToolCard(id,card){const record=diagram.tool_statuses?.[id],state=
 function sameToolRecord(actual,expected){return Boolean(actual&&expected&&actual.state===expected.state&&actual.updated_at===expected.updated_at&&actual.updated_by===expected.updated_by)}
 async function saveToolStatus(id,card){if(card.pending||!canEditToolStatuses())return;const intent=toolDialogIntent,token=sessionIdentity(),key=toolIntentKey(id,token);let attempt=toolAttempts.get(key);if(attempt?.running)return;if(!attempt){attempt={body:{operation:'set_tool_status',tool_status:{operation_id:id,state:card.select.value},expected_version:diagram.version,idempotency_key:crypto.randomUUID()},running:false};toolAttempts.set(key,attempt)}attempt.running=true;card.pending=true;cardMessage(card,'Проверка записи…');updateToolCard(id,card);let phase='apply';try{attempt.receipt=await api('/api/manager_structure/apply',attempt.body);phase='read';await readDiagram();if(token!==sessionIdentity())return;if(diagramSession!==token||diagram.version<attempt.receipt.version)throw new Error('Не удалось перечитать запись. Повторная проверка сохранит исходный запрос.');const actual=diagram.tool_statuses?.[id];if(!sameToolRecord(actual,attempt.receipt.tool_status)){toolAttempts.delete(key);throw new Error('Отметка изменилась после записи. Актуальное состояние прочитано; ваш выбор оставлен.')}toolAttempts.delete(key);toolDrafts.delete(key);if(intent!==toolDialogIntent)return;card.dirty=false;card.versionConflict=false;cardMessage(card,'Сохранено');render();refreshToolStatuses()}catch(error){if(phase==='apply'&&error.status>=400&&error.status<500&&![408,429].includes(error.status))toolAttempts.delete(key);if(intent!==toolDialogIntent||token!==sessionIdentity())return;card.versionConflict=error.code==='manager_structure_version_conflict';cardMessage(card,card.versionConflict?'Схема изменилась. Ваш выбор оставлен; перечитайте состояние перед повторной записью.':toolAttempts.has(key)?'Ответ не подтверждён. Проверьте запись; будет повторён тот же запрос.':error.message,true)}finally{attempt.running=false;card.pending=false;if(token===sessionIdentity())refreshToolStatuses()}}
 async function rereadToolStatus(id,card){if(toolAttempts.has(toolIntentKey(id))){await saveToolStatus(id,card);return}const intent=toolDialogIntent,token=sessionIdentity();try{await readDiagram();if(intent!==toolDialogIntent||token!==sessionIdentity())return;card.versionConflict=false;cardMessage(card,'Актуальное состояние прочитано; подтвердите сохранение вашего выбора.');refreshToolStatuses();render()}catch(error){if(intent===toolDialogIntent&&token===sessionIdentity())cardMessage(card,error.message,true)}}
-function toolInstruction(tool){const text=textElement('p','','tool-mini-instruction');instructionLinks(text,tool.instruction_text,tool.instruction_ref,toolBundle.source_revision);return text}
+function toolInstruction(tool){const text=textElement('div','','tool-mini-instruction');instructionLinks(text,tool.instruction_text,tool.instruction_ref,toolBundle.source_revision);return text}
 function toolReference(tool){const text=textElement('p','','tool-technical');text.append(documentLink(tool.instruction_ref,tool.instruction_ref,toolBundle.source_revision));return text}
 function buildToolCards(module){$('toolCards').replaceChildren();toolCards.clear();const byId=new Map(toolBundle.tools.map(tool=>[tool.tool_id,tool]));for(const id of module.tool_ids){const tool=byId.get(id);if(!tool)continue;const article=textElement('article','','tool-card');article.dataset.toolId=id;article.append(textElement('h3',tool.title),textElement('p',tool.purpose),textElement('p',`Служба: ${tool.provider_id} · Первичная база: ${tool.primary_data_source||'Указана в инструкции'}`));const implementations={implemented:'Реализован',planned:'Планируется',retired:'Выведен из эксплуатации',historical:'Исторический справочник'};article.append(textElement('p',`${implementations[tool.implementation_state]||tool.implementation_state} · Выполнение: ${tool.execution_kind||'См. инструкцию'} · Доступ источника: не проверялся этим окном`,'tool-technical'));if(tool.limitations?.length)article.append(textElement('p',tool.limitations.join(' · ')));const details=document.createElement('details');details.append(textElement('summary','Вызов, параметры и мини-инструкция'),textElement('pre',JSON.stringify({invocation:tool.invocation,input_fields:tool.input_fields,input_schema_ref:tool.input_schema_ref,input_schema:tool.input_schema||toolBundle.native_schemas?.[tool.input_schema_ref],outputs:tool.outputs,errors:tool.errors,example:tool.example,invalid_example:tool.invalid_example},null,2)),toolInstruction(tool),toolReference(tool));article.append(details);const row=textElement('div','','tool-status-row'),dot=textElement('span','','tool-status-dot'),label=textElement('span',''),statusLabel=textElement('span','','tool-status-label');statusLabel.append(dot,label);const select=document.createElement('select');select.setAttribute('aria-label',`Ручная отметка: ${tool.title}`);for(const [value,[_color,title]]of Object.entries(toolStates))select.add(new Option(title,value));const save=textElement('button','Сохранить отметку');save.type='button';const conflict=textElement('button','Перечитать состояние');conflict.type='button';conflict.hidden=true;row.append(statusLabel,select,save,conflict);article.append(row);const meta=textElement('p','','tool-technical'),error=textElement('p','','tool-status-error');error.setAttribute('role','status');article.append(meta,error);const prior=toolDrafts.get(toolIntentKey(id)),card={article,dot,label,select,save,conflict,meta,error,dirty:Boolean(prior),pending:false,versionConflict:false};if(prior)select.value=prior.state;toolCards.set(id,card);select.addEventListener('change',()=>{card.dirty=true;toolDrafts.set(toolIntentKey(id),{state:select.value});cardMessage(card,'Выбор ещё не сохранён');updateToolCard(id,card)});save.addEventListener('click',()=>saveToolStatus(id,card));conflict.addEventListener('click',()=>rereadToolStatus(id,card));$('toolCards').append(article);updateToolCard(id,card)}}
 async function openToolDialog(node){toolOpenerId=node.id;toolDialogModule=node.id;toolDialogCatalogKey=catalogKey(diagram.catalog_metadata);toolDialogSession=sessionIdentity();toolDialogGraphVersion=diagram.version;const intent=++toolDialogIntent;toolDialogMessage('');$('toolDialogTitle').textContent=`${node.id} · ${node.title}`;$('toolDialogMeta').textContent='Загрузка каталога…';$('toolDialogMeta').title='';$('toolDialogPurpose').textContent='';$('toolDialogInstruction').textContent='';$('toolCards').replaceChildren();const automotive=/^E(?:[1-9]|1[0-5])$/.test(node.id);$('toolStatusHelp').hidden=!automotive;if(!$('toolDialog').open)$('toolDialog').showModal();$('closeToolDialog').focus();if(!automotive){const reference=moduleDocumentRef(node.id),metadata=diagram.catalog_metadata;toolCards.clear();$('toolDialogPurpose').textContent=node.description||'';if(metadata?.available)instructionMetadata($('toolDialogMeta'),reference,metadata);else $('toolDialogMeta').textContent=reference||'Инструкция сохранена в CRM';instructionLinks($('toolDialogInstruction'),node.instruction||node.description||'',reference,metadata?.source_revision);$('toolDialogScroll').scrollTop=0;return}try{const bundle=await catalogBundle();if(intent!==toolDialogIntent)return;const module=bundle.modules.find(item=>item.element_id===node.id);if(!module){$('toolDialogPurpose').textContent='';toolDialogMessage('Для этого модуля нет автомобильного каталога.');return}$('toolDialogTitle').textContent=`${module.element_id} · ${module.title}`;$('toolDialogPurpose').textContent=module.purpose;instructionMetadata($('toolDialogMeta'),module.instruction_ref,bundle);instructionLinks($('toolDialogInstruction'),module.instruction_text,module.instruction_ref,bundle.source_revision);buildToolCards(module);$('toolDialogScroll').scrollTop=0}catch(error){if(intent===toolDialogIntent)toolDialogMessage(error.message)}}

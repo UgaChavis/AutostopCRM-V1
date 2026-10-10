@@ -42,12 +42,99 @@ def isolate_skill_option_audit(
 
 
 class DocsAuditTests(unittest.TestCase):
+    def test_historical_reports_are_classified_and_still_validate_links(self) -> None:
+        module = load_docs_audit_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            report = root / "docs/reports/review.md"
+            report.parent.mkdir(parents=True)
+            report.write_text("# Historical review\n[Evidence](missing.md)\n", encoding="utf-8")
+            with patch.object(module, "_iter_git_tracked_files", return_value=[report]):
+                self.assertEqual([], module._check_unclassified_tracked_docs(root))
+            self.assertEqual([], module._scan_retired_candidate_issues(root))
+            issues = module._check_canonical_local_links(root)
+            self.assertEqual(["canonical_doc_link_missing"], [issue.code for issue in issues])
+            (report.parent / "missing.md").write_text("# Evidence\n", encoding="utf-8")
+            self.assertEqual([], module._check_canonical_local_links(root))
+
+    def test_nested_historical_reports_validate_local_and_manager_links(self) -> None:
+        module = load_docs_audit_module()
+        for relative in (
+            "docs/reports/review.md",
+            "docs/reports/2026/review.md",
+            "docs/reports/2026/10/review.md",
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / "crm"
+                manager_root = Path(temp_dir) / "manager"
+                manager_root.mkdir()
+                report = root / relative
+                report.parent.mkdir(parents=True)
+                report.write_text(
+                    "# Historical review\n[Evidence](missing.md)\n"
+                    "[Manager](https://github.com/UgaChavis/AutostopManager/"
+                    "blob/AutostopManager/docs/missing.md)\n",
+                    encoding="utf-8",
+                )
+                with patch.object(module, "_iter_git_tracked_files", return_value=[report]):
+                    self.assertEqual([], module._check_unclassified_tracked_docs(root))
+                self.assertEqual(
+                    ["canonical_doc_link_missing"],
+                    [issue.code for issue in module._check_canonical_local_links(root)],
+                )
+                self.assertEqual(
+                    ["manager_repository_link_missing"],
+                    [
+                        issue.code
+                        for issue in module._check_manager_repository_file_links(root, manager_root)
+                    ],
+                )
+                (report.parent / "missing.md").write_text("# Evidence\n", encoding="utf-8")
+                manager_target = manager_root / "docs/missing.md"
+                manager_target.parent.mkdir()
+                manager_target.write_text("# Manager\n", encoding="utf-8")
+                self.assertEqual([], module._check_canonical_local_links(root))
+                self.assertEqual(
+                    [], module._check_manager_repository_file_links(root, manager_root)
+                )
+
     def test_docs_audit_passes_current_tree(self) -> None:
         module = load_docs_audit_module()
 
         issues = module.audit(ROOT)
 
         self.assertEqual([], issues)
+
+    def test_manager_cross_links_do_not_read_sources_outside_crm(self) -> None:
+        module = load_docs_audit_module()
+        for relative in (
+            "AGENTS.md",
+            "docs/reports/review.md",
+            "docs/reports/2026/review.md",
+            "src/minimal_kanban/web_app_assets/source/manager_infrastructure.json",
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / "crm"
+                manager_root = Path(temp_dir) / "manager"
+                manager_root.mkdir()
+                outside = Path(temp_dir) / "private.md"
+                outside.write_text(
+                    "[Private](https://github.com/UgaChavis/AutostopManager/"
+                    "blob/AutostopManager/docs/missing.md)\n",
+                    encoding="utf-8",
+                )
+                alias = root / relative
+                alias.parent.mkdir(parents=True)
+                try:
+                    alias.symlink_to(outside)
+                except (OSError, NotImplementedError):
+                    self.skipTest("symlink creation is unavailable")
+                with patch.object(module, "_read_text", wraps=module._read_text) as read:
+                    issues = module._check_manager_repository_file_links(root, manager_root)
+                self.assertEqual(
+                    ["manager_repository_source_outside_root"], [i.code for i in issues]
+                )
+                read.assert_not_called()
 
     def test_crm_module_gateway_card_tracks_public_tool_names(self) -> None:
         module = load_docs_audit_module()

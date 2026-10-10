@@ -98,6 +98,19 @@ class CodeHealthAuditTests(unittest.TestCase):
         self.assertEqual((), entry.flags)
         self.assertNotIn("tech_debt/001-example.md", module.CANONICAL_DOCS)
 
+    def test_historical_reports_have_a_bounded_noncanonical_role(self) -> None:
+        module = load_code_health_audit_module()
+        report = "docs/reports/documentation-review-2026-10-10.md"
+
+        entry = module.classify_repository_file(report)
+
+        self.assertEqual("historical_report", entry.role)
+        self.assertIn(entry.role, module.TRACKED_FILE_ROLES)
+        self.assertEqual((), entry.flags)
+        self.assertNotIn(report, module.CANONICAL_DOCS)
+        self.assertEqual("", module.classify_repository_file("docs/reports/report.bin").role)
+        self.assertEqual("", module.classify_repository_file("docs/review.md").role)
+
     def test_unclassified_and_generated_tracked_files_are_reported(self) -> None:
         module = load_code_health_audit_module()
 

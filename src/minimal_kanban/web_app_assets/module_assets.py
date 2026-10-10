@@ -150,6 +150,11 @@ def _expand_board_source(
     )
 
 
+def read_browser_source(name: str) -> str:
+    """Expand packaged browser resources with the same guarded include loader."""
+    return _expand_board_source(name, proxies=None, include_stack=())
+
+
 def read_board_source(name: str, *, proxies: dict[str, str] | None = None) -> str:
     return _expand_board_source(name, proxies=proxies, include_stack=())
 

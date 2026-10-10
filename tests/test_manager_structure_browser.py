@@ -160,9 +160,11 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.page.locator(".tool-card").first.wait_for()
         module = next(item for item in bundle["modules"] if item["element_id"] == "E2")
         self.assertEqual(self.page.locator(".tool-card").count(), len(module["tool_ids"]))
-        self.assertIn(
-            module["instruction_text"].splitlines()[0],
-            self.page.locator("#toolDialogInstruction").inner_text(),
+        self.assertEqual(
+            self.page.locator("#toolDialogInstruction")
+            .get_by_role("heading", level=1)
+            .inner_text(),
+            module["instruction_text"].splitlines()[0].removeprefix("# "),
         )
         card = self.page.locator(".tool-card").first
         ident = card.get_attribute("data-tool-id")

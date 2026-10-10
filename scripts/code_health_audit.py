@@ -212,6 +212,7 @@ GENERATED_PATH_PREFIXES = (
 TRACKED_FILE_ROLES = frozenset(
     {
         "canonical_doc",
+        "historical_report",
         "manifest",
         "runtime_code",
         "runtime_asset",
@@ -300,6 +301,8 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
 
     if normalized in CANONICAL_DOCS:
         role = "canonical_doc"
+    elif normalized.startswith("docs/reports/") and normalized.endswith(".md"):
+        role = "historical_report"
     elif normalized.startswith("tech_debt/") and normalized.endswith(".md"):
         role = "technical_debt_task"
     elif normalized.startswith("tools/codex/skills/autostopcrm-maintain/"):

@@ -1,0 +1,262 @@
+[
+  {
+    "name": "lf-reference",
+    "source": "[Full][nav]\n\n[nav]: E3.md\n",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "crlf-reference",
+    "source": "[Full][nav]\r\n\r\n[nav]: E3.md\r\n",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "cr-reference",
+    "source": "[Full][nav]\r\r[nav]: E3.md\r",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "ref-multiline-title",
+    "source": "[Full][nav]\n\n[nav]: E3.md\n \"Navigation\"\n",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "ref-destination-next-line",
+    "source": "[Full][nav]\n\n[nav]:\n  E3.md\n",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "ref-angle-next-line",
+    "source": "[Full][nav]\n\n[nav]:\n <E3.md>\n",
+    "links": [
+      {
+        "label": "Full",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "escaped-label",
+    "source": "[A\\]B](E3.md)",
+    "links": [
+      {
+        "label": "A]B",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "balanced-label",
+    "source": "[Read [label]](E3.md)",
+    "links": [
+      {
+        "label": "Read [label]",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "list-indented-link",
+    "source": "- List\n\n    [Nested](E3.md)\n",
+    "links": [
+      {
+        "label": "Nested",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "paragraph-indent",
+    "source": "First\n    [Continuation](E3.md)\n",
+    "links": [
+      {
+        "label": "Continuation",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "rawhtml-attribute-link",
+    "source": "<span title=\"[Ghost](E3.md)\">text</span> [Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "rawhtml-block-link",
+    "source": "<div>\n[Ghost](E3.md)\n</div>\n\n[Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "rawhtml-inline-content",
+    "source": "<span>[Visible](E3.md)</span>",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "rawhtml-anchor-attribute",
+    "source": "<a href=\"[Ghost](E3.md)\">text</a> [Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "inline-code-link",
+    "source": "`[Literal](E3.md)` [Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "fenced-code-link",
+    "source": "```markdown\n[Literal](E3.md)\n```\n[Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "indented-code-link",
+    "source": "    [Literal](E3.md)\n\n[Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "nested-image-alt-link",
+    "source": "![text [Literal](E3.md)](image.png) [Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "inline-comment-link",
+    "source": "text <!-- [Literal](E3.md) --> [Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "block-comment-link",
+    "source": "<!--\n[Literal](E3.md)\n--> [Literal2](E3.md)\n\n[Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "escaped-bang-link",
+    "source": "\\![Visible](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "balanced-destination",
+    "source": "[Visible](../references/example(one(two)).md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/references/example(one(two)).md"
+      }
+    ]
+  },
+  {
+    "name": "escaped-destination",
+    "source": "[Visible](../references/example\\(one\\).md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/references/example(one).md"
+      }
+    ]
+  },
+  {
+    "name": "multiline-link-label",
+    "source": "[Visible\nlink](E3.md)",
+    "links": [
+      {
+        "label": "Visible\nlink",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "emphasis-label",
+    "source": "[**Visible**](E3.md)",
+    "links": [
+      {
+        "label": "Visible",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  },
+  {
+    "name": "empty-label",
+    "source": "[](E3.md)",
+    "links": [
+      {
+        "label": "",
+        "path": "docs/agent/modules/E3.md"
+      }
+    ]
+  }
+]

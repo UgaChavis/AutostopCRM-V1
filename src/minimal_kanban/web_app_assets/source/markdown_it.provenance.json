@@ -1,0 +1,78 @@
+{
+  "name": "markdown-it",
+  "version": "15.0.2",
+  "license": "MIT",
+  "upstream": "https://github.com/markdown-it/markdown-it/tree/15.0.2",
+  "tarball": "https://registry.npmjs.org/markdown-it/-/markdown-it-15.0.2.tgz",
+  "integrity": "sha512-q4IGxMv56jCqT4OCRCADBoDP3LO4MhmTXjFbphHPXs4g3j9Xg5RDnxqN8IF/3vIWEU+VCnUq+7JUg/cfy2E6Qw==",
+  "file": "markdown_it.js",
+  "sha256": "635972b985228e8af9f0143647c68616b7a3bb09f6946e7e4a52e43dcf5e7be5",
+  "bytes": 115080,
+  "bundled_components": [
+    {
+      "name": "entities",
+      "version": "8.0.0",
+      "license": "BSD-2-Clause",
+      "tarball": "https://registry.npmjs.org/entities/-/entities-8.0.0.tgz",
+      "integrity": "sha512-zwfzJecQ/Uej6tusMqwAqU/6KL2XaB2VZ2Jg54Je6ahNBGNH6Ek6g3jjNCF0fG9EWQKGZNddNjU5F1ZQn/sBnA==",
+      "license_file": "LICENSE",
+      "compiled_sources_verified": [
+        "dist/decode-codepoint.js",
+        "dist/internal/decode-shared.js",
+        "dist/generated/decode-data-html.js",
+        "dist/internal/bin-trie-flags.js",
+        "dist/decode.js"
+      ]
+    },
+    {
+      "name": "linkify-it",
+      "version": "6.0.0",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/linkify-it/-/linkify-it-6.0.0.tgz",
+      "integrity": "sha512-YXaVuD1L9iL52IsWy5WsfHbzJjjDL5VzbW7ARliFbB+oHxHXb+fh2qjYl34PGhyy06x3LCvuAuvWdaSFte0P1w==",
+      "license_file": "LICENSE",
+      "compiled_sources_verified": [
+        "build/index.mjs"
+      ]
+    },
+    {
+      "name": "mdurl",
+      "version": "2.1.0",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/mdurl/-/mdurl-2.1.0.tgz",
+      "integrity": "sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg==",
+      "license_file": "LICENSE",
+      "compiled_sources_verified": [
+        "lib/decode.mjs",
+        "lib/encode.mjs",
+        "lib/format.mjs",
+        "lib/parse.mjs",
+        "index.mjs"
+      ]
+    },
+    {
+      "name": "punycode.js",
+      "version": "2.3.1",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/punycode.js/-/punycode.js-2.3.1.tgz",
+      "integrity": "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==",
+      "license_file": "LICENSE-MIT.txt",
+      "compiled_sources_verified": [
+        "punycode.es6.js"
+      ]
+    },
+    {
+      "name": "uc.micro",
+      "version": "3.0.0",
+      "license": "MIT",
+      "tarball": "https://registry.npmjs.org/uc.micro/-/uc.micro-3.0.0.tgz",
+      "integrity": "sha512-U3PppEkleoTnIfi8BozMx3yju3qc/L6SwqWo2Sw+54PX+PX0q9I+r1Um5HCmqD7n9VDX5/v3vQH/AjA6deDdtw==",
+      "license_file": "LICENSE.txt",
+      "compiled_sources_verified": [
+        "build/index.mjs"
+      ]
+    }
+  ],
+  "source_map_embedded": false,
+  "license_file": "markdown_it.LICENSE"
+}
