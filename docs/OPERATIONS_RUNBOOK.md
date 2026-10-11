@@ -618,7 +618,7 @@ normal deploys. Never dump `.env`, container
 tool transcript. Report only allowlisted non-secret settings and boolean
 credential checks.
 
-### Manager E8 loopback credential
+### Manager loopback CRM MCP credential
 
 After the candidate CRM has passed its Gateway and OAuth checks, `deploy.sh`
 atomically writes only `AUTOSTOP_CRM_MCP_URL` and
@@ -627,6 +627,10 @@ atomically writes only `AUTOSTOP_CRM_MCP_URL` and
 `http://127.0.0.1:8001/mcp`; the helper takes the current CRM bearer from
 server `.env`, snapshots the previous Manager file, and restores it during a
 rollback. It never prints either credential.
+
+The legacy CRM E8 Web Research Gateway contract serves the current Manager
+[E15 public research module](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/E15.md).
+The Automation Center also uses this credential for feed readiness.
 
 The Automation Center scheduler is then restarted under the same owned global
 hold. Before the hold can be released, the deploy compares the URL and bearer
@@ -642,8 +646,10 @@ rollback. This also makes newly imported offline catalogs available through
 `search_offline_parts_catalogs` on the same update. `=0` skips only native MCP
 activation; `deploy.sh` still changes the Manager snapshot, scheduler and work
 Telegram. Use the CRM-only procedure below for an approved UI-only release.
-Do not copy the bearer into Manager's general `.env` or invoke E7 until
-activation has completed.
+Do not copy the bearer into Manager's general `.env`. Store operations through
+current Manager [F1](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F1.md)
+and [F2](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F2.md)
+require completed native MCP activation; E7 was the older Store module label.
 
 ## GitHub-Only Publication
 

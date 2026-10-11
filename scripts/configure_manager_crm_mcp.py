@@ -266,7 +266,9 @@ def check(*, server_env: Path, manager_env: Path) -> dict[str, object]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Sync the private Manager E8 CRM MCP credential")
+    parser = argparse.ArgumentParser(
+        description="Sync the private Manager loopback CRM MCP credential"
+    )
     parser.add_argument("--server-env", type=Path, default=DEFAULT_SERVER_ENV)
     parser.add_argument("--manager-env", type=Path, default=DEFAULT_MANAGER_ENV)
     commands = parser.add_subparsers(dest="command", required=True)

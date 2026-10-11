@@ -33,7 +33,7 @@ WEB_RESEARCH_CAPABILITY_DESCRIPTIONS = {
         "case evidence and access status without account use or raw-page retention."
     ),
     "research_part_public_evidence": (
-        "E8 Web Research Gateway: find compact public evidence for a part through the provider "
+        "CRM Web Research Gateway (Manager E15): find compact public evidence for a part through the provider "
         "cascade and static catalog registry. VIN-like tokens are redacted before search; this "
         "read-only result never confirms fitment."
     ),
