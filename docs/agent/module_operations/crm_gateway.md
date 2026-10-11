@@ -24,7 +24,7 @@ line or in output. The 2026-09-25 active name plus input-schema SHA-256 is
 `dd3c03f9fdde60828dc716b72656bdc32b565755e2d2278c4445fc263c4fe73f`.
 The [Manager CRM MCP catalog](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/crm_mcp_catalog.json)
 is a versioned schema fingerprint, while this card explains operation and
-recovery. `scripts/docs_audit.py --manager-root /opt/AutostopManager` compares
+recovery. `scripts/docs_audit.py --manager-root /path/to/selected-manager-source` compares
 the registered surfaces and that manifest in a synthetic process.
 
 In the table, **R** is read-only, **T** is technical or workflow state, **M**

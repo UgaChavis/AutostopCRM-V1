@@ -16,7 +16,7 @@ private business data; keep it out of Git and shared output.
 | --- | --- | --- |
 | `scripts/run_checks.ps1 -Profile changed` | Changed-file Ruff, generated JS and code health | R/S; local only |
 | `scripts/run_checks.ps1 -Profile ci` | Canonical full local CI profile, including unit/coverage, docs, browser core and performance | S; disposable fixtures, not deploy |
-| `scripts/docs_audit.py --format text [--manager-root /opt/AutostopManager]` | Document links, Gateway names, optional registered Manager/CRM schema parity | R; synthetic schema process |
+| `scripts/docs_audit.py --format text [--manager-root /path/to/selected-manager-source]` | Document links, Gateway names, optional registered Manager/CRM schema parity | R; synthetic schema process |
 | `scripts/code_health_audit.py --format text [--include-untracked]` | File roles and size/complexity budgets | R |
 | `scripts/coverage_audit.py --format text` | Runtime/release coverage floors | R; after coverage run |
 | `scripts/crm_capability_parity.py --require-complete` | API/MCP capability manifest parity | R |
@@ -48,7 +48,7 @@ needed. The code and runbook, not this summary, define exact thresholds.
 
 | Entrypoint and mode | Role and boundary |
 | --- | --- |
-| `deploy.sh` | X: official coordinated CRM/Manager release with backup, holds, activation, smoke and rollback. Its pre-maintenance phase seals the exact Manager candidate, runs that candidate's pinned public offline-parts catalog sync into a private cache, and rechecks disk space. `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` skips only native MCP activation; it still updates Manager, scheduler and Telegram. Run only with exact clean published refs and runbook gates. |
+| `deploy.sh` | X: official coordinated CRM/Manager release with backup, holds, activation, smoke and rollback. Its pre-maintenance phase seals the exact Manager candidate, runs that candidate's pinned public offline-parts catalog sync into a private cache, and rechecks disk space. `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0` skips only native MCP activation; it still updates Manager, scheduler and Telegram. The effective `AUTOSTOP_MANAGER_SOURCE_DIR` selects the clean published Manager source (default `/opt/AutostopManager`), while `AUTOSTOP_MANAGER_RELEASE_PYTHON` chooses preflight dependencies. Preserve other dirty checkouts; CRM `.env` can override process settings. Run only with exact clean published candidate refs and [source preflight](../../OPERATIONS_RUNBOOK.md#git-parity). |
 | `scripts/deploy_crm_only.py --sha <exact-40-hex> --preflight` or `--apply --confirm-sha <same>` | R preflight / X apply: narrowly reviewed CRM-only UI release from a clean isolated worktree. Requires the exact published guarded Manager duty controller and approved Telegram target, pins canonical Compose/data/env/lock, checks exact GitHub SHA and path allowlist, backs up and rolls back CRM changed state. Apply temporarily pauses work Telegram duty, which restarts its bridge; requires explicit owner approval and [runbook](../../OPERATIONS_RUNBOOK.md). |
 | `scripts/reconcile_automation_crm_revision.py --sha <exact-40-hex> --expected-reported-sha <old-40-hex> --preflight` or `--apply --confirm-sha <same>` | R preflight / X apply: after a CRM-only release, back up scheduler config and registry, update one reported CRM SHA under an owned hold, restart scheduler, verify identity and timers, and pause/resume work Telegram duty. Requires separate explicit owner approval and [runbook](../../OPERATIONS_RUNBOOK.md). |
 | `scripts/release_git_preflight.sh` | R/T: exact Git/ref and dirty-tree preflight; may update remote-tracking refs. |
@@ -101,7 +101,7 @@ Nginx `*.example` files are contract/config assets, not commands.
 Mismatch between current checkout, exact GitHub ref and OCI revision blocks
 release. A missing Manager catalog sync helper, failed download/hash/text
 verification or post-import disk headroom blocks maintenance. A missing backup,
-dirty checkout, failed required CI, missing OAuth/Store credential, stale schema,
+dirty selected candidate, failed required CI, missing OAuth/Store credential, stale schema,
 unverified write, unhealthy dependency or
 maintenance budget overrun blocks activation. Follow `deploy.sh` rollback and
 independent readback; never use `docker compose up --build` or manual state

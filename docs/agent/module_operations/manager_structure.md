@@ -148,8 +148,9 @@ return 409. Removing a module with children or relations is rejected.
 
 ### Codex dialogue sequence
 
-1. Discover these two existing raw capabilities and their current schema hashes.
-   Read the full graph with `allow_large_output: true`. Work by stable module and
+1. Discover the graph-read `api:/api/manager_structure` and owner-write
+   `api:/api/manager_structure/apply` raw capabilities and their current schema
+   hashes. Read the full graph with `allow_large_output: true`. Work by stable module and
    relation IDs, semantic fields, hierarchy and cardinal anchors; CRM owns geometry.
 2. Send a narrow change with `preview: true`, current `expected_version` and a
    fresh request key. The Gateway verifies that the entire saved snapshot stayed

@@ -73,10 +73,21 @@ ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.
 The production preflight is fail-closed for both repositories. CRM must be the
 root checkout on branch `autostopcrm-v1`, clean including untracked files, and
 its `HEAD` must equal a fresh exact fetch of `origin/autostopcrm-v1`.
-`/opt/AutostopManager` must be the root of a Git checkout on branch
+The effective `AUTOSTOP_MANAGER_SOURCE_DIR` selects the Manager Git checkout
+(default `/opt/AutostopManager`). That selected root must be on branch
 `AutostopManager`, clean including untracked files, with `HEAD` equal to the
-freshly fetched configured remote branch. There is no skip-sync or dirty-tree
-production override. Do not reset either dirty checkout.
+freshly fetched configured remote branch. An existing dirty Manager checkout
+must be preserved; prepare a separate clean clone on the published main SHA
+and select it instead. A detached review archive is not a deploy source.
+`AUTOSTOP_MANAGER_RELEASE_PYTHON` selects the preflight dependency interpreter
+(default `<selected-source>/.venv/bin/python`); prepare that clone's own ignored
+venv and run its full gates. The override does not move native MCP's fixed
+`/opt/AutostopManager/.venv/bin/python`, `.env`, `.crm-mcp.env` or permanent DB
+(default `/opt/AutostopManager/data/autostop_manager.sqlite3`). Verify those
+runtime prerequisites separately. `deploy.sh` sources CRM `.env` before choosing
+settings; it can override process environment, so reconcile effective values.
+There is no skip-sync or dirty-tree production override for either selected
+candidate. Do not reset or discard pre-existing changes.
 
 ## Workstation Setup
 
@@ -682,13 +693,15 @@ Deploy only with explicit owner intent. Normal sequence:
 1. Verify and commit only intended changes.
 2. Push the commit to `origin/autostopcrm-v1`.
 3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
-4. Run the canonical isolated Manager release gates from
-   `/opt/AutostopManager/docs/agent/references/deployment.md`. Its temporary
+4. Choose the clean Manager source described in [Git Parity](#git-parity) and
+   follow its [release guide and coordinated documentation kit](https://github.com/UgaChavis/AutostopManager/blob/ba61cfa17690f496fae9ab7ce88e09ee2971b040/docs/agent/references/deployment.md).
+   Run that source's `scripts/release-gates.sh`; it requires its own
+   `.venv/bin/python`. Its temporary
    `AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks. The compatibility
    commands `knowledge-sync` and `knowledge-audit` now only audit instructions;
    they do not open or modify the Manager database.
-5. Run the cross-project documentation gate with the exact Manager candidate:
-   `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root /opt/AutostopManager --format text`.
+5. Run the cross-project documentation gate with that same exact Manager source:
+   `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root "$manager_release_source" --format text`.
    It independently requires all module instructions, Manager skills and technical
    references declared by the current instruction inventory, discovers additional
    guides, and checks
@@ -702,22 +715,30 @@ Deploy only with explicit owner intent. Normal sequence:
 7. Compare workstation, remote, and server revisions.
 8. Run live, UI-if-relevant, and performance smoke.
 
-On the server, before `deploy.sh`:
+On the server, before `deploy.sh`, prepare the selected source on
+`AutostopManager` with its own dependency venv. Resolve the same effective source,
+interpreter and permanent DB settings that CRM `.env` supplies to deploy; the
+following variables must refer to those reviewed values.
 
 ```bash
+manager_release_source="${AUTOSTOP_MANAGER_SOURCE_DIR:-/opt/AutostopManager}"
+manager_release_python="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$manager_release_source/.venv/bin/python}"
+manager_state_db="${AUTOSTOP_MANAGER_DB:-/opt/AutostopManager/data/autostop_manager.sqlite3}"
 cd /opt/autostopcrm
 git status --short --branch
 git fetch origin autostopcrm-v1
 git merge --ff-only origin/autostopcrm-v1
-git -C /opt/AutostopManager status --short --branch
-git -C /opt/AutostopManager switch AutostopManager
-git -C /opt/AutostopManager fetch origin AutostopManager
-git -C /opt/AutostopManager merge --ff-only origin/AutostopManager
-cd /opt/AutostopManager
+git -C "$manager_release_source" status --short --branch
+git -C "$manager_release_source" fetch origin AutostopManager
+git -C "$manager_release_source" merge --ff-only origin/AutostopManager
+cd "$manager_release_source"
 ./scripts/release-gates.sh
-.venv/bin/python -m autostop_manager.cli store-conductor-release-gate
+# This legacy-state gate uses the permanent Manager DB, not the new clone's data.
+env AUTOSTOP_MANAGER_ENV_FILE=/opt/AutostopManager/.env \
+  AUTOSTOP_MANAGER_DB="$manager_state_db" \
+  "$manager_release_python" -m autostop_manager.cli store-conductor-release-gate
 # Dry-run; use --apply only if the Manager runbook calls for migration.
-.venv/bin/python scripts/remove-learning-hooks.py
+"$manager_release_python" scripts/remove-learning-hooks.py
 cd /opt/autostopcrm
 docker network inspect --format '{{.Internal}}' autostop-store-agent
 docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
@@ -753,9 +774,10 @@ needs disk space for the download, extraction, and the normal release build.
 
 The bounded release flow:
 
-1. verifies exact branch/fetched-remote parity and full cleanliness for both
-   the CRM and Manager root checkouts before any snapshot, image build, or auth
-   rotation, then checks free space, Compose configuration, production auth,
+1. verifies exact branch/fetched-remote parity and full cleanliness for the
+   CRM root and the selected `AUTOSTOP_MANAGER_SOURCE_DIR` root before any
+   snapshot, image build, or auth rotation, then checks free space, Compose
+   configuration, production auth,
    scoped Store identity, and the isolated Store network;
 2. creates the candidate Manager release strictly from the verified Manager
    commit via `git archive HEAD`, then reruns only `knowledge-sync` and

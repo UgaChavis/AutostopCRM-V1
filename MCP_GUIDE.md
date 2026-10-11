@@ -68,10 +68,12 @@ revision and recent-change history. Content edits need no Git or server release.
 
 ### Manager structure through raw capabilities
 
-The two virtual capabilities `api:/api/manager_structure` (read) and
+The virtual capabilities `api:/api/manager_structure` (graph read),
+`api:/api/manager_structure/tool_catalog` (authenticated catalog read) and
 `api:/api/manager_structure/apply` (owner write) expose the same constructor
-service as the CRM browser. Discover each exact name, inspect its schema and
-hash, then call `call_raw_capability`. For writes, provide `expected_version`
+service as the CRM browser. Both reads accept empty `arguments: {}`. Discover
+each exact name, inspect its schema and hash, then call `call_raw_capability`.
+For writes, provide `expected_version`
 from the read, an `idempotency_key` for the outer raw call, and the operation
 arguments described in [the API guide](API_GUIDE.md#manager-structure-constructor).
 The Gateway binds the inner API key to the outer key and verifies the result

@@ -1,129 +1,146 @@
 # Исправление замечаний документации Manager и CRM — 2026-10-11
 
-Это датированный исторический отчёт о проверке и публикации исходного кода.
-Действующие инструкции находятся в [AGENTS.md](../../AGENTS.md),
+Это датированный отчёт о проверке и публикации исходников. Действующие
+инструкции находятся в [AGENTS.md](../../AGENTS.md),
 [runbook](../OPERATIONS_RUNBOOK.md) и
 [контракте конструктора](../agent/module_operations/manager_structure.md).
-Отчёт не разрешает deployment, business actions, сообщения или изменение
-сохранённого рабочего графа.
+Установленные службы и сохранённый рабочий граф остаются на своей ревизии;
+согласованный выпуск подготовлен отдельно.
 
-## Исходное состояние и охват
+## Основа и полный охват
 
-CRM проверяется в отдельном чистом worktree от опубликованного
-`30c6cb7c3e890e84593e34b9ac9fbf3df6961729`. Исходный checkout и работающая
-служба не обновляются. Manager-основа перед исправлениями —
-`53ea64c2149d10039037475da00e251fa26bb9f1`.
+Работа выполнена в отдельных worktree от опубликованных CRM
+`30c6cb7c3e890e84593e34b9ac9fbf3df6961729` и Manager
+`53ea64c2149d10039037475da00e251fa26bb9f1`. Исходные незакоммиченные изменения
+сохранены. Каждый цикл охватывает весь реестр, а после последнего исправления
+требует полного независимого перечитывания точной опубликованной ревизии.
 
-Каждый полный цикл включает все 24 исходных Markdown: шесть основных
-документов, пять карточек операций, 11 карточек владения техническим долгом,
-проектный скилл и предыдущий исторический отчёт. Этот отчёт становится 25-м
-Markdown и тоже проверяется на ссылки. Датированные отчёты исключены из
-runtime image; они не заменяют текущие инструкции.
+Реестр Manager содержит 222 записи: инструкции модулей, скиллы, справочники,
+карточки инструментов, JSON-каталоги и исторические отчёты; tracked Markdown —
+204, действующих документов — 212. Проверены все 122 automotive-карточки и
+70 зарегистрированных native tool schemas/annotations. Настоящие SDK models
+приняли 118 валидных примеров и отвергли 118 невалидных; четыре planned
+extensions не вызываются. Проверка внешних установленных skill entrypoints
+отделена от переносимого CI; каталог фиксирует выбранные имена, descriptions,
+frontmatter и hashes, а не произвольные сторонние skill bodies.
 
-Связанный охват: CommonMark audit и renderer, API/Gateway схемы конструктора,
-immutable bundle, portable template и infrastructure blueprint. Корпус
-конструктора содержит 233 инструкции: 15 модулей, 122 карточки операций и по
-48 инструкций template и blueprint. Каталог проверяется по точной ревизии и
-через воспроизведение из sealed Manager, а не по mutable checkout.
+В CRM каждый цикл включает все 24 исходных Markdown и настоящий 25-й отчёт:
+шесть основных документов, пять карточек операций, 11 карточек технического
+долга, проектный скилл и два исторических отчёта. Датированные отчёты исключены
+из runtime image и не заменяют текущие инструкции.
 
-## Подтверждённые исправления
+Связанный охват: генераторы, общий CommonMark parser и renderer, URL/anchor/
+line checks, API/Gateway схемы, immutable bundle, portable template и
+infrastructure blueprint. Browser corpus содержит 233 инструкции: 15 модулей,
+122 карточки операций и по 48 инструкций template и blueprint. Каталог
+воспроизводится из sealed Manager точной ревизии.
 
-Manager устраняет скрытую инициализацию в чтении checkpoint, исправляет шесть
-описаний сетевых/составных операций, фактический формат VIN-фото и тип SHA
-журнала M2. Каталоги и генерируемые карточки обновляются через источники.
-CRM получает экспорт точного опубликованного Manager-коммита после его CI.
+## Три полных цикла
 
-Полное перечитывание CRM дополнительно выявило противоречие в
-[README](../../README.md#manager-structure-constructor) и
-[API guide](../../API_GUIDE.md#manager-structure-constructor): тексты утверждали,
-что сохранённые SVG paths всегда orthogonal. Текущая реализация поддерживает
-manual quadratic/cubic curves. Оба текста теперь различают автоматически
-построенные orthogonal routes и сохранённые manual paths, включая перенос
-концов и соседних control points при перемещении модуля. Runtime/API не меняется.
-Проверка использует существующий browser сценарий
-`test_manual_curve_controls_canvas_and_api_screen_readback`: он сохраняет cubic
-path, сверяет API и DOM, затем двигает узел и проверяет перенос control point.
-
-Весь исходный Gateway-каталог сверяется с SDK: 24/24 tool names и каждый
-required/optional property set совпадают. Базовый name/inputSchema fingerprint:
-`b10378098f31e0416c5a0a2159957befcd1a6c8ecc56002d32cf388421e44913`.
-Схемы регистрируются с synthetic client и disposable DB target без вызова tools;
-БД не создаётся. Исторический fingerprint 2026-09-25 в карточке явно датирован
-и не выдаётся за текущий установленный контракт.
-
-## Итерации и проверки
-
-| Цикл | Полный охват | Результат |
+| Цикл | Полный review и исправления | Публикация и проверки |
 | --- | --- | --- |
-| 1 | Все 24 исходных Markdown, новый отчёт, bundle/template/blueprint и browser contract | Manager [0df106d](https://github.com/UgaChavis/AutostopManager/commit/0df106dae6779657f2c01bf200f1cdbf9dab468e) и его [CI](https://github.com/UgaChavis/AutostopManager/actions/runs/38118760767) прошли; CRM [d70b187](https://github.com/UgaChavis/AutostopCRM-V1/commit/d70b187cb72fca18c13c1835500938be66d34cc7), exact [CI](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38122827247) и независимое чтение завершены |
-| 2 | Повторный полный реестр и сверка с реализацией | Исправлены legacy module labels S7 и эффект status S9; Manager [775fdc8](https://github.com/UgaChavis/AutostopManager/commit/775fdc8926202e8dd7cd87262d0e26b98d1dc380), его exact [CI](https://github.com/UgaChavis/AutostopManager/actions/runs/38125740732) прошёл; CRM получает immutable export в коммите с этой версией отчёта |
-| 3 | Независимый review точной исправленной ревизии | Приёмка фиксируется после последнего исправления |
+| 1 | Полный реестр Manager/CRM, навигация, генерация, эффекты инструментов; CRM README/API guide исправляют описание manual curves | Manager [0df106d](https://github.com/UgaChavis/AutostopManager/commit/0df106dae6779657f2c01bf200f1cdbf9dab468e), [exact CI](https://github.com/UgaChavis/AutostopManager/actions/runs/38118760767); CRM [d70b187](https://github.com/UgaChavis/AutostopCRM-V1/commit/d70b187cb72fca18c13c1835500938be66d34cc7), [exact CI](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38122827247); полный локальный набор и независимое чтение завершены |
+| 2 | Весь реестр повторно сопоставлен с реализацией; Manager S5–S19, CRM legacy labels S7 и registry metadata effect S9; S20–S23 переданы третьему циклу | Manager [775fdc8](https://github.com/UgaChavis/AutostopManager/commit/775fdc8926202e8dd7cd87262d0e26b98d1dc380), [exact CI](https://github.com/UgaChavis/AutostopManager/actions/runs/38125740732); CRM [c5f2b59](https://github.com/UgaChavis/AutostopCRM-V1/commit/c5f2b592ab3d09f29ad84b3ed4bc2f4fc48dc99a), [exact CI](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38128211412); все пять CRM jobs и независимое чтение прошли |
+| 3 | Независимый полный review после последних исправлений; Manager S20/S21 и release kit, CRM selected-source preflight S22 и readonly catalog capability S23 | Manager [ba61cfa](https://github.com/UgaChavis/AutostopManager/commit/ba61cfa17690f496fae9ab7ce88e09ee2971b040), [exact CI](https://github.com/UgaChavis/AutostopManager/actions/runs/38128812372): прошёл. CRM публикует эту версию отчёта вместе с точным pin после обязательного полного `Profile ci`; exact-SHA CI и итоговая независимая приёмка привязываются к её коммиту после публикации |
 
-До экспорта нового Manager начальный CommonMark audit всех 24 исходных
-документов проверил 133 видимые ссылки без ошибок. Повторный audit с новым
-историческим отчётом тоже прошёл. Baseline bundle воспроизведён из sealed
-Manager; 10 focused asset/release/Gateway tests прошли. Полный browser corpus
-233/233 инструкции и 1 432 перехода совпал с независимым CommonMark oracle,
-page errors и внешних запросов нет. Эти результаты относятся к baseline pin;
-проверки каталога повторяются на новом точном опубликованном Manager.
-После изменений повторяются весь актуальный реестр, exact producer parity,
-generated JS и обязательный
-`pwsh -NoLogo -NoProfile -File scripts/run_checks.ps1 -Profile ci`.
-Отдельные checks не заменяют exact-SHA GitHub CI.
+Manager-исправления и их source counterparts подробно описаны в
+[отчёте Manager этой ревизии](https://github.com/UgaChavis/AutostopManager/blob/ba61cfa17690f496fae9ab7ce88e09ee2971b040/docs/reports/documentation-remediation-2026-10-11.md).
+Первый цикл исправил checkpoint read initialization, описания составных и
+сетевых операций, формат VIN-фото, тип SHA и генерируемые каталоги. Второй
+уточнил sourcing offer, выбор evidence source, module labels, повреждённый
+UTF-8, lifecycle/cleanup VIN и записи технического automation registry.
+Третий согласует SQL enqueue с отдельным network worker и учитывает lifecycle
+ошибки/housekeeping до disabled error в верхнем VIN reference.
 
-Для опубликованного CRM `d70b187…` полный локальный профиль завершился с
-прямым exit 0: 3 065 runtime tests, один пропуск optional Docker packaging,
-36 backup/restore tests, coverage 82,11%; остальные обязательные checks прошли.
-Первый запуск остановился на превышении performance-порога; source и пороги
-сохранены, повторные измерения той же реализации и полный профиль прошли.
-GitHub CI точного коммита выполнил Docker packaging и все release jobs успешно.
-Независимый review перечитал 25/25 Markdown, 3 155 строк и 165 видимых ссылок;
-все 601 source hashes совпали с проверенным локальным профилем. Sealed Manager
-producer/template parity и весь browser corpus 233/233, 1 432 links прошли
-повторно на опубликованном pin. Новых замечаний сверх переданных во второй цикл
-не обнаружено.
+В CRM [README](../../README.md#manager-structure-constructor) и
+[API guide](../../API_GUIDE.md#manager-structure-constructor) различают
+автоматические orthogonal routes и сохранённые manual quadratic/cubic paths.
+Существующий browser сценарий сохраняет cubic path, сверяет API/DOM, двигает
+узел и проверяет перенос конца и соседнего control point.
 
-Во втором цикле тексты CRM Web Research Gateway, CLI credential help и runbook
-теперь отличают legacy CRM E8 contract от текущего Manager E15. Актуальные
-Store инструкции обозначены F1/F2; старый E7 указан только как прежнее имя.
-Названия capabilities, inputSchema, credential keys, timeout constants и
-полномочия сохраняются. Карточка runtime уточняет, что status Automation Center
-может инициализировать и обновлять технические registry metadata Manager;
-отображение help не посылает control command. Эти исправления описывают
-существующее поведение, не добавляя business actions. Полная приёмка второго
-цикла требует проверок новой согласованной tuple и exact-SHA CRM CI.
-До нового pin прошли 110 существующих Gateway/web-safety/credential tests,
-Ruff и полный CommonMark audit. Synthetic SDK registration до и после
-исправлений сохраняет 24 public inputSchema и annotations; name/inputSchema
-fingerprint остаётся `b10378098f31e0416c5a0a2159957befcd1a6c8ecc56002d32cf388421e44913`.
-API и runtime AST отличаются только двумя описательными строками; tools не
-вызываются, disposable DB не создаётся. Эти checks пока используют sealed
-Manager первого цикла и не заменяют проверку каталога второго цикла.
+S7 отличает legacy CRM E8 contract от текущего Manager E15, а прежний Store E7
+от текущих F1/F2. S9 объясняет: help rendering не посылает control command,
+status может инициализировать/обновлять Manager technical registry metadata.
+Capability names, inputSchema, credential keys, timeouts и полномочия сохраняются.
+110 существующих Gateway/web-safety/credential tests, Ruff и CommonMark audit
+прошли до pin второго цикла; code AST меняет только описательные строки.
 
-Manager второго цикла опубликовал S1–S19; полный локальный release gate:
-5 818 tests за 597,46 s, coverage 87%, E2 branch coverage 87,87%.
-Sealed snapshot воспроизводит все 531 проверенных source files точной ревизии.
-Документация и source публикация не подтверждают обновление работающего Manager.
-Для pin `775fdc8…` exact sealed producer воспроизводит каталог, все 25 CRM
-Markdown проходят полный audit. SDK сохраняет 24 public inputSchema и annotations,
-generated JavaScript проверяет 12 scripts. Весь browser корпус 233/233 и 1 437
-links совпадает с CommonMark oracle; page errors, опасных DOM elements и внешних
-запросов нет. Template/blueprint parity и каждое non-instruction поле совпадают.
-Этот source фиксируется для обязательного полного `Profile ci`; CRM публикация
-допускается после его прямого exit 0, затем exact-SHA CI и независимого review.
+S22 исправляет release prerequisite: `AUTOSTOP_MANAGER_SOURCE_DIR` выбирает
+проверяемый clean Manager checkout на основной ветке с exact fetched remote
+SHA. Существующий dirty checkout сохраняется; можно подготовить отдельный
+clean clone и его `.venv`. `AUTOSTOP_MANAGER_RELEASE_PYTHON` выбирает preflight
+interpreter, CRM `.env` может переопределять process settings. Fixed native
+interpreter, `.env`, credential file и постоянная БД проверяются отдельно.
+Legacy Store readiness использует permanent DB в read-only режиме. Согласованы
+runbook, CLI card и synthetic schema examples; deploy code не меняется.
+
+S23 добавляет пропущенное `api:/api/manager_structure/tool_catalog`:
+authenticated readonly capability со строгим пустым `arguments: {}`.
+[MCP guide](../../MCP_GUIDE.md#manager-structure-through-raw-capabilities)
+перечисляет graph read, catalog read и owner apply; dialogue sequence явно
+называет graph-read/apply. Owner permission, CAS/version, outer idempotency key
+и независимый readback сохраняются. SDK публично регистрирует прежние 24 tools.
+
+## Доказательства проверок
+
+Первый CRM полный локальный профиль завершился с direct exit 0:
+3 065 runtime tests, один пропуск optional Docker packaging, 36 backup/restore
+checks, coverage 82,11%. Первый запуск превысил performance-порог; источники и
+пороги сохранены, повторные измерения и полный профиль прошли. GitHub CI exact
+commit выполнил Docker packaging и все release jobs. Независимо перечитаны
+25 Markdown, 3 155 строк, 165 видимых ссылок и все 601 source hashes; sealed
+producer/template parity и browser corpus 233/233, 1 432 links прошли.
+
+Второй Manager полный release gate: 5 818 tests за 597,46 s, coverage 87%,
+E2 branch coverage 87,87%, все 531 source hashes совпали с frozen manifest.
+Второй CRM полный `Profile ci` завершился с direct exit 0 и final marker:
+3 065 runtime tests за 1 559,073 s (один optional Docker skip), 36 backup tests
+за 6,450 s, coverage 82,10%, critical backup coverage 80,57%.
+Stage1 использовал прежние 20 samples / 2 warmups и все прежние thresholds;
+p95 feed read 4,4 ms, replay 0,7 ms, backend write 194,1 ms, storage 232,7 ms.
+Все 601 source hashes до/после и опубликованного archive совпали. Exact CI
+выполнил `docker-runtime-assets`, `unit`, `browser-performance`, `static`,
+`quality` успешно. Новый non-author reviewer перечитал все 25 Markdown,
+3 215 строк, 172 links и 233 rendered instructions / 1 437 links; кроме
+принятых для третьего цикла S22/S23 новых замечаний не нашёл.
+
+Третий Manager полный release gate повторён после последних исправлений:
+5 818 tests за 655,87 s, coverage 87%, E2 branches 87,87%; все 531 source hashes
+сохранены. Новый независимый полный review охватил 222/222 записей, все 122
+карточки, 70 native schemas/annotations и SDK примеры 118 accepted / 118
+rejected. Источники выполнения побайтно совпадают со вторым циклом;
+исправлены четыре Markdown. Синтетический J1 start проверил queued / one query /
+zero documents без network search; отдельно worker выполнил mock search.
+
+Первый локальный CRM профиль третьего цикла остановлен после ошибки
+существующего deployment test: проверка требовала две точные корректные
+формулировки runbook. Они восстановлены, selected-source prerequisites
+сохранены; runtime, tests и thresholds не менялись. Незавершённый запуск
+не засчитывается: focused RED/GREEN и повтор полного профиля после последней
+правки обязательны.
+
+CRM public SDK name/inputSchema fingerprint остаётся
+`b10378098f31e0416c5a0a2159957befcd1a6c8ecc56002d32cf388421e44913`;
+annotations проверяются отдельно. 24/24 required/optional property sets в
+карточке Gateway совпадают с SDK. Регистрация использует synthetic client,
+tools не вызываются, disposable DB не создаётся. Исторические fingerprints
+явно датированы и не выдаются за текущий installed contract.
+
+Дополнительный независимый raw/API/rights review проверил 94 pure cases:
+три constructor routes, 11 operations, CAS/key/status limits, 12 synthetic
+readbacks и 46 CRM workflow operations. Никакие сообщения, live providers,
+бизнес-записи или служебные journals не затрагиваются.
 
 Browser plugin отсутствует; используется проектный Playwright Chromium.
-Первый preflight обнаружил отсутствующий Chromium cache и остановился до
-запуска сценариев. Browser версии, требуемой уже установленным проектным
-Playwright, восстановлен; dependency pins не менялись. 12/12 targeted browser
-сценариев прошли без пропусков за 68,573 s; desktop/mobile и viewer screenshots
-проверены визуально. Browser проверки используют
-отдельную локальную CRM с synthetic data: exact revision links, CommonMark
-literals, unsafe URL blocking, owner/viewer, keyboard/focus, desktop/mobile,
-catalog/session/version races и manual curve readback. Live providers, CRM
-business records и реальные сообщения в этих сценариях не используются.
+Сценарии используют отдельную локальную CRM с synthetic state: exact revision
+links и переходы, CommonMark literals, опасные URL, owner/viewer, keyboard/focus,
+desktop/mobile, catalog/session/version races, manual curves. Весь corpus
+сверяется с независимым CommonMark oracle; внешние запросы блокируются.
+Desktop/mobile/viewer screenshots проверены визуально. Dependency pins не
+менялись. Генерация, проверки ссылок/anchors/line numbers, Ruff, code health,
+coverage, capability/feed parity, browsercore и performance входят в полный CI.
 
-## Полный реестр исходных CRM Markdown
+## Полный реестр CRM Markdown
 
 | Документ | Назначение |
 | --- | --- |
@@ -151,47 +168,47 @@ business records и реальные сообщения в этих сценар
 | [021-split-print-embedded-web-module.md](../../tech_debt/021-split-print-embedded-web-module.md) | карточка обслуживания кода |
 | [206-split-agent-runner-if-retained.md](../../tech_debt/206-split-agent-runner-if-retained.md) | карточка обслуживания кода |
 | [CRM skill](../../tools/codex/skills/autostopcrm-maintain/SKILL.md) | проектный скилл |
+| [Настоящий отчёт](documentation-remediation-2026-10-11.md) | исторический отчёт третьего цикла |
 
-## Публикация и последующий выпуск
+## Каталог и комплект согласованного выпуска
 
-Порядок каждого цикла: проверенный Manager-коммит → обычный push в
-`AutostopManager` → exact-SHA CI → immutable export → CRM проверки → отдельный
-CRM-коммит → обычный push в `autostopcrm-v1` → exact-SHA CI и независимое чтение.
-Source publication не устанавливает новую версию работающей службы.
-
-Каталог первого цикла привязан к
-`0df106dae6779657f2c01bf200f1cdbf9dab468e`, content hash
-`5b0cde9ef1e5ba382749bfb5ed758742dbcab3ad3731eb37d0a104ff40cc2bea`.
-Portable template/blueprint обновлены из sealed Manager через штатный генератор
-по свежему read-only graph version 164: 48 nodes, 37 relations. Независимое
-сравнение каждого поля, кроме instruction, подтвердило неизменную геометрию,
-IDs, paths и связи. Portable artifacts не содержат commissioning records.
-Offline patch первого цикла содержит A4/A5/E9/E15; live apply не выполняется.
-Число и набор будущих изменений определяются заново после окончательных
-исправлений, этот patch не является итоговым выпуском.
-
-Каталог второго цикла привязан к
-`775fdc8926202e8dd7cd87262d0e26b98d1dc380`, content hash
+Каталоги первых двух циклов связаны соответственно с Manager
+`0df106dae6779657f2c01bf200f1cdbf9dab468e` / content hash
+`5b0cde9ef1e5ba382749bfb5ed758742dbcab3ad3731eb37d0a104ff40cc2bea` и
+`775fdc8926202e8dd7cd87262d0e26b98d1dc380` / content hash
 `8f3188a1e292e1b62ea46e6c0a356b6ef887227ed1fe6b98dd7a9162a8f734ca`.
-Template/blueprint обновлены из sealed источника по повторному source-typed
-graph version 164, 48 nodes и 37 relations. Каждое поле, кроме instruction,
-сохранено; instruction-only offline preview меняет J1/A4/A5/E9/E15.
-Tool statuses и commissioning records не публикуются в portable artifacts.
-Этот preview не является разрешением live apply и не заменяет свежий graph
-перед окончательным согласованным выпуском.
+Итоговый каталог привязан к `ba61cfa17690f496fae9ab7ce88e09ee2971b040`,
+content hash `8f3188a1e292e1b62ea46e6c0a356b6ef887227ed1fe6b98dd7a9162a8f734ca`. Producer parity требует точный sealed
+source и независимо воспроизводит export; relative links разрешаются от
+исходного Markdown и связываются с ревизией этого bundle.
 
-Второй review исправляет контекст sourcing offer, выбор источника evidence,
-старые обозначения модулей, неверный UTF-8 в checkpoint и точность описания
-служебных записей automation registry. Независимый review нашёл ещё S20/S21:
-различие SQL enqueue и network worker в J1, а также unconditional disabled error
-и эффект локального чтения в верхнем VIN reference. Они переданы третьему циклу.
-Первый и второй циклы не утверждают чистую итоговую приёмку; третья независимая
-проверка и exact-SHA gates остаются обязательными.
+Portable template/blueprint обновляются через штатный генератор по source-typed
+technical graph version 164: 48 nodes, 37 relations. Каждое поле, кроме
+instruction, независимо сравнивается: IDs, canvas, geometry, paths, styles и
+relations сохраняются. Tool statuses, commissioning records и raw private graph
+не публикуются. Instruction-only offline preview не выполняет live apply.
+Набор окончательных изменений определяется после последнего pin; перед
+реальным выпуском нужны новый полный read и текущая graph version.
 
-Комплект согласованного выпуска содержит точные Manager/CRM SHA, content hash,
-sealed producer, свежий технический graph snapshot, instruction-only patch и
-инструкцию отката. Preview/apply requests готовятся offline; применение требует
-нового полного чтения, текущей version, owner/CAS/idempotency и независимого
-readback. Canvas, IDs, ручные paths, связи, права и commissioning records
-сохраняются. Старую подготовку графа нельзя повторно применять после изменения
-Manager или live version. Выпуск следует [runbook](../OPERATIONS_RUNBOOK.md).
+[Комплект выпуска Manager](https://github.com/UgaChavis/AutostopManager/blob/ba61cfa17690f496fae9ab7ce88e09ee2971b040/docs/agent/references/deployment.md#комплект-для-выпуска-документации)
+содержит порядок выбора clean sources, exact Manager/CRM SHA и CI, immutable
+bundle/content hash, persistent/native dependency checks, не менее 30 GiB плюс
+release reserve, свежий технический graph snapshot, instruction-only patch и
+rollback ограничения. Apply использует owner/CAS/idempotency и независимый
+readback. Старый preview нельзя повторно применять после изменения Manager или
+live version. Выпуск выполняется по [CRM runbook](../OPERATIONS_RUNBOOK.md).
+
+## Завершение третьего цикла
+
+Порядок каждого цикла: Manager gates → отдельный commit → обычный main push →
+exact-SHA CI → sealed export → полный CRM registry/corpus/gates → отдельный
+CRM commit → обычный main push → exact-SHA CI и независимое перечитывание.
+При изменении remote ref требуется согласование и повтор затронутых проверок.
+
+CRM коммит с этой версией отчёта допускается только после direct exit 0 полного
+`pwsh -NoLogo -NoProfile -File scripts/run_checks.ps1 -Profile ci` на неизменном
+source manifest. После публикации точный SHA, все обязательные GitHub jobs и
+последняя независимая проверка фиксируются во внешних immutable acceptance
+proofs и итоговом отчёте задачи. Отчёт не выдумывает собственный commit SHA или
+результат ещё не завершённого CI. Любая непроверенная обязательная часть
+остаётся открытой; новые замечания требуют следующего полного цикла.
