@@ -127,10 +127,11 @@ yellow **«Временно не работает»**, or green **«Работа
 mark. Other operators only read the mark. These marks never call or enable a
 provider, and never establish part fitment or stock.
 
-Orthogonal routes may cross at a visible bridge. Shared runs and free parallel
-lanes closer than 10 diagram units are rejected. Saved SVG paths remain
-orthogonal; bridges are
-drawn by the constructor.
+Generated orthogonal routes may cross at a visible bridge. Shared runs and free
+parallel lanes closer than 10 diagram units are rejected. Manual routes can also
+use quadratic or cubic SVG curves; their saved paths are preserved, with endpoints
+and adjacent control points adjusted when a connected module moves. The
+constructor draws crossing bridges for orthogonal routes.
 
 The diagram is durable CRM data in `manager_structure.json` beside the CRM
 state. If an existing CRM has a saved `telegram_agent_behavior` graph, the

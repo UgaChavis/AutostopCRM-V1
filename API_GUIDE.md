@@ -93,8 +93,12 @@ routeable position and returns `adjusted: true` plus `accepted_element`.
 Both layout operations return calculated `routes` (relation ID to saved SVG
 path) for readback verification. If routing fails, HTTP 422 leaves the
 prior diagram intact. Existing v1 paths remain readable; text-only upserts
-preserve them. A route can contain a perpendicular crossing; the browser draws
-a bridge at that point. The stored SVG `path` remains orthogonal.
+preserve them. Automatic routes remain orthogonal, and the browser draws a bridge
+at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
+curves; their saved paths are preserved, with endpoints and adjacent control
+points adjusted when a connected module moves. See the
+[constructor contract](docs/agent/module_operations/manager_structure.md#programmatic-operations)
+for route modes, anchors and label controls.
 
 The authenticated `GET|POST /api/manager_structure/tool_catalog` reads the
 self-contained `autostop.automotive-tools.bundle.v1` artifact shipped inside the
