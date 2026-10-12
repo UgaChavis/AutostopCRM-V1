@@ -23,6 +23,7 @@ from minimal_kanban.services.manager_tool_catalog import (  # noqa: E402
 PRODUCER_CODE = """
 import json, sys
 from pathlib import Path
+sys.stdout.reconfigure(encoding='utf-8')
 sys.path.insert(0, sys.argv[1])
 from mcp.server.fastmcp import FastMCP
 from autostop_manager.mcp_tools import register_manager_tools
@@ -31,7 +32,7 @@ from autostop_manager.automotive_catalog import build_bundle
 root = Path(sys.argv[1]); server = FastMCP('crm-catalog-release-check')
 register_manager_tools(server)
 schemas = {name: tool.parameters for name,tool in server._tool_manager._tools.items()}
-registry = json.loads((root/'docs/agent/automotive_tools.json').read_text())
+registry = json.loads((root/'docs/agent/automotive_tools.json').read_text(encoding='utf-8'))
 print(json.dumps(build_bundle(root,registry,schemas,PARTSAPI_OPERATIONS,sys.argv[2]),ensure_ascii=False))
 """
 

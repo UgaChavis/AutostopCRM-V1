@@ -128,7 +128,7 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
             result = self.service.apply(self.request())
             self.assertEqual(result["version"], 8)
             self.assertTrue(self.service.apply(self.request())["deduplicated"])
-        saved = json.loads(self.file.read_text())
+        saved = json.loads(self.file.read_text(encoding="utf-8"))
         expected = copy.deepcopy(self.before)
         expected["elements"][1]["instruction"] = "Новое"
         for field in ("canvas", "elements", "relations", "tool_statuses"):
@@ -173,7 +173,7 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
         self.service.apply(self.request())
         expected = copy.deepcopy(graph)
         next(n for n in expected["elements"] if n["id"] == "E2")["instruction"] = "Новое"
-        saved = json.loads(self.file.read_text())
+        saved = json.loads(self.file.read_text(encoding="utf-8"))
         for field in ("canvas", "elements", "relations", "tool_statuses"):
             self.assertEqual(saved[field], expected[field])
         with patch.object(

@@ -1,3 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 *.sh text eol=lf
+# This pinned vendor distribution is verified byte-for-byte on every platform.
+src/minimal_kanban/web_app_assets/source/markdown_it.js text eol=lf

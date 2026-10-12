@@ -1179,6 +1179,16 @@ printf 'status=%s\n' "$status"
             root = Path(directory)
             (root / ".env").write_text("", encoding="utf-8")
             environment = {"PATH": os.defpath, "HOME": directory}
+            # Docker Desktop installs Compose next to its CLI, and normally
+            # discovers it through the user's config. Keep that config private
+            # while providing the installed plugin directory to this temp run.
+            docker = Path(shutil.which("docker") or "docker")
+            plugins = docker.parent.parent / "cli-plugins"
+            environment["DOCKER_CONFIG"] = directory
+            (root / "config.json").write_text(
+                json.dumps({"cliPluginsExtraDirs": [str(plugins)] if plugins.is_dir() else []}),
+                encoding="utf-8",
+            )
             environment["AUTOSTOP_MCP_OAUTH_STATE_KEY"] = "synthetic-oauth-state-key"
             for suffix in (
                 "ENABLED",

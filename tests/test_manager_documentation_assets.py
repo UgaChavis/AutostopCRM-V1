@@ -31,7 +31,9 @@ class _Scripts(HTMLParser):
 class ManagerDocumentationAssetsTests(unittest.TestCase):
     def test_pinned_vendor_checksum_and_complete_notices(self):
         source = resources.files("minimal_kanban.web_app_assets").joinpath("source")
-        manifest = json.loads(source.joinpath("markdown_it.provenance.json").read_text())
+        manifest = json.loads(
+            source.joinpath("markdown_it.provenance.json").read_text(encoding="utf-8")
+        )
         vendor = source.joinpath(manifest["file"]).read_bytes()
         # Independently verified official markdown-it 15.0.2 UMD distribution.
         self.assertEqual(
@@ -41,7 +43,7 @@ class ManagerDocumentationAssetsTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(vendor).hexdigest(), manifest["sha256"])
         self.assertEqual(len(vendor), manifest["bytes"])
         self.assertEqual(manifest["version"], "15.0.2")
-        notices = source.joinpath(manifest["license_file"]).read_text()
+        notices = source.joinpath(manifest["license_file"]).read_text(encoding="utf-8")
         self.assertIn("Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin", notices)
         self.assertEqual(
             {item["name"]: item["license"] for item in manifest["bundled_components"]}["entities"],
@@ -57,7 +59,7 @@ class ManagerDocumentationAssetsTests(unittest.TestCase):
     def test_packaged_screen_expands_parser_and_renderer_without_network(self):
         source = resources.files("minimal_kanban.web_app_assets").joinpath("source")
         for name in ("markdown_it.js", "manager_documentation.js"):
-            self.assertIn(source.joinpath(name).read_text(), MANAGER_STRUCTURE_HTML)
+            self.assertIn(source.joinpath(name).read_text(encoding="utf-8"), MANAGER_STRUCTURE_HTML)
         self.assertNotIn("// @include", MANAGER_STRUCTURE_HTML)
         scripts = _Scripts()
         scripts.feed(MANAGER_STRUCTURE_HTML)
