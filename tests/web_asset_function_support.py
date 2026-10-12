@@ -23,6 +23,10 @@ _PERSIST_HELPERS = (
 def functions(file_name: str, *names: str) -> str:
     source = read_board_source(file_name)
     dependencies = list(names)
+    if {"refreshActiveCardFiles", "removeActiveCardAttachment", "uploadProvidedFiles"}.intersection(
+        names
+    ):
+        dependencies.append("cardFilesApi")
     if "persistCardPayload" in names:
         dependencies.extend(_PERSIST_HELPERS)
     if "createClientForCard" in names:

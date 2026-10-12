@@ -58,6 +58,7 @@ _AUXILIARY_SHARED_NAMES = (
     "attachmentExtension",
     "attachmentMimeTypeFromExtension",
     "captureViewerRequestContext",
+    "cardFilesApi",
     "cardHeading",
     "clipboardAttachmentName",
     "columnLabelById",

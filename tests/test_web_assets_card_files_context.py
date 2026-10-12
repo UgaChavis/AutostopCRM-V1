@@ -226,7 +226,7 @@ function closeCardModal(){}
 function deferCardSeen(){}
 api=async(path,options)=>{
   calls.push({path,options});
-  if(path==='/api/add_card_attachment')return {file:{id:'uploaded'}};
+  if(path==='/api/add_card_attachment')return {attachment:{id:'uploaded'}};
   if(path.startsWith('/api/get_card?'))return {card:{id:'A',attachments:[{id:'uploaded'}]}};
   throw new Error('unexpected mutation '+path);
 };

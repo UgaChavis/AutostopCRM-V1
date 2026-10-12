@@ -131,11 +131,15 @@
       state.sharedFilesRequestSeq = requestSeq;
       const viewerStateGeneration = state.viewerStateGeneration;
       const operatorSessionToken = state.operatorSessionToken;
+      const stack = state.modalStack || [];
+      const parent = stack.at(-1);
+      const modal = stack.find((entry) => entry?.key === 'shared-files');
       const isCurrent = () => state.sharedFilesRequestSeq === requestSeq
         && state.viewerStateGeneration === viewerStateGeneration
-        && state.operatorSessionToken === operatorSessionToken;
+        && state.operatorSessionToken === operatorSessionToken
+        && (openModal ? (state.modalStack || []).at(-1) === parent : !modal || (state.modalStack || []).includes(modal));
       try {
-        const data = await api('/api/list_shared_files');
+        const data = await cardFilesApi('/api/list_shared_files');
         if (!isCurrent()) return null;
         state.sharedFiles = Array.isArray(data?.files) ? data.files : [];
         state.sharedFilesStorage = data?.storage || null;
@@ -311,7 +315,7 @@
 
     async function pasteSharedFilesFromLocalClipboard(dropPoint, context) {
       const point = normalizeSharedFilesDropPoint(dropPoint);
-      const pasted = await api('/api/paste_shared_files_from_clipboard', {
+      const pasted = await cardFilesApi('/api/paste_shared_files_from_clipboard', {
         method: 'POST',
         body: {
           actor_name: context.actorName,
@@ -504,7 +508,7 @@
           const mimeType = normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
           const point = sharedFilesUploadPoint(index, baseIndex, normalizedDropPoint);
           attemptedWrites += 1;
-          const uploaded = await api('/api/upload_shared_file', {
+          const uploaded = await cardFilesApi('/api/upload_shared_file', {
             method: 'POST',
             body: {
               actor_name: context.actorName,
@@ -569,7 +573,7 @@
       const context = beginSharedFilesMutation({ fileId: file.id });
       if (!context) return;
       try {
-        const data = await api('/api/rename_shared_file', {
+        const data = await cardFilesApi('/api/rename_shared_file', {
           method: 'POST',
           body: { file_id: file.id, file_name: normalized, actor_name: context.actorName, source: 'ui' },
         });
@@ -595,7 +599,7 @@
       const context = beginSharedFilesMutation({ fileId: file.id });
       if (!context) return;
       try {
-        const data = await api('/api/copy_shared_file', {
+        const data = await cardFilesApi('/api/copy_shared_file', {
           method: 'POST',
           body: { file_id: file.id, actor_name: context.actorName, source: 'ui' },
         });
@@ -624,20 +628,39 @@
       const snappedPoint = sharedFilesSnapPointToGrid(basePoint.x, basePoint.y);
       const context = beginSharedFilesMutation({ clipboardId });
       if (!context) return;
+      const key = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, clipboardId]);
+      let checkpoint = state.sharedFilesPasteCheckpoint;
+      if (!checkpoint || checkpoint.key !== key) {
+        checkpoint = { key, fileId: '', uncertain: false };
+        state.sharedFilesPasteCheckpoint = checkpoint;
+      }
       try {
-        const data = await api('/api/paste_shared_file', {
-          method: 'POST',
-          body: {
-            source_id: clipboardId,
-            x: snappedPoint.x,
-            y: snappedPoint.y,
-            actor_name: context.actorName,
-            source: 'ui',
-          },
-        });
+        if (checkpoint.uncertain) {
+          throw new Error('РЕЗУЛЬТАТ ВСТАВКИ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.');
+        }
+        if (!checkpoint.fileId) {
+          try {
+            const data = await cardFilesApi('/api/paste_shared_file', {
+            method: 'POST',
+            body: {
+              source_id: clipboardId,
+              x: snappedPoint.x,
+              y: snappedPoint.y,
+              actor_name: context.actorName,
+              source: 'ui',
+            },
+            });
+            if (!context.ownsRequest()) return;
+            if (!data?.file?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ВСТАВКУ ФАЙЛА.');
+            checkpoint.fileId = data.file.id;
+          } catch (error) {
+            if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+            throw error;
+          }
+        }
         if (!context.ownsRequest()) return;
-        context.selectCreatedFile(data?.file?.id);
-        await loadSharedFiles();
+        context.selectCreatedFile(checkpoint.fileId);
+        if (await loadSharedFiles()) state.sharedFilesPasteCheckpoint = null;
       } catch (error) {
         if (!context.ownsRequest()) return;
         const reconciled = Boolean(await loadSharedFiles());
@@ -657,7 +680,7 @@
       const context = beginSharedFilesMutation({ fileId: file.id });
       if (!context) return;
       try {
-        await api('/api/delete_shared_file', {
+        await cardFilesApi('/api/delete_shared_file', {
           method: 'POST',
           body: { file_id: file.id, actor_name: context.actorName, source: 'ui' },
         });
@@ -742,7 +765,7 @@
         return;
       }
       try {
-        const data = await api('/api/update_shared_file_position', {
+        const data = await cardFilesApi('/api/update_shared_file_position', {
           method: 'POST',
           body: { file_id: drag.fileId, x, y, actor_name: context.actorName, source: 'ui' },
         });

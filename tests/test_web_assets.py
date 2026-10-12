@@ -191,16 +191,16 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="sharedFilesButton">ФАЙЛЫ</button>', BOARD_WEB_APP_HTML)
         self.assertIn('id="sharedFilesModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="sharedFilesDesktop"', BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/list_shared_files'", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/upload_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/list_shared_files'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/upload_shared_file'", BOARD_WEB_APP_HTML)
         self.assertIn(
             "const SHARED_FILE_UPLOAD_MAX_SIZE_BYTES = 25 * 1024 * 1024;", BOARD_WEB_APP_HTML
         )
         self.assertIn("if (file.size > SHARED_FILE_UPLOAD_MAX_SIZE_BYTES)", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/rename_shared_file'", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/delete_shared_file'", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/update_shared_file_position'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/rename_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/delete_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/paste_shared_file'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/update_shared_file_position'", BOARD_WEB_APP_HTML)
 
     def test_shared_files_desktop_supports_context_and_clipboard_paste(self) -> None:
         self.assertIn('class="shared-files-context-menu"', BOARD_WEB_APP_HTML)
@@ -211,7 +211,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".shared-file-icon {", BOARD_WEB_APP_HTML)
         self.assertIn("cursor: grab;", BOARD_WEB_APP_HTML)
         self.assertIn(".shared-file-icon.is-dragging {", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/paste_shared_files_from_clipboard'", BOARD_WEB_APP_HTML)
+        self.assertIn("cardFilesApi('/api/paste_shared_files_from_clipboard'", BOARD_WEB_APP_HTML)
         self.assertIn("function sharedFilesDropPointFromEvent(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function sharedFilesGridSlotFromPoint(x, y)", BOARD_WEB_APP_HTML)
         self.assertIn("function sharedFilesGridPointFromSlot(slot)", BOARD_WEB_APP_HTML)

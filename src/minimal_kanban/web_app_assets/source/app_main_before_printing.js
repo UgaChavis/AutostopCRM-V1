@@ -173,6 +173,7 @@
       cardSaveControls: null,
       cardSavePromise: null,
       cardFilesMutationRequest: null,
+      cardFileUploadCheckpoint: null,
       cardTimerState: 'inactive',
       cardTimerSaving: false,
       cardTimerTickHandle: null,
@@ -409,6 +410,7 @@
         attachmentExtension,
         attachmentMimeTypeFromExtension,
         captureViewerRequestContext,
+        cardFilesApi,
         cardHeading,
         clipboardAttachmentName,
         columnLabelById,
@@ -2274,20 +2276,25 @@
 
     async function fetchAttachmentBlob(url, { networkErrorMessage = 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ФАЙЛ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.' } = {}) {
       const headers = attachmentRequestHeaders();
-      let response;
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 90000);
       try {
-        response = await fetch(url, { headers, cache: 'no-store' });
-      } catch (_) {
-        throw new Error(networkErrorMessage);
+        let response;
+        try {
+          response = await fetch(url, { headers, cache: 'no-store', signal: controller.signal });
+        } catch (_) {
+          throw new Error(networkErrorMessage);
+        }
+        if (response.status === 401) throw new Error(accessDeniedMessage());
+        if (!response.ok) throw new Error('ФАЙЛ НЕДОСТУПЕН: HTTP ' + response.status);
+        try {
+          return { response, blob: await response.blob() };
+        } catch (_) {
+          throw new Error(networkErrorMessage);
+        }
+      } finally {
+        window.clearTimeout(timeoutId);
       }
-      if (response.status === 401) {
-        throw new Error(accessDeniedMessage());
-      }
-      if (!response.ok) {
-        throw new Error('ФАЙЛ НЕДОСТУПЕН: HTTP ' + response.status);
-      }
-      const blob = await response.blob();
-      return { response, blob };
     }
 
     async function downloadAttachment(url) {
@@ -2507,6 +2514,7 @@
         sharedFiles: [], sharedFilesActiveId: '', sharedFilesStorage: null,
         sharedFilesClipboardId: '', sharedFilesContextPoint: null, sharedFilesDrag: null,
         sharedFilesMutationRequest: null,
+        sharedFilesPasteCheckpoint: null,
         clientMutationRequest: null,
         gptWall: null, gptWallView: 'board_content',
       });
@@ -12147,6 +12155,7 @@
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       state.cardSaveRequest = null;
       state.cardFilesMutationRequest = null;
+      state.cardFileUploadCheckpoint = null;
       state.archiveMutationRequest = null;
       state.repairOrderMutationRequest = null;
       state.repairOrderOpenRequest = null;
@@ -12436,7 +12445,7 @@
         ? state.filePreview
         : { attachmentId: '', fileName: '', objectUrl: '', loading: false, error: '' };
       const attachment = findCardAttachment(card, preview.attachmentId);
-      if (preview.attachmentId && !preview.loading && (!attachment || !attachmentIsPreviewable(attachment))) {
+      if (preview.attachmentId && (!attachment || !attachmentIsPreviewable(attachment))) {
         clearFilePreview();
         return;
       }
@@ -12519,40 +12528,47 @@
         return;
       }
       clearFilePreview({ sync: false });
-      state.filePreview = {
+      const request = {
         attachmentId: String(attachment.id || '').trim(),
         fileName: String(attachment.file_name || '').trim(),
         objectUrl: '',
         loading: true,
         error: '',
       };
+      state.filePreview = request;
+      const cardId = String(state.editingId);
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const editing = state.cardEditingGeneration || 0;
+      const isCurrent = () => state.filePreview === request
+        && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
+        && (state.cardEditingGeneration || 0) === editing && String(state.editingId) === cardId
+        && Boolean(findCardAttachment(state.activeCard, attachment.id));
       syncFilePreview(state.activeCard);
       try {
         const { blob } = await fetchAttachmentBlob(withAccessToken(attachmentDownloadPath(state.editingId, attachment.id)), {
           networkErrorMessage: 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ИЗОБРАЖЕНИЕ. ПРОВЕРЬ СЕТЬ И ДОСТУП К ДОСКЕ.',
         });
+        if (!isCurrent()) return;
         const blobMimeType = normalizeAttachmentMimeType(blob.type);
         const attachmentMimeType = normalizeAttachmentMimeType(attachment.mime_type || '');
         if (!blobMimeType.startsWith('image/') && !attachmentMimeType.startsWith('image/')) {
           throw new Error('ФАЙЛ НЕ ЯВЛЯЕТСЯ ИЗОБРАЖЕНИЕМ ДЛЯ ПРОСМОТРА.');
         }
-        state.filePreview = {
-          attachmentId: String(attachment.id || '').trim(),
-          fileName: String(attachment.file_name || '').trim(),
+        Object.assign(request, {
           objectUrl: URL.createObjectURL(blob),
           loading: false,
           error: '',
-        };
+        });
         syncFilePreview(state.activeCard);
       } catch (error) {
-        clearFilePreview({ sync: false });
-        state.filePreview = {
-          attachmentId: String(attachment.id || '').trim(),
-          fileName: String(attachment.file_name || '').trim(),
+        if (!isCurrent()) return;
+        revokeFilePreviewObjectUrl();
+        Object.assign(request, {
           objectUrl: '',
           loading: false,
           error: String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ИЗОБРАЖЕНИЕ.'),
-        };
+        });
         syncFilePreview(state.activeCard);
         setStatus(state.filePreview.error, true);
       }
@@ -12641,13 +12657,25 @@
       return false;
     }
 
+    async function cardFilesApi(path, options = {}) {
+      if (options.method !== 'POST') return api(path, options);
+      const controller = new AbortController();
+      const timeoutId = globalThis.setTimeout(() => controller.abort(), 90000);
+      try {
+        return await api(path, { ...options, signal: controller.signal });
+      } finally {
+        globalThis.clearTimeout(timeoutId);
+      }
+    }
+
     async function refreshActiveCardFiles(context = null) {
       const cardId = String(context?.cardId || state.editingId || '').trim();
       if (!cardId) return null;
       const editingContext = context ? null : captureCardEditingContext();
+      const version = state.activeCard?.updated_at;
       const isCurrent = context?.isCurrent || (() => editingContext() && String(state.editingId || '').trim() === cardId);
-      const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
-      if (!isCurrent()) return null;
+      const data = await cardFilesApi('/api/get_card?card_id=' + encodeURIComponent(cardId));
+      if (!isCurrent() || (!context && state.activeCard?.updated_at !== version)) return null;
       state.activeCard = data.card;
       state.activeCardIsFull = true;
       cacheFullCard(data.card);
@@ -12665,7 +12693,7 @@
       const context = beginCardFilesMutation({ attachmentId: normalizedAttachmentId });
       if (!context) return null;
       try {
-        await api('/api/remove_card_attachment', {
+        await cardFilesApi('/api/remove_card_attachment', {
           method: 'POST',
           body: {
             card_id: context.cardId,
@@ -15869,40 +15897,72 @@
       }
       const context = beginCardFilesMutation();
       if (!context) return null;
+      const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, state.cardEditingGeneration || 0, context.cardId]);
+      const signature = JSON.stringify(selectedFiles.map((file) => [file.name, file.size, file.type, file.lastModified]));
+      let checkpoint = state.cardFileUploadCheckpoint;
+      if (!checkpoint || checkpoint.ownerKey !== ownerKey || checkpoint.signature !== signature) {
+        checkpoint = { ownerKey, signature, receipts: [], uncertain: false };
+        state.cardFileUploadCheckpoint = checkpoint;
+      }
       let attemptedWrites = 0;
-      let completedWrites = 0;
+      let completedWrites = checkpoint.receipts.filter(Boolean).length;
+      let readback = null;
       try {
+        if (checkpoint.uncertain) {
+          readback = await refreshActiveCardFiles(context);
+          throw new Error('РЕЗУЛЬТАТ ПОСЛЕДНЕЙ ЗАГРУЗКИ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.');
+        }
         const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
-        for (const file of normalizedFiles) {
+        for (let index = 0; index < normalizedFiles.length; index += 1) {
+          const file = normalizedFiles[index];
           if (!context.isCurrent()) return null;
           const buffer = await file.arrayBuffer();
           if (!context.isCurrent()) return null;
+          const receipt = checkpoint.receipts[index];
+          if (receipt) {
+            const { blob } = await fetchAttachmentBlob(withAccessToken(attachmentDownloadPath(context.cardId, receipt)));
+            const saved = new Uint8Array(await blob.arrayBuffer());
+            const current = new Uint8Array(buffer);
+            if (!context.isCurrent()) return null;
+            if (saved.length !== current.length || !saved.every((value, offset) => value === current[offset])) {
+              throw new Error('ВЫБРАННЫЙ ФАЙЛ ИЗМЕНИЛСЯ. ВЫБЕРИТЕ НЕЗАВЕРШЁННЫЕ ФАЙЛЫ ОТДЕЛЬНО.');
+            }
+            continue;
+          }
           const base64 = arrayBufferToBase64(buffer);
           attemptedWrites += 1;
-          await api('/api/add_card_attachment', {
-            method: 'POST',
-            body: {
-              card_id: context.cardId,
-              actor_name: context.actorName,
-              source: 'ui',
-              file_name: file.name,
-              mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
-              content_base64: base64,
-            },
-          });
+          let data;
+          try {
+            data = await cardFilesApi('/api/add_card_attachment', {
+              method: 'POST',
+              body: {
+                card_id: context.cardId,
+                actor_name: context.actorName,
+                source: 'ui',
+                file_name: file.name,
+                mime_type: normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(attachmentExtension(file.name)) || 'application/octet-stream',
+                content_base64: base64,
+              },
+            });
+            if (!data?.attachment?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ ФАЙЛА.');
+          } catch (error) {
+            if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+            throw error;
+          }
           if (!context.isCurrent()) return null;
+          checkpoint.receipts[index] = data.attachment.id;
           completedWrites += 1;
         }
         const card = await refreshActiveCardFiles(context);
         if (!card || !context.isCurrent()) return null;
         state.cardJournalLoadedFor = '';
+        state.cardFileUploadCheckpoint = null;
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         await refreshSnapshot(true);
         return completedWrites;
       } catch (error) {
         if (!context.ownsRequest()) return null;
-        let readback = null;
-        if (attemptedWrites) {
+        if (!readback && (attemptedWrites || completedWrites)) {
           try {
             readback = await refreshActiveCardFiles(context);
           } catch (_) {

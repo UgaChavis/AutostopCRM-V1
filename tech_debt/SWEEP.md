@@ -31,7 +31,7 @@ portions still participate in the final whole-application integration pass.
 | --- | --- | --- |
 | Desktop cards: create/update, one click, conflict, uncertain reply, client/vehicle stages; close after all confirmed actions, retain draft on errors | 11 real-browser regressions; drafts, ownership, partial completion, stale snapshot and bounded module loading | Portion accepted at `b7a35a3`; final integration pending |
 | Columns and badges: stable ID through create/rename/order/delete, personal copies, hover/open, own/other changes, reload/login | Five browser badge regressions with two users and personal copies; full column smoke | Portion accepted at `b7a35a3`; final integration pending |
-| Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Local CI passed; exact-SHA hosted acceptance pending |
+| Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
 | Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | Existing smoke and contracts; deeper failure pass pending | pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
 | Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Lost committed cashbox reply followed by retry sends two writes; UI fix queued | pending |
@@ -52,15 +52,15 @@ portions still participate in the final whole-application integration pass.
 | UI-05 | Open NEW and reload: acknowledgement was suppressed | Separate pending optimism and confirmed read | `b7a35a3` |
 | UI-06 | Release snapshot sampled before save: previous title restored | Advance mutation generation on confirmed writes | `b7a35a3` |
 | UI-07 | Lost no-op update, readback succeeds, NEW returns on reload | Preserve change metadata and confirm personal read | `b7a35a3` |
-| UI-08 | Create client, fail saved-card link, retry: create sent again | Keep client ID and retry only the link | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-09 | Create client for unsaved card, fail vehicle stage, retry: create sent again | Keep client checkpoint and retry unfinished vehicle stage | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-10 | Link response replaces unsaved card title/description | Update confirmed association while retaining draft and dirty state | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-11 | Popup fields editable during pending client creation | Freeze popup controls, prevent repeat submit, restore on errors | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-12 | Close creation popup, open another, release old reply: new popup affected | Bind result to card, viewer and popup generation | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-13 | Client profile fields editable during save/refresh and overwritten | Lock owned controls until confirmed rendering, restore on errors/logout | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-14 | Lose profile-create reply after commit, retry: create sent again | Read list, retain draft, block blind repeat without a known receipt ID | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-15 | Vehicle refresh fills profile and erases unsaved comment | Refresh vehicles, restore edited profile fields and dirty baseline | `aa1b697`; hosted acceptance pending ENV-02 |
-| UI-16 | Lose new-vehicle reply after commit, retry: upsert sent again | Read profile, stop blind create; known-ID update/delete reconcile by reading | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-08 | Create client, fail saved-card link, retry: create sent again | Keep client ID and retry only the link | `aa1b697`; accepted at `a852bcd` |
+| UI-09 | Create client for unsaved card, fail vehicle stage, retry: create sent again | Keep client checkpoint and retry unfinished vehicle stage | `aa1b697`; accepted at `a852bcd` |
+| UI-10 | Link response replaces unsaved card title/description | Update confirmed association while retaining draft and dirty state | `aa1b697`; accepted at `a852bcd` |
+| UI-11 | Popup fields editable during pending client creation | Freeze popup controls, prevent repeat submit, restore on errors | `aa1b697`; accepted at `a852bcd` |
+| UI-12 | Close creation popup, open another, release old reply: new popup affected | Bind result to card, viewer and popup generation | `aa1b697`; accepted at `a852bcd` |
+| UI-13 | Client profile fields editable during save/refresh and overwritten | Lock owned controls until confirmed rendering, restore on errors/logout | `aa1b697`; accepted at `a852bcd` |
+| UI-14 | Lose profile-create reply after commit, retry: create sent again | Read list, retain draft, block blind repeat without a known receipt ID | `aa1b697`; accepted at `a852bcd` |
+| UI-15 | Vehicle refresh fills profile and erases unsaved comment | Refresh vehicles, restore edited profile fields and dirty baseline | `aa1b697`; accepted at `a852bcd` |
+| UI-16 | Lose new-vehicle reply after commit, retry: upsert sent again | Read profile, stop blind create; known-ID update/delete reconcile by reading | `aa1b697`; accepted at `a852bcd` |
 
 Card portion: 16 browser regressions, 294 web contracts, full browser 49/49
 (first render 573.8 ms), local CI 3,039 runtime tests/83 environment skips and
@@ -72,7 +72,7 @@ passed unit, static, browser-performance, docker-runtime-assets and quality for
 published. Startup JavaScript: 898,403 baseline -> 899,537 bytes, below the
 unchanged 901,000-byte gate; no speedup is claimed.
 
-Client candidate: five popup defects and two profile defects failed browser
+Client portion: five popup defects and two profile defects failed browser
 regressions before fixes; vehicle draft loss and repeated upsert also failed
 before fixes. Repeated creation changes from two create POSTs to one confirmed
 client ID plus only the unfinished stage. Native duplicate detection, vehicle
@@ -85,7 +85,7 @@ tests (four environment skips), coverage, parity, core browser and performance
 gates. An obsolete textual dirty-button expectation was updated to require
 the new in-flight guard; the real browser test verifies that guard too.
 Startup JS: 899,537 -> 897,393 bytes, below the unchanged 901,000-byte gate.
-No speedup is claimed. Publication and exact-SHA hosted acceptance are pending.
+No speedup is claimed. The portion is accepted by the exact-SHA hosted run for `a852bcd` below.
 
 ## Concrete limits and next actions
 
@@ -120,5 +120,62 @@ dependencies fail that required step rather than silently skipping it.
 ENV-02 local CI passed: 3,066 runtime tests (80 environment skips), 36 release
 tests (four environment skips), all parity, browser and performance gates.
 Its required 36 browser regressions also passed separately in 70.115 seconds.
-Only exact-SHA hosted acceptance, including the repeated real Linux Ctrl+C
-scenario, remains pending for this portion.
+Exact-SHA [quality run 38288275298](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38288275298)
+for `a852bcd7fb32a6340b0f2473d9479679aeeedb2d` passed all five jobs.
+Hosted evidence: 3,027 runtime tests, 36 release tests, 36 required card/client
+browser regressions (42.431 seconds), three existing client-search scenarios,
+real Linux Ctrl+C repeated three times, and all performance/Docker gates.
+ENV-02 and UI-08 through UI-16 are accepted at this SHA. The earlier failed
+run remains recorded as the reason for the repair; no checks were weakened.
+Local and remote SHA match; the primary checkout still has 41 staged files.
+
+Next portion: attachments, shared files, editors, preview and print. Review
+passive file-status reads overlapping card saves, bounded request recovery,
+partial upload/copy failures, preview ownership and print navigation. Other
+UI families and both final clean whole-application runs remain pending.
+
+
+## Attachment/shared-file/preview/print candidate (from a852bcd)
+
+Confirmed UI-17: close a loading preview; its late success reopens it.
+UI-18: select a second preview; the old success replaces the new image.
+UI-19: an old preview error erases the newer ready preview.
+Those three real-browser cases failed before request/viewer/card ownership
+was added; stale replies now allocate no object URL or mutate current state.
+Binary preview/download reads have a 90-second deadline through the body.
+
+UI-20: upload two files, fail the second, reselect the same pair: first file
+is duplicated (three stored files / four POSTs). Checkpoint confirmed receipt
+IDs; retry verifies the known file's bytes by that ID and only writes the
+unfinished file (two stored files / three POSTs). An unknown write receipt
+reads current attachments and stops blind repeat. File upload/delete and shared
+writes have bounded transport; existing API read deadlines remain unchanged.
+
+UI-21: hold passive attachment-status read, start timer, release old read:
+active editor revision/time state reverts. Passive reads now reject a changed
+local version; mutation readback still accepts its confirmed server revision.
+UI-22: start shared-file opening, open a card before its read returns: the
+old read steals focus by opening the file workspace. Bind read application to
+its original modal navigation.
+UI-23: lose a committed shared-file paste reply, repeat: two copies. Preserve
+known completion and stop repeat while an unidentifiable paste is pending.
+Viewer reset clears that private checkpoint. No ID is guessed from a name.
+
+Local evidence so far: eight attachment browser cases + seven existing file
+ownership tests + four printing browser cases passed (19 tests / 35.174s);
+three shared-file browser cases passed (10.661s). All 294 web asset contracts
+passed with actual bounded-request dependencies; no assertions or thresholds
+were removed. Generated JS, full smoke and full local CI pass; publication
+and exact-SHA GitHub acceptance are pending. Business services,
+public contracts and formats are unchanged. Source diagnostics stay in TEMP.
+
+Other UI families and both final whole-application runs are still pending.
+
+File candidate full smoke passed 49/49 (first render 536.0 ms), no console/page
+errors or failed requests. Startup JS is 900,927 bytes under the unchanged
+901,000-byte limit. Full local CI passed: 3,077 runtime tests (80 environment
+skips), 36 release tests (four environment skips), coverage, parity, generated
+JavaScript, browser and all unchanged performance gates. Final diff is scoped
+to file UI, its module context, regressions, required hosted browser coverage
+and this register. The primary checkout still contains its 41 staged files.
+Publication remains pending exact-SHA hosted acceptance.

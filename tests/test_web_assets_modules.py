@@ -492,6 +492,7 @@ const shared = {{
       isCurrent: () => state.viewerStateGeneration === 0 && state.operatorSessionToken === 'session-a',
     }};
   }},
+  cardFilesApi: api,
   cardHeading() {{ return ''; }}, clipboardAttachmentName() {{ return ''; }},
   columnLabelById() {{ return ''; }}, downloadAttachment() {{}},
   escapeHtml(value) {{ return String(value ?? ''); }}, filteredArchiveCards() {{ return []; }},

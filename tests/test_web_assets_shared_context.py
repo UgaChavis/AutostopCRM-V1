@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if __package__:
     from tests.source_path_support import ensure_source_path
@@ -36,7 +38,7 @@ class SharedFilesContextRegressionTests(unittest.TestCase):
     def run_node(self, body: str) -> None:
         result = subprocess.run(
             ["node"],
-            input=body,
+            input=functions("app_main_before_printing.js", "cardFilesApi") + body,
             text=True,
             encoding="utf-8",
             capture_output=True,
