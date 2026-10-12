@@ -102,7 +102,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             "async function handleEmployeeSalaryActionConfirm()",
         )
         self.assertIn(
-            "if (state.employeeSalaryResetPending || state.employeeMoneyMutationOperation) return;",
+            "if (state.employeeSalaryResetPending || state.employeeMoneyMutationOperation || state.employeeEditOperation) return;",
             reset_handler,
         )
         self.assertIn("if (!operatorCanResetSalaryBalance())", reset_handler)

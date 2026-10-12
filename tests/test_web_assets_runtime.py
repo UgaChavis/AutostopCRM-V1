@@ -1780,6 +1780,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function applyEmployeesReferenceData() {{}}
             async function loadEmployeeSalarySheet(employeeId, options) {{
               reloads.push({{ employeeId, options }});
+              if (options.openModal === false) return state.employeeSalarySheet;
               state.employeeSalarySheet = {{
                 balance_minor: 7500,
                 balance_revision: 'salary-revision-3',
@@ -1838,6 +1839,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               assert.equal(state.employeeSalaryResetPending, false);
               assert.equal(state.employeeSalaryResetIntent, null);
               assert.deepEqual(reloads, [{{
+                employeeId: 'employee-1',
+                options: {{ openModal: false }},
+              }}, {{
                 employeeId: 'employee-1',
                 options: {{ openModal: true }},
               }}]);

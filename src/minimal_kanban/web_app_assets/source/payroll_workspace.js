@@ -1243,7 +1243,7 @@
     }
 
     async function handleEmployeeSalaryReset() {
-      if (state.employeeSalaryResetPending || state.employeeMoneyMutationOperation) return;
+      if (state.employeeSalaryResetPending || state.employeeMoneyMutationOperation || state.employeeEditOperation) return;
       if (!operatorCanResetSalaryBalance()) {
         setStatus('НЕТ ПРАВА НА ОБНУЛЕНИЕ ЗАРПЛАТНОГО БАЛАНСА.', true);
         return;
@@ -1280,9 +1280,12 @@
 
       const intent = employeeSalaryResetIntent(employeeId, balanceMinor, balanceRevision);
       const isCurrent = employeeAsyncContext('employeeSalaryResetOperation', 'activeEmployeeSalaryId');
+      const controller = new AbortController();
+      const timeout = globalThis.setTimeout(() => controller.abort(), 90000);
       try {
         const data = await api('/api/reset_employee_salary_balance', {
           method: 'POST',
+          signal: controller.signal,
           body: {
             employee_id: employeeId,
             expected_balance_minor: balanceMinor,
@@ -1319,9 +1322,18 @@
             if (isCurrent()) setStatus(refreshError.message, true);
           }
         } else {
-          setStatus(error.message, true);
+          if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) {
+            try {
+              const sheet = await loadEmployeeSalarySheet(employeeId, { openModal: false });
+              if (!isCurrent() || !sheet) return;
+              state.employeesLoadedMonth = '';
+              if (await refreshEmployeePayroll(isCurrent)) renderEmployeesWorkspace();
+            } catch (_) {}
+          }
+          if (isCurrent()) setStatus(error.message, true);
         }
       } finally {
+        globalThis.clearTimeout(timeout);
         if (isCurrent.owns()) {
           state.employeeSalaryResetPending = false;
           renderEmployeeSalaryModal();
@@ -1527,8 +1539,15 @@
         dialog.scrollTop = 0;
         dialog.scrollLeft = 0;
       }
-      return loadEmployeesWorkspace(true, prepared?.promise ? prepared : null)
-        .catch((error) => setStatus(error.message, true));
+      const parent = (state.modalStack || []).at(-1);
+      const loading = prepared?.promise ? prepared
+        : prepareEmployeesWorkspaceData(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue());
+      const owned = {
+        ...loading,
+        isCurrent: () => loading.isCurrent() && (state.modalStack || []).at(-1) === parent,
+      };
+      return loadEmployeesWorkspace(true, owned)
+        .catch((error) => { if (owned.isCurrent()) setStatus(error.message, true); });
     }
 
     const employeeSaveCheckpoints = new Map();

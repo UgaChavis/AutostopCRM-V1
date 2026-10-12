@@ -411,3 +411,37 @@ is scoped to profile UI, regressions, module reset, workflow and this register.
 Publication and exact-SHA hosted acceptance are pending. The separate workspace
 recovery candidate compiles at the same startup size; its browser verification
 is still pending and it has not been applied to this checkout.
+
+Profile publication `17ca23459311821fc7abb8bd451d3eaa7dde8393` matches
+the remote ref. Exact-SHA [quality run 38322175368](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38322175368)
+passed all five jobs. UI-42 through UI-44 are accepted at this SHA.
+
+## Remaining employee workspace from 17ca234
+
+UI-45 reset POST without a deadline leaves controls locked indefinitely;
+UI-46 lost committed reset reply leaves the old displayed ledger; UI-47 late
+warm employee load covers a newer clients window. Three failures were
+reproduced before changes (four cases / 12.788s). Bound reset waiting, retain
+the existing native snapshot and idempotency key, read the current ledger and
+reports after an unknown result, and bind window opening/error rendering to
+its original parent. No reset amount, calculation, guard or public/storage
+contract changes. Logout error ownership already passes.
+
+Four isolated browser cases pass (10.057s). Existing payload/double-click,
+retained-key/conflict, parallel-month and viewer-ownership checks also pass:
+the unknown-response fixture now returns its authoritative unchanged ledger
+before retry; original key assertions remain. Startup is still 900,970 bytes.
+Actual checkout checks, full local CI and publication remain pending.
+
+Workspace recovery actual checks pass: 64 browser/context/reference/reset
+checks (40.628s), generated JS (13 scripts), formatting/lint and unchanged
+code-health limits. Full browser passed 49/49, first render 521.3 ms, no
+console/page/request errors. Startup remains 900,970 bytes; no speedup is
+claimed. Full local CI is pending. Known-ID deletion timeout/lost-reply
+checks are prepared separately in TEMP, but not yet executed or accepted.
+
+Workspace recovery final local CI passed: 3,121 runtime tests (80 environment
+skips, 826.368s), 36 release tests (four skips, 3.147s), coverage/parity/core
+browser and unchanged code-health/performance gates. Only one UI source file,
+regressions, workflow and this register changed; no service/API/storage change.
+Final diff passes. Publication and exact-SHA hosted acceptance are pending.
