@@ -3238,7 +3238,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn('title="Не прочитано"', BOARD_WEB_APP_HTML)
         self.assertIn("const CARD_UNREAD_HOVER_DELAY_MS = 260;", BOARD_WEB_APP_HTML)
-        self.assertIn("await api('/api/mark_card_seen'", BOARD_WEB_APP_HTML)
+        self.assertIn("await cardPersistWrite('/api/mark_card_seen'", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCardSeenPointerOver(event)", BOARD_WEB_APP_HTML)
         self.assertIn("scheduleCardSeen(card.dataset.cardId);", BOARD_WEB_APP_HTML)
         self.assertIn("function handleCardSeenPointerOut(event)", BOARD_WEB_APP_HTML)
@@ -3309,7 +3309,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const CARD_SEEN_SUPPRESSION_TTL_MS = 60000;", BOARD_WEB_APP_HTML)
         self.assertIn("cardSeenSuppressions: new Map(),", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "function recordCardSeenSuppression(cardId, updatedAt = '')", BOARD_WEB_APP_HTML
+            "function recordCardSeenSuppression(cardId, updatedAt = '', { confirmed = false } = {})",
+            BOARD_WEB_APP_HTML,
         )
         self.assertIn("function applyCardSeenSuppression(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function applyCardSeenSuppressionsToSnapshot(snapshot)", BOARD_WEB_APP_HTML)

@@ -1,23 +1,10 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import unittest
-from pathlib import Path
 
-SOURCE = Path(__file__).resolve().parents[1] / "src/minimal_kanban/web_app_assets/source"
-
-
-def functions(file: str, *names: str) -> str:
-    source = (SOURCE / file).read_text(encoding="utf-8")
-    chunks = []
-    for name in names:
-        match = re.search(rf"^    (?:async )?function {name}\(.*?^    }}", source, re.M | re.S)
-        if match is None:
-            raise AssertionError(f"Missing runtime function {file}:{name}")
-        chunks.append(match.group())
-    return "\n".join(chunks)
+from tests.web_asset_function_support import functions
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
@@ -29,6 +16,7 @@ const watchdog=setTimeout(()=>{throw new Error('scenario did not complete');},20
 (async()=>{
 const assert = require('node:assert/strict');
 const state = {viewerStateGeneration:0, operatorSessionToken:'A', inventoryItems:[], inventoryQuery:'',
+ boardMutationGeneration:0,
  inventoryActiveId:'', repairOrderInventorySelectedId:'', inventoryLoaded:false,
  inventoryMovementsLoading:false, inventoryMovementsLoaded:false, editingId:'card-A', cardHydrationSeq:0};
 const els = {inventoryModal:{}, repairOrderInventoryIssueButton:{}, repairOrderInventoryReturnButton:{}};
@@ -56,6 +44,9 @@ function repairOrderInventoryTargetRowIndex() {return 0;}
 function repairOrderInventorySelectedMovementId() {return 'movement';}
 function repairOrderResponseCard(data) {return data.card;}
 function applyRepairOrderCardUpdate() {} function readRepairOrderFromForm() {return {};}
+function setCardSaveInteractionLocked() {}
+function applySavedCardLocalPatch() {} function rememberCardModalCleanState() {}
+global.window={setTimeout,clearTimeout};
 """
             + definitions
             + "\n"

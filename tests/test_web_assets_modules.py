@@ -117,6 +117,7 @@ class BoardModuleAssetsTests(unittest.TestCase):
             ("payroll", "prepareEmployeesWorkspaceData", "renderEmployeesWorkspace"),
             ("inventory", "readInventoryItems", "renderInventory"),
             ("printing", "prepareRepairOrderPrintWorkspaceData", "loadRepairOrderPrintWorkspace"),
+            ("card_save", "captureCardSaveWorkspace", "reconcileCardPersist"),
         ):
             module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST[group]]
             self.assertEqual(BOARD_WEB_APP_JS.count(f"function {helper}("), 1)
@@ -174,6 +175,7 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
                 "cash_journal",
                 "auxiliary",
                 "board_moves",
+                "card_save",
             },
         )
         for path, source in BOARD_WEB_APP_MODULES.items():

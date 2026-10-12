@@ -859,22 +859,25 @@
     async function saveCard() {
       if (state.cardSaveInFlight) return state.cardSavePromise || false;
       if (state.cardFilesMutationRequest) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+      if (state.cardClientMutationRequest || state.cardTimerRequest || state.repairOrderMutationRequest) {
+        return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С КАРТОЧКОЙ.', true);
+      }
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
       const request = {};
       const generation = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
-      const editingContext = captureCardEditingContext();
-      let editingId = state.editingId;
+      const editingContext = captureCardSaveWorkspace();
       state.cardSaveRequest = request;
       const owns = () => state.cardSaveRequest === request && state.viewerStateGeneration === generation
         && state.operatorSessionToken === session;
-      const isCurrent = () => owns() && editingContext() && state.editingId === editingId;
+      const isCurrent = () => owns() && editingContext();
       clearCardOpenSideEffectTimer();
       const deferredSeenCardId = cancelDeferredCardSeen(state.editingId) ? state.editingId : '';
       state.cardSaveInFlight = true;
       if (els.saveCardButton) els.saveCardButton.disabled = true;
+      setCardSaveInteractionLocked(true);
       syncCardFilesMutationState();
       syncCardSaveDirtyState();
       let saveSucceeded = false;
@@ -884,13 +887,12 @@
           const data = await persistCardPayload(payload);
           if (!isCurrent() || !data) return false;
           const savedCard = data?.card || null;
-          saveChanged = data?.meta?.changed === true;
+          saveChanged = data?.meta?.changed === true && !savedCard?.is_unread && !savedCard?.has_unseen_update;
           if (savedCard) {
             applySavedCardLocalPatch(savedCard, {
               cardIsFull: data?.meta?.response_mode !== 'compact',
               payload,
             });
-            editingId = state.editingId;
           } else {
             rememberCardModalCleanState(payload);
           }
@@ -906,6 +908,7 @@
             const shouldCloseAfterSave = current && saveSucceeded && els.cardModal?.classList.contains('is-open');
             state.cardSaveInFlight = false;
             state.cardSavePromise = null;
+            setCardSaveInteractionLocked(false);
             syncCardFilesMutationState();
             syncCardSaveDirtyState();
             if (shouldCloseAfterSave) closeCardModal();

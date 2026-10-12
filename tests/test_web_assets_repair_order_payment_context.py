@@ -133,6 +133,7 @@ function hideClientSuggestions(){}
 function stopCardCleanupPolling(){}
 function refreshRepairOrderEntry(){}
 function syncCardSaveDirtyState(){}
+function setCardSaveInteractionLocked(){}
 function clearFilePreview(){}
 function syncFileDropzone(){}
 function syncFilePreview(){}

@@ -247,6 +247,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         """)
 
     def test_save_cancels_pending_seen_write_and_requeues_only_when_needed(self) -> None:
+        save_workspace = _source_section(
+            self.source,
+            "function captureCardSaveWorkspace()",
+            "function setCardSaveInteractionLocked(",
+        )
         editing_context = _source_section(
             self.source,
             "function captureCardEditingContext()",
@@ -296,6 +301,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function clearCardOpenSideEffectTimer() {{}}
             function syncCardSaveDirtyState() {{}}
             function syncCardFilesMutationState() {{}}
+            function setCardSaveInteractionLocked() {{}}
             function perfMeasureAsync(_name, callback) {{ return callback(); }}
             async function persistCardPayload() {{
               if (failSave) throw new Error('SAVE FAILED');
@@ -306,6 +312,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function closeCardModal() {{}}
             {seen_timer_helpers}
             {editing_context}
+            {save_workspace}
             async function markCardSeen() {{}}
             {save_card}
 

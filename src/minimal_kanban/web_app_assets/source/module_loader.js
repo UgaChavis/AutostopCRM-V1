@@ -20,9 +20,14 @@
       if (record.loading) return record.loading;
       record.loading = new Promise((resolve, reject) => {
         const script = document.createElement('script');
+        let settled = false;
+        const timeoutId = window.setTimeout?.(() => script.onerror(), 15000);
+        const cleanup = () => { window.clearTimeout?.(timeoutId); script.remove(); };
         script.src = path;
         script.async = true;
         script.onload = () => {
+          if (settled) return;
+          settled = true;
           try {
             if (!record.factory) throw new Error('Модуль не зарегистрирован: ' + name);
             record.exports = record.factory({
@@ -48,11 +53,13 @@
             record.initializationError = error;
             reject(error);
           } finally {
-            script.remove();
+            cleanup();
           }
         };
         script.onerror = () => {
-          script.remove();
+          if (settled) return;
+          settled = true;
+          cleanup();
           reject(new Error('Не удалось загрузить модуль. Повторите открытие.'));
         };
         document.head.appendChild(script);
@@ -227,6 +234,7 @@
       const openIntent = guardedAuxiliaryOpen ? {} : null;
       if (openIntent) currentRecord.openIntent = openIntent;
       const intentIsCurrent = () => (!openIntent || currentRecord.openIntent === openIntent)
+        && (name !== 'card_save' || method !== 'persistCardPayload' || cardEditingGeneration === (state.cardEditingGeneration || 0))
         && (!settingsParent || (state.modalStack || []).includes(settingsParent))
         && (mobileView === null || state.mobileView === mobileView)
         && (!mobilePanelIntent || state.mobileMorePanelIntent === mobilePanelIntent);
@@ -235,7 +243,7 @@
       const invocationKey = JSON.stringify([method, generation, session, cardId, month,
         cashboxId,
         payrollOpen ? state.employeesCashboxesAccessRevision : null,
-        printingOpen ? cardEditingGeneration : null,
+        printingOpen || (name === 'card_save' && method === 'persistCardPayload') ? cardEditingGeneration : null,
         printingOpen ? cardHydrationSeq : null,
         argumentKey]);
       const previous = currentRecord.invocations.get(invocationKey);

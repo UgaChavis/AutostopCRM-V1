@@ -169,6 +169,8 @@
       editingId: null,
       cardCreateColumnId: '',
       cardSaveInFlight: false,
+      cardPersistCheckpoint: null,
+      cardSaveControls: null,
       cardSavePromise: null,
       cardFilesMutationRequest: null,
       cardTimerState: 'inactive',
@@ -2132,6 +2134,7 @@
           ? 'СЕРВЕР ВЕРНУЛ НЕКОРРЕКТНЫЙ ОТВЕТ API.'
           : ('HTTP ' + response.status));
         error.code = 'invalid_json';
+        error.status = response.status;
         finishApiPerf({ error: error.code });
         throw error;
       }
@@ -2168,12 +2171,14 @@
       if (!payload.ok) {
         const error = new Error(payload.error?.message || 'Ошибка API');
         error.code = payload?.error?.code || '';
+        error.status = response.status;
         finishApiPerf({ error: error.code || 'api_error' });
         throw error;
       }
       if (!response.ok) {
         const error = new Error(payload?.error?.message || ('HTTP ' + response.status));
         error.code = payload?.error?.code || '';
+        error.status = response.status;
         finishApiPerf({ error: error.code || ('http_' + response.status) });
         throw error;
       }
@@ -2457,7 +2462,7 @@
         inventorySaving: false, inventoryMaterialSaving: false, repairOrderInventoryOpen: false,
         repairOrderInventoryQuery: '', repairOrderInventorySelectedId: '', repairOrderInventoryRowIndex: '',
         cashboxJournalData: null, cashJournalOpenRequest: null, cashJournalDownloadRequest: null,
-        cardSaveRequest: null, cardSaveInFlight: false, cardSavePromise: null,
+        cardSaveRequest: null, cardSaveInFlight: false, cardSavePromise: null, cardPersistCheckpoint: null,
         cardFilesMutationRequest: null,
         cardJournalRequest: null,
         cardEnrichmentRequest: null, agentTaskContext: null,
@@ -10913,9 +10918,7 @@
     async function ensureRepairOrderCard() {
       if (state.editingId && state.activeCard?.id) return state.activeCard;
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
-      const editingContext = captureCardEditingContext();
-      let editingId = state.editingId;
-      const isCurrent = () => editingContext() && state.editingId === editingId;
+      const isCurrent = captureCardSaveWorkspace();
       const payload = currentCardPayload();
       if (!payload.title) {
         const repairOrder = readRepairOrderFromForm();
@@ -10935,7 +10938,6 @@
         return null;
       }
       applyCardModalState(savedCard);
-      editingId = state.editingId;
       await refreshSnapshot(true);
       return isCurrent() ? savedCard : null;
     }
@@ -12277,6 +12279,8 @@
       state.cardCreateColumnId = '';
       state.cardSaveInFlight = false;
       state.cardSavePromise = null;
+      state.cardPersistCheckpoint = null;
+      setCardSaveInteractionLocked(false);
       state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
       state.cardJournalLoadedFor = '';
@@ -12312,39 +12316,7 @@
       renderCardCleanupIndicator();
     }
 
-    async function persistCardPayload(payload) {
-      const isCurrent = captureCardEditingContext();
-      const editingId = state.editingId;
-      const clientId = state.pendingCardClientId;
-      const clientVehicleId = state.pendingCardClientVehicleId || '';
-      const createVehicle = Boolean(state.pendingCreateClientVehicleFromCard);
-      let data;
-      if (state.editingId) {
-        data = await api('/api/update_card', {
-          method: 'POST',
-          body: { card_id: state.editingId, ...payload, response_mode: 'compact' },
-        });
-      } else {
-        data = await api('/api/create_card', { method: 'POST', body: payload });
-      }
-      if (!isCurrent() || state.editingId !== editingId) return null;
-      const cardId = data?.card?.id || editingId || '';
-      if (cardId && clientId && data?.card?.client_id !== clientId) {
-        return api('/api/link_card_to_client', {
-          method: 'POST',
-          body: {
-            card_id: cardId,
-            client_id: clientId,
-            client_vehicle_id: clientVehicleId,
-            create_vehicle_from_card: createVehicle,
-            sync_vehicle_fields: true,
-            sync_fields: true,
-            overwrite_card_fields: false,
-          },
-        });
-      }
-      return data;
-    }
+    // @include card_save_state.js
 
     function formatIndicatorLabel(value) {
       return ({ green: 'зелёный', yellow: 'жёлтый', red: 'красный' }[String(value || '').toLowerCase()] || String(value || '—'));
@@ -13260,8 +13232,9 @@
       if (!normalizedCardId) return;
       const viewerStateGeneration = state.viewerStateGeneration;
       clearCardOpenSideEffectTimer();
-      const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
-      const shouldMarkSeen = Boolean(currentCard?.is_unread || currentCard?.has_unseen_update);
+      const currentCard = (state.activeCard?.id === normalizedCardId ? state.activeCard : null) || snapshotCardById(normalizedCardId);
+      const suppression = state.cardSeenSuppressions.get(normalizedCardId);
+      const shouldMarkSeen = Boolean(currentCard?.is_unread || currentCard?.has_unseen_update || suppression?.pending);
       if (shouldMarkSeen) {
         markCardSeenOptimistically(normalizedCardId);
         deferCardSeen(normalizedCardId, {
@@ -14050,13 +14023,21 @@
       }
     }
 
-    function recordCardSeenSuppression(cardId, updatedAt = '') {
+    function recordCardSeenSuppression(cardId, updatedAt = '', { confirmed = false } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       pruneCardSeenSuppressions();
+      const currentCard = snapshotCardById(normalizedCardId);
+      const previous = state.cardSeenSuppressions.get(normalizedCardId);
+      const sameVersion = previous?.updated_at === String(updatedAt || '').trim();
       state.cardSeenSuppressions.set(normalizedCardId, {
         updated_at: String(updatedAt || '').trim(),
         suppressed_at_ms: Date.now(),
+        generation: state.viewerStateGeneration,
+        session: state.operatorSessionToken,
+        pending: !confirmed,
+        is_unread: Boolean(currentCard?.is_unread || (sameVersion && previous.is_unread)),
+        has_unseen_update: Boolean(currentCard?.has_unseen_update || (sameVersion && previous.has_unseen_update)),
       });
     }
 
@@ -14076,6 +14057,10 @@
       pruneCardSeenSuppressions();
       const suppression = state.cardSeenSuppressions.get(cardId);
       if (!suppression) return card;
+      if (suppression.generation !== state.viewerStateGeneration || suppression.session !== state.operatorSessionToken) {
+        state.cardSeenSuppressions.delete(cardId);
+        return card;
+      }
       if (incomingCardIsNewerThanSuppression(card, suppression)) {
         state.cardSeenSuppressions.delete(cardId);
         return card;
@@ -14450,30 +14435,7 @@
       state.unreadSeenDeferredTimers.set(normalizedCardId, timerId);
     }
 
-    async function markCardSeen(cardId, { force = false } = {}) {
-      const normalizedCardId = String(cardId || '').trim();
-      if (!normalizedCardId) return;
-      const viewerStateGeneration = state.viewerStateGeneration;
-      if (state.cardSaveInFlight) {
-        deferCardSeen(normalizedCardId, { force });
-        return;
-      }
-      const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
-      if (!force && currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;
-      if (!force) markCardSeenOptimistically(normalizedCardId);
-      if (state.unreadSeenInFlight.has(normalizedCardId)) return;
-      state.unreadSeenInFlight.add(normalizedCardId);
-      try {
-        const data = await api('/api/mark_card_seen', {
-          method: 'POST',
-          body: { card_id: normalizedCardId, actor_name: state.actor, source: 'ui' },
-        });
-        if (viewerStateGeneration === state.viewerStateGeneration && data?.card) replaceSnapshotCard(data.card);
-      } catch (_) {
-      } finally {
-        if (viewerStateGeneration === state.viewerStateGeneration) state.unreadSeenInFlight.delete(normalizedCardId);
-      }
-    }
+    // @include card_seen_state.js
 
     function scheduleCardSeen(cardId) {
       if (!cardId) return;

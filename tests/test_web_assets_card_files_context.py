@@ -1,24 +1,13 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "src/minimal_kanban/web_app_assets/source"
-
-
-def functions(file_name: str, *names: str) -> str:
-    source = (SOURCE / file_name).read_text(encoding="utf-8")
-    chunks: list[str] = []
-    for name in names:
-        match = re.search(rf"^    (?:async )?function {name}\(.*?^    }}", source, re.M | re.S)
-        if match is None:
-            raise AssertionError(f"Missing runtime function {file_name}:{name}")
-        chunks.append(match.group())
-    return "\n".join(chunks)
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
@@ -34,6 +23,7 @@ async function spinUntil(predicate){for(let index=0;index<20&&!predicate();index
 const calls=[],statuses=[],cached=[],rendered=[];
 let snapshotRefreshes=0;
 const state={
+  boardMutationGeneration:0,
   viewerStateGeneration:1,operatorSessionToken:'session-A',actor:'actor-A',
   editingId:'A',activeCard:{id:'A',attachments:[]},activeCardIsFull:true,
   cardEditingGeneration:1,cardHydrationSeq:1,cardFilesMutationRequest:null,
@@ -48,6 +38,10 @@ const els={
 };
 let api=async()=>{throw new Error('api stub not configured');};
 function syncCardFilesMutationState(){}
+function setCardSaveInteractionLocked(){}
+function applySavedCardLocalPatch(){}
+function rememberCardModalCleanState(){}
+global.window={setTimeout,clearTimeout};
 function captureCardEditingContext(){
   const viewer=state.viewerStateGeneration,session=state.operatorSessionToken;
   const hydration=state.cardHydrationSeq,editing=state.cardEditingGeneration||0;
