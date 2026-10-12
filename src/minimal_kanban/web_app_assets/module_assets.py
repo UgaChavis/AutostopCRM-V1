@@ -234,6 +234,7 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     function resetViewer() {
       releaseEmployeeMoneyControls();
       employeeMoneyCheckpoints.clear();
+      employeeSaveCheckpoints.clear();
     }
 """
         exports.append("resetViewer")

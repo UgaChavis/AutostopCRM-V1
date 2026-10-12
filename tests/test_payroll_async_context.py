@@ -50,7 +50,7 @@ function fixture() {
     renderEmployeeShiftAccrualDialog:()=>{}, renderEmployeeSalaryCashboxOptions:()=>renders.push('cashboxes'),
     selectedEmployeeSalaryRecord:()=>state.employees.find(row=>row.id===state.activeEmployeeSalaryId),
     selectedEmployeeRecord:()=>state.employees.find(row=>row.id===state.activeEmployeeId),
-    employeeCombinedNameFromForm:()=> 'Alice', employeeFormHasUnsavedChanges:()=>false,
+    employeeCombinedNameFromForm:()=> 'Alice', employeeFormHasUnsavedChanges:()=>false, employeeFormSnapshot:()=>({name:'Alice'}),
     confirmDiscardEmployeeChanges:()=>true,
     readEmployeeFormPayload:()=>({employee_id:state.activeEmployeeId,name:'Alice'}),
     refreshCashboxesAfterMoneyMutation:async()=>renders.push('cashbox-refresh'),
@@ -239,7 +239,7 @@ const duplicateCreate=created.context.saveEmployee();
 assert.equal(created.requests.filter(row=>row.options.method==='POST').length,1,'double create started two writes');
 await duplicateCreate;
 assert.equal(created.els.employeeSaveButton.disabled,true);
-created.requests[0].reject(new Error('create failed')); await firstCreate;
+created.requests[0].reject(Object.assign(new Error('create failed'), {status:422})); await firstCreate;
 assert.equal(created.state.employeeEditOperation,null);
 assert.equal(created.els.employeeSaveButton.disabled,false);
 const createRetry=created.context.saveEmployee();
@@ -281,6 +281,7 @@ const edit=fixture();
 const oldEdit=edit.context.saveEmployee();
 const oldEditRequest=edit.requests[0];
 switchViewer(edit);
+edit.state.employeeSalaryResetPending=false;
 const newEdit=edit.context.saveEmployee();
 assert.equal(edit.requests.length,2);
 const newEditToken=edit.state.employeeEditOperation;

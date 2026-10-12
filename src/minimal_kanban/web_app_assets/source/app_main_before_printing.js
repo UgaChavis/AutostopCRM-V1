@@ -3422,9 +3422,9 @@
     }
 
     function closeNamedModal(closeKey) {
-      const normalizedKey = String(closeKey || '').trim();
-      if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(normalizedKey)) return false;
-      if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) && ['employees', 'employeeSalary'].includes(normalizedKey)) return false;
+      const key = String(closeKey || '').trim();
+      if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(key)) return false;
+      if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) && ['employees', 'employeeSalary'].includes(key)) return false;
       const closeActions = {
         card: () => closeCardModal(),
         'card-client-create': () => closeCardClientCreateModal(),
@@ -3481,10 +3481,10 @@
           return true;
         },
       };
-      const closeAction = closeActions[normalizedKey];
+      const closeAction = closeActions[key];
       const result = typeof closeAction === 'function' ? closeAction() : null;
       if (result === false) return false;
-      closeModalAndChildren(normalizedKey);
+      closeModalAndChildren(key);
       return true;
     }
 
@@ -7488,7 +7488,7 @@
     }
 
     function setMobileView(view) {
-      if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
+      if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) return false;
       const requestedView = String(view || '').trim();
       if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();

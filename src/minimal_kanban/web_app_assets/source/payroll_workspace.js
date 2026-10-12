@@ -31,7 +31,7 @@
     }
 
     function syncEmployeeMoneyMutationControls() {
-      const owner = state.employeeMoneyMutationOperation || (state.employeeSalaryResetPending ? state.employeeSalaryResetIntent || true : null);
+      const owner = state.employeeMoneyMutationOperation || (state.employeeSalaryResetPending ? state.employeeSalaryResetIntent || true : state.employeeEditOperation);
       if (owner) lockEmployeeMoneyControls(owner);
       else releaseEmployeeMoneyControls();
       const pending = !operatorCanAccessEmployeesCashboxes() || Boolean(owner);
@@ -45,6 +45,7 @@
     }
 
     function syncEmployeeEditMutationControls() {
+      syncEmployeeMoneyMutationControls();
       const pending = Boolean(state.employeeEditOperation);
       if (els.employeeSaveButton) els.employeeSaveButton.disabled = pending;
       if (els.employeeDeleteButton) {
@@ -1530,7 +1531,10 @@
         .catch((error) => setStatus(error.message, true));
     }
 
+    const employeeSaveCheckpoints = new Map();
+
     async function saveEmployee() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       if (!requireEmployeesCashboxesAccess()) return;
       const employeeName = employeeCombinedNameFromForm();
       if (!employeeName) {
@@ -1544,11 +1548,51 @@
         { singleFlight: true },
       );
       if (!isCurrent) return;
+      const body = readEmployeeFormPayload();
+      const form = JSON.stringify(employeeFormSnapshot());
+      const session = state.operatorSessionToken;
+      const viewer = state.viewerStateGeneration;
+      const key = JSON.stringify([viewer, session, body]);
+      const checkpoints = [...employeeSaveCheckpoints.values()].filter((item) => item.viewer === viewer && item.session === session);
+      const previous = checkpoints.find((item) => item.uncertain && (item.body.employee_id || '') === (body.employee_id || ''));
+      let checkpoint = checkpoints.find((item) => item.form === form
+        && (item.data?.employee?.id || item.body.employee_id || '') === (body.employee_id || ''));
       syncEmployeeEditMutationControls();
       try {
-        const data = await api('/api/save_employee', { method: 'POST', body: readEmployeeFormPayload() });
+        if (previous?.uncertain && previous.viewer === viewer && previous.session === session
+            && (previous.body.employee_id || '') === (body.employee_id || '')) {
+          invalidateEmployeesReference();
+          await loadEmployeesReference({ month: isCurrent.month, apply: false });
+          if (!isCurrent()) return;
+          throw new Error('РЕЗУЛЬТАТ ПРЕДЫДУЩЕГО СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; СВЕРЬТЕ ПРОФИЛЬ СОТРУДНИКА.');
+        }
+        if (!checkpoint) checkpoint = { key, viewer, session, body, form, data: null, uncertain: false };
+        employeeSaveCheckpoints.set(checkpoint.key, checkpoint);
+        const reusedReceipt = Boolean(checkpoint.data);
+        if (!checkpoint.data) {
+          const controller = new AbortController();
+          const timeout = globalThis.setTimeout(() => controller.abort(), 90000);
+          try {
+            const response = await api('/api/save_employee', { method: 'POST', body: checkpoint.body, signal: controller.signal });
+            if (!isCurrent()) return;
+            if (!response?.employee?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ СОТРУДНИКА.');
+            checkpoint.data = response;
+          } catch (error) {
+            if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+            else employeeSaveCheckpoints.delete(checkpoint.key);
+            throw error;
+          } finally {
+            globalThis.clearTimeout(timeout);
+          }
+        }
+        let data = checkpoint.data;
         if (!isCurrent()) return;
         invalidateEmployeesReference();
+        if (reusedReceipt) {
+          const fresh = await loadEmployeesReference({ month: isCurrent.month, apply: false });
+          if (!isCurrent()) return;
+          data = { ...data, employees: Array.isArray(fresh?.employees) ? fresh.employees : [] };
+        }
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.employeesLoadedMonth = isCurrent.month;
         state.employeeCreateMode = false;
@@ -1562,6 +1606,9 @@
           const sheet = await loadEmployeeSalarySheet(state.activeEmployeeSalaryId, { openModal: true });
           if (!isCurrent() || !sheet) return;
         }
+        employeeSaveCheckpoints.delete(checkpoint.key);
+        isCurrent.release();
+        syncEmployeeEditMutationControls();
         renderEmployeesWorkspace();
         refreshRepairOrderEmployeeSelects();
         setStatus(data?.created ? 'СОТРУДНИК ДОБАВЛЕН.' : 'СОТРУДНИК СОХРАНЕН.', false);
@@ -1573,6 +1620,7 @@
     }
 
     async function deleteEmployee() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       if (!requireEmployeesCashboxesAccess()) return;
       const employee = selectedEmployeeRecord();
       if (!employee) {
@@ -1588,6 +1636,7 @@
       );
       if (!isCurrent) return;
       syncEmployeeEditMutationControls();
+      let confirmed = false;
       try {
         const data = await api('/api/delete_employee', {
           method: 'POST',
@@ -1598,7 +1647,9 @@
           },
         });
         if (!isCurrent()) return;
+        confirmed = true;
         invalidateEmployeesReference();
+        state.payrollReportMonth = '';
         state.employees = Array.isArray(data?.employees) ? data.employees : [];
         state.employeesLoadedMonth = state.payrollMonth || currentPayrollMonthValue();
         if (String(state.activeEmployeeId || '') === String(employee.id || '')) {
@@ -1618,13 +1669,17 @@
           state.employeeSalarySheet = null;
           closeEmployeeSalaryModal();
         }
-        renderEmployeesWorkspace();
-        refreshRepairOrderEmployeeSelects();
         setStatus('СОТРУДНИК УДАЛЕН.', false);
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
-        if (isCurrent.release()) syncEmployeeEditMutationControls();
+        if (isCurrent.release()) {
+          syncEmployeeEditMutationControls();
+          if (confirmed && isCurrent.contextIsCurrent()) {
+            renderEmployeesWorkspace();
+            refreshRepairOrderEmployeeSelects();
+          }
+        }
       }
     }
 

@@ -167,6 +167,8 @@ function api(path){if(path.startsWith('/api/list_employees'))return new Promise(
 function currentPayrollMonthValue(){return '2026-09';}
 function requireEmployeesCashboxesAccess(){return true;}
 function employeeCombinedNameFromForm(){return 'Saved name';}
+const employeeSaveCheckpoints=new Map();
+function employeeFormSnapshot(){return {name:'Saved name'};}
 function employeeAsyncContext(){const c=()=>true;c.month='2026-09';c.rebindEntity=()=>c;c.release=()=>true;return c;}
 function syncEmployeeEditMutationControls(){}
 function readEmployeeFormPayload(){return {name:'Saved name'};}

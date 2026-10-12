@@ -34,7 +34,7 @@ portions still participate in the final whole-application integration pass.
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
 | Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-26 accepted, seven shared-file regressions, editor/print functional and race smoke | Portion accepted at `0040f75`; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
-| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox portion accepted at `c977bd9`; payroll/employees pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox portion accepted at `c977bd9`; payroll dialogs accepted at `9d43f2b`; employee/profile/period pass pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
 | Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
 | Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
@@ -354,3 +354,60 @@ pending profile fields and repeated confirmed save after failed report refresh
 (two failures / 9.008s). A separate profile candidate and four recovery cases
 remain in TEMP. Candidate JS syntax passes and startup is 900,970 bytes;
 browser and full acceptance remain pending.
+
+Payroll publication `9d43f2b7733eec67907c9ed5f036eea37213b260` matches
+the remote ref. Exact-SHA [quality run 38317957794](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38317957794)
+passed all five jobs. UI-36 through UI-41 are accepted at this SHA.
+
+## Employee profile candidate from 9d43f2b
+
+UI-42 profile fields remain editable while save is pending; UI-43 confirmed
+save followed by report failure sends another save on retry; UI-44 lost new
+profile reply creates two distinct native employee IDs. The first two failed
+before changes (9.008s) and the third also failed (8.535s) on disposable data.
+Reuse known receipts through read failure, refresh authoritative references
+on receipt reuse, freeze fields/navigation until completion and retain
+uncertain writes as private viewer/record checkpoints. No profile or payroll
+validation/calculation rules change. Unknown create receipt lookup remains
+a compatible API proposal; names are not used to infer a receipt.
+
+Seven isolated browser cases pass (12.226s) and twelve existing ownership
+checks pass. They cover known validation, confirmed partial save, uncertain
+create, frozen fields/parent, deadline, logout and native confirmed deletion.
+Deletion rendering waits for owned control release, so a field snapshot cannot
+restore the removed profile. Generated candidate sources pass syntax; startup
+is 900,970 bytes under the unchanged 901,000-byte cap. Actual checkout, full
+local CI and publication remain pending. Period/report/reset/deletion fault
+review remains in this family before moving to inventory.
+
+Profile actual-checkout acceptance: all seven browser cases and twelve
+payroll recovery cases passed inside the 187-test candidate run. Its sole
+source assertion failure expected the former private close-handler variable
+name; normalization and cascade assertions now require the renamed key,
+with browser closure behavior unchanged. All 168 source/module/context/reset
+checks pass (1.985s). Full browser passed 49/49, first render 518.4 ms, no
+console/page/request errors. Generated JS (13 scripts), formatting/lint and
+unchanged code-health gates pass. Full local CI is pending.
+
+Profile first full CI completed 3,117 tests (842.810s, 80 skips) with one
+fixture failure: a reference-race test extracts saveEmployee alone and lacked
+its private checkpoint map/form snapshot. Add those fixture dependencies,
+keep both stale-reference assertions, and run 38 related tests (1.907s): all
+pass. Runtime assets did not change after the successful full browser. Full
+CI must pass again before publication.
+
+Remaining employee workspace audit outside the checkout confirmed three
+faults (four cases / 12.788s): reset POST has no deadline, a lost committed
+reset reply leaves the old displayed ledger until another operation, and a
+late warm employee load covers a newer clients window. Logout error ownership
+already passes. Their test source remains in TEMP; no additional runtime
+changes are included in this profile portion.
+
+Profile final local CI passed: 3,117 runtime tests (80 environment skips,
+829.481s), 36 release tests (four skips, 3.166s), coverage/parity/core browser
+and unchanged performance/code-health gates. The immediate-error reporter
+was TEMP-only; no browser debug mode or test assertions changed. Final diff
+is scoped to profile UI, regressions, module reset, workflow and this register.
+Publication and exact-SHA hosted acceptance are pending. The separate workspace
+recovery candidate compiles at the same startup size; its browser verification
+is still pending and it has not been applied to this checkout.

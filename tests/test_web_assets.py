@@ -2074,7 +2074,8 @@ class WebAssetsTests(unittest.TestCase):
                 "function closeNamedModal(closeKey)"
             ) : BOARD_WEB_APP_HTML.index("async function loadModalData(")
         ]
-        self.assertIn("closeModalAndChildren(normalizedKey);", close_fragment)
+        self.assertIn("const key = String(closeKey || '').trim();", close_fragment)
+        self.assertIn("closeModalAndChildren(key);", close_fragment)
         self.assertIn("closeEmployeeSalaryReconciliationPeriodDialog();", close_fragment)
         self.assertNotIn("agentTasksModal", BOARD_WEB_APP_HTML)
         self.assertIn("'repair-order': () => closeRepairOrderModal()", close_fragment)

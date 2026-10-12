@@ -53,7 +53,7 @@
     }
 
     async function runEmployeeMoneyMutation(path, body, entityField, { receipt, reload, onSuccess } = {}) {
-      if (state.employeeSalaryResetPending) return false;
+      if (state.employeeSalaryResetPending || state.employeeEditOperation) return false;
       const isCurrent = employeeAsyncContext('employeeMoneyMutationOperation', entityField, { singleFlight: true });
       if (!isCurrent) return false;
       const key = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, isCurrent.month, path, body]);
