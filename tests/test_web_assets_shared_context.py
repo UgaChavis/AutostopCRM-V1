@@ -36,9 +36,16 @@ def section(source: str, start: str, end: str) -> str:
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class SharedFilesContextRegressionTests(unittest.TestCase):
     def run_node(self, body: str) -> None:
+        checkpoint_state = section(
+            SOURCE.read_text(encoding="utf-8"),
+            "    let sharedFilesUploadCheckpoint",
+            "    function sharedFileById(",
+        )
         result = subprocess.run(
             ["node"],
-            input=functions("app_main_before_printing.js", "cardFilesApi") + body,
+            input=functions("app_main_before_printing.js", "cardFilesApi")
+            + checkpoint_state
+            + body,
             text=True,
             encoding="utf-8",
             capture_output=True,

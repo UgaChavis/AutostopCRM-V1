@@ -108,7 +108,7 @@ class BoardModuleAssetsTests(unittest.TestCase):
                     BOARD_WEB_APP_JS,
                 )
             )
-            if group == "printing":
+            if group in {"printing", "auxiliary"}:
                 expected.add("resetViewer")
             self.assertEqual(actual, expected, group)
 

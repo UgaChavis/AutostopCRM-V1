@@ -64,6 +64,7 @@ _AUXILIARY_SHARED_NAMES = (
     "columnLabelById",
     "downloadAttachment",
     "escapeHtml",
+    "fetchAttachmentBlob",
     "filteredArchiveCards",
     "finiteNonNegativeNumber",
     "finiteNumber",
@@ -200,6 +201,14 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
       [printTemplatePreviewTimer, manualPrintPreviewTimer, regulatedPrintPreviewTimer, completionActPreviewTimer].forEach((timer) => window.clearTimeout(timer));
       Object.assign(repairOrderPrintState, JSON.parse(JSON.stringify(initialPrintState)));
       [printEls.modal, printEls.templateModal, printEls.inspectionSheetModal, printEls.completionActModal].forEach((modal) => modal?.classList.remove('is-open'));
+    }
+"""
+        exports.append("resetViewer")
+    if group == "auxiliary":
+        reset = """
+    function resetViewer() {
+      sharedFilesUploadCheckpoint = null;
+      sharedFilesClipboardCheckpoint = null;
     }
 """
         exports.append("resetViewer")

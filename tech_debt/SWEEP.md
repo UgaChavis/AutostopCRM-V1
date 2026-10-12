@@ -32,7 +32,7 @@ portions still participate in the final whole-application integration pass.
 | Desktop cards: create/update, one click, conflict, uncertain reply, client/vehicle stages; close after all confirmed actions, retain draft on errors | 11 real-browser regressions; drafts, ownership, partial completion, stale snapshot and bounded module loading | Portion accepted at `b7a35a3`; final integration pending |
 | Columns and badges: stable ID through create/rename/order/delete, personal copies, hover/open, own/other changes, reload/login | Five browser badge regressions with two users and personal copies; full column smoke | Portion accepted at `b7a35a3`; final integration pending |
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
-| Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | Existing smoke and contracts; deeper failure pass pending | pending |
+| Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-23 accepted; shared batch/clipboard follow-up reproduced; editor/print functional and race smoke | Follow-up candidate; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
 | Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Lost committed cashbox reply followed by retry sends two writes; UI fix queued | pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
@@ -178,4 +178,35 @@ skips), 36 release tests (four environment skips), coverage, parity, generated
 JavaScript, browser and all unchanged performance gates. Final diff is scoped
 to file UI, its module context, regressions, required hosted browser coverage
 and this register. The primary checkout still contains its 41 staged files.
-Publication remains pending exact-SHA hosted acceptance.
+Fast-forward published as `869e503d8890b6636b4531c5dde0d5bfb9e9b01a`.
+Exact-SHA [quality run 38297845071](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38297845071)
+passed all five jobs, including the required attachment/shared-file/print
+browser regressions. UI-17 through UI-23 are accepted at this SHA.
+
+Shared-file follow-up from `869e503`: three additional faults failed real
+browser tests: UI-24 partial upload of two files retries the confirmed first
+file; UI-25 lost committed upload reply allows another upload; UI-26 lost
+native clipboard paste reply allows another paste. Tests inject only temporary
+synthetic paths into the disposable API's clipboard provider.
+Keep confirmed native file IDs, verify their bytes on batch retry, and repeat
+only unfinished writes. A confirmed write followed by failed list refresh
+retries reads; an unknown receipt reads the current list and stops blind repeat.
+Private checkpoints reset with the viewer. No service or public contract changes.
+Seven shared-file browser cases and related source/module contracts pass
+(166 targeted tests / 13.667s). Generated JavaScript and code-health limits
+pass. Full browser passed 49/49, first render 532.4 ms, no console/page/request
+errors. Full local CI passed: 3,081 runtime tests (80 environment skips),
+36 release tests (four environment skips), coverage/parity/browser/performance
+and unchanged code-health limits. Publication and exact-SHA hosted acceptance
+of this follow-up are pending.
+
+Reproduced cashbox UI failures are queued: duplicate income/transfer after a
+lost reply, lost draft on failed refresh, editable pending fields/preview,
+parent close during a write, mobile repeat and missing existing version guard.
+Their test source and a candidate patch are held
+in TEMP until that portion begins, so the file portion's CI stays scoped.
+
+Windows settings write failure was reproduced with a real Qt Save click on a
+temporary profile: an uncaught PermissionError instead of an error message.
+Queue a UI-only storage-error handler preserving the draft and saved settings;
+the pending regression and evidence remain in TEMP until that portion.

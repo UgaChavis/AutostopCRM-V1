@@ -417,6 +417,7 @@
         downloadAttachment,
         escapeHtml,
         filteredArchiveCards,
+        fetchAttachmentBlob,
         finiteNonNegativeNumber,
         finiteNumber,
         formatBytes,

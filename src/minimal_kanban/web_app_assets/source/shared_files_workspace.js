@@ -1,3 +1,10 @@
+    let sharedFilesUploadCheckpoint = null;
+    let sharedFilesClipboardCheckpoint = null;
+
+    function sharedFilesCheckpointOwner() {
+      return JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken]);
+    }
+
     function sharedFileById(fileId) {
       const normalizedId = String(fileId || '').trim();
       return (state.sharedFiles || []).find((item) => item.id === normalizedId) || null;
@@ -315,21 +322,43 @@
 
     async function pasteSharedFilesFromLocalClipboard(dropPoint, context) {
       const point = normalizeSharedFilesDropPoint(dropPoint);
-      const pasted = await cardFilesApi('/api/paste_shared_files_from_clipboard', {
-        method: 'POST',
-        body: {
-          actor_name: context.actorName,
-          source: 'ui',
-          x: point?.x ?? 24,
-          y: point?.y ?? 24,
-        },
-      });
+      const owner = sharedFilesCheckpointOwner();
+      if (sharedFilesClipboardCheckpoint?.owner !== owner) sharedFilesClipboardCheckpoint = null;
+      const checkpoint = sharedFilesClipboardCheckpoint || { owner, files: null, uncertain: false };
+      sharedFilesClipboardCheckpoint = checkpoint;
+      if (checkpoint.uncertain) {
+        throw new Error('РЕЗУЛЬТАТ ВСТАВКИ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.');
+      }
+      if (!checkpoint.files) {
+        try {
+          const pasted = await cardFilesApi('/api/paste_shared_files_from_clipboard', {
+            method: 'POST',
+            body: {
+              actor_name: context.actorName,
+              source: 'ui',
+              x: point?.x ?? 24,
+              y: point?.y ?? 24,
+            },
+          });
+          if (!context.isCurrent()) return null;
+          checkpoint.files = Array.isArray(pasted?.files) ? pasted.files : [];
+          if (checkpoint.files.some((file) => !file?.id)) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ВСТАВКУ ФАЙЛОВ.');
+        } catch (error) {
+          if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+          else sharedFilesClipboardCheckpoint = null;
+          throw error;
+        }
+      }
       if (!context.isCurrent()) return null;
-      const pastedFiles = Array.isArray(pasted?.files) ? pasted.files : [];
-      if (!pastedFiles.length) return false;
+      const pastedFiles = checkpoint.files;
+      if (!pastedFiles.length) {
+        sharedFilesClipboardCheckpoint = null;
+        return false;
+      }
       context.selectCreatedFile(pastedFiles[pastedFiles.length - 1]?.id);
-      await loadSharedFiles();
+      if (!await loadSharedFiles()) throw new Error('ФАЙЛЫ ВСТАВЛЕНЫ, НО СПИСОК НЕ ОБНОВИЛСЯ. ПОВТОРИТЕ ОБНОВЛЕНИЕ.');
       if (!context.isCurrent()) return null;
+      sharedFilesClipboardCheckpoint = null;
       setStatus(pastedFiles.length > 1 ? 'ФАЙЛЫ ВСТАВЛЕНЫ ИЗ БУФЕРА.' : 'ФАЙЛ ВСТАВЛЕН ИЗ БУФЕРА.', false);
       return true;
     }
@@ -490,9 +519,20 @@
       if (!context) return null;
       const ownsContext = Boolean(mutationContext);
       const isCurrent = context.isCurrent;
+      const owner = sharedFilesCheckpointOwner();
+      const signature = JSON.stringify(selectedFiles.map((file) => [file.name, file.size, file.type, file.lastModified]));
+      let checkpoint = sharedFilesUploadCheckpoint;
+      if (!checkpoint || checkpoint.owner !== owner || (!checkpoint.uncertain && checkpoint.signature !== signature)) {
+        checkpoint = { owner, signature, receipts: [], uncertain: false };
+        sharedFilesUploadCheckpoint = checkpoint;
+      }
       let attemptedWrites = 0;
-      let completedWrites = 0;
+      let completedWrites = checkpoint.receipts.filter(Boolean).length;
       try {
+        if (checkpoint.uncertain) {
+          await loadSharedFiles();
+          throw new Error('РЕЗУЛЬТАТ ПОСЛЕДНЕЙ ЗАГРУЗКИ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.');
+        }
         const baseIndex = (state.sharedFiles || []).length;
         const normalizedDropPoint = normalizeSharedFilesDropPoint(dropPoint);
         for (let index = 0; index < selectedFiles.length; index += 1) {
@@ -503,34 +543,54 @@
           }
           const buffer = await file.arrayBuffer();
           if (!isCurrent()) return null;
+          const receipt = checkpoint.receipts[index];
+          if (receipt) {
+            const { blob } = await fetchAttachmentBlob(sharedFileDownloadUrl({ id: receipt }));
+            const saved = new Uint8Array(await blob.arrayBuffer());
+            const current = new Uint8Array(buffer);
+            if (!isCurrent()) return null;
+            if (saved.length !== current.length || !saved.every((value, offset) => value === current[offset])) {
+              throw new Error('ВЫБРАННЫЙ ФАЙЛ ИЗМЕНИЛСЯ. ВЫБЕРИТЕ НЕЗАВЕРШЁННЫЕ ФАЙЛЫ ОТДЕЛЬНО.');
+            }
+            continue;
+          }
           const fileName = sharedFilesFileNameForUpload(file, index);
           const extension = attachmentExtension(fileName);
           const mimeType = normalizeAttachmentMimeType(file.type) || attachmentMimeTypeFromExtension(extension) || 'application/octet-stream';
           const point = sharedFilesUploadPoint(index, baseIndex, normalizedDropPoint);
           attemptedWrites += 1;
-          const uploaded = await cardFilesApi('/api/upload_shared_file', {
-            method: 'POST',
-            body: {
-              actor_name: context.actorName,
-              source: 'ui',
-              file_name: fileName,
-              mime_type: mimeType,
-              content_base64: arrayBufferToBase64(buffer),
-              x: point.x,
-              y: point.y,
-            },
-          });
+          let uploaded;
+          try {
+            uploaded = await cardFilesApi('/api/upload_shared_file', {
+              method: 'POST',
+              body: {
+                actor_name: context.actorName,
+                source: 'ui',
+                file_name: fileName,
+                mime_type: mimeType,
+                content_base64: arrayBufferToBase64(buffer),
+                x: point.x,
+                y: point.y,
+              },
+            });
+            if (!uploaded?.file?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ЗАГРУЗКУ ФАЙЛА.');
+          } catch (error) {
+            if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+            throw error;
+          }
           if (!isCurrent()) return null;
+          checkpoint.receipts[index] = uploaded.file.id;
           completedWrites += 1;
           context.selectCreatedFile(uploaded?.file?.id);
         }
-        await loadSharedFiles();
+        if (!await loadSharedFiles()) throw new Error('ФАЙЛЫ ЗАГРУЖЕНЫ, НО СПИСОК НЕ ОБНОВИЛСЯ. ПОВТОРИТЕ ОБНОВЛЕНИЕ.');
         if (!isCurrent()) return null;
+        sharedFilesUploadCheckpoint = null;
         setStatus(selectedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         return completedWrites;
       } catch (error) {
         if (!isCurrent()) return null;
-        const reconciled = attemptedWrites ? Boolean(await loadSharedFiles()) : false;
+        const reconciled = attemptedWrites || completedWrites ? Boolean(await loadSharedFiles()) : false;
         if (!isCurrent()) return null;
         const progress = completedWrites ? (' СОХРАНЕНО: ' + completedWrites + ' ИЗ ' + selectedFiles.length + '.') : '';
         const retryWarning = attemptedWrites
@@ -641,14 +701,14 @@
         if (!checkpoint.fileId) {
           try {
             const data = await cardFilesApi('/api/paste_shared_file', {
-            method: 'POST',
-            body: {
-              source_id: clipboardId,
-              x: snappedPoint.x,
-              y: snappedPoint.y,
-              actor_name: context.actorName,
-              source: 'ui',
-            },
+              method: 'POST',
+              body: {
+                source_id: clipboardId,
+                x: snappedPoint.x,
+                y: snappedPoint.y,
+                actor_name: context.actorName,
+                source: 'ui',
+              },
             });
             if (!context.ownsRequest()) return;
             if (!data?.file?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ВСТАВКУ ФАЙЛА.');
