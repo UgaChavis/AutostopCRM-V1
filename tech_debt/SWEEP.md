@@ -34,7 +34,7 @@ portions still participate in the final whole-application integration pass.
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
 | Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-26 accepted, seven shared-file regressions, editor/print functional and race smoke | Portion accepted at `0040f75`; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
-| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox candidate; payroll/employees pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox portion accepted at `c977bd9`; payroll/employees pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
 | Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
 | Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
@@ -308,3 +308,49 @@ Native services, API and storage are unchanged in this cashbox portion. The
 source worktree remains isolated; all 41 prepared manager files in the main
 checkout are preserved. Ten payroll recovery cases are now prepared in TEMP
 for the next portion; five have passed the isolated candidate so far.
+
+Cashbox publication `c977bd9266e7d9c04e98ebfe2b00b2fcddb87a49` matches
+the remote ref. Exact-SHA [quality run 38313998656](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38313998656)
+passed all five jobs. UI-27 through UI-35 are accepted at this SHA.
+
+## Payroll dialogs from c977bd9
+
+UI-36 lost advance reply duplicates the native cash receipt; UI-37 lost payout
+reply repeats the payout; UI-38 lost shift-accrual reply appends a second native
+accrual; UI-39 pending amount/cashbox/comment remain editable; UI-40 confirmed
+advance followed by failed ledger refresh closes the draft. These five faults
+failed before changes on disposable data. The candidate also reproduced a
+native cashbox-conflict retry stuck on its original revision (UI-41); refresh
+references on confirmed 409 while preserving the draft and native guard.
+
+Private owned receipt checkpoints keep confirmed writes across read failures.
+Unknown salary writes read back and can conditionally retry only with the
+original native cashbox guard; unknown shift accruals remain held because an
+employee version does not guard appended accruals. Amounts, payload kinds,
+notes, calculations, balance reset idempotency and services are unchanged.
+Eleven isolated browser cases (16.110s) and twelve asynchronous ownership
+checks (0.532s) passed before application. Actual assembled checks, full local
+CI, scoped publication and hosted acceptance remain pending. Employee profile
+edit/delete and deeper period/report/mobile review follow in this same family.
+
+Payroll local acceptance: 12 real browser recovery cases, three existing
+reset UI contract checks (15 tests / 17.115s), 165 source/module/context checks,
+and existing native finance/access/reset/formula contracts pass. Full browser
+passed 49/49, first render 518.3 ms, no console/page/request errors. Startup
+JavaScript is 900,958 bytes under the unchanged 901,000-byte cap. No speedup
+is claimed. Generated JS and all unchanged code-health gates pass.
+
+First full CI failed/stalled in a manager concurrency browser test, with three
+reported errors before a traceback summary could finish. Its verified owned
+test subprocess was stopped, keeping the log. The same test passes alone
+(8.781s); the root cause remains unestablished. Full diagnostic CI then passed
+with identical assertions and additional TEMP-only error/browser logging:
+3,110 runtime tests (80 environment skips, 830.410s), 36 release tests (four
+skips, 3.334s), coverage 81.86%, parity, core browser and performance gates.
+No diagnostic helper is committed. Hosted exact-SHA acceptance is pending.
+
+Two next employee-profile faults are reproduced outside the checkout: editable
+pending profile fields and repeated confirmed save after failed report refresh
+(two failures / 9.008s). A separate profile candidate and four recovery cases
+remain in TEMP. Candidate JS syntax passes and startup is 900,970 bytes;
+browser and full acceptance remain pending.

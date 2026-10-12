@@ -3424,6 +3424,7 @@
     function closeNamedModal(closeKey) {
       const normalizedKey = String(closeKey || '').trim();
       if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(normalizedKey)) return false;
+      if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) && ['employees', 'employeeSalary'].includes(normalizedKey)) return false;
       const closeActions = {
         card: () => closeCardModal(),
         'card-client-create': () => closeCardClientCreateModal(),
@@ -4867,6 +4868,7 @@
       return (state.employees || []).find((item) => item.id === state.activeEmployeeId) || null;
     }
 
+    // @include employee_money_state.js
     // @include payroll_workspace.js
 
     async function runFullCardEnrichment() {
@@ -7486,7 +7488,7 @@
     }
 
     function setMobileView(view) {
-      if (state.cashboxMoneyRequest) return false;
+      if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       const requestedView = String(view || '').trim();
       if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();

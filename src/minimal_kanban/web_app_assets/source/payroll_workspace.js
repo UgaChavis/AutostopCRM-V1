@@ -8,12 +8,13 @@
       let employee = entityField ? state[entityField] : '';
       let salaryView = state.employeeSalaryViewGeneration;
       state[key] = token;
-      const owns = () => state[key] === token
-        && viewer === state.viewerStateGeneration && session === state.operatorSessionToken
+      const contextIsCurrent = () => viewer === state.viewerStateGeneration && session === state.operatorSessionToken
         && access === state.employeesCashboxesAccessRevision
         && (!entityField || employee === state[entityField])
         && (entityField !== 'activeEmployeeSalaryId' || salaryView === state.employeeSalaryViewGeneration);
+      const owns = () => state[key] === token && contextIsCurrent();
       const isCurrent = () => owns() && month === (state.payrollMonth || currentPayrollMonthValue());
+      isCurrent.contextIsCurrent = () => contextIsCurrent() && month === (state.payrollMonth || currentPayrollMonthValue());
       isCurrent.owns = owns;
       isCurrent.month = month;
       isCurrent.rebindEntity = () => {
@@ -30,7 +31,10 @@
     }
 
     function syncEmployeeMoneyMutationControls() {
-      const pending = !operatorCanAccessEmployeesCashboxes() || Boolean(state.employeeMoneyMutationOperation);
+      const owner = state.employeeMoneyMutationOperation || (state.employeeSalaryResetPending ? state.employeeSalaryResetIntent || true : null);
+      if (owner) lockEmployeeMoneyControls(owner);
+      else releaseEmployeeMoneyControls();
+      const pending = !operatorCanAccessEmployeesCashboxes() || Boolean(owner);
       for (const key of [
         'employeeSalaryActionConfirmButton',
         'employeeSalaryAdvanceConfirmButton',
@@ -299,6 +303,7 @@
     }
 
     function openEmployeeShiftAccrualDialog() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       const employee = selectedEmployeeRecord();
       if (!employee || state.employeeCreateMode) {
         setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
@@ -320,6 +325,7 @@
     }
 
     function closeEmployeeShiftAccrualDialog() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       state.employeeShiftAccrualDialogRequest = null;
       state.employeeShiftAccrualOpen = false;
       state.employeeShiftAccrualDraft = '';
@@ -882,6 +888,7 @@
     }
 
     async function openEmployeeSalaryDialog(kind) {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       if (!requireEmployeesCashboxesAccess()) return;
       if (String(kind || '').trim() === 'salary_advance') {
         await openEmployeeSalaryAdvanceDialog();
@@ -910,6 +917,7 @@
     }
 
     async function openEmployeeSalaryAdvanceDialog() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       if (!requireEmployeesCashboxesAccess()) return;
       state.employeeSalaryViewGeneration = (state.employeeSalaryViewGeneration || 0) + 1;
       state.employeeSalaryResetPending = false;
@@ -936,6 +944,7 @@
     }
 
     function closeEmployeeSalaryDialog() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       state.employeeSalaryDialogRequest = null;
       state.employeeSalaryActionKind = '';
       state.employeeSalaryActionDraft = '';
@@ -949,6 +958,7 @@
     }
 
     function closeEmployeeSalaryAdvanceDialog() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       state.employeeSalaryDialogRequest = null;
       state.employeeSalaryAdvanceOpen = false;
       state.employeeSalaryAdvanceDraft = '';
@@ -959,6 +969,7 @@
     }
 
     function closeEmployeeSalaryModal() {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       state.employeeSalaryViewGeneration = (state.employeeSalaryViewGeneration || 0) + 1;
       state.employeeSalaryResetPending = false;
       popModal('employeeSalary');
@@ -1171,6 +1182,7 @@
     }
 
     async function openEmployeeSalaryModal(employeeId) {
+      if (state.employeeMoneyMutationOperation || state.employeeSalaryResetPending) return false;
       if (!requireEmployeesViewAccess()) return;
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
@@ -1230,7 +1242,7 @@
     }
 
     async function handleEmployeeSalaryReset() {
-      if (state.employeeSalaryResetPending) return;
+      if (state.employeeSalaryResetPending || state.employeeMoneyMutationOperation) return;
       if (!operatorCanResetSalaryBalance()) {
         setStatus('НЕТ ПРАВА НА ОБНУЛЕНИЕ ЗАРПЛАТНОГО БАЛАНСА.', true);
         return;
@@ -1335,43 +1347,19 @@
         els.employeeSalaryCashboxSelect?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext(
-        'employeeMoneyMutationOperation',
-        'activeEmployeeSalaryId',
-        { singleFlight: true },
-      );
-      if (!isCurrent) return;
-      syncEmployeeMoneyMutationControls();
-      try {
-        if (els.employeeSalaryActionConfirmButton) els.employeeSalaryActionConfirmButton.disabled = true;
-        await api('/api/create_employee_salary_transaction', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            transaction_kind: kind,
-            amount,
-            cashbox_id: cashboxId,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (!isCurrent()) return;
-        state.employeeSalaryCashboxId = cashboxId;
-        state.employeeSalaryActionDraft = '';
-        closeEmployeeSalaryDialog();
-        const sheet = await loadEmployeeSalarySheet(employeeId, { openModal: true });
-        if (!isCurrent() || !sheet) return;
-        state.employeesLoadedMonth = '';
-        if (!await refreshEmployeePayroll(isCurrent)) return;
-        renderEmployeesWorkspace();
-        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
-        if (!isCurrent()) return;
-        setStatus(kind === 'salary_advance' ? 'АВАНС ВЫДАН.' : 'ЗАРПЛАТА ВЫПЛАЧЕНА.', false);
-      } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
-      } finally {
-        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
-      }
+      return runEmployeeMoneyMutation('/api/create_employee_salary_transaction', {
+        employee_id: employeeId, transaction_kind: kind, amount, cashbox_id: cashboxId,
+        actor_name: state.actor, source: 'ui',
+      }, 'activeEmployeeSalaryId', {
+        receipt: (data) => data?.transaction?.id,
+        reload: (context) => refreshSalaryMoneyUi(employeeId, context),
+        onSuccess: () => {
+          state.employeeSalaryCashboxId = cashboxId;
+          state.employeeSalaryActionDraft = '';
+          closeEmployeeSalaryDialog();
+          setStatus(kind === 'salary_advance' ? 'АВАНС ВЫДАН.' : 'ЗАРПЛАТА ВЫПЛАЧЕНА.', false);
+        },
+      });
     }
 
     async function handleEmployeeSalaryAdvanceConfirm() {
@@ -1393,45 +1381,20 @@
         els.employeeSalaryAdvanceCashboxSelect?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext(
-        'employeeMoneyMutationOperation',
-        'activeEmployeeSalaryId',
-        { singleFlight: true },
-      );
-      if (!isCurrent) return;
-      syncEmployeeMoneyMutationControls();
-      try {
-        if (els.employeeSalaryAdvanceConfirmButton) els.employeeSalaryAdvanceConfirmButton.disabled = true;
-        await api('/api/create_employee_salary_transaction', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            transaction_kind: 'salary_advance',
-            amount,
-            cashbox_id: cashboxId,
-            note: comment ? ('Аванс: ' + comment) : '',
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (!isCurrent()) return;
-        state.employeeSalaryCashboxId = cashboxId;
-        state.employeeSalaryAdvanceDraft = '';
-        state.employeeSalaryAdvanceNoteDraft = '';
-        closeEmployeeSalaryAdvanceDialog();
-        const sheet = await loadEmployeeSalarySheet(employeeId, { openModal: true });
-        if (!isCurrent() || !sheet) return;
-        state.employeesLoadedMonth = '';
-        if (!await refreshEmployeePayroll(isCurrent)) return;
-        renderEmployeesWorkspace();
-        await refreshCashboxesAfterMoneyMutation({ deferDetail: true });
-        if (!isCurrent()) return;
-        setStatus('АВАНС ВЫДАН.', false);
-      } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
-      } finally {
-        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
-      }
+      return runEmployeeMoneyMutation('/api/create_employee_salary_transaction', {
+        employee_id: employeeId, transaction_kind: 'salary_advance', amount, cashbox_id: cashboxId,
+        note: comment ? ('Аванс: ' + comment) : '', actor_name: state.actor, source: 'ui',
+      }, 'activeEmployeeSalaryId', {
+        receipt: (data) => data?.transaction?.id,
+        reload: (context) => refreshSalaryMoneyUi(employeeId, context),
+        onSuccess: () => {
+          state.employeeSalaryCashboxId = cashboxId;
+          state.employeeSalaryAdvanceDraft = '';
+          state.employeeSalaryAdvanceNoteDraft = '';
+          closeEmployeeSalaryAdvanceDialog();
+          setStatus('АВАНС ВЫДАН.', false);
+        },
+      });
     }
 
     async function handleEmployeeShiftAccrualConfirm() {
@@ -1451,52 +1414,17 @@
         els.employeeShiftAccrualAmountInput?.focus();
         return;
       }
-      const isCurrent = employeeAsyncContext(
-        'employeeMoneyMutationOperation',
-        'activeEmployeeId',
-        { singleFlight: true },
-      );
-      if (!isCurrent) return;
-      syncEmployeeMoneyMutationControls();
-      try {
-        if (els.employeeShiftAccrualConfirmButton) els.employeeShiftAccrualConfirmButton.disabled = true;
-        await api('/api/create_employee_shift_accrual', {
-          method: 'POST',
-          body: {
-            employee_id: employeeId,
-            amount,
-            note: 'Выплата за смены за текущую неделю',
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (!isCurrent()) return;
-        closeEmployeeShiftAccrualDialog();
-        invalidateEmployeesReference();
-        const employees = await loadEmployeesReference({ month: isCurrent.month, apply: false });
-        if (!isCurrent()) return;
-        applyEmployeesReferenceData(employees, isCurrent.month);
-        renderEmployeesWorkspace();
-        try {
-          const report = await loadPayrollReport({ month: isCurrent.month, apply: false });
-          if (!isCurrent()) return;
-          state.payrollReport = report;
-          state.payrollReportMonth = isCurrent.month;
-          renderEmployeesWorkspace();
-        } catch (reportError) {
-          if (!isCurrent()) return;
-          setStatus(reportError.message, true);
-        }
-        if (String(state.activeEmployeeSalaryId || '') === employeeId) {
-          const sheet = await loadEmployeeSalarySheet(employeeId, { openModal: true });
-          if (!isCurrent() || !sheet) return;
-        }
-        setStatus('ВЫПЛАТА ЗА СМЕНЫ НАЧИСЛЕНА.', false);
-      } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
-      } finally {
-        if (isCurrent.release()) syncEmployeeMoneyMutationControls();
-      }
+      return runEmployeeMoneyMutation('/api/create_employee_shift_accrual', {
+        employee_id: employeeId, amount, note: 'Выплата за смены за текущую неделю',
+        actor_name: state.actor, source: 'ui',
+      }, 'activeEmployeeId', {
+        receipt: (data) => data?.accrual?.id,
+        reload: (context) => refreshShiftMoneyUi(employeeId, context),
+        onSuccess: () => {
+          closeEmployeeShiftAccrualDialog();
+          setStatus('ВЫПЛАТА ЗА СМЕНЫ НАЧИСЛЕНА.', false);
+        },
+      });
     }
 
     function renderEmployeesWorkspace() {

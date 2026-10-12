@@ -1628,10 +1628,18 @@ class WebAssetsTests(unittest.TestCase):
                 "async function handleEmployeeSalaryActionConfirm()"
             ) : BOARD_WEB_APP_HTML.index("async function handleEmployeeShiftAccrualConfirm()")
         ]
-        self.assertIn("state.employeesLoadedMonth = '';", salary_handler)
+        self.assertIn(
+            "reload: (context) => refreshSalaryMoneyUi(employeeId, context)", salary_handler
+        )
+        salary_refresh = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function refreshSalaryMoneyUi("
+            ) : BOARD_WEB_APP_HTML.index("async function refreshShiftMoneyUi(")
+        ]
+        self.assertIn("state.employeesLoadedMonth = '';", salary_refresh)
         self.assertLess(
-            salary_handler.index("state.employeesLoadedMonth = '';"),
-            salary_handler.index("await refreshEmployeePayroll(isCurrent)"),
+            salary_refresh.index("state.employeesLoadedMonth = '';"),
+            salary_refresh.index("await refreshEmployeePayroll(isCurrent)"),
         )
         self.assertIn("function handleEmployeeShiftAccrualConfirm()", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/create_employee_shift_accrual'", BOARD_WEB_APP_HTML)
@@ -1653,11 +1661,17 @@ class WebAssetsTests(unittest.TestCase):
                 "async function handleEmployeeShiftAccrualConfirm()"
             ) : BOARD_WEB_APP_HTML.index("function renderEmployeesWorkspace()")
         ]
+        self.assertIn(
+            "reload: (context) => refreshShiftMoneyUi(employeeId, context)", shift_handler
+        )
+        shift_refresh = BOARD_WEB_APP_HTML[
+            BOARD_WEB_APP_HTML.index(
+                "async function refreshShiftMoneyUi("
+            ) : BOARD_WEB_APP_HTML.index("function employeeAsyncContext(")
+        ]
         self.assertLess(
-            shift_handler.index("renderEmployeesWorkspace();"),
-            shift_handler.index(
-                "await loadPayrollReport({ month: isCurrent.month, apply: false });"
-            ),
+            shift_refresh.index("await refreshEmployeePayroll(isCurrent)"),
+            shift_refresh.index("renderEmployeesWorkspace();"),
         )
         self.assertIn(
             "employee.balance_total ?? summary?.balance_total ?? summary?.total_salary",

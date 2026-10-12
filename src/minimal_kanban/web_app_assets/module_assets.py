@@ -24,7 +24,12 @@ _LAZY_GROUPS = {
         "client_vehicle_mutations.js",
     ),
     "board_moves": ("board_moves.js",),
-    "payroll": ("employees_markup.js", "payroll_workspace.js", "employees_mobile.js"),
+    "payroll": (
+        "employees_markup.js",
+        "employee_money_state.js",
+        "payroll_workspace.js",
+        "employees_mobile.js",
+    ),
     "inventory": ("inventory_workspace.js",),
     "cashbox_ops": ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
@@ -221,6 +226,14 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     function resetViewer() {
       state.cashboxMoneyRequest?.release();
       cashboxMoneyCheckpoints.clear();
+    }
+"""
+        exports.append("resetViewer")
+    if group == "payroll":
+        reset = """
+    function resetViewer() {
+      releaseEmployeeMoneyControls();
+      employeeMoneyCheckpoints.clear();
     }
 """
         exports.append("resetViewer")

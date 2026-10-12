@@ -27,9 +27,9 @@ function fixture() {
     return target[key] ||= {value: key.includes('Cashbox') ? 'cash' : key === 'employeesMonthInput' ? '2026-09' : '10',
       disabled:false,focus(){renders.push('focus:'+key);}};
   }});
-  const context = vm.createContext({state,els,console,URLSearchParams,
-    window:{confirm:()=>true,crypto:{randomUUID:()=> 'key'},setTimeout:fn=>timers.push(fn)},
-    setTimeout:fn=>timers.push(fn),
+  const context = vm.createContext({state,els,console,URLSearchParams,AbortController,clearTimeout:()=>{},
+    window:{confirm:()=>true,crypto:{randomUUID:()=> 'key'},setTimeout:(fn,ms)=>ms < 1000 ? timers.push(fn) : 0},
+    setTimeout:(fn,ms)=>ms < 1000 ? timers.push(fn) : 0,
     api(path,options={}) { let resolve,reject; const promise=new Promise((a,b)=>{resolve=a;reject=b;});
       requests.push({path,options,resolve,reject,session:state.operatorSessionToken}); return promise; },
     setStatus:message=>statuses.push(message),
@@ -39,7 +39,7 @@ function fixture() {
     requireEmployeesViewAccess:()=>true,
     maybeOpenModal:()=>renders.push('open'), popModal:()=>renders.push('close'),
   });
-  for (const name of ['payroll_workspace.js','employees_reference.js','employees_mobile.js']) {
+  for (const name of ['employee_money_state.js','payroll_workspace.js','employees_reference.js','employees_mobile.js']) {
     vm.runInContext(fs.readFileSync('src/minimal_kanban/web_app_assets/source/'+name,'utf8'),context);
   }
   Object.assign(context, {
@@ -57,7 +57,7 @@ function fixture() {
   });
   return {context,state,els,requests,statuses,renders,timers};
 }
-const reply = {employee:{id:'a'},employees:[{id:'a',name:'Alice'},{id:'b',name:'Bob'}],ledger:{balance_minor:0,balance_revision:'r2'}};
+const reply = {transaction:{id:'receipt-a'},accrual:{id:'accrual-a'},employee:{id:'a'},employees:[{id:'a',name:'Alice'},{id:'b',name:'Bob'}],ledger:{balance_minor:0,balance_revision:'r2'}};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function switchViewer(f) {
   f.state.viewerStateGeneration++; f.state.operatorSessionToken='B';
@@ -167,7 +167,7 @@ for(const name of ['handleEmployeeSalaryReset','handleEmployeeSalaryActionConfir
   for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) assert.equal(f.els[key].disabled,false);
 }
 for(const name of ['handleEmployeeSalaryReset','handleEmployeeSalaryActionConfirm','handleEmployeeSalaryAdvanceConfirm','handleEmployeeShiftAccrualConfirm']) {
-  const f=fixture(), pending=f.context[name](); f.requests[0].reject(new Error('current failure')); await pending;
+  const f=fixture(), pending=f.context[name](); f.requests[0].reject(Object.assign(new Error('current failure'), {status:422})); await pending;
   assert.deepEqual(f.statuses,['current failure']); assert.equal(f.state.employeeSalaryResetPending,false);
   for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) assert.equal(f.els[key].disabled,false);
 }
@@ -196,13 +196,13 @@ for (const [name,button] of [
   assert.equal(f.requests.length,1,name+': duplicate submit started a second write');
   await duplicate;
   assert.equal(f.els[button].disabled,true,name+': pending control was re-enabled');
-  f.requests[0].reject(new Error('first failure'));
+  f.requests[0].reject(Object.assign(new Error('first failure'), {status:422}));
   await first;
   assert.equal(f.state.employeeMoneyMutationOperation,null,name+': completed operation retained its single-flight token');
   assert.equal(f.els[button].disabled,false,name+': completed operation did not release its control');
   const retry=f.context[name]();
   assert.equal(f.requests.length,2,name+': completed operation blocked a safe retry');
-  f.requests[1].reject(new Error('retry failure'));
+  f.requests[1].reject(Object.assign(new Error('retry failure'), {status:422}));
   await retry;
 }
 """)
@@ -223,7 +223,7 @@ await Promise.all([advance,shift]);
 for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) {
   assert.equal(f.els[key].disabled,true,key+': active money operation was not reflected in a newly opened dialog');
 }
-f.requests[0].reject(new Error('payout failed'));
+f.requests[0].reject(Object.assign(new Error('payout failed'), {status:422}));
 await payout;
 assert.equal(f.state.employeeMoneyMutationOperation,null);
 for(const key of ['employeeSalaryActionConfirmButton','employeeSalaryAdvanceConfirmButton','employeeShiftAccrualConfirmButton']) {
@@ -267,13 +267,14 @@ const money=fixture();
 const oldMoney=money.context.handleEmployeeSalaryActionConfirm();
 const oldMoneyRequest=money.requests[0];
 switchViewer(money);
+money.state.employeeSalaryResetPending=false; // B starts a money write, not a concurrent balance reset.
 const newMoney=money.context.handleEmployeeSalaryActionConfirm();
 assert.equal(money.requests.length,2);
 const newMoneyToken=money.state.employeeMoneyMutationOperation;
 oldMoneyRequest.reject(new Error('old viewer money failure')); await oldMoney;
 assert.equal(money.state.employeeMoneyMutationOperation,newMoneyToken,'old money finally released new viewer token');
 assert.equal(money.els.employeeSalaryActionConfirmButton.disabled,true,'old money finally changed new viewer controls');
-money.requests[1].reject(new Error('new viewer money failure')); await newMoney;
+money.requests[1].reject(Object.assign(new Error('new viewer money failure'), {status:422})); await newMoney;
 assert.equal(money.state.employeeMoneyMutationOperation,null);
 
 const edit=fixture();
@@ -320,6 +321,8 @@ assert.equal(h.renders.length,0,'closed dialog rendered or focused');
 const j=fixture(), earlier=j.context.handleEmployeeSalaryActionConfirm();
 j.state.cashboxesLoaded=true; j.state.cashboxes=[{id:'cash'}];
 await j.context.openEmployeeSalaryDialog('salary_payout');
+assert.equal(j.state.employeeSalaryActionKind,'salary_payout');
+j.state.employeeSalaryViewGeneration=(j.state.employeeSalaryViewGeneration||0)+1;
 j.state.employeeSalaryActionDraft='new dialog';
 j.requests[0].resolve(reply); await earlier;
 assert.equal(j.requests.length,1,'old operation refreshed a newer dialog');
