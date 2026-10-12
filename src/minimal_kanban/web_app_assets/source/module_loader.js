@@ -219,6 +219,10 @@
         ? (state.modalStack || []).find((entry) => entry?.key === 'cashboxes') : null;
       const cardEditingGeneration = state.cardEditingGeneration || 0;
       const cardHydrationSeq = state.cardHydrationSeq || 0;
+      const clientMutation = ['saveClientProfile', 'saveClientVehicleFromEditor', 'deleteClientVehicle'].includes(method);
+      const clientId = clientMutation ? String(state.clientsActiveId || '') : null;
+      const clientProfileSequence = state.clientsProfileRequestSeq || 0;
+      const clientVehicleEditor = state.clientVehicleEditor;
       const payrollOpen = name === 'payroll' && method === 'openEmployeesModal';
       const month = payrollOpen ? (els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue()) : '';
       const guardedAuxiliaryOpen = name === 'auxiliary' && [
@@ -234,7 +238,10 @@
       const openIntent = guardedAuxiliaryOpen ? {} : null;
       if (openIntent) currentRecord.openIntent = openIntent;
       const intentIsCurrent = () => (!openIntent || currentRecord.openIntent === openIntent)
-        && (name !== 'card_save' || method !== 'persistCardPayload' || cardEditingGeneration === (state.cardEditingGeneration || 0))
+        && (name !== 'card_save' || !['persistCardPayload', 'createClientForCard'].includes(method) || cardEditingGeneration === (state.cardEditingGeneration || 0))
+        && (method !== 'createClientForCard' || !args[2]?.isCurrent || args[2].isCurrent())
+        && (clientId === null || (clientId === String(state.clientsActiveId || '') && clientProfileSequence === (state.clientsProfileRequestSeq || 0)))
+        && (!clientMutation || method === 'saveClientProfile' || clientVehicleEditor === state.clientVehicleEditor)
         && (!settingsParent || (state.modalStack || []).includes(settingsParent))
         && (mobileView === null || state.mobileView === mobileView)
         && (!mobilePanelIntent || state.mobileMorePanelIntent === mobilePanelIntent);

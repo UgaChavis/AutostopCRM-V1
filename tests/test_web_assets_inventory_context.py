@@ -430,6 +430,7 @@ tasks[5].resolve({text:'old'});await staleDownload;assert.equal(downloads,0);
             functions(
                 "app_main_before_printing.js",
                 "clearEmployeesCashboxesModuleState",
+                "resetClientMutationControls",
                 "resetViewerScopedState",
             ),
             """

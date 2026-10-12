@@ -77,6 +77,18 @@ class UiBrowserTestCase(unittest.TestCase):
             {"title": title, "source": "ui", "actor_name": "admin", **fields}
         )["card"]["id"]
 
+    def create_client_and_open(self, name: str) -> str:
+        client_id = self.runtime.service.create_client(
+            {"client_type": "company", "display_name": name, "source": "ui"}
+        )["client"]["id"]
+        self.load_board()
+        self.page.locator("#clientsButton").click()
+        self.page.locator(f'#clientsList [data-client-id="{client_id}"]').click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=client_id
+        )
+        return client_id
+
     def open_card(self, card_id: str) -> None:
         self.page.locator(
             f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])'

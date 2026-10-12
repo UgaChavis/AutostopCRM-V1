@@ -1,90 +1,103 @@
 # UI stability sweep
 
 Started 2026-10-12 at `579a2573cfd8abc5276cbeb4aba17e011b400743` on
-`codex/crm-ui-stability-sweep`. Goal: three passes over every UI family,
-confirmed technical fixes, two consecutive clean full browser runs and exact
-published SHA accepted by `quality.yml`. Business rules, authorization,
-API/MCP contracts and stored formats are preserved. Source only; no production,
-SSH, installed-client profile or live data. The primary checkout's 41 staged
-constructor files are untouched.
+`codex/crm-ui-stability-sweep`. Goal: functional, failure/concurrency and
+integration passes over every UI family; two consecutive clean complete
+browser runs after the final fix; local CI and exact published SHA accepted by
+`quality.yml`. Business rules, authorization, API/MCP contracts and storage
+formats are preserved. Source only: no production, SSH, installed-client
+profile or live data. The primary checkout's 41 staged constructor files stay
+untouched.
 
 ## Baseline and environment
 
-- Isolated managed checkout updated to the exact remote SHA; pinned dev
-  dependencies restored in its ignored virtual environment.
-- Baseline CI: 3,023 runtime tests, 2 failures and 4 errors, 83 skips;
-  703.699 seconds. New Windows failures concern UTF-8, a pinned vendor asset's
-  CRLF checkout, and isolated Docker Compose plugin discovery. Later CI steps
-  were not reached. They must pass before publication.
-- Baseline full browser: all 49 scenarios passed, first render 549.1 ms;
-  no console errors, page errors or failed requests. This smoke alone missed
-  the four reproduced card defects below.
-- Browser plugin skill absent; use existing Playwright with temporary synthetic
-  CRM runtimes. Screenshots and diagnostics stay outside Git.
-- Canonical M2 private state/journal is absent locally. No SSH or deployment
-  is authorized; source-side progress is recorded here.
+- Baseline CI: 3,023 runtime tests, six Windows failures, 83 environment skips.
+  Explicit UTF-8, a pinned asset's LF checkout and isolated Compose plugin
+  discovery repaired those failures in ENV-01 without changing runtime rules.
+- Baseline full browser: 49/49, first render 549.1 ms, no unexplained console,
+  page or request errors. The smoke missed the reproduced faults below.
+- Browser plugin skill absent: repository Playwright tests use disposable CRM
+  runtimes, synthetic data and independent operator sessions. Diagnostics and
+  screenshots stay outside Git. Pinned dependencies are in the ignored venv.
+- Canonical M2 private state/journal is absent locally. No SSH is authorized;
+  source-side evidence and the remaining queue are recorded here.
 
 ## Screen and action register
 
-Each family requires functional, failure/concurrency and integration evidence.
-`pending` means unaccepted even where existing smoke currently passes.
+`pending` means unaccepted even when the existing smoke passes. Accepted
+portions still participate in the final whole-application integration pass.
 
-| Screen / element | Required actions and expected result | Passes / evidence |
+| Family / actions and expected result | Functional and failure evidence | Acceptance |
 | --- | --- | --- |
-| Desktop cards and save | Existing/new, one click, duplicates, conflict, uncertain reply, client/vehicle stage; close only after full success, retain draft on error | 10 new browser regressions pass; full CI/publication pending |
-| Columns and card badges | Create/rename/order/delete by stable ID; personal clones, hover/open, own/other update, reload/login; identical badges across copies | 5 new browser regressions pass, two users/roles and personal copies; existing column smoke; full CI/publication pending |
-| Clients, vehicles, search, references | Create/edit/select/search, empty and long lists, late replies, navigation, permissions | pending |
-| Attachments, shared files, editors, preview, print | Upload/delete/list/open/edit, draft, failures, close during loading and return navigation | pending |
-| Inventory and orders UI | Loads, edits, repeat clicks, concurrent updates, native errors; unchanged guards and values | pending |
-| Cashboxes, payroll and employee UI | Lists, filters, periods, dialogs, repeat clicks/errors; identical financial results | pending |
-| Board/operator settings, roles, manager maps, dashboard | Save/cancel, roles, stale replies, module loading, popup/navigation | pending |
-| Mobile | All panels, cards, navigation, small viewport, failures and draft recovery | pending |
-| Windows | Source startup, dialogs/settings and relevant native workflows on disposable data | pending |
-| Shared mechanisms | Requests, cache, polling, modals, event ownership, logout/login, reconnect | pending |
+| Desktop cards: create/update, one click, conflict, uncertain reply, client/vehicle stages; close after all confirmed actions, retain draft on errors | 11 real-browser regressions; drafts, ownership, partial completion, stale snapshot and bounded module loading | Portion accepted at `b7a35a3`; final integration pending |
+| Columns and badges: stable ID through create/rename/order/delete, personal copies, hover/open, own/other changes, reload/login | Five browser badge regressions with two users and personal copies; full column smoke | Portion accepted at `b7a35a3`; final integration pending |
+| Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Local CI passed; exact-SHA hosted acceptance pending |
+| Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | Existing smoke and contracts; deeper failure pass pending | pending |
+| Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Lost committed cashbox reply followed by retry sends two writes; UI fix queued | pending |
+| Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
+| Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
+| Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
+| Shared mechanisms: requests/cache/polling/modals/logout/reconnect | Card/client ownership and failure regressions; remaining families pending | pending |
 
 ## Confirmed findings and portions
 
-| ID | Reproduction / consequence | Fix and regression | Publication |
+| ID | Reproduction / consequence | Result / regression | Publication |
 | --- | --- | --- | --- |
-| ENV-01 | Baseline Windows CI: six failures from locale/CRLF/plugin discovery | Explicit UTF-8, pinned LF checkout, temp Compose config; 14 focused tests and docs/Ruff passed; full CI pending | pending |
-| UI-01 | Create card; fail client-link response; click Save again: two created cards, one linked | Retain confirmed ID and completed stage; retry only unfinished action | pending |
-| UI-02 | Delay save; title remains editable; type again; release response: modal closes and later text is lost | Freeze conflicting controls for the owned save; preserve pre-existing disabled state | pending |
-| UI-03 | Fail `mark_card_seen`: NEW disappears despite unconfirmed read, suppression remains | Reconcile/restore badges after failure; scope suppression to user and version | pending |
-| UI-04 | Hold old seen reply; save new title; release old reply: board shows old title, storage has new title | Reject obsolete reply without replacing current card data | pending |
-| UI-05 | Open NEW, wait for hydration, reload: acknowledgement was never sent and NEW returns | Separate pending optimism from confirmed read; browser reproduction failed before fix | pending |
-| UI-06 | Hold snapshot sampled before save; release after successful save: board restores the previous title | Advance local mutation generation on confirmed card writes; browser reproduction failed before fix | pending |
-| UI-07 | Lose an unchanged update before delivery; readback confirms the data but NEW returns after reload | Preserve no-op change metadata and acknowledge any still-unconfirmed personal read | pending |
+| ENV-01 | Six baseline Windows failures from locale, CRLF and isolated Compose discovery | UTF-8/LF/plugin path fixes; full local and hosted CI passed | `b03a5d4`, accepted with card portion |
+| UI-01 | Fail link after confirmed card create, then retry: second create request | Keep confirmed card ID; retry only unfinished stage | `b7a35a3` |
+| UI-02 | Edit during pending card save: later input lost on close | Freeze conflicting controls and restore previous disabled states | `b7a35a3` |
+| UI-03 | Fail mark-seen: NEW disappears despite failed acknowledgement | Read back/restore markers and suppression by user/version | `b7a35a3` |
+| UI-04 | Late seen reply replaces a newer saved title | Merge current-version markers without replacing content | `b7a35a3` |
+| UI-05 | Open NEW and reload: acknowledgement was suppressed | Separate pending optimism and confirmed read | `b7a35a3` |
+| UI-06 | Release snapshot sampled before save: previous title restored | Advance mutation generation on confirmed writes | `b7a35a3` |
+| UI-07 | Lost no-op update, readback succeeds, NEW returns on reload | Preserve change metadata and confirm personal read | `b7a35a3` |
+| UI-08 | Create client, fail saved-card link, retry: create sent again | Keep client ID and retry only the link | candidate |
+| UI-09 | Create client for unsaved card, fail vehicle stage, retry: create sent again | Keep client checkpoint and retry unfinished vehicle stage | candidate |
+| UI-10 | Link response replaces unsaved card title/description | Update confirmed association while retaining draft and dirty state | candidate |
+| UI-11 | Popup fields editable during pending client creation | Freeze popup controls, prevent repeat submit, restore on errors | candidate |
+| UI-12 | Close creation popup, open another, release old reply: new popup affected | Bind result to card, viewer and popup generation | candidate |
+| UI-13 | Client profile fields editable during save/refresh and overwritten | Lock owned controls until confirmed rendering, restore on errors/logout | candidate |
+| UI-14 | Lose profile-create reply after commit, retry: create sent again | Read list, retain draft, block blind repeat without a known receipt ID | candidate |
+| UI-15 | Vehicle refresh fills profile and erases unsaved comment | Refresh vehicles, restore edited profile fields and dirty baseline | candidate |
+| UI-16 | Lose new-vehicle reply after commit, retry: upsert sent again | Read profile, stop blind create; known-ID update/delete reconcile by reading | candidate |
 
-ENV-01 is local commit `b03a5d4`; publication waits for the full shared candidate's
-CI. Card save and seen reconciliation load as one optional module; controls and
-ownership stay eager. Startup JavaScript remains under the unchanged 901,000-byte
-limit. The creation API supplies no idempotency key or receipt lookup: after a
-lost create reply, the UI reads the board and retains its draft, but deliberately
-does not guess the created ID or repeat creation. Automatic recovery for that
-case requires a separate compatible API proposal (receipt/key retention,
-replay semantics and rollback to the current guarded UI).
+Card portion: 16 browser regressions, 294 web contracts, full browser 49/49
+(first render 573.8 ms), local CI 3,039 runtime tests/83 environment skips and
+36 release tests/4 environment skips; generated JS, parity, ratchets and all
+performance gates passed. Exact-SHA
+[quality.yml run 38263040268](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38263040268)
+passed unit, static, browser-performance, docker-runtime-assets and quality for
+`b7a35a39881feff1dcce276c2b453c0bc78e2d81`. Both commits were fast-forward
+published. Startup JavaScript: 898,403 baseline -> 899,537 bytes, below the
+unchanged 901,000-byte gate; no speedup is claimed.
 
-Card section local evidence: 16 real-browser regressions pass in 30.554 seconds.
-Full browser before the final no-op fix: 49/49, first render
-530.3 ms, no errors/failed requests. Existing web contract suite: 294 tests passed.
-First shared CI candidate: 3,038 tests, seven extraction-fixture failures and
-83 skips. Fixtures now read expanded sources with the actual save dependencies;
-their 49 focused tests pass, as do all 294 web contract tests. Full CI must be
-repeated before publication. Seven card defects have been reproduced and fixed;
-the confirmed client-creation retry defect is queued for the next section.
-Business-service source is unchanged. Before/after startup JavaScript measured
-on the same checkout assembler: 898,403 -> 899,479 bytes; gzip 169,405 -> 169,894.
-The 901,000-byte gate is unchanged. The duplicate reproduction changes from
-two create requests/cards to one, followed only by the unfinished client link.
-No speedup is claimed from these byte or timing figures.
+Client candidate: five popup defects and two profile defects failed browser
+regressions before fixes; vehicle draft loss and repeated upsert also failed
+before fixes. Repeated creation changes from two create POSTs to one confirmed
+client ID plus only the unfinished stage. Native duplicate detection, vehicle
+normalization/synchronization, deletion and authorization rules remain in
+unchanged services. All 39 card/client/search browser regressions pass; the
+final full browser passed 49/49, first render 530.3 ms, no unexplained console,
+page or request errors. Generated JS and 294 web contracts pass.
+Full local CI passed: 3,062 runtime tests (81 environment skips), 36 release
+tests (four environment skips), coverage, parity, core browser and performance
+gates. An obsolete textual dirty-button expectation was updated to require
+the new in-flight guard; the real browser test verifies that guard too.
+Startup JS: 899,537 -> 897,393 bytes, below the unchanged 901,000-byte gate.
+No speedup is claimed. Publication and exact-SHA hosted acceptance are pending.
 
-Final card candidate: full browser 49/49, first render 573.8 ms, no errors or
-failed requests. Local CI passed: 3,039 runtime tests (83 environment skips),
-36 release tests (4 environment skips), generated JS, parity, coverage ratchets,
-core browser and all performance gates. The remaining local client-search
-browser skip is queued for portable Windows coverage. No limits were weakened.
-Card startup asset: 899,537 bytes, below 901,000; the optional module owns save
-and seen reconciliation. ENV-01 and UI-01 through UI-07 are locally verified.
+## Concrete limits and next actions
 
-Next: fast-forward publication and exact-SHA hosted CI. Other families remain
-unaccepted until their deeper review and failure/integration evidence.
+- Create-card/client/vehicle APIs provide no durable request receipt lookup.
+  A lost create reply without a known ID cannot be safely attributed using
+  title, name, phone or VIN. The guarded UI reads data, retains the draft and
+  stops blind repeat. Automatic recovery needs a separate compatible API
+  proposal: durable request key/receipt, replay semantics and rollback to the
+  guarded UI. No contract change is included here.
+- Cashbox fault reproduced on disposable data: a lost committed transaction
+  reply followed by retry produces two distinct native receipts. Review UI
+  ownership/readback and uncertain-result barriers; do not change finance
+  services or repair production records.
+- Finish each remaining family, then repeat transitions on fresh data. The
+  two final clean complete browser runs have not yet been performed.

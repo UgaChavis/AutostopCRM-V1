@@ -16,7 +16,13 @@ def _read_source_chunk(name: str) -> str:
 
 
 _LAZY_GROUPS = {
-    "card_save": ("card_save_state.js", "card_seen_state.js"),
+    "card_save": (
+        "card_save_state.js",
+        "card_seen_state.js",
+        "card_client_creation.js",
+        "client_profile_save.js",
+        "client_vehicle_mutations.js",
+    ),
     "board_moves": ("board_moves.js",),
     "payroll": ("employees_markup.js", "payroll_workspace.js", "employees_mobile.js"),
     "inventory": ("inventory_workspace.js",),

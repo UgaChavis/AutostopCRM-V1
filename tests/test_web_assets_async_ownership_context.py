@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if __package__:
     from tests.source_path_support import ensure_source_path
@@ -259,11 +261,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
             "    function beginCardScopedRequest(",
             "    function captureRepairOrderMutationContext(",
         )
-        create_client = section(
-            source,
-            "    async function createClientForCard(",
-            "    async function createClientFromCardSuggestion(",
-        )
+        create_client = functions("app_main_before_printing.js", "createClientForCard")
         link_client = section(
             source,
             "    async function linkActiveCardToClient(",
@@ -290,6 +288,7 @@ function applyCardModalState(card){applied.push(card.id);state.activeCard=card;}
 function hideClientSuggestions(){}
 function refreshSnapshot(){refreshes.push(state.editingId);return Promise.resolve();}
 function setStatus(message,isError){statuses.push({message,isError});}
+global.window={setTimeout,clearTimeout};
 """
             + request_context
             + create_client
@@ -719,6 +718,8 @@ function setStatus(message,isError){statuses.push({message,isError});}
 const assert=require('node:assert/strict');
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};}
 const calls=[],selected=[],statuses=[];
+const els={};
+const window={setTimeout,clearTimeout};
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',apiToken:'api-A',actor:'actor-A',
   clientsActiveId:'A',clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__'},
@@ -726,11 +727,18 @@ const state={
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function findActiveClientVehicle(){return null;}
 function readClientVehicleEditorPayload(){return {vehicle:'Vehicle A',vin:'VIN-A',license_plate:''};}
+function updateClientSaveButtonState(){}
 async function selectClient(id){selected.push(id);}
 function setStatus(message,isError){statuses.push({message,isError});}
 """
             + viewer_context
             + vehicle_mutation
+            + functions(
+                "app_main_before_printing.js",
+                "cardPersistWrite",
+                "cardPersistErrorIsDefinite",
+                "clientMutationRead",
+            )
             + """
 (async()=>{
   const staleA=saveClientVehicleFromEditor('__new__');

@@ -134,6 +134,7 @@ function stopCardCleanupPolling(){}
 function refreshRepairOrderEntry(){}
 function syncCardSaveDirtyState(){}
 function setCardSaveInteractionLocked(){}
+function setCardClientCreateSaving(){}
 function clearFilePreview(){}
 function syncFileDropzone(){}
 function syncFilePreview(){}

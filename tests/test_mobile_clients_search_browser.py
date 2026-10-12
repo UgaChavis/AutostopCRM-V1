@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
@@ -30,7 +31,9 @@ class _ClientsSearchBrowserCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if sys.platform == "win32":
-            raise unittest.SkipTest("POSIX disposable browser runtime required")
+            policy = asyncio.get_event_loop_policy()
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            cls.addClassCleanup(asyncio.set_event_loop_policy, policy)
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:

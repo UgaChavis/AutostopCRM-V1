@@ -257,6 +257,9 @@
       clientsDraftBaseline: '',
       clientVehicleEditor: null,
       clientMutationRequest: null,
+      clientMutationControls: null,
+      clientProfileSaveCheckpoint: null,
+      clientVehicleMutationCheckpoint: null,
       sharedFiles: [],
       sharedFilesActiveId: '',
       sharedFilesStorage: null,
@@ -366,6 +369,9 @@
       pendingCardClientVehicleId: '',
       pendingCreateClientVehicleFromCard: false,
       cardClientCreateSaving: false,
+      cardClientCreateGeneration: 0,
+      cardClientCreateCheckpoint: null,
+      cardClientCreateControls: null,
       filePreview: {
         attachmentId: '',
         fileName: '',
@@ -2417,6 +2423,9 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      resetClientMutationControls();
+      state.clientProfileSaveCheckpoint = null;
+      state.clientVehicleMutationCheckpoint = null;
       clearBoardSearchState({ keepCache: false });
       clearDisplayDashboardImageDrafts();
       if (typeof resetBoardModules === 'function') resetBoardModules();
@@ -3957,9 +3966,9 @@
       const baseline = String(state.clientsDraftBaseline || '');
       const current = clientFormDirtySnapshot();
       const dirty = Boolean(baseline && current !== baseline);
-      els.clientSaveButton.disabled = !dirty;
+      els.clientSaveButton.disabled = !dirty || Boolean(state.clientMutationRequest);
       els.clientSaveButton.classList.toggle('is-dirty', dirty);
-      els.clientSaveButton.setAttribute('aria-disabled', dirty ? 'false' : 'true');
+      els.clientSaveButton.setAttribute('aria-disabled', els.clientSaveButton.disabled ? 'true' : 'false');
     }
 
     function handleClientFormChange(event) {
@@ -4059,6 +4068,10 @@
       const context = captureViewerRequestContext();
       const profileRequestSeq = state.clientsProfileRequestSeq || 0;
       state.clientMutationRequest = request;
+      const controls = Array.from(els.clientProfilePane?.querySelectorAll('input, textarea, select, button') || []);
+      if (els.clientSaveButton && !controls.includes(els.clientSaveButton)) controls.push(els.clientSaveButton);
+      state.clientMutationControls = controls.map((control) => [control, control.disabled]);
+      controls.forEach((control) => { control.disabled = true; });
       return {
         request,
         clientId,
@@ -4074,81 +4087,17 @@
     function finishClientMutation(context) {
       if (!context?.ownsRequest()) return false;
       state.clientMutationRequest = null;
+      resetClientMutationControls();
+      updateClientSaveButtonState();
       return true;
     }
 
-    async function saveClientVehicleFromEditor(key) {
-      if (!state.clientsActiveId) {
-        setStatus('СНАЧАЛА ВЫБЕРИТЕ ИЛИ СОХРАНИТЕ КЛИЕНТА.', true);
-        return;
-      }
-      const normalizedKey = String(key || '').trim();
-      const currentVehicle = normalizedKey === '__new__' ? null : findActiveClientVehicle(normalizedKey);
-      const payload = readClientVehicleEditorPayload(normalizedKey);
-      if (!payload.vehicle && !payload.vin && !payload.license_plate) {
-        setStatus('ЗАПОЛНИТЕ МОДЕЛЬ, VIN ИЛИ ГОСНОМЕР АВТОМОБИЛЯ.', true);
-        return;
-      }
-      const body = {
-        client_id: state.clientsActiveId,
-        vehicle: payload,
-        sync_linked_cards: true,
-      };
-      if (currentVehicle?.id) body.client_vehicle_id = currentVehicle.id;
-      const context = beginClientMutation();
-      if (!context) return;
-      body.client_id = context.clientId;
-      try {
-        await api('/api/upsert_client_vehicle', { method: 'POST', body });
-        if (!context.isCurrent()) return;
-        state.clientVehicleEditor = null;
-        const clientId = context.clientId;
-        finishClientMutation(context);
-        await selectClient(clientId);
-        if (context.ownsRequest() || String(state.clientsActiveId || '').trim() === clientId) {
-          setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
-        }
-      } catch (error) {
-        if (context.isCurrent()) setStatus(error.message, true);
-      } finally {
-        finishClientMutation(context);
-      }
+    function resetClientMutationControls() {
+      state.clientMutationControls?.forEach(([control, disabled]) => { control.disabled = disabled; });
+      state.clientMutationControls = null;
     }
 
-    async function deleteClientVehicle(key) {
-      if (!state.clientsActiveId) return;
-      const vehicle = findActiveClientVehicle(key);
-      if (!vehicle?.id) {
-        setStatus('ЭТА ЗАПИСЬ ПРИШЛА ИЗ СВЯЗАННОЙ КАРТОЧКИ. СНАЧАЛА ОТКРОЙТЕ РЕДАКТИРОВАНИЕ И СОХРАНИТЕ ЕЁ В ПРОФИЛЬ КЛИЕНТА.', true);
-        return;
-      }
-      const title = String(vehicle.vehicle || vehicle.vin || vehicle.license_plate || 'автомобиль').trim();
-      if (!window.confirm('Удалить автомобиль "' + title + '" из профиля клиента? Связанные карточки останутся, но связь с этим автомобилем будет снята.')) return;
-      const context = beginClientMutation();
-      if (!context) return;
-      try {
-        await api('/api/delete_client_vehicle', {
-          method: 'POST',
-          body: {
-            client_id: context.clientId,
-            client_vehicle_id: vehicle.id,
-            unlink_cards: true,
-          },
-        });
-        if (!context.isCurrent()) return;
-        state.clientVehicleEditor = null;
-        const clientId = context.clientId;
-        finishClientMutation(context);
-        await selectClient(clientId);
-        if (String(state.clientsActiveId || '').trim() === clientId) {
-          setStatus('АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', false);
-        }
-      } catch (error) {
-        if (context.isCurrent()) setStatus(error.message, true);
-      } finally {
-        finishClientMutation(context);
-      }
-    }
+    // @include client_vehicle_mutations.js
 
     async function openClientsModal() {
       if (!requireOperatorSession()) return;
@@ -4163,32 +4112,7 @@
       if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
     }
 
-    async function saveClientProfile() {
-      updateClientSaveButtonState();
-      if (els.clientSaveButton?.disabled) return;
-      const payload = readClientFormPayload();
-      const context = beginClientMutation({ allowNew: true });
-      if (!context) return;
-      const wasExisting = Boolean(context.clientId);
-      try {
-        const data = context.clientId
-          ? await api('/api/update_client', { method: 'POST', body: { client_id: context.clientId, ...payload } })
-          : await api('/api/create_client', { method: 'POST', body: payload });
-        if (!context.isCurrent()) return;
-        const savedClientId = String(data?.client?.id || context.clientId || '').trim();
-        finishClientMutation(context);
-        state.clientsActiveId = savedClientId;
-        setStatus(wasExisting ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);
-        await loadClients({ openModal: false });
-        if (savedClientId && String(state.clientsActiveId || '').trim() === savedClientId) {
-          await selectClient(savedClientId);
-        }
-      } catch (error) {
-        if (context.isCurrent()) setStatus(error.message, true);
-      } finally {
-        finishClientMutation(context);
-      }
-    }
+    // @include client_profile_save.js
 
     function handleClientsListClick(event) {
       const target = event.target;
@@ -4535,64 +4459,7 @@
       return request;
     }
 
-    async function createClientForCard(profile, payload, { createVehicleFromCard = true } = {}) {
-      const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
-      if (!context) return null;
-      const sourceProfile = cloneVehicleProfile(
-        profile && typeof profile === 'object' ? profile : readVehicleProfileForm(),
-      );
-      const request = normalizedCardClientCreatePayload(payload);
-      const displayName = String(request.display_name || '').trim();
-      const phone = String(request.phone || '').trim();
-      if (!displayName && !phone) {
-        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
-        finishCardScopedRequest(context);
-        return null;
-      }
-      try {
-        const created = await api('/api/create_client', {
-          method: 'POST',
-          body: request,
-        });
-        if (!context.isCurrent()) return null;
-        const client = created?.client || {};
-        const clientId = String(client.id || '').trim();
-        if (!clientId) throw new Error('КЛИЕНТ СОЗДАН БЕЗ ID.');
-        let clientVehicleId = '';
-        const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
-        if (shouldCreateVehicle) {
-          if (context.cardId) {
-            const linked = await linkActiveCardToClient(clientId, {
-              createVehicleFromCard: true,
-              context,
-            });
-            if (!context.isCurrent()) return null;
-            clientVehicleId = linked?.card?.client_vehicle_id || '';
-          } else {
-            const upserted = await api('/api/upsert_client_vehicle', {
-              method: 'POST',
-              body: {
-                client_id: clientId,
-                vehicle: vehiclePayloadFromProfile(sourceProfile),
-                sync_linked_cards: true,
-              },
-            });
-            if (!context.isCurrent()) return null;
-            clientVehicleId = upserted?.vehicle?.id || '';
-          }
-        } else if (context.cardId) {
-          await linkActiveCardToClient(clientId, { context });
-          if (!context.isCurrent()) return null;
-        }
-        state.pendingCardClientId = clientId;
-        state.pendingCardClientVehicleId = clientVehicleId;
-        state.pendingCreateClientVehicleFromCard = false;
-        hideClientSuggestions();
-        return { client, clientId, clientVehicleId, context };
-      } finally {
-        finishCardScopedRequest(context);
-      }
-    }
+    // @include card_client_creation.js
 
     async function createClientFromCardSuggestion() {
       const isCurrent = captureCardEditingContext();
@@ -4898,7 +4765,7 @@
     async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false, context = null } = {}) {
       if (!context?.isCurrent() || !context.cardId || !clientId) return null;
       try {
-        const data = await api('/api/link_card_to_client', {
+        const options = {
           method: 'POST',
           body: {
             card_id: context.cardId,
@@ -4909,10 +4776,13 @@
             sync_fields: true,
             overwrite_card_fields: false,
           },
-        });
+        };
+        const data = context.writeRequest
+          ? await context.writeRequest('/api/link_card_to_client', options.body)
+          : await api('/api/link_card_to_client', options);
         if (!context.isCurrent()) return null;
         if (data?.card && String(data.card.id || '').trim() === context.cardId) {
-          applyCardModalState(data.card);
+          applyCardClientLinkResult(data.card);
         }
         hideClientSuggestions();
         setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
@@ -9812,6 +9682,14 @@
     function setCardClientCreateSaving(isSaving) {
       const saving = Boolean(isSaving);
       state.cardClientCreateSaving = saving;
+      const fields = els.cardClientCreateModal?.querySelectorAll('input, textarea, select, button:not([data-close])') || [];
+      if (saving && !state.cardClientCreateControls) {
+        state.cardClientCreateControls = Array.from(fields).map((field) => [field, field.disabled]);
+        fields.forEach((field) => { field.disabled = true; });
+      } else if (!saving && state.cardClientCreateControls) {
+        state.cardClientCreateControls.forEach(([field, disabled]) => { field.disabled = disabled; });
+        state.cardClientCreateControls = null;
+      }
       if (els.cardClientCreateSaveButton) {
         els.cardClientCreateSaveButton.disabled = saving;
         els.cardClientCreateSaveButton.textContent = saving ? 'СОЗДАЕМ...' : 'СОЗДАТЬ И ПРИВЯЗАТЬ';
@@ -9842,6 +9720,7 @@
     }
 
     function openCardClientCreateModal() {
+      state.cardClientCreateGeneration += 1;
       const profile = readVehicleProfileForm();
       resetCardClientCreateForm(profile);
       hideClientSuggestions();
@@ -9855,6 +9734,7 @@
     }
 
     function closeCardClientCreateModal() {
+      state.cardClientCreateGeneration += 1;
       setCardClientCreateSaving(false);
       popModal('card-client-create');
     }
@@ -9885,14 +9765,16 @@
 
     async function saveCardClientFromPopup() {
       if (state.cardClientCreateSaving) return;
-      const isCurrent = captureCardEditingContext();
+      const cardContext = captureCardEditingContext();
+      const creationGeneration = state.cardClientCreateGeneration;
+      const isCurrent = () => cardContext() && creationGeneration === state.cardClientCreateGeneration;
       const payload = readCardClientCreatePayload();
       if (!payload) return;
       const profile = readVehicleProfileForm();
       const createVehicleFromCard = Boolean(els.cardClientCreateVehicleInput?.checked && !els.cardClientCreateVehicleInput?.disabled);
       setCardClientCreateSaving(true);
       try {
-        const created = await createClientForCard(profile, payload, { createVehicleFromCard });
+        const created = await createClientForCard(profile, payload, { createVehicleFromCard, creationGeneration, isCurrent });
         if (!created || !isCurrent()) return;
         closeCardClientCreateModal();
         setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
@@ -12293,6 +12175,8 @@
       state.pendingCardClientVehicleId = '';
       state.pendingCreateClientVehicleFromCard = false;
       state.cardClientCreateSaving = false;
+      state.cardClientCreateCheckpoint = null;
+      setCardClientCreateSaving(false);
       hideClientSuggestions();
       state.draftTags = [];
       state.draftTagColor = 'green';

@@ -25,6 +25,16 @@ def functions(file_name: str, *names: str) -> str:
     dependencies = list(names)
     if "persistCardPayload" in names:
         dependencies.extend(_PERSIST_HELPERS)
+    if "createClientForCard" in names:
+        dependencies.extend(
+            (
+                "cardPersistWrite",
+                "cardPersistErrorIsDefinite",
+                "reconcileCreatedClient",
+                "clientMutationRead",
+                "clientProfilePayloadMatches",
+            )
+        )
     if {"persistCardPayload", "saveCard", "ensureRepairOrderCard"}.intersection(names):
         dependencies.append("captureCardSaveWorkspace")
         if file_name != "app_main_before_printing.js":

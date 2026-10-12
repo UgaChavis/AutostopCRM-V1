@@ -2848,7 +2848,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function clientFormDirtySnapshot()", BOARD_WEB_APP_HTML)
         self.assertIn("function updateClientSaveButtonState()", BOARD_WEB_APP_HTML)
         self.assertIn("state.clientsDraftBaseline", BOARD_WEB_APP_HTML)
-        self.assertIn("els.clientSaveButton.disabled = !dirty;", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "els.clientSaveButton.disabled = !dirty || Boolean(state.clientMutationRequest);",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "els.clientSaveButton.classList.toggle('is-dirty', dirty);", BOARD_WEB_APP_HTML
         )
@@ -2928,7 +2931,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function saveCardClientFromPopup()", BOARD_WEB_APP_HTML)
         self.assertIn("async function createClientForCard(profile, payload,", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "await createClientForCard(profile, payload, { createVehicleFromCard });",
+            "await createClientForCard(profile, payload, { createVehicleFromCard, creationGeneration, isCurrent });",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

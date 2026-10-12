@@ -7,6 +7,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if __package__:
     from tests.source_path_support import prepend_source_path
@@ -535,6 +537,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
@@ -803,6 +806,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
@@ -1041,6 +1045,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
+        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
