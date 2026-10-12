@@ -200,6 +200,21 @@ errors. Full local CI passed: 3,081 runtime tests (80 environment skips),
 and unchanged code-health limits. Publication and exact-SHA hosted acceptance
 of this follow-up are pending.
 
+Published follow-up `468de56b79040f8dae0026039b21b1a06170f715` matched the
+remote ref. Hosted [quality run 38301310370](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38301310370)
+failed the existing manager-map browser test. ENV-03: its login helper waited
+only for visible map nodes; a startup technical status read scheduled for the
+next animation frame could arrive after interaction recording began. A delayed
+first animation frame reproduces the same failure locally. Wait for the initial
+status response to finish before recording map interactions; the assertion
+for zero business API calls remains unchanged. The production UI is unchanged.
+Next publication is paused until the exact-SHA repair passes hosted CI.
+ENV-03 local acceptance: 19 map source/browser tests (23.742s), including
+delayed startup and all 85 interactive map elements, passed. Full local CI
+passed: 3,081 runtime tests (80 environment skips), 36 release tests (four
+environment skips), coverage/parity/core browser and performance gates.
+Only test readiness and this register changed; runtime assets are identical.
+
 Reproduced cashbox UI failures are queued: duplicate income/transfer after a
 lost reply, lost draft on failed refresh, editable pending fields/preview,
 parent close during a write, mobile repeat and missing existing version guard.
@@ -210,3 +225,12 @@ Windows settings write failure was reproduced with a real Qt Save click on a
 temporary profile: an uncaught PermissionError instead of an error message.
 Queue a UI-only storage-error handler preserving the draft and saved settings;
 the pending regression and evidence remain in TEMP until that portion.
+
+Further isolated failure audit confirmed two advance-dialog faults (duplicate
+native cash receipt after a lost reply; amount/cashbox/comment remain editable)
+and two inventory faults (native 409 clears the price/name draft; re-entering
+an uncertain new item creates a second native ID). These regressions remain
+in TEMP for the corresponding financial and inventory portions. Cashbox cold
+module loading also leaves the amount editable before the action starts;
+the prepared UI patch covers loading as well as HTTP execution. No queued
+candidate has been applied to the checkout during the current CI run.

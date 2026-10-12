@@ -106,7 +106,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
             "token => localStorage.setItem('kanban-operator-session', token)",
             response["data"]["session"]["token"],
         )
-        self.page.locator("#retry").click()
+        with self.page.expect_response("**/api/automation_center/status") as status_response:
+            self.page.locator("#retry").click()
+        status_response.value.finished()
         self.page.wait_for_selector('[data-id="A2"]')
 
     def select_node(self, value: str) -> None:
@@ -217,6 +219,14 @@ class ManagerMapBrowserTests(unittest.TestCase):
             "Для просмотра карты войдите в CRM под учётной записью оператора."
         ).wait_for()
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
+        # Make delayed startup work deterministic before recording interactions.
+        self.page.evaluate("""() => {
+            const schedule = window.requestAnimationFrame;
+            window.requestAnimationFrame = callback => {
+                window.requestAnimationFrame = schedule;
+                return schedule(timestamp => setTimeout(() => callback(timestamp), 150));
+            };
+        }""")
         self.login()
         requests: list[tuple[str, str]] = []
         self.page.on("request", lambda request: requests.append((request.method, request.url)))
