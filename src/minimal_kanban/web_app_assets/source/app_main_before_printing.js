@@ -384,6 +384,8 @@
 
     function buildBoardModuleSharedContext(name) {
       if (name === 'cashbox_ops') return {
+        abortCashboxesLoad,
+        beginCashboxMoneyRequest,
         CASHBOX_CANCEL_REASON_MIN_LENGTH,
         cashboxBalanceDisplay,
         cashboxBalanceMinor,
@@ -397,6 +399,8 @@
         maybeOpenModal,
         popModal,
         refreshCashboxesAfterMoneyMutation,
+        renderMobileCashboxes,
+        requireEmployeesCashboxesAccess,
         repairOrderParseNumber,
       };
       if (name !== 'auxiliary') return {};
@@ -2431,6 +2435,7 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      state.cashboxMoneyRequest?.release();
       resetClientMutationControls();
       state.clientProfileSaveCheckpoint = null;
       state.clientVehicleMutationCheckpoint = null;
@@ -3418,6 +3423,7 @@
 
     function closeNamedModal(closeKey) {
       const normalizedKey = String(closeKey || '').trim();
+      if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(normalizedKey)) return false;
       const closeActions = {
         card: () => closeCardModal(),
         'card-client-create': () => closeCardClientCreateModal(),
@@ -6166,6 +6172,7 @@
       if (els.mobileCashboxSubmitButton) {
         els.mobileCashboxSubmitButton.textContent = needsTarget ? 'ПЕРЕМЕСТИТЬ' : 'ПРОВЕСТИ';
       }
+      state.cashboxMoneyRequest?.lock();
     }
 
     function renderMobileCashboxes() {
@@ -6236,6 +6243,7 @@
       }
       scheduleCashboxNotificationHighlightTimers();
       renderMobileCashboxAction();
+      state.cashboxMoneyRequest?.lock();
     }
 
     function renderMobileRepairOrders() {
@@ -7478,6 +7486,7 @@
     }
 
     function setMobileView(view) {
+      if (state.cashboxMoneyRequest) return false;
       const requestedView = String(view || '').trim();
       if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();
@@ -7500,6 +7509,7 @@
     }
 
     function setMobileCashboxAction(action) {
+      if (state.cashboxMoneyRequest) return;
       const normalized = ['income', 'expense', 'transfer'].includes(action) ? action : '';
       if (normalized && !requireEmployeesCashboxesAccess()) return;
       state.mobileCashboxAction = normalized;
@@ -7523,65 +7533,40 @@
       loadCashboxDetail(cashboxId, { openModal: false });
     }
 
-    async function submitMobileCashboxAction() {
-      if (!requireEmployeesCashboxesAccess()) return;
-      const action = String(state.mobileCashboxAction || '');
-      const cashbox = state.activeCashbox?.cashbox
-        || (Array.isArray(state.cashboxes) ? state.cashboxes.find((item) => item.id === state.activeCashboxId) : null)
-        || null;
-      if (!cashbox?.id) return setStatus('СНАЧАЛА ВЫБЕРИТЕ КАССУ.', true);
-      const amount = String(els.mobileCashboxAmountInput?.value || '').trim();
-      if (!amount || repairOrderParseNumber(amount) === null || repairOrderParseNumber(amount) <= 0) {
-        return setStatus('УКАЖИТЕ СУММУ.', true);
-      }
-      const note = String(els.mobileCashboxNoteInput?.value || '').trim();
-      if (action === 'expense' && !cashboxExpenseNoteIsValid(note)) {
-        els.mobileCashboxNoteInput?.focus({ preventScroll: true });
-        return setStatus('ДЛЯ СПИСАНИЯ УКАЖИТЕ КОММЕНТАРИЙ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
-      }
-      try {
-        if (els.mobileCashboxSubmitButton) els.mobileCashboxSubmitButton.disabled = true;
-        if (action === 'transfer') {
-          const targetId = String(els.mobileCashboxTargetSelect?.value || '').trim();
-          if (!targetId || targetId === cashbox.id) return setStatus('УКАЖИТЕ КАССУ ДЛЯ ПЕРЕМЕЩЕНИЯ.', true);
-          await api('/api/create_cashbox_transfer', {
-            method: 'POST',
-            body: {
-              from_cashbox_id: cashbox.id,
-              to_cashbox_id: targetId,
-              amount,
-              note,
-              actor_name: state.actor,
-              source: 'ui',
-            },
+    function beginCashboxMoneyRequest() {
+      if (state.cashboxMoneyRequest) return null;
+      const request = {
+        controls: new Map(), inert: new Map(),
+        lock() {
+          if (state.cashboxMoneyRequest !== request) return;
+          const containers = [els.cashboxesModal, els.cashboxTransferModal,
+            state.mobileLite ? els.mobileAppShell : els.mobileCashboxActionPanel];
+          containers.forEach((container) => {
+            for (const control of container?.querySelectorAll?.('button, input, select, textarea') || []) {
+              if (!request.controls.has(control)) request.controls.set(control, control.disabled);
+              control.disabled = true;
+            }
           });
-          setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
-        } else {
-          const direction = action === 'expense' ? 'expense' : 'income';
-          await api('/api/create_cash_transaction', {
-            method: 'POST',
-            body: {
-              cashbox_id: cashbox.id,
-              direction,
-              amount,
-              note,
-              actor_name: state.actor,
-              source: 'ui',
-            },
+          [els.cashboxesList, els.cashboxTransferTargets, els.mobileCashboxList].forEach((container) => {
+            if (!container) return;
+            if (!request.inert.has(container)) request.inert.set(container, Boolean(container.inert));
+            container.inert = true;
           });
-          setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
-        }
-        if (els.mobileCashboxAmountInput) els.mobileCashboxAmountInput.value = '';
-        if (els.mobileCashboxNoteInput) els.mobileCashboxNoteInput.value = '';
-        state.mobileCashboxAction = '';
-        await loadCashboxes(false, { deferDetail: false });
-        renderMobileCashboxes();
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        if (els.mobileCashboxSubmitButton) els.mobileCashboxSubmitButton.disabled = false;
-      }
+        },
+        release() {
+          if (state.cashboxMoneyRequest !== request) return;
+          state.cashboxMoneyRequest = null;
+          request.controls.forEach((disabled, control) => { control.disabled = disabled; });
+          request.inert.forEach((inert, container) => { container.inert = inert; });
+        },
+      };
+      state.cashboxMoneyRequest = request;
+      abortCashboxesLoad();
+      request.lock();
+      return request;
     }
+
+    // @include cashbox_money_state.js
 
     function handleMobileMoreClick(event) {
       const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-open]') : null;
@@ -15034,7 +15019,7 @@
         || cashboxesModalIsOpen()
         || (state.mobileLite && state.mobileView === 'cashboxes');
       if (!shouldReload) return;
-      await loadCashboxes(openModal, { deferDetail });
+      return await loadCashboxes(openModal, { deferDetail });
     }
 
     function cashboxDropBeforeIdFromRow(row, clientY) {
@@ -15290,6 +15275,7 @@
         closeCashboxCancelPopover();
       }
       renderMobileShell();
+      state.cashboxMoneyRequest?.lock();
     }
 
     function abortCashboxesLoad() {
@@ -15430,7 +15416,7 @@
             scheduleCashboxDetailLoad(nextId, { openModal });
             return data;
           }
-          await loadCashboxDetail(nextId, { openModal, loadContext });
+          if (!await loadCashboxDetail(nextId, { openModal, loadContext })) return null;
           return data;
         }
         state.activeCashboxId = '';

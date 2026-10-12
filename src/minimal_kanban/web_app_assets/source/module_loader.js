@@ -257,6 +257,12 @@
       if (previous && (!previous.isCurrent || previous.isCurrent())) return previous;
       if (record?.exports && !printingOpen) return record.exports[method](...args);
       let prepared = null;
+      const cashboxMoneyMethod = name === 'cashbox_ops' && [
+        'createCashboxTransaction', 'submitCashboxTransfer',
+        'submitCashboxTransactionCancellation', 'submitMobileCashboxAction',
+      ].includes(method);
+      const cashboxMoneyLoading = cashboxMoneyMethod ? beginCashboxMoneyRequest() : null;
+      if (cashboxMoneyMethod && !cashboxMoneyLoading) return false;
       if (payrollOpen && operatorCanViewEmployees()) {
         prepared = prepareEmployeesWorkspaceData(month, pending, { useEmbeddedPayrollReport: true });
       }
@@ -281,6 +287,7 @@
           || cardEditingGeneration !== (state.cardEditingGeneration || 0)
           || cardHydrationSeq !== (state.cardHydrationSeq || 0)
         )) return false;
+        cashboxMoneyLoading?.release();
         return module[method](...(prepared ? [prepared] : args));
       }).catch((error) => {
         if (generation === state.viewerStateGeneration && session === state.operatorSessionToken
@@ -291,6 +298,7 @@
         }
         return false;
       }).finally(() => {
+        cashboxMoneyLoading?.release();
         if (prepared?.shell && !prepared.isCurrent()) prepared.shell.close();
         if (currentRecord.invocations.get(invocationKey) === invocation) currentRecord.invocations.delete(invocationKey);
         if (currentRecord.openIntent === openIntent) currentRecord.openIntent = null;

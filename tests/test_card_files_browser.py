@@ -108,15 +108,25 @@ class CardFilesBrowserTests(UiBrowserTestCase):
           const schedule = window.setTimeout.bind(window);
           window.setTimeout = (fn, ms, ...args) => schedule(fn, ms === 90000 ? 60 : ms, ...args);
         }""")
+        held = []
+
+        def release_mock_requests():
+            while held:
+                held.pop().abort("failed")
+
+        self.addCleanup(release_mock_requests)
         self.page.route(
             "**/api/attachment?*",
-            lambda route: None if route.request.resource_type == "fetch" else route.continue_(),
+            lambda route: (
+                held.append(route) if route.request.resource_type == "fetch" else route.continue_()
+            ),
         )
         self.preview(attachment_id)
         self.page.wait_for_timeout(160)
         self.assertFalse(self.page.evaluate("state.filePreview.loading"))
         self.assertTrue(self.page.evaluate("Boolean(state.filePreview.error)"))
         self.assertTrue(self.page.locator("#filePreviewCloseButton").is_enabled())
+        release_mock_requests()
 
     def test_upload_preview_and_remove_roundtrip_preserves_card_draft(self) -> None:
         card_id = self.create_card("Attachment lifecycle")

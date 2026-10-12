@@ -108,7 +108,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         )
         with self.page.expect_response("**/api/automation_center/status") as status_response:
             self.page.locator("#retry").click()
-        status_response.value.finished()
+        status_response.value.body()
         self.page.wait_for_selector('[data-id="A2"]')
 
     def select_node(self, value: str) -> None:

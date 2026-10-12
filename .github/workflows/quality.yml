@@ -338,7 +338,8 @@ jobs:
             tests.test_card_save_browser tests.test_card_badges_browser \
             tests.test_clients_creation_browser tests.test_clients_profile_browser \
             tests.test_client_vehicles_browser tests.test_card_files_browser \
-            tests.test_shared_files_browser tests.test_printing_loading_browser -v
+            tests.test_shared_files_browser tests.test_printing_loading_browser \
+            tests.test_cashbox_actions_browser -v
 
       - name: Client search browser regression
         if: ${{ matrix.suite == 'browser-performance' }}

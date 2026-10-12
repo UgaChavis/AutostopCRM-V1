@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
@@ -108,7 +110,7 @@ class BoardModuleAssetsTests(unittest.TestCase):
                     BOARD_WEB_APP_JS,
                 )
             )
-            if group in {"printing", "auxiliary"}:
+            if group in {"printing", "auxiliary", "cashbox_ops"}:
                 expected.add("resetViewer")
             self.assertEqual(actual, expected, group)
 
@@ -286,7 +288,7 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
         eager_source = (source_dir / "app_main_before_printing.js").read_text(encoding="utf-8")
         cashbox_source = "\n".join(
             (source_dir / name).read_text(encoding="utf-8")
-            for name in ("cashbox_transactions.js", "cashbox_transfer.js")
+            for name in ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js")
         )
         definitions = set(
             re.findall(r"^    (?:async )?function ([A-Za-z_$][\w$]*)\(", eager_source, re.MULTILINE)
@@ -363,15 +365,18 @@ const document = {
   createElement(){return {remove(){this.removed=true;}};},
   head:{appendChild(script){scripts.push(script);}},
 };
-async function api(path, options){requests.push({path, options});return {};}
+async function api(path, options){requests.push({path, options});return {transaction:{id:'receipt-'+requests.length}};}
+function abortCashboxesLoad(){}
 function setStatus(message, error){statuses.push({message, error});}
 function buildBoardModuleSharedContext(){return {
+  abortCashboxesLoad, beginCashboxMoneyRequest,
   cashboxExpenseNoteIsValid:note=>String(note).trim().length>=10,
-  refreshCashboxesAfterMoneyMutation:async options=>refreshes.push(options),
+  refreshCashboxesAfterMoneyMutation:async options=>{refreshes.push(options);return {cashboxes:[]};},
 };}
 function claimMobileMorePanelIntent(){return {};}
 function isModalOpen(){return false;}
 """
+            + functions("app_main_before_printing.js", "beginCashboxMoneyRequest")
             + loader
             + "\nconst moduleSource = "
             + json.dumps(module)

@@ -31,30 +31,21 @@
         return;
       }
       setCashboxNoteInvalid(false);
-      try {
-        els.cashboxIncomeButton.disabled = true;
-        els.cashboxExpenseButton.disabled = true;
-        await api('/api/create_cash_transaction', {
-          method: 'POST',
-          body: {
-            cashbox_id: cashbox.id,
-            direction: normalizedDirection,
-            amount,
-            note,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        els.cashboxAmountInput.value = '';
-        els.cashboxNoteInput.value = '';
-        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
-        setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        els.cashboxIncomeButton.disabled = false;
-        els.cashboxExpenseButton.disabled = false;
-      }
+      return runCashboxMoneyMutation('/api/create_cash_transaction', {
+        cashbox_id: cashbox.id,
+        direction: normalizedDirection,
+        amount,
+        note,
+        actor_name: state.actor,
+        source: 'ui',
+      }, {
+        receipt: (data) => data?.transaction?.id,
+        onSuccess: () => {
+          els.cashboxAmountInput.value = '';
+          els.cashboxNoteInput.value = '';
+          setStatus(direction === 'expense' ? 'СПИСАНИЕ СОХРАНЕНО.' : 'ПОСТУПЛЕНИЕ СОХРАНЕНО.', false);
+        },
+      });
     }
 
     function setCashboxCancelReasonInvalid(isInvalid) {
@@ -73,6 +64,7 @@
     }
 
     function closeCashboxCancelPopover() {
+      if (state.cashboxMoneyRequest) return false;
       state.cashboxCancelTransactionId = '';
       if (els.cashboxCancelPopover) els.cashboxCancelPopover.hidden = true;
       if (els.cashboxCancelReasonInput) {
@@ -84,6 +76,7 @@
     }
 
     function openCashboxCancelPopover(transactionId) {
+      if (state.cashboxMoneyRequest) return;
       const transaction = cashboxTransactionById(transactionId);
       if (!transaction || !cashboxTransactionCanBeCancelled(transaction)) {
         setStatus('ЭТУ ОПЕРАЦИЮ НЕЛЬЗЯ ОТМЕНИТЬ.', true);
@@ -121,29 +114,22 @@
         setStatus('ПРИЧИНА ОТМЕНЫ ДОЛЖНА БЫТЬ НЕ КОРОЧЕ 10 СИМВОЛОВ.', true);
         return;
       }
-      try {
-        if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = true;
-        setCashboxCancelFeedback('Отменяю операцию…');
-        await api('/api/cancel_cash_transaction', {
-          method: 'POST',
-          body: {
-            cashbox_id: cashbox.id,
-            transaction_id: transaction.id,
-            reason,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        closeCashboxCancelPopover();
-        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
-        setStatus('ОПЕРАЦИЯ ОТМЕНЕНА.', false);
-      } catch (error) {
-        const message = String(error?.message || 'НЕ УДАЛОСЬ ОТМЕНИТЬ ОПЕРАЦИЮ.');
-        setCashboxCancelFeedback(message, true);
-        setStatus(message, true);
-      } finally {
-        if (els.cashboxCancelConfirmButton) els.cashboxCancelConfirmButton.disabled = false;
-      }
+      setCashboxCancelFeedback('Отменяю операцию…');
+      return runCashboxMoneyMutation('/api/cancel_cash_transaction', {
+        cashbox_id: cashbox.id,
+        transaction_id: transaction.id,
+        reason,
+        actor_name: state.actor,
+        source: 'ui',
+      }, {
+        onError: (message) => setCashboxCancelFeedback(message, true),
+        receipt: (data) => data?.meta?.cancelled && data?.cancellation_transaction?.id,
+        verifyRead: (detail) => (detail?.transactions || []).some((item) => item.id === transaction.id && item.transaction_kind === 'cashbox_cancelled'),
+        onSuccess: () => {
+          closeCashboxCancelPopover();
+          setStatus('ОПЕРАЦИЯ ОТМЕНЕНА.', false);
+        },
+      });
     }
 
     async function handleCashboxTransactionsClick(event) {

@@ -32,9 +32,9 @@ portions still participate in the final whole-application integration pass.
 | Desktop cards: create/update, one click, conflict, uncertain reply, client/vehicle stages; close after all confirmed actions, retain draft on errors | 11 real-browser regressions; drafts, ownership, partial completion, stale snapshot and bounded module loading | Portion accepted at `b7a35a3`; final integration pending |
 | Columns and badges: stable ID through create/rename/order/delete, personal copies, hover/open, own/other changes, reload/login | Five browser badge regressions with two users and personal copies; full column smoke | Portion accepted at `b7a35a3`; final integration pending |
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
-| Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-23 accepted; shared batch/clipboard follow-up reproduced; editor/print functional and race smoke | Follow-up candidate; final integration pending |
+| Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-26 accepted, seven shared-file regressions, editor/print functional and race smoke | Portion accepted at `0040f75`; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
-| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Lost committed cashbox reply followed by retry sends two writes; UI fix queued | pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox candidate; payroll/employees pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
 | Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
 | Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
@@ -129,10 +129,8 @@ ENV-02 and UI-08 through UI-16 are accepted at this SHA. The earlier failed
 run remains recorded as the reason for the repair; no checks were weakened.
 Local and remote SHA match; the primary checkout still has 41 staged files.
 
-Next portion: attachments, shared files, editors, preview and print. Review
-passive file-status reads overlapping card saves, bounded request recovery,
-partial upload/copy failures, preview ownership and print navigation. Other
-UI families and both final clean whole-application runs remain pending.
+Next portion: cashbox controls, then payroll/employee dialogs and inventory.
+The remaining UI families and both final clean whole-application runs are pending.
 
 
 ## Attachment/shared-file/preview/print candidate (from a852bcd)
@@ -214,6 +212,9 @@ delayed startup and all 85 interactive map elements, passed. Full local CI
 passed: 3,081 runtime tests (80 environment skips), 36 release tests (four
 environment skips), coverage/parity/core browser and performance gates.
 Only test readiness and this register changed; runtime assets are identical.
+Repair `0040f750e3969e0c9b4f1494112270956d7caf0c` matches the remote ref.
+Exact-SHA [quality run 38303683314](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38303683314)
+passed all five jobs. ENV-03 and UI-24 through UI-26 are accepted at this SHA.
 
 Reproduced cashbox UI failures are queued: duplicate income/transfer after a
 lost reply, lost draft on failed refresh, editable pending fields/preview,
@@ -233,4 +234,77 @@ an uncertain new item creates a second native ID). These regressions remain
 in TEMP for the corresponding financial and inventory portions. Cashbox cold
 module loading also leaves the amount editable before the action starts;
 the prepared UI patch covers loading as well as HTTP execution. No queued
-candidate has been applied to the checkout during the current CI run.
+candidate was applied to the checkout during the ENV-03 CI run. The cashbox
+candidate below was applied only after ENV-03's exact-SHA hosted acceptance.
+
+## Cashbox UI candidate from 0040f75
+
+UI-27: lost committed income reply allows a second receipt. UI-28: confirmed
+income followed by failed refresh clears the draft. UI-29: pending income
+allows input edits and a rerender re-enables buttons. UI-30: lost transfer reply
+allows another pair. UI-31: pending transfer fields/preview re-enable submit.
+UI-32: closing the parent during a write invalidates its UI. UI-33: the mobile
+income dialog repeats an unknown write. UI-34: the desktop ignores the existing
+native cashbox version guard. UI-35: cold module loading leaves money fields
+editable. All nine defects failed isolated browser checks before changes.
+
+One owned UI operation now covers loading, native write, readback and rendering.
+Conflicting fields/navigation remain locked; errors preserve drafts and restore
+controls, while logout invalidates late results. A known receipt with failed
+readback retries only reading. An unknown receipt reads current cashboxes; the
+same intent can retry only with its original native version guards after an
+unchanged readback. A late original write then fails that same CAS, proven by
+a real HTTP 409 and one stored receipt. Changed revisions retain an uncertainty
+barrier; no receipt is guessed from amount/note. Known cancellation IDs reconcile
+by reading their native cancelled state. Native business services, amounts,
+directions, cancellation reasons and public/storage formats are unchanged.
+
+Seventeen real browser cases pass (20.951s), including loading/write deadlines,
+partial success, double clicks, native conflict, logout, cancellation and mobile
+recovery. Twenty-eight native cancellation/access tests and related UI checks
+pass (43 tests / 40.623s); 208 candidate browser/source/context tests also passed.
+Generated JS and unchanged code-health gates pass. Full browser passed 49/49
+(first render 535.7 ms), with no console/page/request errors. Startup JS is
+900,721 bytes under the unchanged 901,000-byte cap; no speedup is claimed.
+Final local CI passed: 3,098 runtime tests (80 environment skips, 831.252s),
+36 release tests (four skips, 3.288s), coverage/parity and browser/performance
+gates. Final diff passed; publication and exact-SHA hosted acceptance are pending. Payroll/employee,
+inventory and Windows findings above remain queued; final whole-app acceptance
+has not been performed.
+
+Cashbox candidate's first full CI did not pass: after attachment timeout tests,
+an unfinished mocked route produced a cancelled callback; the following card
+class lost its driver connection and the run stalled for 15 minutes with test
+errors. The confirmed failed test subprocess was stopped after verifying its
+workspace executable and CI-shell parent, retaining the diagnostic log.
+Timeout tests now explicitly abort their held mock routes after assertions
+and before context closure, including failure cleanup. No assertions are
+removed and no route errors are suppressed. Three browser classes pass under
+coverage in one process (36 tests / 62.877s), with no cancelled callbacks or
+driver-close errors. Full CI must pass again before publication.
+
+The retry then lost a driver connection in the badge class; its failed stalled
+subprocess was also stopped after ownership checks. The same two badge cases
+pass alone (12.004s), and all 598 preceding cases in discovery order pass under
+coverage (167.422s, 25 environment skips). No deterministic UI fault was
+established by those failures. Full diagnostic CI subsequently passed: 3,098
+runtime tests (80 environment skips, 830.126s), 36 release tests (four skips),
+all coverage/parity/browser/performance gates.
+
+Diagnostic output identified a separate Playwright 1.60 lifecycle leak in the
+map helper: Response.finished() leaves a target-close task after returning.
+Read the response body instead to keep the same startup readiness boundary;
+all 19 map checks pass (27.154s) with no target-close/task warnings. Assertions
+and performance thresholds stay unchanged. One final full CI is required for
+this corrected harness before the cashbox portion is published.
+
+Prepared Windows UI storage-error candidate passes a real Qt Save/retry test
+on a temporary profile (0.073s). Payroll candidate assembles below the same
+startup limit (900,958 bytes) and preserves native calculation/operation
+payloads. Both remain outside the checkout until their portion starts.
+
+Final normal-environment CI completed without driver-close/task warnings.
+Native services, API and storage are unchanged in this cashbox portion. The
+source worktree remains isolated; all 41 prepared manager files in the main
+checkout are preserved. Ten payroll recovery cases are now prepared in TEMP
+for the next portion; five have passed the isolated candidate so far.

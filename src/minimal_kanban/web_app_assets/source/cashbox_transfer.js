@@ -1,4 +1,5 @@
     function closeCashboxTransferModal() {
+      if (state.cashboxMoneyRequest) return false;
       popModal('cashbox-transfer');
       state.cashboxTransferDraft = {
         sourceId: '',
@@ -11,6 +12,7 @@
     }
 
     async function createCashboxTransfer() {
+      if (state.cashboxMoneyRequest) return false;
       const sourceCashbox = state.activeCashbox?.cashbox || null;
       if (!sourceCashbox?.id) {
         setStatus('СНАЧАЛА ВЫБЕРИТЕ КАССУ.', true);
@@ -97,9 +99,11 @@
         els.cashboxTransferConfirmButton.disabled = !selectedTarget || !sourceCashbox || !hasAmount;
       }
       renderCashboxTransferPreview(sourceCashbox, selectedTarget);
+      state.cashboxMoneyRequest?.lock();
     }
 
     function setCashboxTransferTarget(cashboxId) {
+      if (state.cashboxMoneyRequest) return;
       const requestedId = String(cashboxId || '').trim();
       const sourceId = String(state.cashboxTransferDraft?.sourceId || '').trim();
       if (!requestedId || requestedId === sourceId) return;
@@ -123,31 +127,20 @@
         setStatus('УКАЖИТЕ СУММУ.', true);
         return;
       }
-      try {
-        els.cashboxTransferConfirmButton.disabled = true;
-        els.cashboxTransferButton.disabled = true;
-        await api('/api/create_cashbox_transfer', {
-          method: 'POST',
-          body: {
-            from_cashbox_id: sourceCashbox.id,
-            to_cashbox_id: targetCashbox.id,
-            amount,
-            note: String(els.cashboxTransferNoteInput?.value || '').trim(),
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
-        if (els.cashboxTransferAmountInput) els.cashboxTransferAmountInput.value = '';
-        if (els.cashboxTransferNoteInput) els.cashboxTransferNoteInput.value = '';
-        closeCashboxTransferModal();
-        await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });
-        setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
-      } catch (error) {
-        setStatus(error.message, true);
-      } finally {
-        els.cashboxTransferConfirmButton.disabled = false;
-        els.cashboxTransferButton.disabled = false;
-      }
+      return runCashboxMoneyMutation('/api/create_cashbox_transfer', {
+        from_cashbox_id: sourceCashbox.id,
+        to_cashbox_id: targetCashbox.id,
+        amount,
+        note: String(els.cashboxTransferNoteInput?.value || '').trim(),
+        actor_name: state.actor,
+        source: 'ui',
+      }, {
+        receipt: (data) => data?.source_transaction?.id && data?.target_transaction?.id,
+        onSuccess: () => {
+          closeCashboxTransferModal();
+          setStatus('ПЕРЕМЕЩЕНИЕ СОХРАНЕНО.', false);
+        },
+      });
     }
 
     function handleCashboxTransferAmountInput() {

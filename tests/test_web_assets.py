@@ -4979,7 +4979,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "await refreshCashboxesAfterMoneyMutation({ openModal: true, deferDetail: false });",
+            "await refreshCashboxesAfterMoneyMutation({ openModal: false, deferDetail: false });",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(

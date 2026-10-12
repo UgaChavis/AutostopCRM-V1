@@ -26,7 +26,7 @@ _LAZY_GROUPS = {
     "board_moves": ("board_moves.js",),
     "payroll": ("employees_markup.js", "payroll_workspace.js", "employees_mobile.js"),
     "inventory": ("inventory_workspace.js",),
-    "cashbox_ops": ("cashbox_transactions.js", "cashbox_transfer.js"),
+    "cashbox_ops": ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
         "display_dashboard_workspace.js",
@@ -88,6 +88,8 @@ _AUXILIARY_SHARED_NAMES = (
 )
 
 _CASHBOX_OPS_SHARED_NAMES = (
+    "abortCashboxesLoad",
+    "beginCashboxMoneyRequest",
     "CASHBOX_CANCEL_REASON_MIN_LENGTH",
     "cashboxBalanceDisplay",
     "cashboxBalanceMinor",
@@ -101,6 +103,8 @@ _CASHBOX_OPS_SHARED_NAMES = (
     "maybeOpenModal",
     "popModal",
     "refreshCashboxesAfterMoneyMutation",
+    "renderMobileCashboxes",
+    "requireEmployeesCashboxesAccess",
     "repairOrderParseNumber",
 )
 
@@ -209,6 +213,14 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     function resetViewer() {
       sharedFilesUploadCheckpoint = null;
       sharedFilesClipboardCheckpoint = null;
+    }
+"""
+        exports.append("resetViewer")
+    if group == "cashbox_ops":
+        reset = """
+    function resetViewer() {
+      state.cashboxMoneyRequest?.release();
+      cashboxMoneyCheckpoints.clear();
     }
 """
         exports.append("resetViewer")
