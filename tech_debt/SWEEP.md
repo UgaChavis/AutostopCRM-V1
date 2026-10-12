@@ -52,15 +52,15 @@ portions still participate in the final whole-application integration pass.
 | UI-05 | Open NEW and reload: acknowledgement was suppressed | Separate pending optimism and confirmed read | `b7a35a3` |
 | UI-06 | Release snapshot sampled before save: previous title restored | Advance mutation generation on confirmed writes | `b7a35a3` |
 | UI-07 | Lost no-op update, readback succeeds, NEW returns on reload | Preserve change metadata and confirm personal read | `b7a35a3` |
-| UI-08 | Create client, fail saved-card link, retry: create sent again | Keep client ID and retry only the link | candidate |
-| UI-09 | Create client for unsaved card, fail vehicle stage, retry: create sent again | Keep client checkpoint and retry unfinished vehicle stage | candidate |
-| UI-10 | Link response replaces unsaved card title/description | Update confirmed association while retaining draft and dirty state | candidate |
-| UI-11 | Popup fields editable during pending client creation | Freeze popup controls, prevent repeat submit, restore on errors | candidate |
-| UI-12 | Close creation popup, open another, release old reply: new popup affected | Bind result to card, viewer and popup generation | candidate |
-| UI-13 | Client profile fields editable during save/refresh and overwritten | Lock owned controls until confirmed rendering, restore on errors/logout | candidate |
-| UI-14 | Lose profile-create reply after commit, retry: create sent again | Read list, retain draft, block blind repeat without a known receipt ID | candidate |
-| UI-15 | Vehicle refresh fills profile and erases unsaved comment | Refresh vehicles, restore edited profile fields and dirty baseline | candidate |
-| UI-16 | Lose new-vehicle reply after commit, retry: upsert sent again | Read profile, stop blind create; known-ID update/delete reconcile by reading | candidate |
+| UI-08 | Create client, fail saved-card link, retry: create sent again | Keep client ID and retry only the link | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-09 | Create client for unsaved card, fail vehicle stage, retry: create sent again | Keep client checkpoint and retry unfinished vehicle stage | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-10 | Link response replaces unsaved card title/description | Update confirmed association while retaining draft and dirty state | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-11 | Popup fields editable during pending client creation | Freeze popup controls, prevent repeat submit, restore on errors | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-12 | Close creation popup, open another, release old reply: new popup affected | Bind result to card, viewer and popup generation | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-13 | Client profile fields editable during save/refresh and overwritten | Lock owned controls until confirmed rendering, restore on errors/logout | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-14 | Lose profile-create reply after commit, retry: create sent again | Read list, retain draft, block blind repeat without a known receipt ID | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-15 | Vehicle refresh fills profile and erases unsaved comment | Refresh vehicles, restore edited profile fields and dirty baseline | `aa1b697`; hosted acceptance pending ENV-02 |
+| UI-16 | Lose new-vehicle reply after commit, retry: upsert sent again | Read profile, stop blind create; known-ID update/delete reconcile by reading | `aa1b697`; hosted acceptance pending ENV-02 |
 
 Card portion: 16 browser regressions, 294 web contracts, full browser 49/49
 (first render 573.8 ms), local CI 3,039 runtime tests/83 environment skips and
@@ -101,3 +101,24 @@ No speedup is claimed. Publication and exact-SHA hosted acceptance are pending.
   services or repair production records.
 - Finish each remaining family, then repeat transitions on fresh data. The
   two final clean complete browser runs have not yet been performed.
+
+ENV-02: exact-SHA quality run 38276836661 for
+`aa1b6972c84e2ab1be48cc89de55e3d25a04efde` passed static, browser-performance
+and Docker assets, but its unit job exposed an existing PowerShell interruption
+race: the native child received Ctrl+C while the outer host returned zero.
+A native process-exit completion guard covers a skipped finally command; four
+portable subprocess regressions verify success, original failure, incomplete
+zero exit and resetting the guard. The original strict POSIX Ctrl+C regression
+now repeats three times. Local Linux reproduction is unavailable because the
+Docker Desktop WSL backend failed to start; Linux PTY acceptance must come from
+GitHub CI. No Docker reset or data cleanup was performed.
+
+Hosted unit jobs omit Chromium, so optional browser classes skip there.
+The browser-performance job now requires all 36 card/client draft regressions
+in addition to its existing three client-search scenarios. Missing browser
+dependencies fail that required step rather than silently skipping it.
+ENV-02 local CI passed: 3,066 runtime tests (80 environment skips), 36 release
+tests (four environment skips), all parity, browser and performance gates.
+Its required 36 browser regressions also passed separately in 70.115 seconds.
+Only exact-SHA hosted acceptance, including the repeated real Linux Ctrl+C
+scenario, remains pending for this portion.

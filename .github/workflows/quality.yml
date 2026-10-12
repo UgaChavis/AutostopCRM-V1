@@ -329,6 +329,16 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         run: python -m unittest tests.test_printing_hydration_overlap_browser -v
 
+      - name: Card and client save browser regressions
+        if: ${{ matrix.suite == 'browser-performance' }}
+        env:
+          AUTOSTOP_REQUIRE_UI_BROWSER: "1"
+        run: |
+          python -m unittest \
+            tests.test_card_save_browser tests.test_card_badges_browser \
+            tests.test_clients_creation_browser tests.test_clients_profile_browser \
+            tests.test_client_vehicles_browser -v
+
       - name: Client search browser regression
         if: ${{ matrix.suite == 'browser-performance' }}
         env:

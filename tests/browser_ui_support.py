@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -25,10 +26,14 @@ class UiBrowserTestCase(unittest.TestCase):
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as error:
+            if os.environ.get("AUTOSTOP_REQUIRE_UI_BROWSER") == "1":
+                raise RuntimeError("Playwright is required for UI regression tests") from error
             raise unittest.SkipTest("Playwright is not installed") from error
         cls.playwright = sync_playwright().start()
         cls.addClassCleanup(cls.playwright.stop)
         if not Path(cls.playwright.chromium.executable_path).exists():
+            if os.environ.get("AUTOSTOP_REQUIRE_UI_BROWSER") == "1":
+                raise RuntimeError("Chromium is required for UI regression tests")
             raise unittest.SkipTest("Playwright Chromium is not installed")
         cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         cls.addClassCleanup(cls.browser.close)

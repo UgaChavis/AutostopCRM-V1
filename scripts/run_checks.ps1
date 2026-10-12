@@ -98,6 +98,7 @@ if (
 $ciBodyCompleted = $false
 $ciCleanupCompleted = $false
 $ciProfileFailed = $false
+Initialize-CiProfileCompletion
 try {
     [void](New-Item -ItemType Directory -Path $ciPycachePath -ErrorAction Stop)
     $env:PYTHONPYCACHEPREFIX = $ciPycachePath

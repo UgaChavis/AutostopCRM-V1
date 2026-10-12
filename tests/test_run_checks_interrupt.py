@@ -5,6 +5,7 @@ import os
 import select
 import shutil
 import signal
+import subprocess
 import tempfile
 import time
 import unittest
@@ -21,25 +22,30 @@ HELPER = ROOT / "scripts" / "ci_gate_completion.ps1"
 GATE = ROOT / "scripts" / "run_checks.ps1"
 
 
-@unittest.skipUnless(
-    os.name == "posix" and pty is not None and shutil.which("pwsh"),
-    "requires POSIX PTY and pwsh",
-)
-class CiGateInterruptTests(unittest.TestCase):
+class CiGateSourceTests(unittest.TestCase):
     def test_gate_uses_the_tested_completion_guard(self) -> None:
         source = GATE.read_text(encoding="utf-8")
         self.assertIn('. (Join-Path $PSScriptRoot "ci_gate_completion.ps1")', source)
+        self.assertIn("Initialize-CiProfileCompletion", source)
         self.assertIn("$ciProfileFailed = $true", source)
         self.assertIn(
             "Assert-CiProfileCompletion -Completed ($ciBodyCompleted -and $ciCleanupCompleted) -Failed $ciProfileFailed",
             source,
         )
 
+
+@unittest.skipUnless(
+    os.name == "posix" and pty is not None and shutil.which("pwsh"),
+    "requires POSIX PTY and pwsh",
+)
+class CiGateInterruptTests(unittest.TestCase):
     def test_interrupt_exits_nonzero_without_pass(self) -> None:
-        exit_code, output = self._run_child("interrupt")
-        self.assertEqual(130, exit_code, output)
-        self.assertIn("Local CI profile interrupted before completion.", output)
-        self.assertNotIn("HARNESS_PASS", output)
+        for attempt in range(3):
+            with self.subTest(attempt=attempt):
+                exit_code, output = self._run_child("interrupt")
+                self.assertEqual(130, exit_code, output)
+                self.assertIn("Local CI profile interrupted before completion.", output)
+                self.assertNotIn("HARNESS_PASS", output)
 
     def test_failed_child_keeps_original_error(self) -> None:
         exit_code, output = self._run_child("failure")
@@ -55,6 +61,7 @@ class CiGateInterruptTests(unittest.TestCase):
 param([string]$Mode)
 $ErrorActionPreference = "Stop"
 . '{helper}'
+Initialize-CiProfileCompletion
 $completed = $false
 $failed = $false
 try {{
@@ -110,12 +117,70 @@ Write-Host "HARNESS_PASS"
                 if status is None:
                     captured = output.decode("utf-8", errors="replace")
                     self.fail(f"PowerShell gate probe did not terminate; output={captured!r}")
+                # Process exit may precede reading its final stderr message.
+                while select.select([master_fd], [], [], 0)[0]:
+                    try:
+                        chunk = os.read(master_fd, 65536)
+                    except OSError as exc:
+                        if exc.errno != errno.EIO:
+                            raise
+                        break
+                    if not chunk:
+                        break
+                    output.extend(chunk)
             finally:
                 if status is None:
                     os.killpg(pid, signal.SIGKILL)
                     os.waitpid(pid, 0)
                 os.close(master_fd)
             return os.waitstatus_to_exitcode(status), output.decode("utf-8", errors="replace")
+
+
+@unittest.skipUnless(shutil.which("pwsh"), "requires pwsh")
+class CiCompletionProcessExitTests(unittest.TestCase):
+    def run_probe(self, body: str) -> subprocess.CompletedProcess[str]:
+        helper = str(HELPER).replace("'", "''")
+        source = f". '{helper}'\nInitialize-CiProfileCompletion\n{body}\n"
+        with tempfile.TemporaryDirectory(prefix="crm-ci-gate-exit-") as directory:
+            script = Path(directory) / "probe.ps1"
+            script.write_text(source, encoding="utf-8")
+            return subprocess.run(
+                [shutil.which("pwsh"), "-NoProfile", "-File", str(script)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=15,
+                check=False,
+            )
+
+    def test_incomplete_zero_exit_is_rejected_without_finally_command(self) -> None:
+        result = self.run_probe('Write-Host "ABANDONED"; exit 0')
+        self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
+        self.assertIn("Local CI profile interrupted before completion.", result.stderr)
+
+    def test_completed_run_exits_zero_without_interruption_message(self) -> None:
+        result = self.run_probe(
+            'Assert-CiProfileCompletion -Completed $true -Failed $false; Write-Host "HARNESS_PASS"'
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("HARNESS_PASS", result.stdout)
+        self.assertNotIn("interrupted", result.stderr)
+
+    def test_failure_keeps_original_exit_and_error(self) -> None:
+        result = self.run_probe(
+            'try { throw "ORIGINAL_ERROR" } finally { '
+            "Assert-CiProfileCompletion -Completed $false -Failed $true }"
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ORIGINAL_ERROR", result.stderr)
+        self.assertNotIn("interrupted", result.stderr)
+
+    def test_repeated_runs_in_one_host_reset_the_guard(self) -> None:
+        result = self.run_probe(
+            "Assert-CiProfileCompletion -Completed $true -Failed $false; "
+            "Initialize-CiProfileCompletion; exit 0"
+        )
+        self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
