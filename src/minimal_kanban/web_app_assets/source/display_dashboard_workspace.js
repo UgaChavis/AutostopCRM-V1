@@ -1,3 +1,38 @@
+    let displayDashboardControls = null;
+    let displayDashboardMessageWrite = null;
+
+    function holdDisplayDashboardControls() {
+      const controls = Array.from(els.displayDashboardMessageModal?.querySelectorAll('button, input, select') || []);
+      controls.push(...(els.boardSettingsModal?.querySelectorAll('[data-close="settings"]') || []));
+      const disabled = controls.map((control) => [control, control.disabled]);
+      const editor = els.displayDashboardMessageEditor;
+      const editable = editor?.getAttribute('contenteditable');
+      const readOnly = editor?.getAttribute('aria-readonly');
+      controls.forEach((control) => { control.disabled = true; });
+      editor?.setAttribute('contenteditable', 'false');
+      editor?.setAttribute('aria-readonly', 'true');
+      editor?.setAttribute('aria-busy', 'true');
+      displayDashboardControls = () => {
+        disabled.forEach(([control, value]) => { control.disabled = value; });
+        if (editor) {
+          if (editable === null) editor.removeAttribute('contenteditable');
+          else editor.setAttribute('contenteditable', editable);
+          if (readOnly === null) editor.removeAttribute('aria-readonly');
+          else editor.setAttribute('aria-readonly', readOnly);
+          editor.removeAttribute('aria-busy');
+        }
+      };
+    }
+
+    function releaseDisplayDashboardControls() {
+      displayDashboardControls?.();
+      displayDashboardControls = null;
+    }
+
+    function dashboardWriteErrorIsDefinite(error) {
+      return error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json';
+    }
+
     function normalizedDisplayDashboardMessage(value) {
       const source = value && typeof value === 'object' ? value : {};
       return {
@@ -25,15 +60,18 @@
     }
 
     function closeDisplayDashboardMessageEditor() {
+      if (state.displayDashboardMessageSaving) return false;
       state.displayDashboardContextGeneration = (state.displayDashboardContextGeneration || 0) + 1;
       state.displayDashboardOpenRequest = null;
       state.displayDashboardSaveRequest = null;
       state.displayDashboardMessageSaving = false;
+      displayDashboardMessageWrite = null;
       clearDisplayDashboardImageDrafts();
       state.displayDashboardSelectionRange = null;
       if (els.displayDashboardEmojiPalette) els.displayDashboardEmojiPalette.hidden = true;
       if (els.displayDashboardEmojiButton) els.displayDashboardEmojiButton.setAttribute('aria-expanded', 'false');
       popModal('display-dashboard-message');
+      return true;
     }
 
     function appendDisplayDashboardImagePreview({ url, key, existing }) {
@@ -50,6 +88,7 @@
       removeButton.setAttribute('aria-label', 'Убрать фото');
       removeButton.dataset.dashboardImageRemove = key;
       removeButton.dataset.dashboardImageExisting = existing ? 'true' : 'false';
+      removeButton.disabled = Boolean(state.displayDashboardMessageSaving);
       card.append(image, removeButton);
       els.displayDashboardMessageImages.appendChild(card);
     }
@@ -108,6 +147,7 @@
     }
 
     async function openDisplayDashboardMessageEditor() {
+      if (state.displayDashboardMessageSaving) return;
       if (!requireOperatorSession()) return;
       const settingsParent = (state.modalStack || []).find((entry) => entry?.key === 'settings');
       if (!settingsParent) return;
@@ -127,6 +167,7 @@
         const data = await api('/api/get_display_dashboard');
         if (!ownsOpenIntent()) return;
         const message = normalizedDisplayDashboardMessage(data?.message_board);
+        displayDashboardMessageWrite = null;
         clearDisplayDashboardImageDrafts();
         state.displayDashboardMessage = message;
         state.displayDashboardExistingImageIds = message.image_file_ids.slice();
@@ -168,6 +209,7 @@
     }
 
     function applyDisplayDashboardFormat(command, value = null) {
+      if (state.displayDashboardMessageSaving) return;
       if (!els.displayDashboardMessageEditor) return;
       els.displayDashboardMessageEditor.focus({ preventScroll: true });
       restoreDisplayDashboardSelection();
@@ -194,6 +236,7 @@
     }
 
     function toggleDisplayDashboardEmojiPalette() {
+      if (state.displayDashboardMessageSaving) return;
       if (!els.displayDashboardEmojiPalette) return;
       els.displayDashboardEmojiPalette.hidden = !els.displayDashboardEmojiPalette.hidden;
       els.displayDashboardEmojiButton?.setAttribute(
@@ -203,6 +246,7 @@
     }
 
     function addDisplayDashboardImages(files) {
+      if (state.displayDashboardMessageSaving) return;
       const selected = Array.from(files || []).filter((file) =>
         String(file?.type || '').toLowerCase().startsWith('image/')
       );
@@ -235,6 +279,7 @@
     }
 
     function removeDisplayDashboardImage(event) {
+      if (state.displayDashboardMessageSaving) return;
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const button = target.closest('[data-dashboard-image-remove]');
@@ -255,27 +300,61 @@
       renderDisplayDashboardImageDrafts();
     }
 
-    async function uploadDisplayDashboardImage(file, index, context) {
+    async function uploadDisplayDashboardImage(item, index, context) {
       if (!context.isCurrent()) return '';
+      if (item.uploadedId) return item.uploadedId;
+      if (item.uncertain) throw new Error('РЕЗУЛЬТАТ ЗАГРУЗКИ ФОТО НЕ ПОДТВЕРЖДЁН. ПОВТОРНАЯ ОТПРАВКА ОСТАНОВЛЕНА; СВЕРЬТЕ СПИСОК ФАЙЛОВ.');
+      const file = item.file;
       const buffer = await file.arrayBuffer();
       if (!context.isCurrent()) return '';
       const fileName = String(file.name || ('dashboard-image-' + (index + 1) + '.jpg')).slice(0, 240);
-      const uploaded = await api('/api/upload_shared_file', {
-        method: 'POST',
-        body: {
-          actor_name: context.actorName,
-          source: 'ui',
-          file_name: fileName,
-          mime_type: String(file.type || 'image/jpeg'),
-          content_base64: arrayBufferToBase64(buffer),
-          x: 0,
-          y: 0,
-        },
-      });
+      let uploaded;
+      try {
+        uploaded = await cardFilesApi('/api/upload_shared_file', {
+          method: 'POST',
+          body: {
+            actor_name: context.actorName,
+            source: 'ui',
+            file_name: fileName,
+            mime_type: String(file.type || 'image/jpeg'),
+            content_base64: arrayBufferToBase64(buffer),
+            x: 0,
+            y: 0,
+          },
+        });
+      } catch (error) {
+        if (context.isCurrent() && !dashboardWriteErrorIsDefinite(error)) item.uncertain = true;
+        throw error;
+      }
       if (!context.isCurrent()) return '';
       const fileId = String(uploaded?.file?.id || '').trim();
-      if (!fileId) throw new Error('НЕ УДАЛОСЬ СОХРАНИТЬ ИЗОБРАЖЕНИЕ.');
+      if (!fileId) {
+        item.uncertain = true;
+        throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ЗАГРУЗКУ ИЗОБРАЖЕНИЯ.');
+      }
+      item.uploadedId = fileId;
       return fileId;
+    }
+
+    async function reconcileDisplayDashboardMessage(context) {
+      const checkpoint = displayDashboardMessageWrite;
+      if (!checkpoint || !context.isCurrent()) return false;
+      const data = await api('/api/get_display_dashboard');
+      if (!context.isCurrent()) return false;
+      const message = normalizedDisplayDashboardMessage(data?.message_board);
+      if (!message.revision) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СООБЩЕНИЕ НА ДОСКЕ.');
+      if (message.body_html === checkpoint.body.body_html
+        && JSON.stringify(message.image_file_ids) === JSON.stringify(checkpoint.body.image_file_ids)) {
+        state.displayDashboardMessage = message;
+        if (state.snapshot?.settings) state.snapshot.settings.display_dashboard_message = message;
+        displayDashboardMessageWrite = null;
+        return true;
+      }
+      if (message.revision === checkpoint.expectedRevision) {
+        displayDashboardMessageWrite = null;
+        return false;
+      }
+      throw new Error('СООБЩЕНИЕ НА ДОСКЕ ИЗМЕНИЛОСЬ. ЧЕРНОВИК СОХРАНЁН; СВЕРЬТЕ РЕЗУЛЬТАТ ПЕРЕД ПОВТОРОМ.');
     }
 
     async function saveDisplayDashboardMessage() {
@@ -285,54 +364,80 @@
       const contextGeneration = state.displayDashboardContextGeneration || 0;
       const expectedRevision = String(state.displayDashboardMessage.revision || '');
       const pendingImages = state.displayDashboardPendingImages
-        .map((item) => ({ file: item?.file }))
-        .filter((item) => item.file);
+        .filter((item) => item?.file);
       const existingImageIds = state.displayDashboardExistingImageIds.slice();
       const bodyHtml = String(els.displayDashboardMessageEditor?.innerHTML || '');
       const isCurrent = () => state.displayDashboardSaveRequest === request
         && viewerContext.isCurrent()
         && state.displayDashboardContextGeneration === contextGeneration
-        && isModalOpen('display-dashboard-message')
-        && String(state.displayDashboardMessage?.revision || '') === expectedRevision;
+        && isModalOpen('display-dashboard-message');
       const context = { ...viewerContext, request, expectedRevision, isCurrent };
       state.displayDashboardSaveRequest = request;
       state.displayDashboardMessageSaving = true;
-      if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = true;
+      holdDisplayDashboardControls();
+      let completed = false;
+      let messageAttempted = false;
       try {
+        if (displayDashboardMessageWrite && await reconcileDisplayDashboardMessage(context)) {
+          const currentIds = existingImageIds.concat(pendingImages.map((item) => item.uploadedId || ''));
+          if (state.displayDashboardMessage.body_html === bodyHtml
+            && JSON.stringify(state.displayDashboardMessage.image_file_ids) === JSON.stringify(currentIds)) {
+            completed = true;
+            return;
+          }
+          context.expectedRevision = state.displayDashboardMessage.revision;
+        }
+        if (!isCurrent()) return;
         const uploadedIds = [];
         for (let index = 0; index < pendingImages.length; index += 1) {
           if (!isCurrent()) return;
-          const fileId = await uploadDisplayDashboardImage(pendingImages[index].file, index, context);
+          const fileId = await uploadDisplayDashboardImage(pendingImages[index], index, context);
           if (!isCurrent()) return;
           if (fileId) uploadedIds.push(fileId);
         }
         const imageFileIds = existingImageIds.concat(uploadedIds);
-        const data = await api('/api/update_board_settings', {
+        displayDashboardMessageWrite = { expectedRevision: context.expectedRevision, body: { body_html: bodyHtml, image_file_ids: imageFileIds } };
+        messageAttempted = true;
+        const data = await cardFilesApi('/api/update_board_settings', {
           method: 'POST',
           body: {
             actor_name: context.actorName,
             source: 'ui',
             expected_revision: context.expectedRevision,
-            display_dashboard_message: {
-              body_html: bodyHtml,
-              image_file_ids: imageFileIds,
-            },
+            display_dashboard_message: displayDashboardMessageWrite.body,
           },
         });
         if (!isCurrent()) return;
-        state.displayDashboardMessage = normalizedDisplayDashboardMessage(
+        const message = normalizedDisplayDashboardMessage(
           data?.meta?.display_dashboard_message || data?.settings?.display_dashboard_message,
         );
+        if (!message.revision) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ СООБЩЕНИЯ.');
+        state.displayDashboardMessage = message;
         if (state.snapshot && data?.settings) state.snapshot.settings = data.settings;
-        closeDisplayDashboardMessageEditor();
-        setStatus('ДОСКА МЕХАНИКОВ ОБНОВЛЕНА.', false);
+        displayDashboardMessageWrite = null;
+        completed = true;
       } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
+        if (!isCurrent()) return;
+        if (displayDashboardMessageWrite) {
+          if (messageAttempted && dashboardWriteErrorIsDefinite(error)) displayDashboardMessageWrite = null;
+          else {
+            try {
+              completed = await reconcileDisplayDashboardMessage(context);
+            } catch (_) {}
+          }
+        }
+        if (!completed && isCurrent()) setStatus(error.message, true);
       } finally {
         if (state.displayDashboardSaveRequest === request) {
+          const ownsEditor = isCurrent();
           state.displayDashboardSaveRequest = null;
           state.displayDashboardMessageSaving = false;
-          if (els.displayDashboardMessageSaveButton) els.displayDashboardMessageSaveButton.disabled = false;
+          releaseDisplayDashboardControls();
+          renderDisplayDashboardImageDrafts();
+          if (completed && ownsEditor) {
+            closeDisplayDashboardMessageEditor();
+            setStatus('ДОСКА МЕХАНИКОВ ОБНОВЛЕНА.', false);
+          }
         }
       }
     }

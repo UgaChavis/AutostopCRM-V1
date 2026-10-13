@@ -460,7 +460,7 @@ const closeCardModal=unexpectedClose,closeCardClientCreateModal=unexpectedClose,
  closeCashJournalModal=unexpectedClose,closeCashboxTransferModal=unexpectedClose,
  closeEmployeeSalaryModal=unexpectedClose,closeEmployeeSalaryReconciliationPeriodDialog=unexpectedClose,
  closeStickyModal=unexpectedClose,closeRepairOrderModal=unexpectedClose,
- closeRepairOrderPaymentsModal=unexpectedClose;
+ closeRepairOrderPaymentsModal=unexpectedClose,closeDisplayDashboardMessageEditor=unexpectedClose;
 """
             + binding_intent
             + child

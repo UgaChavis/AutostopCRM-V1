@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from tests.browser_ui_support import UiBrowserTestCase
 
@@ -134,13 +135,18 @@ class CardBadgesBrowserTests(UiBrowserTestCase):
         card_id = self.create_card("Before old seen reply")
         self.load_board()
         held = []
+        pending_routes = []
+        self.addCleanup(lambda: [route.abort("failed") for route in pending_routes])
 
         def hold_seen(route):
-            held.append((route, route.fetch()))
+            pending_routes.append(route)
+            held.append((route, route.fetch(timeout=5000)))
 
         self.page.route("**/api/mark_card_seen", hold_seen)
         self.page.evaluate("id => { void markCardSeen(id, {force:true}); }", card_id)
-        self.page.wait_for_timeout(150)
+        deadline = time.monotonic() + 5
+        while not held and time.monotonic() < deadline:
+            self.page.wait_for_timeout(20)
         self.assertEqual(len(held), 1)
         self.open_card(card_id)
         self.page.locator("#cardTitle").fill("Saved after old seen request")
@@ -148,7 +154,8 @@ class CardBadgesBrowserTests(UiBrowserTestCase):
         self.finish_save()
         route, response = held.pop()
         route.fulfill(response=response)
-        self.page.wait_for_timeout(150)
+        pending_routes.remove(route)
+        self.page.wait_for_function("id => !state.unreadSeenInFlight.has(id)", arg=card_id)
         self.assertEqual(
             self.page.evaluate("id => snapshotCardById(id).title", card_id),
             "Saved after old seen request",

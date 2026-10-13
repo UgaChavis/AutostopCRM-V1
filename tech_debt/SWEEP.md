@@ -14,6 +14,12 @@ pause the whole-app audit and prepare a server release. Do not start another
 UI family. Deployment requires the owner's separate update command. Remaining
 families/final acceptance stay explicitly incomplete; this is not goal completion.
 
+2026-10-13 subsequent owner instruction supersedes that pause: resume iterative
+code review and technical fixes until the owner stops the goal. Each portion
+requires local CI, direct fast-forward publication and exact-SHA hosted CI.
+Business rules remain frozen. Production update is outside this ongoing cycle
+and requires a separate command; the earlier authorized deployment is complete.
+
 ## Baseline and environment
 
 - Baseline CI: 3,023 runtime tests, six Windows failures, 83 environment skips.
@@ -628,6 +634,82 @@ exact-SHA hosted acceptance are pending.
 - After update, prove image revision, health, HTTPS/Gateway/authentication,
   unchanged neighboring services and affected UI behavior under the runbook.
   These live checks, backup and update have not been executed during preparation.
-- Pause this audit after candidate acceptance. Dashboard draft/image faults,
+- Historical preparation scope: pause this audit after candidate acceptance. Dashboard draft/image faults,
   deeper order/settings/mobile/Windows failure passes and the remaining whole-app
   register stay open; do not describe the full original audit as complete.
+
+## Accepted inventory release and resumed maintenance
+
+Inventory/REL-01 was published as `863df550ee3277747c2bc63bc23d1d67b824aa46`.
+All five jobs of quality.yml run `38338037668` passed for that SHA. The owner's
+later explicit deployment command was fulfilled on 2026-10-13: native CRM-only
+release took 92.33s; deployed revision, health, live asset identity, browser
+startup and absence of new errors were verified. The native backup/rollback and
+unchanged neighboring services were confirmed. Private receipts remain in the
+ignored local release output and on the server; no live data is included here.
+These observations close the earlier preparation handoff, not the whole UI audit.
+
+The current clean maintenance branch starts from that exact published revision.
+The primary checkout's 41 staged constructor files remain untouched. Reused
+autostopcrm-maintain/workflow instructions and repository Playwright with
+disposable synthetic state; the Browser plugin skill remains unavailable.
+
+### Dashboard editor: UI-58 through UI-64
+
+Before the fix, two actual browser cases fail on `863df550`: pending Save still
+allows text editing, and a rejected message stage uploads a confirmed image
+again on retry. UI-58 holds text, formatting, image and parent/child close
+controls until completion; late image rendering inherits the hold. UI-59 retains
+each confirmed image ID, including partial multi-image upload and removing a
+pending photo. UI-60 reuses the existing bounded 90s POST helper. UI-61 reads
+back uncertain message writes before retry, retaining the original native
+expected_revision when unchanged. UI-62 holds uncertain image uploads instead
+of sending a duplicate; the existing API has no receipt lookup for an unknown
+upload ID, so the UI asks the operator to reconcile the shared-file list.
+UI-63 releases holds/private checkpoints at logout and rejects old callbacks.
+UI-64 permits an own successful response to close the editor and preserves a
+newer draft after a previous uncertain save is later confirmed.
+
+Existing business sanitization, image validation/limits, message schema,
+revision conflict, authorization and calculations are unchanged. No server,
+API/service, storage, release path allowlist or installed profile changes.
+Confirmed-image retry uses one upload per photo instead of two; partial upload
+retries only the failed photo. Confirmed message readback emits no second write.
+Add 13 real-browser fault/ownership cases and mandatory hosted execution.
+Related checks pass (201 tests in 29.809s plus the late-preview browser case);
+all 13 generated scripts parse and existing code-health/size limits pass.
+Full browser, local CI and exact-SHA publication acceptance are pending.
+
+Full browser passed 49/49, first render 508.6ms, no console/page/request errors.
+Startup JS is 900,948 bytes under the unchanged 901,000 limit. The first full CI
+core ran 2,942 tests (558.003s, 80 environment skips) and failed one isolated
+parent-modal fixture missing the newly referenced dashboard close callback.
+Add a callback that throws if an unrelated workspace closes, preserving the
+existing busy repair-order/payment assertions. Recheck that fixture and rerun
+the complete CI; do not publish the incomplete initial result.
+
+The second core passed all 2,942 tests (560.906s, 80 skips). A later badge
+browser group exposed a pre-existing 150ms wait for a fetched seen response;
+under coverage the callback had not finished, and missing route cleanup leaked
+the failure into the next test. ENV-05 waits for the actual bounded response,
+releases pending routes on failure and waits for the owned seen operation to
+finish after replying. It preserves the assertion that an old seen reply cannot
+replace the newer saved title. All five badge and 13 dashboard browser cases
+pass together (28.090s). Rerun complete CI; no skips, retries or limits weakened.
+
+Final local CI passed: all 3,165 selected IDs retained; 3,164 reported runtime
+tests (the existing POSIX-only class skip accounts for one), 26 isolated browser
+groups and 80 core environment skips. Core: 2,942 tests in 567.802s; the 13 new
+dashboard cases pass under coverage in 19.045s. Release coverage: 36 tests,
+3.152s, four environment skips. Combined coverage, documentation, parity,
+generated JS, core browser and all unchanged performance thresholds pass;
+CI browser first render is 529.0ms. Diff review confirms only dashboard UI,
+its regressions, badge test synchronization and this register. Fresh remote
+remains `863df550`; exact-SHA hosted acceptance follows publication.
+
+Next independent portion: Windows settings Save/Apply/readiness actions.
+Actual Qt buttons reproduce uncaught disk/size failures on synthetic files.
+A temporary candidate catches storage failures at the existing save boundary,
+retains the form/file, emits no success signal and prevents connection checks
+from starting before a successful save. Three additional Qt cases pass on
+that isolated candidate (0.181s); the source change is not in this portion.

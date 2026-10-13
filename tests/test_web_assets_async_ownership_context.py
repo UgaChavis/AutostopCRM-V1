@@ -530,7 +530,7 @@ function requestAnimationFrame(callback){callback();}
 """
         )
 
-    def test_display_dashboard_upload_captures_actor_and_close_stops_next_write(self) -> None:
+    def test_display_dashboard_upload_captures_actor_and_logout_stops_next_write(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
         viewer_context = section(
             source,
@@ -546,6 +546,11 @@ function requestAnimationFrame(callback){callback();}
             source,
             "    async function uploadDisplayDashboardImage(",
             "    function handleBoardScaleInput(",
+        )
+        controls = section(
+            source,
+            "    let displayDashboardControls = null;",
+            "    function normalizedDisplayDashboardMessage(",
         )
         self.run_node(
             """
@@ -566,7 +571,7 @@ const state={
   displayDashboardSelectionRange:null,snapshot:{settings:{old:true}},
 };
 const els={
-  displayDashboardMessageEditor:{innerHTML:'<b>PRIVATE A</b>'},displayDashboardMessageSaveButton:{disabled:false},
+  displayDashboardMessageEditor:{innerHTML:'<b>PRIVATE A</b>',getAttribute(){return 'true';},setAttribute(){},removeAttribute(){}},displayDashboardMessageSaveButton:{disabled:false},
   displayDashboardImageInput:{value:'selected'},displayDashboardMessageImages:{innerHTML:'drafts'},
   displayDashboardEmojiPalette:{hidden:false},displayDashboardEmojiButton:{setAttribute(){}},
 };
@@ -577,8 +582,11 @@ function popModal(key){if(key==='display-dashboard-message'){modalOpen=false;clo
 function arrayBufferToBase64(){return 'AQ==';}
 function normalizedDisplayDashboardMessage(value){return value||{revision:''};}
 function setStatus(message,isError){statuses.push({message,isError});}
+function renderDisplayDashboardImageDrafts(){throw new Error('stale save rendered replacement editor');}
 """
             + viewer_context
+            + controls
+            + functions("app_main_before_printing.js", "cardFilesApi")
             + close_editor
             + save_editor
             + """
@@ -592,6 +600,10 @@ function setStatus(message,isError){statuses.push({message,isError});}
   assert.equal(calls[0].options.body.actor_name,'actor-A','upload used a later actor');
   assert.equal(calls[0].options.body.file_name,'one.png');
 
+  assert.equal(closeDisplayDashboardMessageEditor(),false,'pending editor was closed');
+  state.viewerStateGeneration++;state.operatorSessionToken='session-B';
+  state.displayDashboardSaveRequest=null;state.displayDashboardMessageSaving=false;
+  releaseDisplayDashboardControls();
   closeDisplayDashboardMessageEditor();
   state.displayDashboardMessage={revision:'replacement-B'};
   calls[0].resolve({file:{id:'uploaded-A'}});

@@ -216,6 +216,8 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     if group == "auxiliary":
         reset = """
     function resetViewer() {
+      releaseDisplayDashboardControls();
+      displayDashboardMessageWrite = null;
       sharedFilesUploadCheckpoint = null;
       sharedFilesClipboardCheckpoint = null;
     }

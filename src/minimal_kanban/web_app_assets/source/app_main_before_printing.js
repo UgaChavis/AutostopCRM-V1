@@ -3468,10 +3468,10 @@
         'employee-salary-reconciliation-period': closeEmployeeSalaryReconciliationPeriodDialog,
         wall: () => popModal('wall'),
         settings: () => {
-          if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
+          if (closeDisplayDashboardMessageEditor() === false) return false;
           popModal('settings');
         },
-        'display-dashboard-message': () => closeDisplayDashboardMessageEditor(),
+        'display-dashboard-message': closeDisplayDashboardMessageEditor,
         sticky: closeStickyModal,
         'repair-order': closeRepairOrderModal,
         'repair-order-payments': closeRepairOrderPaymentsModal,

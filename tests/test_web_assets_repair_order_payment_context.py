@@ -187,7 +187,8 @@ let paymentCloses=0,salaryCloses=0,reconciliationCloses=0;
 const cascades=[];
 function unexpectedClose(){throw new Error('parent close invoked an unrelated workspace');}
 const closeCardClientCreateModal=unexpectedClose,closeCashJournalModal=unexpectedClose,
- closeCashboxTransferModal=unexpectedClose,closeStickyModal=unexpectedClose;
+ closeCashboxTransferModal=unexpectedClose,closeStickyModal=unexpectedClose,
+ closeDisplayDashboardMessageEditor=unexpectedClose;
 function closeRepairOrderPaymentsModal(){paymentCloses++;}
 function closeEmployeeSalaryModal(){salaryCloses++;}
 function closeEmployeeSalaryReconciliationPeriodDialog(){reconciliationCloses++;}
