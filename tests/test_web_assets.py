@@ -2078,9 +2078,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("closeModalAndChildren(key);", close_fragment)
         self.assertIn("closeEmployeeSalaryReconciliationPeriodDialog();", close_fragment)
         self.assertNotIn("agentTasksModal", BOARD_WEB_APP_HTML)
-        self.assertIn("'repair-order': () => closeRepairOrderModal()", close_fragment)
+        self.assertIn("'repair-order': closeRepairOrderModal", close_fragment)
         self.assertIn(
-            "'repair-order-payments': () => closeRepairOrderPaymentsModal()",
+            "'repair-order-payments': closeRepairOrderPaymentsModal",
             close_fragment,
         )
         self.assertIn("if (result === false) return false;", close_fragment)
@@ -5260,7 +5260,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "function resetInventoryForm() {\n      state.inventoryActiveId = '';\n      renderInventory();",
+            "function resetInventoryForm() {\n      if (state.inventorySaving) return;\n      inventoryFormDraft = null;\n      state.inventoryActiveId = '';\n      renderInventory();",
             BOARD_WEB_APP_HTML,
         )
 

@@ -110,7 +110,7 @@ class BoardModuleAssetsTests(unittest.TestCase):
                     BOARD_WEB_APP_JS,
                 )
             )
-            if group in {"printing", "auxiliary", "cashbox_ops", "payroll"}:
+            if group in {"printing", "auxiliary", "cashbox_ops", "payroll", "inventory"}:
                 expected.add("resetViewer")
             self.assertEqual(actual, expected, group)
 

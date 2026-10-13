@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import unittest
 
-from tests.web_asset_function_support import functions
+from tests.web_asset_function_support import functions, read_board_source
 
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
@@ -48,6 +48,7 @@ function setCardSaveInteractionLocked() {}
 function applySavedCardLocalPatch() {} function rememberCardModalCleanState() {}
 global.window={setTimeout,clearTimeout};
 """
+            + read_board_source("inventory_edit_state.js")
             + definitions
             + "\n"
             + body
@@ -231,7 +232,7 @@ state.viewerStateGeneration++;state.operatorSessionToken='B';state.inventorySavi
 const current=saveInventoryItem();
 calls[0].resolve({item:{id:'old'}});await old;
 assert.equal(calls.length,2);assert.equal(state.inventorySaving,true);assert.deepEqual(state.inventoryItems,[]);
-calls[1].reject(new Error('current failure'));await current;
+calls[1].reject(Object.assign(new Error('current failure'), {status:422}));await current;
 assert.equal(state.inventorySaving,false);
 """,
         )
@@ -259,7 +260,7 @@ const pending=replenishInventoryItem();
 assert.equal(calls[0].options.body.cost_price,'125');
 assert.equal(calls[0].options.body.sale_price,'175');
 assert.equal(calls[0].options.body.expected_updated_at,'observed');
-calls[0].reject(new Error('simulated rejection'));await pending;
+calls[0].reject(Object.assign(new Error('simulated rejection'), {status:422}));await pending;
 """,
         )
 

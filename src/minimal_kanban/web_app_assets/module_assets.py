@@ -30,7 +30,7 @@ _LAZY_GROUPS = {
         "payroll_workspace.js",
         "employees_mobile.js",
     ),
-    "inventory": ("inventory_workspace.js",),
+    "inventory": ("inventory_edit_state.js", "inventory_workspace.js"),
     "cashbox_ops": ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
@@ -235,6 +235,13 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
       releaseEmployeeMoneyControls();
       employeeMoneyCheckpoints.clear();
       employeeSaveCheckpoints.clear();
+    }
+"""
+        exports.append("resetViewer")
+    if group == "inventory":
+        reset = """
+    function resetViewer() {
+      resetInventoryEditor();
     }
 """
         exports.append("resetViewer")

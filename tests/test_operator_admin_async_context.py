@@ -455,6 +455,12 @@ function modalOpenerSelector(){return '';}
 function restoreModalFocus(){}
 function renderOperatorEmployeeBindingPanel(){renders++;}
 function clearOperatorUserEditor(){editorClears++;}
+function unexpectedClose(){throw new Error('operator close invoked an unrelated workspace');}
+const closeCardModal=unexpectedClose,closeCardClientCreateModal=unexpectedClose,
+ closeCashJournalModal=unexpectedClose,closeCashboxTransferModal=unexpectedClose,
+ closeEmployeeSalaryModal=unexpectedClose,closeEmployeeSalaryReconciliationPeriodDialog=unexpectedClose,
+ closeStickyModal=unexpectedClose,closeRepairOrderModal=unexpectedClose,
+ closeRepairOrderPaymentsModal=unexpectedClose;
 """
             + binding_intent
             + child

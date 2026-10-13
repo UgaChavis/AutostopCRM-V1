@@ -317,12 +317,22 @@
     }
 
     function renderInventoryForm() {
+      bindInventoryDraftInputs();
       const item = activeInventoryItem();
       if (els.inventoryDetailTitle) {
         els.inventoryDetailTitle.textContent = item ? 'ПОЗИЦИЯ СКЛАДА' : 'НОВАЯ ПОЗИЦИЯ';
       }
       syncInventoryForm(inventoryFormRefs({ mobile: false }), item);
       syncInventoryForm(inventoryFormRefs({ mobile: true }), item);
+      if (inventoryDraftIsCurrent()) {
+        for (const mobile of [false, true]) {
+          const refs = inventoryFormRefs({ mobile });
+          for (const [key, value] of Object.entries(inventoryFormDraft.values)) {
+            if (refs[key] && !(key === 'quantity' && item?.id)) refs[key].value = value;
+          }
+        }
+      }
+      if (state.inventorySaving) lockInventoryEditControls(inventoryEditHold?.owner);
       renderInventoryQuickState();
     }
 
@@ -348,12 +358,17 @@
         if (!state.inventoryLoaded && !prepared) renderInventoryItems();
         const data = await (prepared?.promise || readInventoryItems(query));
         if (!context.isCurrent()) return null;
+        const selected = activeInventoryItem();
+        const keepDraftSelection = inventoryDraftIsCurrent();
         state.inventoryItems = Array.isArray(data?.items) ? data.items : [];
+        if (keepDraftSelection && selected?.id && !inventoryItemById(selected.id)) {
+          state.inventoryItems = [...state.inventoryItems, selected];
+        }
         state.inventoryLoaded = true;
         if (state.inventoryActiveId && !inventoryItemById(state.inventoryActiveId)) {
           state.inventoryActiveId = '';
         }
-        if (!state.inventoryActiveId && state.inventoryItems.length) {
+        if (!state.inventoryActiveId && state.inventoryItems.length && !keepDraftSelection) {
           state.inventoryActiveId = inventoryItemId(state.inventoryItems[0]);
         }
         if (state.repairOrderInventorySelectedId && !inventoryItemById(state.repairOrderInventorySelectedId)) {
@@ -434,7 +449,9 @@
     }
 
     function selectInventoryItem(itemId) {
+      if (state.inventorySaving) return;
       const normalizedId = String(itemId || '').trim();
+      inventoryFormDraft = null;
       state.inventoryActiveId = normalizedId;
       if (normalizedId) state.repairOrderInventorySelectedId = normalizedId;
       renderInventory();
@@ -442,12 +459,15 @@
     }
 
     function resetInventoryForm() {
+      if (state.inventorySaving) return;
+      inventoryFormDraft = null;
       state.inventoryActiveId = '';
       renderInventory();
       inventoryFormRefs().name?.focus({ preventScroll: true });
     }
 
     function setInventoryView(view) {
+      if (state.inventorySaving) return;
       state.inventoryView = view === 'movements' ? 'movements' : 'positions';
       renderInventory();
       if (state.inventoryView === 'movements') loadInventoryMovements();
@@ -459,6 +479,8 @@
     }
 
     function handleInventoryFormInput() {
+      if (state.inventorySaving) return;
+      rememberInventoryDraft();
       renderInventoryQuickState();
     }
 
@@ -489,33 +511,7 @@
         inventoryStatus('УКАЖИТЕ НАЗВАНИЕ ПОЗИЦИИ.', true);
         return;
       }
-      let activeId = String(state.inventoryActiveId || '');
-      const context = inventoryAsyncContext('save', () => String(state.inventoryActiveId || '') === activeId);
-      state.inventorySaving = true;
-      renderInventoryForm();
-      try {
-        const data = await api('/api/save_inventory_item', { method: 'POST', body: payload });
-        if (!context.isCurrent()) return;
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-          activeId = state.inventoryActiveId;
-        }
-        if (data?.movement) invalidateInventoryMovements();
-        await loadInventoryItems(false, { query: state.inventoryQuery });
-        if (!context.isCurrent()) return;
-        inventoryStatus(data?.meta?.created ? 'ПОЗИЦИЯ ДОБАВЛЕНА.' : 'ПОЗИЦИЯ СОХРАНЕНА.', false);
-      } catch (error) {
-        if (!context.isCurrent()) return;
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        if (context.owns()) {
-          state.inventorySaving = false;
-          renderInventory();
-        }
-      }
+      return runInventoryEditorWrite('/api/save_inventory_item', payload);
     }
 
     async function replenishInventoryItem() {
@@ -529,7 +525,6 @@
         refs.replenishQuantity?.focus({ preventScroll: true });
         return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
       }
-      const context = inventoryAsyncContext('save', () => String(state.inventoryActiveId || '') === String(item.id));
       const payload = {
         item_id: item.id,
         expected_updated_at: item.updated_at || undefined,
@@ -539,36 +534,11 @@
         actor_name: state.actor,
         source: 'ui',
       };
-      state.inventorySaving = true;
-      renderInventoryForm();
-      try {
-        const data = await api('/api/replenish_inventory_item', {
-          method: 'POST',
-          body: payload,
-        });
-        if (!context.isCurrent()) return;
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        invalidateInventoryMovements();
-        await loadInventoryItems(false, { query: state.inventoryQuery });
-        if (!context.isCurrent()) return;
-        inventoryStatus('ОСТАТОК ПОПОЛНЕН.', false);
-      } catch (error) {
-        if (!context.isCurrent()) return;
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        if (context.owns()) {
-          state.inventorySaving = false;
-          renderInventory();
-        }
-      }
+      return runInventoryEditorWrite('/api/replenish_inventory_item', payload);
     }
 
     function scheduleInventorySearch(input, timerKey) {
+      if (state.inventorySaving) return;
       state.inventoryQuery = String(input?.value || '').trim();
       inventoryAsyncContext('items');
       const context = inventoryAsyncContext('search');

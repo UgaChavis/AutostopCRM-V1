@@ -85,21 +85,82 @@ def safe_gateway_failed_checks(stdout: bytes) -> tuple[str, ...]:
 
 
 ALLOWED_CHANGED_PATHS = {
-    "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
-    "tests/test_mobile_client_search_draft.py",
-    "scripts/browser_smoke.py",
-    "scripts/browser_smoke_core.py",
-    "scripts/browser_smoke_profiles.py",
-    "tests/test_contracts.py",
-    "scripts/deploy_crm_only.py",
-    "tests/test_deploy_crm_only.py",
-    "tests/test_card_workspace_context.py",
-    "tests/test_printing_hydration_overlap_browser.py",
-    "scripts/reconcile_automation_crm_revision.py",
-    "tests/test_reconcile_automation_crm_revision.py",
+    # Reviewed UI stability sweep from 579a2573; keep exact paths, no directory wildcards.
+    ".gitattributes",
     ".github/workflows/quality.yml",
     "docs/OPERATIONS_RUNBOOK.md",
     "docs/agent/module_operations/crm_commands.md",
+    "scripts/browser_smoke.py",
+    "scripts/browser_smoke_core.py",
+    "scripts/browser_smoke_profiles.py",
+    "scripts/check_automotive_tool_catalog.py",
+    "scripts/ci_gate_completion.ps1",
+    "scripts/deploy_crm_only.py",
+    "scripts/reconcile_automation_crm_revision.py",
+    "scripts/run_checks.ps1",
+    "src/minimal_kanban/web_app_assets/module_assets.py",
+    "src/minimal_kanban/web_app_assets/source/app_main_after_printing.js",
+    "src/minimal_kanban/web_app_assets/source/app_main_before_printing.js",
+    "src/minimal_kanban/web_app_assets/source/card_client_controls.js",
+    "src/minimal_kanban/web_app_assets/source/card_client_creation.js",
+    "src/minimal_kanban/web_app_assets/source/card_save_controls.js",
+    "src/minimal_kanban/web_app_assets/source/card_save_state.js",
+    "src/minimal_kanban/web_app_assets/source/card_seen_state.js",
+    "src/minimal_kanban/web_app_assets/source/cashbox_money_state.js",
+    "src/minimal_kanban/web_app_assets/source/cashbox_transactions.js",
+    "src/minimal_kanban/web_app_assets/source/cashbox_transfer.js",
+    "src/minimal_kanban/web_app_assets/source/client_profile_save.js",
+    "src/minimal_kanban/web_app_assets/source/client_vehicle_mutations.js",
+    "src/minimal_kanban/web_app_assets/source/employee_money_state.js",
+    "src/minimal_kanban/web_app_assets/source/inventory_edit_state.js",
+    "src/minimal_kanban/web_app_assets/source/inventory_workspace.js",
+    "src/minimal_kanban/web_app_assets/source/module_loader.js",
+    "src/minimal_kanban/web_app_assets/source/payroll_workspace.js",
+    "src/minimal_kanban/web_app_assets/source/shared_files_workspace.js",
+    "tech_debt/SWEEP.md",
+    "tests/browser_ui_support.py",
+    "tests/runtime_suite_runner.py",
+    "tests/test_card_badges_browser.py",
+    "tests/test_card_files_browser.py",
+    "tests/test_card_save_browser.py",
+    "tests/test_card_workspace_context.py",
+    "tests/test_cashbox_actions_browser.py",
+    "tests/test_client_vehicles_browser.py",
+    "tests/test_clients_creation_browser.py",
+    "tests/test_clients_profile_browser.py",
+    "tests/test_contracts.py",
+    "tests/test_deploy_crm_only.py",
+    "tests/test_deploy_crm_ui_paths.py",
+    "tests/test_deploy_script.py",
+    "tests/test_employee_delete_browser.py",
+    "tests/test_employee_profile_browser.py",
+    "tests/test_employee_workspace_recovery_browser.py",
+    "tests/test_inventory_actions_browser.py",
+    "tests/test_manager_documentation_assets.py",
+    "tests/test_manager_instruction_refresh.py",
+    "tests/test_mobile_client_search_draft.py",
+    "tests/test_mobile_clients_search_browser.py",
+    "tests/test_module_map_browser.py",
+    "tests/test_operator_admin_async_context.py",
+    "tests/test_payroll_actions_browser.py",
+    "tests/test_payroll_async_context.py",
+    "tests/test_printing_hydration_overlap_browser.py",
+    "tests/test_reconcile_automation_crm_revision.py",
+    "tests/test_run_checks_interrupt.py",
+    "tests/test_runtime_suite_runner.py",
+    "tests/test_shared_files_browser.py",
+    "tests/test_web_assets.py",
+    "tests/test_web_assets_async_ownership_context.py",
+    "tests/test_web_assets_card_files_context.py",
+    "tests/test_web_assets_cold_overlap.py",
+    "tests/test_web_assets_employee_reference_races.py",
+    "tests/test_web_assets_inventory_context.py",
+    "tests/test_web_assets_modules.py",
+    "tests/test_web_assets_repair_order_payment_context.py",
+    "tests/test_web_assets_runtime.py",
+    "tests/test_web_assets_salary_reset.py",
+    "tests/test_web_assets_shared_context.py",
+    "tests/web_asset_function_support.py",
 }
 MANAGER_LINK = Path("/opt/autostop-manager-releases/current")
 MANAGER_ENV = Path("/opt/AutostopManager/.crm-mcp.env")
@@ -117,6 +178,11 @@ NON_CRM_CONTAINERS = ("autostop-searxng", "autostop-app", "autostop-db")
 
 class ReleaseError(RuntimeError):
     """A release invariant failed; caller decides whether rollback is safe."""
+
+
+def validate_ui_changed_paths(changed: set[str]) -> None:
+    if not changed or not changed <= ALLOWED_CHANGED_PATHS:
+        raise ReleaseError("candidate includes unreviewed paths")
 
 
 class CommandFailure(ReleaseError):
@@ -359,8 +425,7 @@ class CrmOnlyRelease:
             raise ReleaseError("installed CRM revision label is missing")
         self.git("merge-base", "--is-ancestor", old_revision, self.sha)
         changed = set(self.git("diff", "--name-only", old_revision, self.sha).splitlines())
-        if not changed or not changed <= ALLOWED_CHANGED_PATHS:
-            raise ReleaseError("candidate includes unreviewed paths")
+        validate_ui_changed_paths(changed)
         mounts = self.mounts_of(record)
         required_mounts = {
             "/home/autostop/.minimal-kanban": str(self.production_root / "data"),

@@ -45,6 +45,7 @@ function fixture(name = 'payroll', canManage = true) {
   context.pushModal=(key,...args)=>{if(key==='inventory')push(key,...args);renders.push('open-'+(key==='employees'?'payroll':key));};
   const method = name === 'payroll' ? 'openEmployeesModal' : 'openInventoryModal';
   function finishModule() {
+    if(name==='inventory')vm.runInContext(fs.readFileSync(source+'inventory_edit_state.js','utf8'),context);
     vm.runInContext(fs.readFileSync(source+(name==='payroll'?'payroll_workspace.js':'inventory_workspace.js'),'utf8'),context);
     Object.assign(context, {
       ensureEmployeesUi:()=>{},hydrateEmployeesUiRefs:()=>{},bindEmployeesUiEvents:()=>{},

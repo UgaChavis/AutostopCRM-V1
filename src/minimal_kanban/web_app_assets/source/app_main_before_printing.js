@@ -3426,8 +3426,9 @@
       if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(key)) return false;
       if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) && ['employees', 'employeeSalary'].includes(key)) return false;
       const closeActions = {
-        card: () => closeCardModal(),
-        'card-client-create': () => closeCardClientCreateModal(),
+        card: closeCardModal,
+        'card-client-create': closeCardClientCreateModal,
+        inventory: () => !state.inventorySaving,
         archive: () => {
           popModal('archive');
           state.archiveCards = [];
@@ -3453,8 +3454,8 @@
           closeCashJournalModal();
           popModal('cashboxes');
         },
-        'cashbox-journal': () => closeCashJournalModal(),
-        'cashbox-transfer': () => closeCashboxTransferModal(),
+        'cashbox-journal': closeCashJournalModal,
+        'cashbox-transfer': closeCashboxTransferModal,
         employees: () => {
           if (!confirmDiscardEmployeeChanges()) return false;
           if (!closeRepairOrderModal()) return false;
@@ -3463,17 +3464,17 @@
           popModal('employees');
           return true;
         },
-        employeeSalary: () => closeEmployeeSalaryModal(),
-        'employee-salary-reconciliation-period': () => closeEmployeeSalaryReconciliationPeriodDialog(),
+        employeeSalary: closeEmployeeSalaryModal,
+        'employee-salary-reconciliation-period': closeEmployeeSalaryReconciliationPeriodDialog,
         wall: () => popModal('wall'),
         settings: () => {
           if (isModalOpen('display-dashboard-message')) closeDisplayDashboardMessageEditor();
           popModal('settings');
         },
         'display-dashboard-message': () => closeDisplayDashboardMessageEditor(),
-        sticky: () => closeStickyModal(),
-        'repair-order': () => closeRepairOrderModal(),
-        'repair-order-payments': () => closeRepairOrderPaymentsModal(),
+        sticky: closeStickyModal,
+        'repair-order': closeRepairOrderModal,
+        'repair-order-payments': closeRepairOrderPaymentsModal,
         'operator-profile': () => popModal('operator-profile'),
         'operator-admin': () => {
           if (closeOperatorAdminChildView()) return false;
@@ -7488,7 +7489,7 @@
     }
 
     function setMobileView(view) {
-      if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) return false;
+      if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation || state.inventorySaving) return false;
       const requestedView = String(view || '').trim();
       if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();
@@ -14885,6 +14886,7 @@
       loadRepairOrders(true);
     }
 
+    // @include inventory_edit_state.js
     // @include inventory_workspace.js
 
     function cashboxFormatMinorAmount(value) {

@@ -9,6 +9,11 @@ formats are preserved. Source only: no production, SSH, installed-client
 profile or live data. The primary checkout's 41 staged constructor files stay
 untouched.
 
+2026-10-13 owner decision: finish the current inventory editor portion, then
+pause the whole-app audit and prepare a server release. Do not start another
+UI family. Deployment requires the owner's separate update command. Remaining
+families/final acceptance stay explicitly incomplete; this is not goal completion.
+
 ## Baseline and environment
 
 - Baseline CI: 3,023 runtime tests, six Windows failures, 83 environment skips.
@@ -34,7 +39,7 @@ portions still participate in the final whole-application integration pass.
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
 | Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-26 accepted, seven shared-file regressions, editor/print functional and race smoke | Portion accepted at `0040f75`; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
-| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | 17 cashbox, 12 payroll-dialog, seven profile and four workspace recovery browser cases; eight deletion cases locally passed | Accepted through `6e1e99f`; deletion hosted acceptance and final integration pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | 17 cashbox, 12 payroll-dialog, seven profile, four workspace recovery and eight deletion browser cases | Portions accepted through `af24f9b`; final integration pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
 | Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
 | Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
@@ -520,3 +525,109 @@ performance limits pass. The prior separate full smoke remains 49/49
 the candidate base `6e1e99f`; scoped diff and primary checkout preservation
 pass. Publication/exact-SHA hosted acceptance remain pending. Next: inventory
 draft loss, uncertain create replies, pending fields and partial-refresh recovery.
+
+Deletion/ENV-04 publication `af24f9b8a978ef715a22f4b1a7abfab15471517b`
+matches the remote ref. Exact-SHA [quality run 38331747010](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38331747010)
+passed all five jobs without a rerun. UI-48 through UI-50 and ENV-04 are
+accepted. All remaining families and the final two fresh full passes remain open.
+
+## Inventory and dashboard failure queue from af24f9b
+
+Inventory baseline failures are reproduced on real synthetic runtimes:
+native revision conflict replaces the typed name/price draft; a committed
+create with a lost reply sends a second create when retried (two IDs);
+pending save leaves fields/new-selection controls enabled; an unbounded
+write never releases controls; a failed list refresh after a known create is
+overwritten by a success message. The first two were confirmed separately;
+the other three fail together (11.516s). Five candidate regressions remain
+in TEMP; no inventory fix or acceptance is claimed yet.
+
+Dashboard editor baseline also fails two real-browser cases (8.527s): the
+contenteditable text stays editable during save, and retry after an image
+upload followed by rejected settings save uploads the image twice. These
+findings are queued after inventory; implementation/acceptance are pending.
+
+## Inventory editor and release preparation candidate
+
+UI-51 through UI-55 fix the five inventory failures above: retain raw draft,
+freeze owned desktop/mobile controls, bound writes, preserve confirmed IDs,
+retry only failed reads after a known receipt and stop uncertain creates.
+UI-56 retains an unsaved draft during search; UI-57 retains its stable selected
+ID through an empty filter or a rename that leaves the filter. Two filter cases
+failed before that fix (9.039s). Replenishment reuses the original native
+version only after an unchanged authoritative read; a late original then gets
+native 409. An unknown committed replenishment never doubles stock. Candidate
+review also repaired stale read-only quantity display and an overly broad
+uncertain-create barrier: independent known-ID edits remain usable.
+
+Fourteen actual desktop/mobile browser regressions now cover these cases,
+logout, pending close/navigation and native conflicts. Expanded checks passed
+203 tests (21.198s); the final changed uncertainty scope passed 66 relevant
+tests (22.857s). Fixture dependencies were updated without dropping assertions.
+Generated JS/format/lint and unchanged code-health pass. Final UI full smoke
+passed 49/49 (518.2 ms), with no console/page/request errors. Startup is
+900,974 bytes under the unchanged 901,000-byte limit; no speedup is claimed.
+Second fresh full smoke, full local CI, publication and hosted acceptance are pending.
+
+REL-01 release preparation: extend the existing CRM-only deploy's exact path
+allowlist for the reviewed UI sweep; keep rejection of unknown paths and
+service/storage/API/MCP/server configuration. Its real predicate has four
+portable regressions. Native Unix locking/rollback tests remain required in
+GitHub; direct Windows import cannot run those Unix fixtures. Portable release
+checks pass. The reviewed candidate diff from source baseline 579a2573 has
+62 paths, none outside this exact allowlist and none in business/API/storage.
+This proves source eligibility only: installed revision, clean server worktree,
+Manager/Telegram target, mounts, health and backup/rollback remain unverified.
+
+Release candidate repeat full browser passed 49/49 (539.2 ms), following the
+fresh 518.2 ms pass of the same final UI. Both have no console/page/request
+errors. These are two clean release-candidate runs, not proof that the still
+pending whole-app failure registry is complete. Release portable checks passed
+60 tests (13 existing POSIX environment skips, 0.140s), including all four
+new exact-path rejection regressions. Code-health classifies 630 files with
+unchanged limits; the primary checkout still has 41 staged files. Full local
+CI, fast-forward publication and exact-SHA GitHub acceptance are pending.
+
+First inventory/release full CI finished its core (2,942 reported tests,
+608.320s, 80 environment skips) with three fixture failures: isolated modal
+tests lacked the now-referenced unrelated close callbacks, and the module
+export expectation omitted inventory resetViewer. Add dependencies that throw
+if an unrelated close is invoked; preserve all modal/finance assertions and
+require the inventory logout reset explicitly. Addressed fixture/module/release
+checks pass. Runtime UI assets did not change after the two clean full passes.
+The exact release path list includes the additional reviewed operator fixture;
+current diff has 63 reviewed paths and none outside it. Full CI must pass again.
+The owner reaffirmed preparation only: no server connection or update now.
+
+Inventory/release final local CI passed: all 3,152 selected IDs retained;
+3,151 reported runtime tests (946.604s, 80 environment skips), with the existing
+POSIX-only class skip accounting for the difference. Release coverage passed
+36 tests (3.312s, four environment skips). All 25 isolated browser groups,
+combined coverage, parity, generated JS, core browser and unchanged performance
+limits pass. Final diff is scoped to inventory UI, its regressions and the
+exact-path CRM-only release preparation. Business services, storage, public
+API/MCP, financial rules and installed profiles are unchanged. Publication and
+exact-SHA hosted acceptance are pending.
+
+## Server update handoff (preparation only)
+
+- Finish publication and require all five quality.yml jobs for the exact SHA;
+  use that immutable GitHub revision as the source candidate.
+- On the owner's later update command, obtain the installed CRM revision,
+  current image and clean isolated source; compare the actual installed-to-target
+  diff with the exact reviewed path list. The 579a2573 source comparison is
+  not evidence of the installed server revision.
+- Run the runbook's read-only CRM-only preflight with the exact guarded Manager
+  controller source. Check current health, Compose/mounts, available space,
+  Manager/catalog compatibility and the active Telegram target. Record the
+  private preflight result without credentials or customer data.
+- The update procedure includes a temporary CRM/Telegram duty pause. Use the
+  existing lock, verified snapshot and rollback image through deploy_crm_only.py;
+  require the preflight-pinned Telegram target and approved SHA. Do not replace
+  this with an ad hoc restart or restore live data after new writes are allowed.
+- After update, prove image revision, health, HTTPS/Gateway/authentication,
+  unchanged neighboring services and affected UI behavior under the runbook.
+  These live checks, backup and update have not been executed during preparation.
+- Pause this audit after candidate acceptance. Dashboard draft/image faults,
+  deeper order/settings/mobile/Windows failure passes and the remaining whole-app
+  register stay open; do not describe the full original audit as complete.
