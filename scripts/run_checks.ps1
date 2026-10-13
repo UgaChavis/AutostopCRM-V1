@@ -120,9 +120,16 @@ try {
     Invoke-Python -StepName "Erase stale runtime coverage" -Arguments @(
         "-m", "coverage", "erase"
     )
-    Invoke-Python -StepName "Runtime branch coverage" -Arguments @(
-        "-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"
-    )
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        Invoke-Python -StepName "Isolated Windows runtime coverage" -Arguments @(
+            "-m", "tests.runtime_suite_runner"
+        )
+    }
+    else {
+        Invoke-Python -StepName "Runtime branch coverage" -Arguments @(
+            "-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"
+        )
+    }
     Invoke-Python -StepName "Combine runtime coverage" -Arguments @(
         "-m", "coverage", "combine"
     )

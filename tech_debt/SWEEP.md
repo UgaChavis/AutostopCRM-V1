@@ -34,7 +34,7 @@ portions still participate in the final whole-application integration pass.
 | Clients/vehicles/search: create/link/edit/select/search; drafts, validation, late replies, pending controls, logout, uncertain writes | 20 new popup/profile/vehicle browser regressions, three portable desktop/mobile search tests; client/ownership contracts | Portion accepted at `a852bcd`; final integration pending |
 | Attachments/shared files/editors/preview/print: upload/delete/open/edit, failures, draft and return navigation | UI-17 through UI-26 accepted, seven shared-file regressions, editor/print functional and race smoke | Portion accepted at `0040f75`; final integration pending |
 | Inventory/orders UI: load/edit/repeated clicks, conflict/native errors; unchanged financial values/guards | Existing smoke and contracts; deeper failure pass pending | pending |
-| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | Cashbox candidate has 17 real desktop/mobile failure cases; five payout/advance/shift/dialog faults queued | Cashbox portion accepted at `c977bd9`; payroll dialogs accepted at `9d43f2b`; employee/profile/period pass pending |
+| Cashboxes/payroll/employees UI: lists/periods/dialogs, repeated clicks/errors; unchanged calculations | 17 cashbox, 12 payroll-dialog, seven profile and four workspace recovery browser cases; eight deletion cases locally passed | Accepted through `6e1e99f`; deletion hosted acceptance and final integration pending |
 | Settings/roles/manager maps/dashboard: save/cancel, stale replies, loading/navigation | Existing smoke and contracts; deeper pass pending | pending |
 | Mobile: all panels, navigation/cards, small viewport, failures/drafts | Three portable client-search browser regressions and existing mobile smoke; other panels pending | pending |
 | Windows: source startup, settings/dialogs/native workflows on temporary data | Existing runtime/release tests; deeper source UI pass pending | pending |
@@ -445,3 +445,78 @@ skips, 826.368s), 36 release tests (four skips, 3.147s), coverage/parity/core
 browser and unchanged code-health/performance gates. Only one UI source file,
 regressions, workflow and this register changed; no service/API/storage change.
 Final diff passes. Publication and exact-SHA hosted acceptance are pending.
+
+Workspace publication `6e1e99fa93655e7f807b770b0424d79ff9a8c0fa` matches
+the remote ref. First [quality run 38324885634](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38324885634)
+passed unit/static/Docker and all added browser regressions, but mandatory core
+smoke timed out waiting for a response. Its artifact has no console/page/request
+errors; only the preceding timer screenshot was saved. A TEMP-only diagnostic
+core run passed every stage. One failed-job rerun for the same immutable SHA
+passed all five jobs. UI-45 through UI-47 are accepted at this SHA; the initial
+hosted timeout cause remains unestablished and is a verification limitation.
+Thresholds and assertions were not changed. Final two fresh full passes remain
+required; no claim of complete whole-app acceptance is made.
+
+## Employee deletion from 6e1e99f
+
+UI-48 delete POST has no deadline; UI-49 lost committed reply leaves the deleted
+known ID in the UI (two failures / 10.897s). UI-50 unknown profile save permits
+a conflicting delete before that save is settled (reproduced against the first
+isolated candidate). Bound waiting, reconcile the known ID from a fresh native
+list, use the existing native employee version guard, and hold conflicting
+deletion when this viewer has an uncertain profile write. Keep native linked
+record/finance guards, confirmation text and API/storage formats unchanged.
+
+Eight isolated browser cases pass (12.175s), including guarded retry and late
+original HTTP 404, native revision conflict, linked-accrual rejection, partial
+report failure, logout and the unresolved-save barrier. Twelve existing
+ownership checks pass. Actual checkout, full local CI and publication remain
+pending. Business services and deletion eligibility rules are unchanged.
+
+Deletion actual-checkout checks pass: 91 browser/context/reference/access
+checks (71.868s), generated JS (13 scripts), formatting/lint and unchanged
+code-health gates. Full browser passed 49/49, first render 515.6 ms, no
+console/page/request errors. Startup remains 900,970 bytes under the unchanged
+901,000-byte cap. No speedup is claimed. Full local CI is pending; only the
+private UI deletion handler changed at runtime. Services/API/storage and
+financial/linked-record eligibility rules are untouched.
+
+Deletion full CI failed before the second cashbox test's page loaded:
+APIRequestContext.post lost the Playwright driver during fixture login, then
+new-context/cleanup calls lost that same connection. The diagnostic reporter
+captured the first exception; no Node driver child remained at the ownership
+check. The verified failed core was stopped, keeping the trace. No application
+UI or business operation was running in that failing setup. Root cause of the
+external driver exit is not established.
+
+ENV-04 candidate: Windows runtime verification now isolates browser groups in
+separate Python/coverage processes and combines all fragments with the existing
+coverage step. No retry, skip, reduced threshold or weakened assertion is added;
+child failure returns its nonzero code and stops later workers. Discovery plan
+contains all 3,134 current test IDs: 2,939 core and 24 browser groups, with zero
+duplicate IDs. Four orchestration regressions plus existing completion/interrupt
+checks pass (11 tests / 2.445s, two POSIX environment skips). Formatting/lint and
+unchanged code-health gates pass. Ubuntu CI retains its existing discovery path.
+Full isolated Windows CI is pending; this is a harness mitigation, not a claim
+that the Playwright process-exit cause has been fixed.
+
+ENV-04 first isolated core run finished 2,938 reported tests (562.556s,
+80 environment skips) with one structural gate failure: the parity test found
+two steps named Runtime branch coverage. Name the Windows path separately;
+the unchanged hosted discovery step remains checked exactly. Five related
+parity/orchestration tests pass. Parent and child discovery core IDs match
+(2,939 selected each, no missing or extra IDs); the one report-count difference
+is the existing POSIX-only MobileClientSearchDraftTests setUpClass skip.
+Full isolated CI must pass before either ENV-04 or deletion is published.
+
+Deletion/ENV-04 final local CI passed. All 3,134 selected IDs remain in the
+plan: the core reports 2,938 tests (80 environment skips, 559.176s), and all
+24 isolated groups report 195 tests; total reported runtime is 3,133 tests
+in 913.232s, with the existing class-level skip accounting for the difference.
+Release coverage passed 36 tests (four environment skips, 3.243s). Combined
+coverage, parity, generated JS, core smoke, code-health and unchanged
+performance limits pass. The prior separate full smoke remains 49/49
+(515.6 ms); no runtime source changed since that smoke. Fresh remote ref equals
+the candidate base `6e1e99f`; scoped diff and primary checkout preservation
+pass. Publication/exact-SHA hosted acceptance remain pending. Next: inventory
+draft loss, uncertain create replies, pending fields and partial-refresh recovery.

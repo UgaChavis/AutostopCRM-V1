@@ -1656,15 +1656,43 @@
       if (!isCurrent) return;
       syncEmployeeEditMutationControls();
       let confirmed = false;
+      const controller = new AbortController();
+      const timeout = globalThis.setTimeout(() => controller.abort(), 90000);
       try {
-        const data = await api('/api/delete_employee', {
-          method: 'POST',
-          body: {
-            employee_id: employee.id,
-            actor_name: state.actor,
-            source: 'ui',
-          },
-        });
+        const unresolvedSave = [...employeeSaveCheckpoints.values()].find((item) => item.viewer === state.viewerStateGeneration
+          && item.session === state.operatorSessionToken && item.uncertain
+          && (!item.body.employee_id || item.body.employee_id === employee.id));
+        if (unresolvedSave) {
+          invalidateEmployeesReference();
+          await loadEmployeesReference({ month: isCurrent.month, apply: false, force: true });
+          if (!isCurrent()) return;
+          throw new Error('РЕЗУЛЬТАТ СОХРАНЕНИЯ ПРОФИЛЯ НЕ ПОДТВЕРЖДЁН. УДАЛЕНИЕ ОСТАНОВЛЕНО; СВЕРЬТЕ ПРОФИЛЬ СОТРУДНИКА.');
+        }
+        let data;
+        try {
+          data = await api('/api/delete_employee', {
+            method: 'POST',
+            signal: controller.signal,
+            body: {
+              employee_id: employee.id,
+              expected_updated_at: employee.updated_at,
+              actor_name: state.actor,
+              source: 'ui',
+            },
+          });
+        } catch (error) {
+          if (!isCurrent()) return;
+          if (error?.status !== 409 && error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json') throw error;
+          invalidateEmployeesReference();
+          const fresh = await loadEmployeesReference({ month: isCurrent.month, apply: false, force: true });
+          if (!isCurrent()) return;
+          if (!Array.isArray(fresh?.employees)) throw error;
+          if (fresh.employees.some((item) => item.id === employee.id)) {
+            if (error?.status === 409) state.employees = fresh.employees;
+            throw error;
+          }
+          data = fresh;
+        }
         if (!isCurrent()) return;
         confirmed = true;
         invalidateEmployeesReference();
@@ -1692,6 +1720,7 @@
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
+        globalThis.clearTimeout(timeout);
         if (isCurrent.release()) {
           syncEmployeeEditMutationControls();
           if (confirmed && isCurrent.contextIsCurrent()) {
