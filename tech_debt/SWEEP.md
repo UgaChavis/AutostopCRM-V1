@@ -748,3 +748,72 @@ parity, generated JS, core browser and unchanged performance thresholds pass;
 first render 527.5ms. Fresh remote remains accepted `d293ec4`. Diff is limited
 to SettingsWindow's eight-line error handler, four Qt regressions and this
 register. Exact-SHA hosted acceptance follows publication.
+
+Windows was published as `e43234e8ff333a89f8221cbe4ef019ea61af6b6a`.
+All five jobs of quality.yml run `38380574289` passed for that exact SHA,
+with no reruns. The initial push ended with a Schannel TLS disconnect; an
+independent GitHub ref read confirmed `d293ec4`, and an ordinary retry published
+the same checked commit fast-forward. Local and remote SHA agree.
+
+## Sticky interface: UI-69 through UI-76
+
+Two real-browser cases fail on `e43234e` (8.054s): pending creation leaves the
+text editable; after a create commits but its reply is lost, a second Save
+creates another sticky (two POSTs/two records). The synthetic reproductions
+are kept outside Git. Inspect the editor's pending controls, close ownership,
+known receipts, uncertain create/update/delete outcomes and bounded requests.
+Preserve native text/deadline/position rules and the public contracts. Unknown
+creation has no native receipt key or client-selected ID; do not infer identity
+from matching text or bypass this limitation with an invented API field.
+Reproduce before changing; acceptance and publication for this portion remain
+pending. The iterative goal remains active until the owner stops it.
+
+UI-69 captures the click's payload and holds every editor control before the
+optional write module loads; close/replacement is refused while saving.
+UI-70 retains native confirmed receipts/IDs through a failed screen update;
+unchanged retries read/render, edited drafts update the same ID. UI-71 stops
+an uncertain creation across editor reopening without matching by text.
+UI-72 reconciles uncertain updates, moves and deletes by stable ID; update
+confirmation checks the exact native duration, avoiding display-hour rounding.
+UI-73 bounds all sticky POSTs using the existing 90s helper and handles the
+15s module-load deadline without a late write. UI-74 releases controls and
+private receipts at viewer reset, rejecting old callbacks. UI-75 restores a
+missing post-login board through the existing refresh before closing. UI-76
+requires a real receipt and a valid sticky array, preserving a known ID if
+rendering fails and reading fresh data before replaying a known result.
+
+The eager wrappers retain mutation ownership before cold loading, including
+delete and drag. Private persistence/reconciliation is in the auxiliary module;
+its explicit bindings and reset are checked. Reuse the already normalized
+stickyPayload deadline instead of reading/normalizing it twice. API request
+fields, native text/duration/position validation, expiry, storage and business
+services are unchanged. The startup bundle is 900,875 bytes (73 fewer than
+e43234e), under the unchanged 901,000 cap. This is request/draft correctness;
+the small size/render measurements are not a claimed speed improvement.
+
+All 14 new browser cases pass, including missing receipt, cold/stalled module,
+partial UI failure, fresh peer data, changed draft, exact 3,700s versus 7,200s
+readback, lost update/delete/move replies, 90s deadline and logout. The related
+runtime/dashboard/asset run passed everything except a static assertion that
+required the removed unsafe empty-array fallback; replace it with valid-array
+and absence-of-fallback requirements, keeping all dock/modal assertions.
+Final 183 checks pass (17.490s). Full browser: 49/49, first render 484.9ms,
+no console/page/request errors; all 13 generated scripts parse. Full local CI
+and exact-SHA hosted acceptance are pending before publication.
+
+Compatibility limit: unknown create IDs have no native receipt lookup or
+client-selected ID, so creation is held in the current viewer session until
+manual reconciliation. It is not inferred from text; a complete recovery
+protocol across reload/login needs a separately agreed API/storage proposal.
+
+Final local CI passed: all 3,183 selected IDs retained; 3,182 reported runtime
+tests (one existing POSIX-only class skip), 27 isolated browser groups and 80
+core environment skips. Core: 2,946 tests in 563.404s; sticky browser: 14 tests
+under coverage in 18.751s. Release: 36 tests in 3.057s, four environment skips.
+Combined coverage, docs, parity, generated JS, core browser and all unchanged
+performance thresholds pass; CI first render 525.4ms. An initial CI start was
+stopped after the diff check caught an extra EOF blank line; fix it and run the
+complete final candidate above, rather than treating that stopped run as passed.
+Final diff is scoped to sticky UI, its regressions/module bindings and this
+register; no service/API/MCP/storage/finance or release-controller changes.
+Fresh remote remains accepted `e43234e`; hosted acceptance follows publication.

@@ -230,6 +230,7 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             (source_dir / name).read_text(encoding="utf-8")
             for name in (
                 "display_dashboard_workspace.js",
+                "sticky_mutations.js",
                 "shared_files_workspace.js",
                 "mobile_auxiliary_workspace.js",
             )

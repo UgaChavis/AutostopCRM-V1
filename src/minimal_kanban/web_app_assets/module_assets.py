@@ -35,6 +35,7 @@ _LAZY_GROUPS = {
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
         "display_dashboard_workspace.js",
+        "sticky_mutations.js",
         "shared_files_workspace.js",
         "mobile_auxiliary_workspace.js",
     ),
@@ -58,6 +59,7 @@ _AUXILIARY_SHARED_NAMES = (
     "DISPLAY_DASHBOARD_MAX_IMAGES",
     "SHARED_FILE_UPLOAD_MAX_SIZE_BYTES",
     "applyArchivedCardPatch",
+    "applyStickySnapshot",
     "archivedCardsTotal",
     "arrayBufferToBase64",
     "attachmentExtension",
@@ -218,6 +220,7 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
     function resetViewer() {
       releaseDisplayDashboardControls();
       displayDashboardMessageWrite = null;
+      stickyWriteCheckpoints.clear();
       sharedFilesUploadCheckpoint = null;
       sharedFilesClipboardCheckpoint = null;
     }

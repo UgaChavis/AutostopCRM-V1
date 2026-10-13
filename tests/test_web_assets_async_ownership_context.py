@@ -788,7 +788,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
         sticky_save = section(
             source,
             "    function buildStickyPayload(",
-            "    async function removeSticky(",
+            "    async function saveBoardScale(",
         )
         self.run_node(
             """
@@ -799,14 +799,15 @@ let modalOpen=false;
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',apiToken:'api-A',actor:'actor-A',
   stickyEditorGeneration:0,stickyMutationRequest:null,stickyDraft:null,
+  snapshot:{stickies:[]},
 };
 const els={
-  stickyModal:{},stickyModalTitle:{textContent:''},stickyText:{value:'',focus(){}},
-  stickyDays:{value:0},stickyHours:{value:4},saveStickyButton:{disabled:false},
+  stickyModal:{querySelectorAll(){return [els.stickyText,els.stickyDays,els.stickyHours,els.saveStickyButton];}},stickyModalTitle:{textContent:''},stickyText:{value:'',disabled:false,focus(){}},
+  stickyDays:{value:0,disabled:false},stickyHours:{value:4,disabled:false},saveStickyButton:{disabled:false},
 };
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function secondsToParts(total){return {days:Math.floor(total/86400),hours:Math.floor((total%86400)/3600)};}
-function stickyPayload(){return {text:String(els.stickyText.value||'').trim()};}
+function stickyPayload(){return {text:String(els.stickyText.value||'').trim(),deadline:stickyDeadlineInput()};}
 function stickyDeadlineInput(){return {days:Number(els.stickyDays.value),hours:Number(els.stickyHours.value)};}
 function getStickyComposerPlacement(){return {x:10,y:20};}
 function pushModal(){modalOpen=true;}
@@ -818,6 +819,7 @@ function refreshSnapshot(){throw new Error('snapshot fallback should not run');}
 function setStatus(message,isError){statuses.push({message,isError});}
 """
             + viewer_context
+            + functions("app_main_before_printing.js", "cardFilesApi")
             + sticky_modal
             + sticky_save
             + """
@@ -827,7 +829,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
   assert.equal(calls.length,1,'double click issued two create writes');
   assert.equal(calls[0].path,'/api/create_sticky');
   assert.equal(calls[0].options.body.actor_name,'actor-A');
-  calls[0].resolve({stickies:[{id:'created',text:'new sticky'}]});
+  calls[0].resolve({sticky:{id:'created',text:'new sticky'},stickies:[{id:'created',text:'new sticky'}]});
   await Promise.all([first,duplicate]);
   assert.equal(modalOpen,false);assert.equal(statuses.length,1);
 
@@ -835,6 +837,9 @@ function setStatus(message,isError){statuses.push({message,isError});}
   els.stickyText.value='edit A';
   const staleEdit=saveSticky();
   assert.equal(calls[1].path,'/api/update_sticky');assert.equal(calls[1].options.body.sticky_id,'sticky-A');
+  assert.equal(closeStickyModal(),false,'pending editor was closed');
+  state.viewerStateGeneration++;state.operatorSessionToken='session-B';state.actor='actor-B';
+  state.stickyMutationRequest.release();state.stickyMutationRequest=null;
   closeStickyModal();
   openStickyModal({id:'sticky-B',text:'B',x:3,y:4,deadline_total_seconds:7200});
   calls[1].resolve({stickies:[{id:'sticky-A',text:'edited A'}]});await staleEdit;

@@ -1490,7 +1490,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "if (await handleAuxiliaryBoardClick(target, event)) return;", BOARD_WEB_APP_HTML
         )
-        self.assertIn("if (applyStickySnapshot(data?.stickies || [])) {", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!Array.isArray(stickies) || !applyStickySnapshot(stickies)) {", BOARD_WEB_APP_HTML
+        )
+        self.assertNotIn("applyStickySnapshot(data?.stickies || [])", BOARD_WEB_APP_HTML)
         self.assertIn("closeNamedModal(closeTrigger.dataset.close);", BOARD_WEB_APP_HTML)
         for retired_overlay_handler in (
             "handleStickyModalOverlayClick",

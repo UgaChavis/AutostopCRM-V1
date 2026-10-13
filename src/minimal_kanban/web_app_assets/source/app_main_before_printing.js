@@ -409,6 +409,7 @@
         DISPLAY_DASHBOARD_MAX_IMAGES,
         SHARED_FILE_UPLOAD_MAX_SIZE_BYTES,
         applyArchivedCardPatch,
+        applyStickySnapshot,
         archivedCardsTotal,
         arrayBufferToBase64,
         attachmentExtension,
@@ -2436,6 +2437,7 @@
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
       state.cashboxMoneyRequest?.release();
+      state.stickyMutationRequest?.release?.();
       resetClientMutationControls();
       state.clientProfileSaveCheckpoint = null;
       state.clientVehicleMutationCheckpoint = null;
@@ -15644,6 +15646,7 @@
     }
 
     function openStickyModal(sticky = null) {
+      if (state.stickyMutationRequest?.editor) return false;
       state.stickyEditorGeneration = (state.stickyEditorGeneration || 0) + 1;
       const existing = sticky || null;
       state.stickyDraft = existing;
@@ -15657,11 +15660,12 @@
     }
 
     function closeStickyModal() {
+      if (state.stickyMutationRequest?.editor) return false;
       state.stickyEditorGeneration = (state.stickyEditorGeneration || 0) + 1;
-      if (state.stickyMutationRequest?.editor) state.stickyMutationRequest = null;
       if (els.saveStickyButton) els.saveStickyButton.disabled = false;
       popModal('sticky');
       state.stickyDraft = null;
+      return true;
     }
 
     function handleEmployeesModalOverlayClick(event) {
@@ -15694,15 +15698,15 @@
     }
 
     function buildStickyPayload() {
-      const draft = stickyPayload();
-      const deadline = stickyDeadlineInput();
-      const placement = state.stickyDraft?.id ? null : getStickyComposerPlacement();
+      const { text, deadline } = stickyPayload();
+      const sticky = state.stickyDraft;
+      const placement = sticky?.id ? sticky : getStickyComposerPlacement();
       return {
-        sticky_id: state.stickyDraft?.id || null,
-        text: draft.text,
+        sticky_id: sticky?.id || null,
+        text,
         deadline,
-        x: state.stickyDraft?.x ?? placement?.x ?? 0,
-        y: state.stickyDraft?.y ?? placement?.y ?? 0,
+        x: sticky?.x ?? placement?.x ?? 0,
+        y: sticky?.y ?? placement?.y ?? 0,
       };
     }
 
@@ -15711,6 +15715,12 @@
       const viewerContext = captureViewerRequestContext();
       const editorGeneration = state.stickyEditorGeneration || 0;
       const request = { editor };
+      if (editor) {
+        const controls = Array.from(els.stickyModal?.querySelectorAll('button, input, textarea') || []);
+        const disabled = controls.map((control) => [control, control.disabled]);
+        controls.forEach((control) => { control.disabled = true; });
+        request.release = () => disabled.forEach(([control, value]) => { control.disabled = value; });
+      }
       state.stickyMutationRequest = request;
       return {
         request,
@@ -15727,36 +15737,30 @@
 
     function finishStickyMutation(context) {
       if (!context?.ownsRequest()) return false;
+      context.request.release?.();
       state.stickyMutationRequest = null;
       return true;
     }
+
+    // @include sticky_mutations.js
 
     async function saveSticky() {
       const payload = buildStickyPayload();
       if (!payload.text) return setStatus('УКАЖИ ТЕКСТ СТИКЕРА.', true);
       const context = beginStickyMutation({ editor: true });
       if (!context) return;
-      if (els.saveStickyButton) els.saveStickyButton.disabled = true;
+      let completed = false;
       try {
-        let data = null;
-        if (payload.sticky_id) {
-          data = await api('/api/update_sticky', { method: 'POST', body: { sticky_id: payload.sticky_id, text: payload.text, deadline: payload.deadline, actor_name: context.actorName, source: 'ui' } });
-        } else {
-          data = await api('/api/create_sticky', { method: 'POST', body: { text: payload.text, x: payload.x, y: payload.y, deadline: payload.deadline, actor_name: context.actorName, source: 'ui' } });
-        }
-        if (!context.isCurrent()) return;
-        if (applyStickySnapshot(data?.stickies || [])) {
-          setStatus('СТИКЕР СОХРАНЕН.', false);
-          closeStickyModal();
-          return;
-        }
-        await refreshSnapshot(true);
-        if (context.isCurrent()) closeStickyModal();
+        const { sticky_id, text, deadline, x, y } = payload;
+        const body = sticky_id ? { sticky_id, text, deadline } : { text, x, y, deadline };
+        const data = await persistStickyMutation(sticky_id ? '/api/update_sticky' : '/api/create_sticky', { ...body, actor_name: context.actorName, source: 'ui' }, context);
+        completed = Boolean(data) && context.isCurrent();
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
-        if (finishStickyMutation(context) && els.saveStickyButton) {
-          els.saveStickyButton.disabled = false;
+        if (finishStickyMutation(context) && completed) {
+          closeStickyModal();
+          setStatus('СТИКЕР СОХРАНЕН.', false);
         }
       }
     }
@@ -15765,13 +15769,8 @@
       const context = beginStickyMutation();
       if (!context) return;
       try {
-        const data = await api('/api/delete_sticky', { method: 'POST', body: { sticky_id: stickyId, actor_name: context.actorName, source: 'ui' } });
-        if (!context.isCurrent()) return;
-        if (applyStickySnapshot(data?.stickies || [])) {
-          setStatus('СТИКЕР УДАЛЕН.', false);
-          return;
-        }
-        await refreshSnapshot(true);
+        const data = await persistStickyMutation('/api/delete_sticky', { sticky_id: stickyId, actor_name: context.actorName, source: 'ui' }, context);
+        if (data && context.isCurrent()) setStatus('СТИКЕР УДАЛЕН.', false);
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
@@ -15867,10 +15866,7 @@
       const context = beginStickyMutation();
       if (!context) return;
       try {
-        const data = await api('/api/move_sticky', { method: 'POST', body: { sticky_id: drag.stickyId, x: nextX, y: nextY, actor_name: context.actorName, source: 'ui' } });
-        if (!context.isCurrent()) return;
-        if (applyStickySnapshot(data?.stickies || [])) return;
-        await refreshSnapshot(true);
+        await persistStickyMutation('/api/move_sticky', { sticky_id: drag.stickyId, x: nextX, y: nextY, actor_name: context.actorName, source: 'ui' }, context);
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
