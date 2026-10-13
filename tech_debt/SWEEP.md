@@ -1057,3 +1057,34 @@ Real follow-up probes confirm mobile cached re-entry (`0` after the saved
 dialog. Salary-parent close and print-after-logout probes pass the existing
 guards; retain them. All source work remains local until ordinary GitHub
 publication; production and the original constructor work remain unchanged.
+
+EMP-01 publication: `0140776f1e805c6599341d372970738e4df606a4`, exact-SHA
+`quality.yml` run `38443960185`, all five jobs successful. No deployment.
+
+## Employees goal: EMP-02, mobile freshness and period ownership
+
+Reproduced both mobile entry paths using actual buttons: reopening from the
+More grid and returning from Board to the retained Employees panel showed the
+old `0` balance after another actor saved a `17.35` shift. Both paths now request
+a fresh full snapshot; existing in-flight coalescing and permission checks stay.
+No write is retried and no financial result cache is introduced.
+
+An older print response could close a replacement period dialog, discarding
+its seven-day draft. Close only the dialog instance and employee/session context
+that launched the request. Cover replacement by another employee and reopening
+for the same employee. Existing salary-parent-close and print-after-logout guards
+already work; retain real regression cases rather than rewrite those paths.
+
+Six real browser cases cover these paths, with actual report popups and held
+responses on disposable state. Final shared CI and exact-SHA publication follow.
+Financial calculators, print content, API/storage, rights and native writes are
+unchanged. The remaining fresh-reopen performance acceptance and the complete
+final integration pass stay open; this portion does not complete the goal.
+
+EMP-02 local acceptance: 53 focused checks (including six real browser cases)
+pass. Full final CI exits zero: 2,951 core tests in 601.425s, all 31 isolated
+browser groups and all coverage, source parity, JS and performance gates pass.
+An earlier full run caught an obsolete local-variable literal in a permission
+assertion; update that literal while preserving the complete permission guard.
+The original startup JS cap remains 901,000 bytes. Exact-SHA hosted acceptance
+is recorded in the ignored publication receipt, without treating this as rollout.

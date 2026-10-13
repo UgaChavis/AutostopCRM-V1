@@ -1020,8 +1020,16 @@
         setStatus('СНАЧАЛА ВЫБЕРИТЕ СОТРУДНИКА.', true);
         return;
       }
-      const opened = await openEmployeeSalaryReport(requestedId);
-      if (opened) closeEmployeeSalaryReconciliationPeriodDialog();
+      const entry = (state.modalStack || []).find((item) => item.key === 'employee-salary-reconciliation-period');
+      const isCurrent = employeeAsyncContext('employeeSalaryReportOpenRequest', 'activeEmployeeSalaryReconciliationReportId');
+      try {
+        const opened = await openEmployeeSalaryReport(requestedId);
+        if (opened && isCurrent() && (!entry || (state.modalStack || []).includes(entry))) {
+          closeEmployeeSalaryReconciliationPeriodDialog();
+        }
+      } finally {
+        isCurrent.release();
+      }
     }
 
     async function loadEmployeeSalaryReconciliation(employeeId) {

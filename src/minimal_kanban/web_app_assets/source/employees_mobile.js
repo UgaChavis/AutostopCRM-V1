@@ -168,7 +168,7 @@
       if (!requireEmployeesViewAccess()) return;
       state.mobileMorePanel = 'employees';
       renderMobileMore();
-      loadMobileEmployees();
+      loadMobileEmployees({ force: true });
     }
 
     function handleMobileEmployeesClick(event) {

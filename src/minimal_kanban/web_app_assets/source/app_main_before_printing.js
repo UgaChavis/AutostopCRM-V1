@@ -7483,18 +7483,17 @@
 
     function setMobileView(view) {
       if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation || state.inventorySaving) return false;
-      const requestedView = String(view || '').trim();
-      if (requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
+      const requested = String(view || '').trim();
+      if (requested === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();
       state.mobileView = normalizeMobileView(view);
       renderMobileShell();
+      if (requested === 'more' && state.mobileMorePanel === 'employees') openMobileEmployeesPanel();
       if (state.mobileView === 'cashboxes') {
         loadCashboxes(false, { deferDetail: true, consumeNotifications: true });
       }
-      if (state.mobileView === 'inventory' && !state.inventoryLoaded) {
-        loadInventoryItems(false);
-      }
       if (state.mobileView === 'inventory') {
+        if (!state.inventoryLoaded) loadInventoryItems(false);
         renderInventoryForm();
         loadInventoryMovements();
       }

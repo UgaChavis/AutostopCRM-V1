@@ -84,7 +84,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "function setMobileView(view)", "function setMobileCashboxAction("
         )
         self.assertIn(
-            "requestedView === 'cashboxes' && !requireEmployeesCashboxesAccess()",
+            "requested === 'cashboxes' && !requireEmployeesCashboxesAccess()",
             set_mobile_view,
         )
 
