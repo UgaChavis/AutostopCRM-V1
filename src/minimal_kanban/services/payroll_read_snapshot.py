@@ -69,12 +69,15 @@ def _detach(value: Any, memo: dict[int, Any]) -> Any:
         result = {}
         memo[identity] = result
         for key, item in value.items():
-            result[_detach(key, memo)] = _detach(item, memo)
+            key = key if type(key) in _IMMUTABLE_TYPES else _detach(key, memo)
+            result[key] = item if type(item) in _IMMUTABLE_TYPES else _detach(item, memo)
         return result
     if value_type is list:
         result = []
         memo[identity] = result
-        result.extend(_detach(item, memo) for item in value)
+        result.extend(
+            item if type(item) in _IMMUTABLE_TYPES else _detach(item, memo) for item in value
+        )
         return result
     if value_type in _READ_MODELS:
         result = object.__new__(value_type)
@@ -82,7 +85,8 @@ def _detach(value: Any, memo: dict[int, Any]) -> Any:
         names = vars(value) if hasattr(value, "__dict__") else _model_field_names(value_type)
         for name in names:
             item = getattr(value, name)
-            object.__setattr__(result, name, _detach(item, memo))
+            detached = item if type(item) in _IMMUTABLE_TYPES else _detach(item, memo)
+            object.__setattr__(result, name, detached)
         return result
     return deepcopy(value, memo)
 

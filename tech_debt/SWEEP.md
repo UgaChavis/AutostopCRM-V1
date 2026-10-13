@@ -1088,3 +1088,108 @@ An earlier full run caught an obsolete local-variable literal in a permission
 assertion; update that literal while preserving the complete permission guard.
 The original startup JS cap remains 901,000 bytes. Exact-SHA hosted acceptance
 is recorded in the ignored publication receipt, without treating this as rollout.
+
+EMP-02 published as `31d0b055006266f8a2c7cc1cf697d738323f7a28`; exact-SHA
+`quality.yml` run `38452663183` succeeds, all five jobs accepted. The original
+constructor still has its 41 staged files and is not part of these commits.
+
+## Employees goal: EMP-03, input preparation and final acceptance
+
+The owner explicitly clarified the corrected reopen scenario: require a fresh
+balance and p95 <= 800ms, accepting the additional refresh cost compared with
+the old stale-balance path. All other performance and acceptance rules remain.
+This supersedes only that reopen comparison; do not report the old criterion
+as met by pretending the old cached response was fresh.
+
+The read profile repeatedly resolved timezone configuration for ISO timestamps
+already carrying their own offset. Parse those immutable inputs in a bounded
+8,192-entry cache; naive/legacy dates retain the existing timezone-keyed path,
+long inputs retain uncached parsing, and the existing clear operation clears
+both date caches. No salary totals or employee results are cached. Four timezone
+settings and 436 reference comparisons, cold/warm reads and capacity/reset checks
+cover this preparation change. Copy immutable snapshot leaves directly, while
+preserving detached complete orders and nested aliasing with the same memo.
+The financial calculators, rounding, snapshots, rights and writes stay intact.
+
+Real profile testing reproduced silent truncation when separate name and middle
+name fields exceeded the native combined 80-code-point storage limit. Validate
+the combined length before a write, retain both draft fields and show the limit.
+Cover the rejected overlength value and an accepted 80-code-point Unicode name.
+Also exercise empty input, a newly saved zero-balance employee and empty history;
+compare the complete displayed sheet with its confirmed native HTTP response.
+External API/storage name normalization remains compatible.
+
+Next acceptance: exact financial oracle on standard/x3 fixtures; three series
+of twenty on both frozen input profiles without parallel tests; shared CI and
+two consecutive full browser runs. Common date/read service changes require a
+future complete release; the UI-only deploy allowlist is not expanded here.
+
+EMP-03 measured candidate: 328 original/candidate service responses are byte
+identical across the standard and x3 frozen fixtures. Standard SHA-256 remains
+`cf1f9f7ccf139ceee0ddea55f9043a473d14812332e8aefe7fec1bcbe5ad2e03`;
+x3 is `c813b72b759327251e103592b1c8a5257d2e322242dc1b8372c19f6f60108d2b`.
+All four full measurement sets use the identical harness, fixture and clock,
+three series of twenty, no parallel test load; all browser/request error counts
+are zero. Per-series standard p95 (ms):
+
+| Scenario | Original | Candidate |
+| --- | --- | --- |
+| First employee window ready | 402.1 / 326.6 / 355.7 | 245.3 / 339.9 / 264.2 |
+| Fresh reopen (approved <=800ms criterion) | 149.1 / 148.9 / 162.9, old cached balances | 250.8 / 267.6 / 250.4 |
+| Month change, confirmed duplicate-read slowdown | 407.0 / 427.3 / 455.2 | 242.4 / 233.8 / 171.3 |
+| Salary history ready | 140.2 / 139.4 / 147.7 | 151.4 / 138.9 / 149.8 |
+
+Month-change improvements are 40.4%, 45.3%, 62.4%; every standard scenario meets
+the agreed no-regression/absolute budgets. First-opening variation is retained,
+not described as a uniform speedup. On x3: first-window p95 919.1/930.4/1060.7
+-> 414.2/556.6/625.9ms; month 1108.6/1298.6/1227.0 -> 581.2/560.7/497.4ms.
+x3 history p95 287.0/373.8/305.7 -> 325.9/287.4/239.8ms: the first-series tail
+increases 38.9ms, while median latency and worst p95 across the three series
+improve. Retain this variability as a measurement limitation; no per-series
+x3 no-regression claim. Raw network timings, bytes, request counts, resources
+and all per-series metrics are in the ignored acceptance artifacts.
+
+Separate window-phase diagnostic (polling stopped equally in both revisions):
+visible p95 123.6/120.9/126.6 -> 36.9/37.5/45.8ms; fresh data-ready
+202.3/215.0/227.2ms. Response completion through decoding, DOM work and the
+observed ready frame takes p95 24.0/23.8/24.4ms. This includes decoding/frame
+observation, not isolated render-only CPU. Exclusive same-fixture service-lock
+diagnostic, sixty reads: p50 85.5 -> 17.8ms, p95 114.2 -> 31.1ms.
+
+| Reviewed scope | Functional and fault evidence |
+| --- | --- |
+| Desktop list, profile, empty inputs/history, long names | Loading/retry/month races and real profile/field/browser cases; complete native responses and persisted profiles compared. |
+| Activity and dismissal/deletion | Existing active-state filtering retained; native linked-record, version and deletion protections plus real delete/recovery cases. No new inactive-management UX. |
+| Formula, base/work/material/order terms and periods | Existing formula UI, historical preservation, July policy, week/month/term boundaries and financial response oracle. No rule or cutoff edits. |
+| Shifts, payout, advance, reset, cashboxes | Real duplicate/deadline/conflict/lost-response/read-only recovery cases, native CAS/idempotency and protected writes unchanged. |
+| History, report, reconciliation and print | Native contract/print chain, real popup/session/period replacement cases; report body and financial fixtures unchanged. |
+| Role changes, two actors/windows and navigation | Held old replies, peer writes, latest-month/session/access ownership and full-smoke live grant/revoke scenario. |
+| Mobile | Actual More/Board/back/employee buttons and fresh peer-balance reads; existing full mobile smoke. |
+| Windows source client | Windows Chromium flows and temporary Qt launcher/settings tests in shared CI; client opens the shared browser UI. Installed profile/client untouched. |
+
+Separate financial compatibility decision: a synthetic old employee without
+stored payroll-term IDs receives new generated IDs on repeated reads even with
+fixed time; sums match and no read persists terms. This behavior predates the
+sweep and remains unchanged. Before fixing it, choose a stable legacy-ID policy,
+check references in historical postings/reset revisions, prepare an explicit
+backfill and rollback, and compare amounts/history/rights. Do not silently write
+legacy financial records from a GET. Current UI-created records and acceptance
+fixtures carry their stored term IDs. No production-data repair is authorized.
+
+EMP-03 final local acceptance: the complete `run_checks.ps1 -Profile ci` exits
+zero, including 2,954 core tests in 608.425s, all 32 isolated browser groups,
+runtime coverage 81.95%, source parity, JS, performance and unchanged size/
+complexity gates. The existing 80 optional core skips remain; required browser
+groups execute with `AUTOSTOP_REQUIRE_UI_BROWSER=1`.
+
+Two consecutive full browser runs on fresh disposable data each pass all 49
+scenarios on attempt one, with no console errors, page errors or failed requests.
+Their initial-board render timings are 507.7ms and 538.5ms. No runtime source
+changes follow these checks. The original constructor still has exactly 41
+staged files and no unstaged changes, outside this maintenance worktree.
+
+The commit containing EMP-03 identifies the final source portion; successful
+exact-SHA hosted acceptance remains the publication gate and is retained in the
+ignored local receipt and native technical journal. No server rollout or installed
+client update belongs to this goal. The legacy term-ID decision and the x3 history
+tail variation above remain explicitly documented.

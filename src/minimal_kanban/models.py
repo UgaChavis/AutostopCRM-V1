@@ -137,6 +137,7 @@ def _business_timezone_name() -> str:
 def clear_business_timezone_cache() -> None:
     _business_timezone_for_name.cache_clear()
     _parse_business_datetime_cached.cache_clear()
+    _parse_aware_iso_datetime_cached.cache_clear()
 
 
 def business_timezone():
@@ -164,12 +165,26 @@ def _parse_business_datetime_cached(raw: str, timezone_name: str) -> datetime | 
     return _parse_business_datetime(raw, timezone_name)
 
 
+@lru_cache(maxsize=8192)
+def _parse_aware_iso_datetime_cached(raw: str) -> datetime | None:
+    """Explicit ISO offsets do not depend on the configured business timezone."""
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
 def parse_business_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
     raw = str(value).strip()
     if not raw:
         return None
+    if len(raw) <= 128:
+        aware = _parse_aware_iso_datetime_cached(raw)
+        if aware is not None:
+            return aware
     timezone_name = _business_timezone_name()
     if len(raw) > 128:
         return _parse_business_datetime(raw, timezone_name)

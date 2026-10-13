@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.models import (  # noqa: E402
-    _parse_business_datetime_cached,
+    _parse_aware_iso_datetime_cached,
     clear_business_timezone_cache,
 )
 from minimal_kanban.services.card_service import CardService  # noqa: E402
@@ -303,9 +303,9 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
 
         clear_business_timezone_cache()
         cold = self.service.list_employees({"month": "2026-09"})
-        cold_cache_info = _parse_business_datetime_cached.cache_info()
+        cold_cache_info = _parse_aware_iso_datetime_cached.cache_info()
         warm = self.service.list_employees({"month": "2026-09"})
-        warm_cache_info = _parse_business_datetime_cached.cache_info()
+        warm_cache_info = _parse_aware_iso_datetime_cached.cache_info()
 
         self.assertEqual(cold, warm)
         self.assertGreater(cold_cache_info.hits, 0)

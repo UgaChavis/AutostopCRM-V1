@@ -1595,6 +1595,10 @@
         setStatus('УКАЖИ ИМЯ СОТРУДНИКА.', true);
         return;
       }
+      if ([...employeeName].length > 80) {
+        setStatus('ИМЯ И ОТЧЕСТВО ВМЕСТЕ ДОЛЖНЫ БЫТЬ НЕ ДЛИННЕЕ 80 СИМВОЛОВ.', true);
+        return;
+      }
       const isCurrent = employeeAsyncContext(
         'employeeEditOperation',
         'activeEmployeeId',
