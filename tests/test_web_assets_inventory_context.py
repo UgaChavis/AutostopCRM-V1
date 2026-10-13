@@ -44,6 +44,12 @@ function repairOrderInventoryTargetRowIndex() {return 0;}
 function repairOrderInventorySelectedMovementId() {return 'movement';}
 function repairOrderResponseCard(data) {return data.card;}
 function applyRepairOrderCardUpdate() {} function readRepairOrderFromForm() {return {};}
+function syncRepairOrderTotals() {} function syncRepairOrderSaveDirtyState() {}
+function renderRepairOrderTags() {} function syncRepairOrderEditingState() {}
+function inventoryMaterialResponse(cardId='card-A',kind='write_off') {
+ return {item:{id:'item',quantity:'4'},movement:{id:'new-movement',kind,item_id:'item',card_id:cardId,related_movement_id:kind==='return'?'movement':'',quantity:'1',repair_order_row_index:0},
+  card:{id:cardId,repair_order:{materials:[]}},repair_order:{materials:[]},meta:{row_index:0}};
+}
 function setCardSaveInteractionLocked() {}
 function applySavedCardLocalPatch() {} function rememberCardModalCleanState() {}
 global.window={setTimeout,clearTimeout};
@@ -60,6 +66,7 @@ global.window={setTimeout,clearTimeout};
     def inventory_functions(self, *names: str) -> str:
         return (
             functions("app_main_before_printing.js", "captureCardEditingContext")
+            + read_board_source("inventory_material_state.js")
             + functions("inventory_reference.js", "inventoryAsyncContext", "readInventoryItems")
             + functions(
                 "inventory_workspace.js",
@@ -269,7 +276,7 @@ calls[0].reject(Object.assign(new Error('simulated rejection'), {status:422}));a
             self.inventory_functions("writeOffInventoryItem", "returnInventoryMovement"),
             """
 let prepare=deferred();function requireRepairOrderCardId(){return prepare.promise;}
-async function loadInventoryItems(){}async function refreshRepairOrdersListAfterMutation(){}
+async function loadInventoryItems(){return {items:[]};}async function refreshRepairOrdersListAfterMutation(){}
 selectedRepairOrderInventoryItem=()=>({id:'item',quantity:5,updated_at:'item-observed'});
 state.activeCard={id:'card-A',updated_at:'card-observed'};
 const write=writeOffInventoryItem();
@@ -277,10 +284,10 @@ state.activeCard={id:'card-A',updated_at:'newer-card'};
 prepare.resolve('card-A');await Promise.resolve();
 assert.equal(calls[0].options.body.expected_card_updated_at,'card-observed');
 assert.equal(calls[0].options.body.expected_updated_at,'item-observed');
-calls[0].reject(new Error('conflict'));await write;
+calls[0].reject(Object.assign(new Error('conflict'),{status:409}));await write;
 prepare=deferred();const returned=returnInventoryMovement();prepare.resolve('card-A');await Promise.resolve();
 assert.equal(calls[1].options.body.expected_card_updated_at,'newer-card');
-calls[1].resolve({});await returned;
+calls[1].resolve(inventoryMaterialResponse('card-A','return'));await returned;
 """,
         )
 
@@ -345,8 +352,8 @@ state.editingId=null;state.pendingCardClientId='client-A';state.actor='actor-A';
 function currentCardPayload(){return {title:'draft'};}
 function applyCardModalState(card){state.activeCard=card;state.editingId=card.id;}
 async function refreshSnapshot(){} async function refreshRepairOrdersListAfterMutation(){}
-async function loadInventoryItems(){}function repairOrderCardRequiredMessage(){return 'missing';}
-api=async function(path,options){calls.push({path,options});return {card:{id:'created-A'}};};
+async function loadInventoryItems(){return {items:[]};}function repairOrderCardRequiredMessage(){return 'missing';}
+api=async function(path,options){calls.push({path,options});return path==='/api/write_off_inventory_item'?inventoryMaterialResponse('created-A'):{card:{id:'created-A'}};};
 await writeOffInventoryItem();
 assert.deepEqual(calls.map(call=>call.path),['/api/create_card','/api/link_card_to_client','/api/write_off_inventory_item']);
 assert.equal(calls[1].options.body.client_id,'client-A');assert.equal(calls[2].options.body.card_id,'created-A');
@@ -376,7 +383,7 @@ async function requireRepairOrderCardId() {return 'card-A';}
 function refreshRepairOrdersListAfterMutation() {entered=true;return refreshed.promise;}
 async function loadInventoryItems() {loads++;}
 const old=writeOffInventoryItem();await Promise.resolve();
-calls[0].resolve({card:{id:'card-A'}});while(!entered)await Promise.resolve();
+calls[0].resolve(inventoryMaterialResponse());while(!entered)await Promise.resolve();
 state.viewerStateGeneration++;state.operatorSessionToken='B';state.editingId='card-B';
 refreshed.resolve();await old;assert.equal(loads,0);assert.deepEqual(statuses,[]);
 """,
@@ -387,13 +394,13 @@ refreshed.resolve();await old;assert.equal(loads,0);assert.deepEqual(statuses,[]
             self.inventory_functions("writeOffInventoryItem", "returnInventoryMovement"),
             """
 async function requireRepairOrderCardId(){return state.editingId;}
-async function loadInventoryItems(){}async function refreshRepairOrdersListAfterMutation(){}
+async function loadInventoryItems(){return {items:[]};}async function refreshRepairOrdersListAfterMutation(){}
 const old=writeOffInventoryItem();await Promise.resolve();
 state.viewerStateGeneration++;state.inventoryMaterialSaving=false;
 const current=returnInventoryMovement();await Promise.resolve();
 calls[0].reject(new Error('old failure'));await old;
 assert.equal(state.inventoryMaterialSaving,true);assert.deepEqual(statuses,[]);
-calls[1].resolve({});await current;assert.equal(state.inventoryMaterialSaving,false);
+calls[1].resolve(inventoryMaterialResponse('card-A','return'));await current;assert.equal(state.inventoryMaterialSaving,false);
 assert.equal(statuses.at(-1)[0],'СПИСАНИЕ ВОЗВРАЩЕНО НА СКЛАД.');
 """,
         )

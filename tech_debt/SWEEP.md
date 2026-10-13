@@ -817,3 +817,67 @@ complete final candidate above, rather than treating that stopped run as passed.
 Final diff is scoped to sticky UI, its regressions/module bindings and this
 register; no service/API/MCP/storage/finance or release-controller changes.
 Fresh remote remains accepted `e43234e`; hosted acceptance follows publication.
+
+Sticky UI was published as `5cdf94ef217043332e4a8db2a446053b31aab380`.
+All five quality.yml jobs of run `38388352469` passed for that exact SHA,
+without reruns. Local/remote SHA match. The original checkout retains its
+41 prepared constructor files; no deployment occurred in this goal.
+
+## Inventory material interface: UI-77 through UI-84
+
+Two actual browser cases fail on `5cdf94e` (8.789s): a pending native issue
+allows quantity editing, and after an issue commits but its reply is lost,
+the native item quantity is 9 while the UI still shows 10. One unit was issued
+from synthetic stock of 10. The first probe used a private module helper in
+page.evaluate; correct it to the visible state lookup and reproduce both
+assertion failures above. A third actual browser failure proves a successful
+issue removes an unsaved work row while native saved works remain empty.
+Additional failing probes reproduce loss of unsaved tags and return-row
+quantity, plus inaccessible read recovery after a confirmed return followed
+by a failed inventory refresh (three failures in 10.255s).
+
+UI-77 locks the quantity, selection, order/card controls and closes while a
+material operation is pending, stopping duplicate and overlapping order writes.
+UI-78 retains raw work/material nodes, scalar fields and draft tags separately
+from canonical card updates; returned movement IDs locate affected return rows.
+UI-79 reads card, movements and item after uncertain issue/return responses;
+it applies confirmed state without replaying the irreversible operation.
+UI-80 keeps known receipts through failed refreshes, allowing read recovery
+even with zero stock or a cleared return link. UI-81 retries an unconfirmed
+write only after unchanged native revisions, retaining the original CAS body;
+another intent is held until its predecessor is reconciled. UI-82 bounds POSTs
+at 90s and stock refresh at 20s, invalidating late reads. UI-83 clears holds
+and private receipts at viewer reset; old callbacks cannot replace a new card.
+UI-84 validates receipt card/item/link identity and reflects the existing
+active-movement guard. Rules for quantities, prices, ledgers, row limits and
+orders, finance services, public request fields and storage remain unchanged.
+
+All 18 real browser regressions pass: fractional issue/return and exact ledger
+links; lost replies; zero-stock and return read recovery; raw drafts; item/card
+conflicts; unchanged-revision retry; unresolved changed intent; deadlines;
+logout; mismatched receipt. The native out-of-range guard for an additional
+unsaved material row remains enforced, with draft and stock preserved; this
+does not silently save an unrelated order draft. Early new-suite failures
+were an undefined local variable and fixture calls to private helpers/hidden
+fields; fix the variable and exercise actual visible controls, keeping checks.
+Final focused run: 40 tests in 23.451s. The preceding broader inventory/order,
+payment, module/asset regression run: 236 tests in 44.853s. Full browser: 49/49,
+first render 513.6ms, no page/console/request errors. All 13 generated scripts
+parse; unchanged code-health ratchets remain size 33/33, complexity 2/2.
+Startup JavaScript: 900,997 bytes, below the unchanged 901,000 cap; recovery
+helpers are lazy. These fixes claim request/draft correctness, not acceleration.
+
+Compatibility limit: private receipts live in the current viewer session.
+If native reads cannot establish the result, repeat writes are held; recovery
+across reload/login or independently identifiable lost transactions requires
+a separately agreed API/storage protocol. No new protocol is introduced.
+Final full local CI passes: all 3,201 selected IDs retained, 3,200 reported
+runtime tests (one existing POSIX-only class skip), 28 isolated browser groups.
+Core: 2,946 tests in 563.723s with the same 80 environment skips; new material
+browser: 18 tests in 26.124s under coverage. Release: 36 tests in 3.046s, four
+environment skips. Combined coverage, docs, parity, generated JS, core browser
+and unchanged performance gates pass; CI first render 495.4ms. Fresh remote is
+accepted `5cdf94e`; publication and exact-SHA GitHub acceptance follow.
+The original checkout retains 41 prepared files; no server access or deploy.
+The goal remains active; next audit candidate is operator admin mutation UI,
+with a synthetic pending-delete probe prepared outside Git, not yet executed.

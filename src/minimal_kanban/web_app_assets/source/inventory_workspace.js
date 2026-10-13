@@ -697,6 +697,7 @@
     }
 
     function fillRepairOrderInventoryRow() {
+      if (state.inventoryMaterialSaving) return;
       const item = selectedRepairOrderInventoryItem();
       if (!item?.id) return inventoryStatus('ВЫБЕРИТЕ ПОЗИЦИЮ СКЛАДА.', true);
       const quantity = repairOrderInventoryQuantity();
@@ -711,65 +712,7 @@
     }
 
     async function mutateInventoryMaterial(path, payload, message) {
-      if (state.inventoryMaterialSaving) return;
-      const cardContext = captureCardEditingContext();
-      let expectedCardId = String(state.editingId || '');
-      let expectedCardUpdatedAt = state.activeCard?.id === expectedCardId ? state.activeCard.updated_at : undefined;
-      let selectedId = state.repairOrderInventorySelectedId;
-      let selectedRow = state.repairOrderInventoryRowIndex;
-      const context = inventoryAsyncContext('material', () => cardContext()
-        && String(state.editingId || '') === expectedCardId
-        && state.repairOrderInventorySelectedId === selectedId && state.repairOrderInventoryRowIndex === selectedRow);
-      const actorName = state.actor;
-      state.inventoryMaterialSaving = true;
-      renderRepairOrderInventoryPanel();
-      try {
-        const cardId = await requireRepairOrderCardId();
-        if (!cardId || !context.owns() || !cardContext() || (expectedCardId && cardId !== expectedCardId)) return;
-        if (!expectedCardId && state.activeCard?.id === cardId) expectedCardUpdatedAt = state.activeCard.updated_at;
-        expectedCardId = String(cardId);
-        if (!context.isCurrent()) return;
-        const data = await api(path, {
-          method: 'POST',
-          body: {
-            ...payload, card_id: cardId, expected_card_updated_at: expectedCardUpdatedAt || undefined,
-            actor_name: actorName, source: 'ui',
-          },
-        });
-        if (!context.isCurrent()) return;
-        if (data?.item) {
-          upsertInventoryItem(data.item);
-          state.inventoryActiveId = inventoryItemId(data.item);
-          state.repairOrderInventorySelectedId = inventoryItemId(data.item);
-        }
-        if (Object.prototype.hasOwnProperty.call(payload, 'row_index')) {
-          state.repairOrderInventoryRowIndex = String(data?.meta?.row_index ?? payload.row_index);
-        }
-        if (data?.card || data?.repair_order) {
-          const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
-          applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-        }
-        selectedId = state.repairOrderInventorySelectedId;
-        selectedRow = state.repairOrderInventoryRowIndex;
-        if (data?.card || data?.repair_order) {
-          await refreshRepairOrdersListAfterMutation();
-          if (!context.isCurrent()) return;
-        }
-        await loadInventoryItems(false, { query: state.repairOrderInventoryQuery || state.inventoryQuery });
-        if (!context.isCurrent()) return;
-        invalidateInventoryMovements();
-        inventoryStatus(message, false);
-        setStatus(message, false);
-      } catch (error) {
-        if (!context.isCurrent()) return;
-        inventoryStatus(error.message, true);
-        setStatus(error.message, true);
-      } finally {
-        if (context.owns()) {
-          state.inventoryMaterialSaving = false;
-          if (cardContext()) renderRepairOrderInventoryPanel();
-        }
-      }
+      return runInventoryMaterialMutation(path, payload, message);
     }
 
     async function writeOffInventoryItem() {
@@ -781,7 +724,9 @@
         return inventoryStatus('УКАЖИТЕ КОЛИЧЕСТВО БОЛЬШЕ НУЛЯ.', true);
       }
       const available = inventoryItemQuantityNumber(item);
-      if (quantity.parsed > available) {
+      if (quantity.parsed > available && !inventoryMaterialHasCheckpoint('/api/write_off_inventory_item', {
+        item_id: item.id, quantity: quantity.raw, row_index: repairOrderInventoryTargetRowIndex(),
+      })) {
         els.repairOrderInventoryQuantityInput?.focus({ preventScroll: true });
         renderRepairOrderInventoryPanel();
         return inventoryStatus('НЕЛЬЗЯ СПИСАТЬ БОЛЬШЕ ОСТАТКА: ' + inventoryDisplayQuantity(item) + '.', true);
@@ -793,7 +738,7 @@
     }
 
     async function returnInventoryMovement() {
-      const movementId = repairOrderInventorySelectedMovementId();
+      const movementId = repairOrderInventorySelectedMovementId() || pendingInventoryMaterialReturn()?.body.movement_id;
       if (!movementId) return inventoryStatus('В СТРОКЕ НЕТ СКЛАДСКОГО СПИСАНИЯ.', true);
       return mutateInventoryMaterial('/api/return_inventory_movement', {
         movement_id: movementId,
@@ -844,12 +789,17 @@
         els.repairOrderInventoryStock.dataset.tone = overLimit ? 'error' : 'normal';
       }
       const hasMovement = Boolean(repairOrderInventorySelectedMovementId());
-      if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = !selected || !hasQuantity;
-      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = Boolean(state.inventoryMaterialSaving) || !selected || !hasQuantity;
-      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = Boolean(state.inventoryMaterialSaving) || !hasMovement;
+      const pendingRead = selected && requestedQuantity && inventoryMaterialHasCheckpoint('/api/write_off_inventory_item', {
+        item_id: selected.id, quantity: requestedQuantity.raw, row_index: repairOrderInventoryTargetRowIndex(),
+      });
+      if (els.repairOrderInventoryFillButton) els.repairOrderInventoryFillButton.disabled = Boolean(state.inventoryMaterialSaving) || !selected || !hasQuantity;
+      if (els.repairOrderInventoryIssueButton) els.repairOrderInventoryIssueButton.disabled = Boolean(state.inventoryMaterialSaving) || !selected || !hasQuantity || (hasMovement && !pendingRead);
+      if (els.repairOrderInventoryReturnButton) els.repairOrderInventoryReturnButton.disabled = Boolean(state.inventoryMaterialSaving) || (!hasMovement && !pendingInventoryMaterialReturn());
+      if (state.inventoryMaterialSaving) lockInventoryMaterialControls();
     }
 
     function toggleRepairOrderInventoryPanel() {
+      if (state.inventoryMaterialSaving) return;
       state.repairOrderInventoryOpen = !state.repairOrderInventoryOpen;
       renderRepairOrderInventoryPanel();
       if (state.repairOrderInventoryOpen) {
@@ -862,6 +812,7 @@
     }
 
     function selectRepairOrderInventoryItem(itemId) {
+      if (state.inventoryMaterialSaving) return;
       const normalizedId = String(itemId || '').trim();
       state.repairOrderInventorySelectedId = normalizedId;
       if (normalizedId) state.inventoryActiveId = normalizedId;
@@ -872,6 +823,7 @@
     }
 
     function handleRepairOrderInventorySearchInput() {
+      if (state.inventoryMaterialSaving) return;
       state.repairOrderInventoryQuery = String(els.repairOrderInventorySearchInput?.value || '').trim();
       inventoryAsyncContext('items');
       const context = inventoryAsyncContext('search', captureCardEditingContext());

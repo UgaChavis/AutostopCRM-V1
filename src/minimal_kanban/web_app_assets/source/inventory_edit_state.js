@@ -81,6 +81,8 @@
     }
 
     function resetInventoryEditor() {
+      releaseInventoryMaterialControls();
+      inventoryMaterialCheckpoints.clear();
       releaseInventoryEditControls();
       inventoryWriteCheckpoints.clear();
       inventoryFormDraft = null;

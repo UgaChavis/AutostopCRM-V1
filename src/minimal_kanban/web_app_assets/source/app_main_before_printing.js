@@ -10760,6 +10760,7 @@
     }
 
     function beginRepairOrderMutation(cardId = '') {
+      if (state.inventoryMaterialSaving) return null;
       if (state.repairOrderLoading || state.repairOrderWriteReady === false) {
         setStatus('ДОЖДИТЕСЬ АКТУАЛЬНОЙ ВЕРСИИ ЗАКАЗ-НАРЯДА.', true);
         return null;
@@ -11738,7 +11739,7 @@
     }
 
     function closeRepairOrderModal() {
-      if (state.repairOrderMutationRequest) {
+      if (state.repairOrderMutationRequest || state.inventoryMaterialSaving) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
       }
@@ -13879,7 +13880,7 @@
     }
 
     function closeCardModal() {
-      if (state.repairOrderMutationRequest) {
+      if (state.repairOrderMutationRequest || state.inventoryMaterialSaving) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
       }
@@ -14889,6 +14890,7 @@
     }
 
     // @include inventory_edit_state.js
+    // @include inventory_material_state.js
     // @include inventory_workspace.js
 
     function cashboxFormatMinorAmount(value) {

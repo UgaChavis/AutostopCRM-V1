@@ -30,7 +30,11 @@ _LAZY_GROUPS = {
         "payroll_workspace.js",
         "employees_mobile.js",
     ),
-    "inventory": ("inventory_edit_state.js", "inventory_workspace.js"),
+    "inventory": (
+        "inventory_edit_state.js",
+        "inventory_material_state.js",
+        "inventory_workspace.js",
+    ),
     "cashbox_ops": ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
