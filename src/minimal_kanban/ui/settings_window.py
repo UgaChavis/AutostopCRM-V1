@@ -2175,6 +2175,14 @@ class SettingsWindow(QDialog):
             if show_errors:
                 self._show_validation_errors(exc.errors)
             return None
+        except (OSError, ValueError):
+            if show_errors:
+                self._set_status(
+                    "Не удалось записать настройки. Проверьте доступ к файлу и повторите "
+                    "сохранение. Введённые значения сохранены в форме.",
+                    tone="error",
+                )
+            return None
 
     def _apply_diagnostics_result(
         self,

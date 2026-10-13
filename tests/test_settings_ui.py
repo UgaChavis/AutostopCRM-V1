@@ -145,6 +145,132 @@ class SettingsWindowIntegrationTests(unittest.TestCase):
             time.sleep(0.001)
         self.assertIsNone(dialog._runtime_operation)
 
+    def test_settings_write_failure_keeps_draft_and_reports_a_safe_error(self):
+        dialog = SettingsWindow(
+            self.settings_service,
+            "http://127.0.0.1:41731",
+            mcp_controller=self.controller,
+            parent=self.window,
+        )
+        dialog.show()
+        self.app.processEvents()
+        dialog.local_api_host_input.setText("127.0.0.2")
+        before = self.settings_file.read_bytes()
+        saved_signals = []
+        errors = []
+        dialog.settings_saved.connect(saved_signals.append)
+        with (
+            patch("sys.excepthook", lambda *args: errors.append(args[1])),
+            patch.object(
+                self.settings_store, "write", side_effect=PermissionError("synthetic-private-path")
+            ),
+        ):
+            dialog.save_button.click()
+            self.app.processEvents()
+        self.assertEqual(errors, [], "Save emitted an uncaught storage error")
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.local_api_host_input.text(), "127.0.0.2")
+        self.assertEqual(self.settings_file.read_bytes(), before)
+        self.assertEqual(saved_signals, [])
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+        self.assertNotIn("synthetic-private-path", dialog.status_label.text())
+        self.assertTrue(dialog.save_button.isEnabled())
+        dialog.save_button.click()
+        self.app.processEvents()
+        self.assertEqual(len(saved_signals), 1)
+        self.assertFalse(dialog.isVisible())
+
+    def test_apply_io_failure_keeps_form_file_and_signal_then_retry_applies(self):
+        dialog = self.window.build_settings_window()
+        dialog.show()
+        self.app.processEvents()
+        dialog.local_api_host_input.setText("127.0.0.2")
+        before = self.settings_file.read_bytes()
+        signals, uncaught = [], []
+        dialog.settings_saved.connect(signals.append)
+        with (
+            patch("sys.excepthook", lambda *args: uncaught.append(args[1])),
+            patch.object(
+                self.settings_store, "write", side_effect=PermissionError("synthetic-private")
+            ),
+        ):
+            dialog.apply_button.click()
+            self.app.processEvents()
+        self.assertEqual(uncaught, [])
+        self.assertEqual(signals, [])
+        self.assertEqual(self.settings_file.read_bytes(), before)
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.local_api_host_input.text(), "127.0.0.2")
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+        self.assertNotIn("synthetic-private", dialog.status_label.text())
+        self.assertTrue(dialog.apply_button.isEnabled())
+        dialog.apply_button.click()
+        self.assertEqual(len(signals), 1)
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(self.settings_service.load().local_api.local_api_host, "127.0.0.2")
+
+    def test_native_settings_size_guard_keeps_file_and_save_draft(self):
+        dialog = self.window.build_settings_window()
+        dialog.show()
+        self.app.processEvents()
+        before = self.settings_file.read_bytes()
+        uncaught, signals = [], []
+        draft_model = "synthetic-model-" + "x" * 110
+        dialog.model_input.setText(draft_model)
+        write = self.settings_store._write_settings
+
+        def bounded_write(settings):
+            with patch("minimal_kanban.settings_store.SETTINGS_FILE_MAX_BYTES", 64):
+                write(settings)
+
+        dialog.settings_saved.connect(signals.append)
+        with (
+            patch("sys.excepthook", lambda *args: uncaught.append(args[1])),
+            patch.object(self.settings_store, "_write_settings", side_effect=bounded_write),
+        ):
+            dialog.save_button.click()
+            self.app.processEvents()
+        self.assertEqual(uncaught, [])
+        self.assertEqual(signals, [])
+        self.assertEqual(self.settings_file.read_bytes(), before)
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.model_input.text(), draft_model)
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+        self.assertTrue(dialog.save_button.isEnabled())
+        dialog.save_button.click()
+        self.app.processEvents()
+        self.assertEqual(len(signals), 1)
+        self.assertFalse(dialog.isVisible())
+
+    def test_connection_check_does_not_start_when_form_write_fails(self):
+        dialog = self.window.build_settings_window()
+        dialog.show()
+        self.app.processEvents()
+        dialog.local_api_host_input.setText("127.0.0.2")
+        before = self.settings_file.read_bytes()
+        uncaught = []
+        with (
+            patch("sys.excepthook", lambda *args: uncaught.append(args[1])),
+            patch.object(
+                self.settings_store, "write", side_effect=PermissionError("synthetic-private")
+            ),
+            patch.object(self.settings_service, "test_connections") as all_checks,
+            patch.object(self.settings_service, "test_target") as single,
+        ):
+            dialog.test_all_button.click()
+            dialog.test_local_api_button.click()
+            self.app.processEvents()
+            all_checks.assert_not_called()
+            single.assert_not_called()
+        self.assertEqual(uncaught, [])
+        self.assertEqual(self.settings_file.read_bytes(), before)
+        self.assertIsNone(dialog._connection_check)
+        self.assertEqual(dialog.local_api_host_input.text(), "127.0.0.2")
+        self.assertEqual(dialog.status_label.property("tone"), "error")
+        self.assertNotIn("synthetic-private", dialog.status_label.text())
+        self.assertTrue(dialog.test_all_button.isEnabled())
+        self.assertTrue(dialog.save_button.isEnabled())
+
     def test_settings_button_creates_dialog(self) -> None:
         dialog = self.window.build_settings_window()
 

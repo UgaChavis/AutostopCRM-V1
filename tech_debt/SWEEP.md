@@ -713,3 +713,38 @@ A temporary candidate catches storage failures at the existing save boundary,
 retains the form/file, emits no success signal and prevents connection checks
 from starting before a successful save. Three additional Qt cases pass on
 that isolated candidate (0.181s); the source change is not in this portion.
+
+Dashboard/ENV-05 was published as `d293ec48d605b00603fdea66c38c3b9b76ac5fd0`.
+All five jobs of quality.yml run `38376338958` passed for that exact SHA, with
+no reruns. The original checkout's 41 prepared files remain untouched.
+
+## Windows settings: UI-65 through UI-68
+
+Continue from accepted `d293ec4`. Actual Save/Apply/diagnostic buttons previously
+emit uncaught storage exceptions through Qt, without an actionable form status.
+The synthetic native size-guard case also reproduces an uncaught ValueError.
+UI-65 handles write errors at the existing form-save boundary; UI-66 retains
+the draft, visible dialog, original file and enabled actions; UI-67 emits a
+success signal and applies/closes only after the existing save succeeds;
+UI-68 prevents full/single connection checks from starting when saving fails.
+The status omits private exception text. Field validation, normalization,
+atomic write/size limit, settings schema, runtime gates and business logic are
+unchanged. The native size limit is shortened only inside a synthetic test write,
+leaving reads of the valid original test file unaffected.
+
+All four new real Qt cases pass (0.220s), including successful retry. All 123
+related settings/storage/runtime/config/entrypoint checks pass (6.116s); Ruff
+and existing code-health limits pass. The first targeted command also requested
+the nonexistent test_launcher module; corrected to discovered modules above,
+with no source/test failure hidden. Browser assets are unchanged. The source
+change is eight lines in SettingsWindow; full local CI and hosted acceptance
+are pending before publishing this separate portion. No production access.
+
+Windows final local CI passed on the first full run: all 3,169 selected IDs
+retained, 3,168 reported runtime tests (one existing POSIX class skip), 26
+isolated browser groups, 80 core environment skips. Core: 2,946 tests in
+565.257s; release: 36 tests in 3.196s, four environment skips. Coverage, docs,
+parity, generated JS, core browser and unchanged performance thresholds pass;
+first render 527.5ms. Fresh remote remains accepted `d293ec4`. Diff is limited
+to SettingsWindow's eight-line error handler, four Qt regressions and this
+register. Exact-SHA hosted acceptance follows publication.
