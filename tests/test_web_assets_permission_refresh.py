@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if __package__:
     from tests.source_path_support import prepend_source_path
@@ -24,6 +26,8 @@ def section(source: str, start: str, end: str) -> str:
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class PermissionRefreshRuntimeTests(unittest.TestCase):
     def run_js(self, script: str) -> None:
+        if "persistOperatorUserSave(" in script:
+            script = functions("app_main_before_printing.js", "cardFilesApi") + script
         result = subprocess.run(
             ["node"],
             input=script,

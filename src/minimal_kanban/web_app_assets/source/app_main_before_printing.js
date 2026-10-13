@@ -3095,25 +3095,7 @@
         : String(employeeIdOverride || '').trim();
       syncOperatorEmployeeBindingMutationControls();
       try {
-        const data = await api('/api/set_operator_user_employee', {
-          method: 'POST',
-          body: {
-            username,
-            employee_id: employeeId,
-            source: 'ui',
-          },
-        });
-        if (!context.viewer.isCurrent()) return;
-        const isCurrentIntent = context.isCurrent();
-        applyOperatorUserSummary(data?.user, { preserveBindingDraft: !isCurrentIntent });
-        if (!isCurrentIntent) return;
-        setStatus(data?.meta?.bound ? 'СОТРУДНИК ПРИВЯЗАН.' : 'СОТРУДНИК ОТВЯЗАН.', false);
-        closeOperatorEmployeeBinding();
-        await refreshOperatorAdminSurfaces({
-          openAdminModal: false,
-          refreshProfile: String(state.actor || '').trim().toUpperCase() === username,
-          viewerContext: context.viewer,
-        });
+        await persistOperatorEmployeeBinding({ username, employee_id: employeeId, source: 'ui' }, context);
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
@@ -3150,17 +3132,18 @@
           }).join('')
         : '<div class="log-row__meta">ПОЛЬЗОВАТЕЛЕЙ ПОКА НЕТ.</div>';
       renderOperatorEmployeeBindingPanel();
+      state.operatorDeleteRequest?.lock();
     }
 
     function editOperatorUserPermissions(username) {
-      const normalizedUsername = String(username || '').trim().toUpperCase();
+      const userKey = String(username || '').trim().toUpperCase();
       const user = (state.operatorUsers || []).find(
-        (item) => String(item?.username || '').trim().toUpperCase() === normalizedUsername
+        (item) => String(item?.username || '').trim().toUpperCase() === userKey
       );
       if (!user) return;
       closeOperatorEmployeeBinding();
       claimOperatorUserEditorIntent();
-      state.operatorPermissionEditorUsername = normalizedUsername;
+      state.operatorPermissionEditorUsername = userKey;
       state.operatorPermissionEditorPermissions = [...(user.permissions || [])];
       els.adminUserLogin.value = String(user.username || '');
       els.adminUserPassword.value = '';
@@ -3223,6 +3206,7 @@
     }
 
     function closeOperatorAdminModal() {
+      if (state.operatorDeleteRequest) return false;
       state.operatorAdminRequestSeq = (state.operatorAdminRequestSeq || 0) + 1;
       closeOperatorEmployeeBinding();
       clearOperatorUserEditor();
@@ -3425,6 +3409,7 @@
 
     function closeNamedModal(closeKey) {
       const key = String(closeKey || '').trim();
+      if (state.operatorDeleteRequest && key === 'operator-admin') return false;
       if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(key)) return false;
       if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) && ['employees', 'employeeSalary'].includes(key)) return false;
       const closeActions = {
@@ -5035,13 +5020,13 @@
       syncOperatorUserSaveControl();
       try {
         const username = String(els.adminUserLogin.value || '').trim();
-        const normalizedUsername = username.toUpperCase();
+        const userKey = username.toUpperCase();
         const existingUser = (state.operatorUsers || []).find(
-          (item) => String(item?.username || '').trim().toUpperCase() === normalizedUsername
+          (item) => String(item?.username || '').trim().toUpperCase() === userKey
         );
         const editingPermissions = Boolean(
-          normalizedUsername
-          && state.operatorPermissionEditorUsername === normalizedUsername
+          userKey
+          && state.operatorPermissionEditorUsername === userKey
         );
         const payload = {
           username,
@@ -5067,21 +5052,7 @@
             payload.permissions.push(SALARY_BALANCE_RESET_PERMISSION);
           }
         }
-        const data = await api('/api/save_operator_user', {
-          method: 'POST',
-          body: payload,
-        });
-        if (!context.viewer.isCurrent()) return;
-        const isCurrentIntent = context.isCurrent();
-        applyOperatorUserSummary(data?.user, { preserveBindingDraft: !isCurrentIntent });
-        if (!isCurrentIntent) return;
-        clearOperatorUserEditor();
-        setStatus((data?.meta?.created ? 'Пользователь создан.' : 'Пользователь обновлён.') + ' ' + (data?.user?.username || ''), false);
-        await refreshOperatorAdminSurfaces({
-          openAdminModal: false,
-          refreshProfile: true,
-          viewerContext: context.viewer,
-        });
+        await persistOperatorUserSave(payload, context);
       } catch (error) {
         if (context.isCurrent()) {
           setStatus(error.message, true);
@@ -5094,15 +5065,35 @@
       }
     }
 
+    // @include operator_admin_persistence.js
+
     async function deleteOperatorUser(username) {
+      if (state.operatorDeleteRequest || state.operatorUserSaveRequest || state.operatorEmployeeBindingMutationRequest) return;
       if (!window.confirm('Удалить пользователя ' + username + '?')) return;
-      const context = captureViewerRequestContext();
+      const viewer = captureViewerRequestContext();
+      const disabled = new Map();
+      const request = {
+        lock: () => {
+          for (const control of els.operatorAdminModal?.querySelectorAll('button, input, select') || []) {
+            if (!disabled.has(control)) disabled.set(control, control.disabled);
+            control.disabled = true;
+          }
+        },
+        release: () => disabled.forEach((value, control) => { control.disabled = value; }),
+      };
+      state.operatorDeleteRequest = request;
+      const context = { request,
+        isCurrent: () => state.operatorDeleteRequest === request && viewer.isCurrent() };
+      request.lock();
       try {
-        await api('/api/delete_operator_user', { method: 'POST', body: { username } });
-        if (!context.isCurrent()) return;
-        await refreshOperatorAdminSurfaces({ openAdminModal: false, viewerContext: context });
+        await persistOperatorUserDelete(username, context);
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
+      } finally {
+        if (state.operatorDeleteRequest === request) {
+          request.release();
+          state.operatorDeleteRequest = null;
+        }
       }
     }
 

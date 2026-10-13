@@ -38,6 +38,7 @@ _LAZY_GROUPS = {
     "cashbox_ops": ("cashbox_money_state.js", "cashbox_transactions.js", "cashbox_transfer.js"),
     "cash_journal": ("cash_journal.js",),
     "auxiliary": (
+        "operator_admin_persistence.js",
         "display_dashboard_workspace.js",
         "sticky_mutations.js",
         "shared_files_workspace.js",
@@ -227,6 +228,7 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
       stickyWriteCheckpoints.clear();
       sharedFilesUploadCheckpoint = null;
       sharedFilesClipboardCheckpoint = null;
+      operatorUserDeleteCheckpoints.clear();
     }
 """
         exports.append("resetViewer")

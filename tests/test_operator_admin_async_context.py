@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from tests.web_asset_function_support import functions
+
 ROOT = Path(__file__).resolve().parents[1]
 if __package__:
     from tests.source_path_support import ensure_source_path
@@ -28,13 +30,16 @@ class OperatorAdminAsyncContextTests(unittest.TestCase):
         cls.source = read_board_source("app_main_before_printing.js")
 
     def run_node(self, body: str) -> None:
+        helpers = functions("app_main_before_printing.js", "cardFilesApi")
+        if "async function persistOperatorEmployeeBinding(" not in body:
+            helpers += functions("app_main_before_printing.js", "persistOperatorEmployeeBinding")
         prefix = """
 const __watchdog=setTimeout(()=>{console.error('Node scenario did not settle');process.exit(124);},5000);
 function runTest(promise){promise.then(()=>clearTimeout(__watchdog)).catch(error=>{clearTimeout(__watchdog);console.error(error);process.exitCode=1;});}
 """
         result = subprocess.run(
             ["node"],
-            input=prefix + body,
+            input=prefix + helpers + body,
             text=True,
             encoding="utf-8",
             capture_output=True,

@@ -48,6 +48,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         cls.after_source = AFTER_SOURCE_PATH.read_text(encoding="utf-8")
 
     def _run_node(self, body: str) -> None:
+        if "persistOperatorUserSave(" in body and "async function cardFilesApi(" not in body:
+            body = functions("app_main_before_printing.js", "cardFilesApi") + body
         script = textwrap.dedent(body)
         with tempfile.TemporaryDirectory(prefix="autostop-web-runtime-") as temp_dir:
             script_path = Path(temp_dir) / "runtime-test.cjs"

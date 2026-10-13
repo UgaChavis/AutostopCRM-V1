@@ -3561,7 +3561,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorEmployeeBinding", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "closeOperatorEmployeeBinding();\n        await refreshOperatorAdminSurfaces({",
+            "closeOperatorEmployeeBinding();\n      await refreshOperatorAdminSurfaces({",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function closeOperatorAdminChildView()", BOARD_WEB_APP_HTML)

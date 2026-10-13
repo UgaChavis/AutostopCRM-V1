@@ -881,3 +881,113 @@ accepted `5cdf94e`; publication and exact-SHA GitHub acceptance follow.
 The original checkout retains 41 prepared files; no server access or deploy.
 The goal remains active; next audit candidate is operator admin mutation UI,
 with a synthetic pending-delete probe prepared outside Git, not yet executed.
+
+Published material UI as `8f7ca878e7403e95790fa95534f8aced91ee6c78`.
+All five quality.yml jobs of run `38398157242` passed for that exact SHA,
+without reruns. Unit: 8m29s; browser/performance: 4m54s. Native watch exit is
+zero and local/remote SHA match. This acceptance record accompanies the next
+portion; only this progress file is modified after the accepted commit.
+No deployment occurred; the ongoing goal remains active.
+
+## Operator admin deletion and bounded writes: UI-85 through UI-92
+
+The pending-delete browser probe fails on accepted `8f7ca87` (8.078s): its
+button stays enabled. A lost native delete reply leaves a deleted user's row
+visible; both checks fail in the combined before run (11.378s). The initial
+deadline probe incorrectly relied on an undefined old owner field; do not
+count it as evidence. Its replacement requires an actual failed/aborted HTTP
+request, ready controls and no repeated POST. A separate native peer deletion
+also leaves a stale row after 404 (one failure, 8.275s).
+
+UI-85 holds admin controls and close/navigation before cold loading, enforcing
+one delete and stopping overlapping user/binding writes. UI-86 preserves another
+editor's raw login/password draft and the captured target through list rendering.
+UI-87 reads actual absence after a lost/malformed delete receipt or peer 404.
+UI-88 retains known receipts through failed reads; repeated actions only read.
+UI-89 holds unknown writes without a native revision guard and preserves a
+recreated account with the same username. An early candidate missed recreation
+before the first read (two deletes instead of one); the failing probe (9.345s)
+is fixed by requiring fresh absence even after a confirmed receipt. UI-90 uses
+the existing 90s POST helper for deletion, user save and employee binding;
+the 15s module deadline restores controls with no late write. UI-91 releases
+owned controls on completion/reset and rejects old-viewer callbacks. UI-92
+keeps password-only saves separate from explicit permissions and retains native
+expected_permissions CAS, current-admin protection and employee assignment.
+
+Request preparation/ownership remain eager. Existing user-save/binding response
+handling moves to the auxiliary module, retaining original native payloads,
+intent checks and caller error/finally behavior; reject a changed viewer before
+starting a cold-loaded write. Private delete checkpoints reset with the viewer.
+Local userKey/owner names are internal only. Startup JavaScript is 900,986 bytes,
+below the unchanged 901,000 cap (11 fewer than 8f7ca87); no speedup is claimed.
+No auth service, business calculation, API/MCP or storage format changes.
+
+All 21 real browser cases pass, including native password login, exact permission
+and binding payloads, timeouts, active-admin rejection, lost replies, partial
+reads, peer deletion/recreation, cold/stalled module and logout. Early Node
+fixture failures lacked the newly extracted helpers; include their actual
+shipped code/90s helper, retaining the assertions. Update only variable/indent
+assertions for the mechanical move. The stalled-module probe now removes its
+route hold/restores the real timer before a separately approved fresh click;
+its late-load/no-POST assertions remain. Final targeted run: 222 tests in 29.213s.
+Full smoke before the last race fix: 49/49, first render 513.5ms; final fresh
+full smoke: 49/49, 500.8ms, no page/console/request errors. All 13 generated
+scripts parse; code health passes for 637 files with unchanged ratchets 33/33,
+2/2. Final local CI passes with REL-02 included; hosted acceptance follows for
+the exact published commit and is recorded in the local release manifest.
+
+Compatibility limit: delete checkpoints cover the current viewer session.
+Username-only deletion cannot safely replay an unknown write or distinguish a
+recreated account by durable ID; no new CAS/receipt field is invented. Follow-up
+within this same admin subsystem: unknown password-save receipts and lost binding
+replies, keeping passwords out of read probes and preserving native protections.
+The original 41 prepared constructor files and production remain untouched.
+The owner's next request gives release preparation priority over new audit portions.
+
+## Release preparation after UI-92: REL-02
+
+The owner requested server-update preparation; no server update is included in
+this step. Last verified deployed revision is historical `863df550`; native
+preflight must read the actual installed revision again before a later release.
+The candidate changes 27 paths since that historical baseline, including the
+pending admin portion. Twelve reviewed paths were missing from the CRM-only
+release allowlist. Add only those exact dashboard, Windows settings, sticky,
+material and admin source/test paths. Keep business/auth/storage/API/MCP/server
+configuration and neighbouring unreviewed UI/test files rejected. The real
+native preflight still validates its actual installed-to-candidate Git diff.
+
+The first full admin CI passed 2,946 core cases and eight browser groups before
+the Playwright driver connection closed in the existing client-profile group.
+Its cleanup stalled without a driver; terminate only the identity-verified
+unittest leaf and retain the failed run (native exit 1), rather than accepting
+partial coverage. Check that group independently, then run the final full CI
+with REL-02 included. No automatic retry or test/limit weakening is introduced.
+Local package, exact-SHA hosted acceptance and release handoff follow the final
+candidate verification. Live host preflight, backup and deployment remain pending.
+
+The isolated client-profile diagnostic passes all six tests in 11.596s; the
+driver loss is not reproduced and its root cause remains unconfirmed. All five
+real release-policy tests pass (0.007s), including the new exact-path cohort
+and rejection of adjacent auth/settings/UI/test files. Changed-file Ruff and
+diff checks pass. With the release guard/tests included, the historical
+863df550-to-candidate diff has 29 paths, all accepted by the real gate; business
+service, auth, storage, API and MCP sources have no changes.
+
+Final `run_checks.ps1 -Profile ci` exits zero: 3,223 selected runtime IDs,
+3,222 reported cases (2,947 core plus 275 cases in 29 isolated browser groups),
+and 36 release cases in 3.299s. The existing POSIX-only class accounts for the
+selected/reported difference; 80 runtime and four release environment skips
+remain unchanged. Core time: 559.795s; the 21 admin browser cases take 29.371s.
+All browser groups, including clients, pass without retries in this final run.
+Generated JS (13 scripts), docs, coverage, 637-file code health and performance
+gates pass; core smoke first render is 527.3ms. CI report SHA-256:
+`c5dfa45e4493218acc339c19a7e70c8b8b70e01e5e5885c99905a25c524a3074`.
+The ignored `output/release-candidate-<published SHA prefix>/manifest.json`
+records exact publication/hosted CI and the verified raw-Git-blob source ZIP,
+alongside checksums and a short server-agent handoff. Actual host preflight is
+still required before a separately authorized server update.
+
+Two consecutive final full browser runs pass 49/49 scenarios on the same UI
+source: first render 500.8ms and 525.9ms. Both have zero console/page errors
+and failed requests and succeed on their first attempt; no speedup is claimed.
+The second native smoke exit is zero. Final progress-doc audit also passes.

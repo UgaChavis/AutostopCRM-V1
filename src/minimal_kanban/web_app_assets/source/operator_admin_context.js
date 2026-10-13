@@ -126,6 +126,8 @@ function clearOperatorUserEditor({ invalidate = true } = {}) {
 }
 
 function resetOperatorAdminViewerState() {
+	state.operatorDeleteRequest?.release();
+	state.operatorDeleteRequest = null;
 	claimOperatorBindingIntent();
 	state.operatorUserEditorIntentGeneration = (state.operatorUserEditorIntentGeneration || 0) + 1;
 	state.operatorEmployeeBindingMutationRequest = null;
@@ -138,7 +140,7 @@ function resetOperatorAdminViewerState() {
 }
 
 function beginOperatorEmployeeBindingMutation(username) {
-	if (state.operatorEmployeeBindingMutationRequest) return null;
+	if (state.operatorEmployeeBindingMutationRequest || state.operatorDeleteRequest) return null;
 	const request = {};
 	const viewer = captureViewerRequestContext();
 	const intent = state.operatorEmployeeBindingIntentGeneration || 0;
@@ -162,7 +164,7 @@ function finishOperatorEmployeeBindingMutation(context) {
 }
 
 function beginOperatorUserSaveMutation() {
-	if (state.operatorUserSaveRequest) return null;
+	if (state.operatorUserSaveRequest || state.operatorDeleteRequest) return null;
 	const request = {};
 	const viewer = captureViewerRequestContext();
 	const intent = state.operatorUserEditorIntentGeneration || 0;

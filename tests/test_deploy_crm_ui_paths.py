@@ -50,10 +50,31 @@ class CrmUiReleasePathTests(unittest.TestCase):
             }
         )
 
+    def test_reviewed_post_release_ui_files_pass_without_directory_allowances(self):
+        self.policy["validate_ui_changed_paths"](
+            {
+                "src/minimal_kanban/ui/settings_window.py",
+                "src/minimal_kanban/web_app_assets/source/display_dashboard_workspace.js",
+                "src/minimal_kanban/web_app_assets/source/inventory_material_state.js",
+                "src/minimal_kanban/web_app_assets/source/operator_admin_context.js",
+                "src/minimal_kanban/web_app_assets/source/operator_admin_persistence.js",
+                "src/minimal_kanban/web_app_assets/source/sticky_mutations.js",
+                "tests/test_dashboard_message_browser.py",
+                "tests/test_inventory_material_browser.py",
+                "tests/test_operator_admin_browser.py",
+                "tests/test_settings_ui.py",
+                "tests/test_sticky_actions_browser.py",
+                "tests/test_web_assets_permission_refresh.py",
+            }
+        )
+
     def test_business_storage_api_mcp_and_server_config_paths_remain_rejected(self):
         for path in (
             "src/minimal_kanban/services/card_service_finance.py",
             "src/minimal_kanban/services/card_service_inventory.py",
+            "src/minimal_kanban/operator_auth.py",
+            "src/minimal_kanban/settings.py",
+            "src/minimal_kanban/ui/main_window.py",
             "src/minimal_kanban/storage/json_store.py",
             "src/minimal_kanban/api/server.py",
             "src/minimal_kanban/mcp/server.py",
@@ -62,6 +83,7 @@ class CrmUiReleasePathTests(unittest.TestCase):
             ".env",
             "data/state.json",
             "src/minimal_kanban/web_app_assets/source/unreviewed.js",
+            "tests/test_unreviewed.py",
         ):
             with self.subTest(path=path), self.assertRaises(self.policy["ReleaseError"]):
                 self.policy["validate_ui_changed_paths"](

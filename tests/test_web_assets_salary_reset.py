@@ -41,7 +41,7 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             "function setOperatorAdminTab(",
         )
         self.assertIn(
-            "state.operatorPermissionEditorUsername = normalizedUsername;",
+            "state.operatorPermissionEditorUsername = userKey;",
             permission_editor,
         )
 
