@@ -88,9 +88,10 @@ class EmployeeWorkspaceRecoveryBrowserTests(UiBrowserTestCase):
     def test_late_workspace_load_does_not_cover_a_newer_clients_window(self):
         self.warm_employees()
         held = []
-        self.page.route("**/api/get_payroll_report?**", self.hold(held))
+        self.page.route("**/api/list_employees?**", self.hold(held))
         self.page.locator("#employeesButton").click()
         self.await_held(held)
+        self.page.locator('[data-close="employees"]').click()
         self.page.locator("#clientsButton").click()
         self.page.locator("#clientsModal.is-open").wait_for()
         held.pop().continue_()
@@ -100,7 +101,7 @@ class EmployeeWorkspaceRecoveryBrowserTests(UiBrowserTestCase):
     def test_old_workspace_error_after_logout_cannot_replace_the_login_status(self):
         self.warm_employees()
         held = []
-        self.page.route("**/api/get_payroll_report?**", self.hold(held))
+        self.page.route("**/api/list_employees?**", self.hold(held))
         self.page.locator("#employeesButton").click()
         self.await_held(held)
         self.page.evaluate("clearOperatorSession()")

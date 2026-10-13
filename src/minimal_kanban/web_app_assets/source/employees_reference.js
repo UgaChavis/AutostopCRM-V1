@@ -78,9 +78,12 @@
 
     async function loadPayrollReport({ month: requestedMonth = '', apply = true } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const access = state.employeesCashboxesAccessRevision;
       const month = String(requestedMonth || state.payrollMonth || currentPayrollMonthValue()).trim();
       const report = await api('/api/get_payroll_report?month=' + encodeURIComponent(month));
-      if (viewerStateGeneration !== state.viewerStateGeneration) return report;
+      if (viewerStateGeneration !== state.viewerStateGeneration || session !== state.operatorSessionToken
+        || access !== state.employeesCashboxesAccessRevision) return report;
       const activeMonth = state.payrollMonth || currentPayrollMonthValue();
       if (apply && month === activeMonth) {
         state.payrollReport = report;
@@ -104,11 +107,7 @@
       };
     }
 
-    function prepareEmployeesWorkspaceData(
-      month,
-      moduleReady,
-      { useEmbeddedPayrollReport = false } = {},
-    ) {
+    function prepareEmployeesWorkspaceData(month, moduleReady) {
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const access = state.employeesCashboxesAccessRevision;
@@ -125,16 +124,14 @@
       const employeesRequest = loadEmployeesReference({
         month: requestedMonth,
         apply: false,
-        force: canView && useEmbeddedPayrollReport,
+        force: canView,
       });
       const payrollRequest = canView
-        ? (useEmbeddedPayrollReport
-          ? employeesRequest.then((data) => {
-            const embeddedReport = payrollReportFromEmployeesData(data, requestedMonth);
-            if (embeddedReport || !isCurrent()) return embeddedReport;
-            return loadPayrollReport({ month: requestedMonth, apply: false });
-          })
-          : loadPayrollReport({ month: requestedMonth, apply: false }))
+        ? employeesRequest.then((data) => {
+          const embeddedReport = payrollReportFromEmployeesData(data, requestedMonth);
+          if (embeddedReport || !isCurrent()) return embeddedReport;
+          return loadPayrollReport({ month: requestedMonth, apply: false });
+        })
         : null;
       const promise = Promise.all([
         employeesRequest,

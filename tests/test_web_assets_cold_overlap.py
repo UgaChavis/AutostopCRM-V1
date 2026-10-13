@@ -105,7 +105,7 @@ for(const name of ['payroll','inventory']) for(const dataFirst of [true,false]) 
     assert.equal(f.state.payrollReport.detail_rows[0].employee_id,'ready');
   }
   const count=f.requests.length,warm=f.invoke();assert.equal(f.requests.length,count+1,'warm direct path performs its existing read');
-  if(name==='payroll')assert.match(f.requests.at(-1).path,/get_payroll_report/);
+  if(name==='payroll')assert.match(f.requests.at(-1).path,/list_employees/);
   f.reply();await warm;
 }
 """)
@@ -124,16 +124,16 @@ assert.equal(f.state.payrollReport.summary.fresh.employee_id,'fresh');
 assert.equal(f.state.payrollReport.detail_rows[0].employee_id,'fresh');
 """)
 
-    def test_default_loader_used_by_mobile_keeps_separate_payroll_read(self) -> None:
+    def test_default_loader_used_by_mobile_uses_the_fresh_embedded_report(self) -> None:
         self.run_node(r"""
 const f=fixture('payroll');
 assert.match(fs.readFileSync(source+'employees_mobile.js','utf8'),/loadEmployeesWorkspaceData\(month\)/);
 const pending=f.context.loadEmployeesWorkspaceData('2026-09');
 assert.deepEqual(f.requests.map(request=>request.path),[
-  '/api/list_employees?month=2026-09','/api/get_payroll_report?month=2026-09',
+  '/api/list_employees?month=2026-09',
 ]);
 f.reply('mobile');await pending;
-assert.equal(f.state.employees[0].id,'mobile');assert.equal(f.state.payrollReport.marker,'mobile');
+assert.equal(f.state.employees[0].id,'mobile');assert.equal(f.state.payrollReport.summary.mobile.employee_id,'mobile');
 """)
 
     def test_cold_invalid_embedded_report_falls_back_to_guarded_payroll_read(self) -> None:
@@ -160,7 +160,7 @@ f.requests[0].resolve({employees:[{id:'restricted'}],month:'2026-09',summary:{},
 assert.equal(f.requests.length,2);assert.equal(f.requests[1].path,'/api/get_payroll_report?month=2026-09');
 f.requests[1].reject(new Error('forbidden'));f.finishModule();await pending;
 assert.deepEqual(f.state.employees,[]);assert.equal(f.state.payrollReport ?? null,null);
-assert.equal(f.renders.length,0);assert.match(f.statuses[0],/forbidden/);
+assert.deepEqual(f.renders,['open-payroll']);assert.match(f.statuses[0],/forbidden/);
 """)
 
     def test_cold_viewer_access_month_and_request_changes_do_not_apply_or_open(self) -> None:
@@ -207,7 +207,7 @@ for(const name of ['payroll','inventory']) for(const failure of ['data','script'
   else {f.scripts[0].onerror();f.reply();}
   await pending;await tick();assert.ok(f.statuses.length);
   const count=f.requests.length,retry=f.invoke();
-  const expected = name==='payroll' && failure==='data' ? 2 : 1;
+  const expected = 1;
   assert.equal(f.requests.length-count,expected,'retry must perform one fresh request set');
   if(failure==='script')f.finishModule();f.reply('retry');await retry;
   assert.equal((name==='payroll'?f.state.employees:f.state.inventoryItems)[0].id,'retry');
@@ -236,7 +236,7 @@ assert.equal(f.requests[0].options.body.limit,200);f.finishModule();f.reply();aw
 for(const name of ['payroll','inventory']) for(const reject of [true,false]) {
   const f=fixture(name),old=f.invoke();f.finishModule();await tick();
   f.state.operatorSessionToken='B';const oldRequests=f.requests.slice(),offset=f.requests.length;
-  const current=f.invoke();assert.equal(f.requests.length-offset,name==='payroll'?2:1);
+  const current=f.invoke();assert.equal(f.requests.length-offset,1);
   for(const request of f.requests.slice(offset))request.resolve({...f.employeePayload('B'),items:[{id:'B'}]});
   await current;const renders=f.renders.length,statuses=f.statuses.length;
   for(const request of oldRequests) {

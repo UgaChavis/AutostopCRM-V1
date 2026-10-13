@@ -189,7 +189,7 @@ class PayrollActionsBrowserTests(UiBrowserTestCase):
 
         self.page.route("**/api/create_employee_shift_accrual", capture_receipt)
         self.page.route(
-            "**/api/get_payroll_report?**",
+            "**/api/list_employees?**",
             lambda route: route.fulfill(
                 status=503,
                 content_type="application/json",
@@ -204,7 +204,7 @@ class PayrollActionsBrowserTests(UiBrowserTestCase):
         self.assertEqual(
             self.page.locator("#employeeShiftAccrualAmountInput").input_value(), "17.35"
         )
-        self.page.unroute("**/api/get_payroll_report?**")
+        self.page.unroute("**/api/list_employees?**")
         self.page.locator("#employeeShiftAccrualConfirmButton").click()
         self.page.wait_for_function("!state.employeeMoneyMutationOperation")
         self.assertFalse(self.page.locator("#employeeShiftAccrualDialog").is_visible())

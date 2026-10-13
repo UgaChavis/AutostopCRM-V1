@@ -144,11 +144,12 @@ assert.equal(f.renders.length,0,'scheduled focus crossed a session change');
         self.run_node(r"""
 const f=fixture(); const first=f.context.loadMobileEmployees({force:true});
 switchViewer(f); const second=f.context.loadMobileEmployees({force:true});
-assert.equal(f.requests.length,4);
-f.requests[0].resolve(reply); f.requests[1].resolve({marker:'A'}); await first;
+assert.equal(f.requests.length,2);
+f.requests[0].resolve({...reply,month:'2026-09',summary:{marker:'A'},detail_rows:[]}); await first;
 assert.equal(f.state.mobileEmployeesLoading,true,'A finally cleared B loading');
-f.requests[2].resolve(reply); f.requests[3].resolve({marker:'B'}); await second;
-assert.equal(f.state.mobileEmployeesLoading,false); assert.equal(f.state.payrollReport.marker,'B');
+f.requests[1].resolve({...reply,month:'2026-09',summary:{marker:'B'},detail_rows:[]}); await second;
+assert.equal(f.state.mobileEmployeesLoading,false); assert.equal(f.state.payrollReport.summary.marker,'B');
+assert.equal(f.requests.filter(row=>row.path.includes('/api/get_payroll_report')).length,0);
 """)
 
     def test_current_operations_complete_once_and_current_failures_release_controls(self) -> None:

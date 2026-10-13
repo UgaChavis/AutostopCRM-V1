@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -20,10 +21,85 @@ from minimal_kanban.models import (  # noqa: E402
     clear_business_timezone_cache,
 )
 from minimal_kanban.services.card_service import CardService  # noqa: E402
+from minimal_kanban.services.payroll_read_snapshot import (  # noqa: E402
+    PAYROLL_READ_SETTING_KEYS,
+    PayrollReadCard,
+    SalaryBalanceReadTransaction,
+    detach_employee_list_inputs,
+)
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
 class ListEmployeesSnapshotTests(unittest.TestCase):
+    def test_detached_projection_matches_deepcopy_and_preserves_shared_nested_sources(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Общие вложенные данные", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_card({"title": "Общий источник"})
+        bundle = self.store.read_bundle()
+        nested = {"values": [1, {"memo": ["synthetic"]}]}
+        bundle["settings"]["employees"][0]["synthetic_extra"] = nested
+        bundle["cards"][0].repair_order.payroll_postings = [nested]
+        projected = {
+            "settings": {key: bundle["settings"].get(key) for key in PAYROLL_READ_SETTING_KEYS},
+            "cards": [
+                PayrollReadCard(card.id, card.vehicle, card.repair_order)
+                for card in bundle["cards"]
+            ],
+            "cashboxes": [],
+            "cash_transactions": [
+                SalaryBalanceReadTransaction(
+                    item.employee_id, item.transaction_kind, item.amount_minor, item.created_at
+                )
+                for item in bundle["cash_transactions"]
+            ],
+        }
+        expected = deepcopy(projected)
+        actual = detach_employee_list_inputs(bundle)
+        self.assertEqual(actual, expected)
+        self.assertIs(
+            actual["settings"]["employees"][0]["synthetic_extra"],
+            actual["cards"][0].repair_order.payroll_postings[0],
+        )
+        nested["values"][1]["memo"].append("changed")
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual["settings"]["employees"][0]["id"], employee["id"])
+
+    def test_unrelated_card_and_settings_payloads_are_not_copied(self) -> None:
+        class UnrelatedPayload:
+            def __deepcopy__(self, memo):
+                raise AssertionError("payroll copied unrelated card/settings data")
+
+        employee = self.service.save_employee({"name": "Лёгкий снимок", "salary_mode": "none"})[
+            "employee"
+        ]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 1735}
+        )
+        self.service.create_card({"title": "Карточка с посторонним содержимым"})
+        expected = self._old_full_result("2026-10")
+        bundle = self.store.read_bundle()
+        bundle["cards"][0].ai_autofill_log.append(UnrelatedPayload())
+        bundle["settings"]["unrelated_large_payload"] = UnrelatedPayload()
+        self.assertEqual(self.service.list_employees({"month": "2026-10"}), expected)
+
+    def test_payroll_projection_detaches_mutable_order_and_salary_inputs(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Независимые данные", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 1735}
+        )
+        self.service.create_card({"title": "Исходный заказ", "vehicle": "Синтетический автомобиль"})
+        bundle = self.store.read_bundle()
+        detached = detach_employee_list_inputs(bundle)
+        before = detached["cards"][0].repair_order.to_storage_dict()
+        bundle["cards"][0].repair_order.number = "CHANGED-AFTER-READ"
+        bundle["settings"]["employee_shift_accruals"][0]["amount_minor"] = 9999
+        self.assertEqual(detached["cards"][0].repair_order.to_storage_dict(), before)
+        self.assertEqual(detached["settings"]["employee_shift_accruals"][0]["amount_minor"], 1735)
+        self.assertEqual(detached["cards"][0].vehicle, "Синтетический автомобиль")
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)

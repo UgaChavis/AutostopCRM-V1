@@ -214,8 +214,9 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
         )
         self.assertIn("const canView = operatorCanViewEmployees();", loader)
         self.assertIn("const employeesRequest = loadEmployeesReference({", loader)
-        self.assertIn("force: canView && useEmbeddedPayrollReport,", loader)
-        self.assertIn(": loadPayrollReport({ month: requestedMonth, apply: false }))", loader)
+        self.assertIn("force: canView,", loader)
+        self.assertIn("payrollReportFromEmployeesData(data, requestedMonth)", loader)
+        self.assertIn("return loadPayrollReport({ month: requestedMonth, apply: false });", loader)
         self.assertIn("const payrollRequest = canView", loader)
 
         mobile = _asset_section(

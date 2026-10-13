@@ -49,6 +49,7 @@ from .payroll_constants import (
 from .payroll_constants import (
     repair_order_payroll_scheme as _repair_order_payroll_scheme,
 )
+from .payroll_read_snapshot import detach_employee_list_inputs
 from .payroll_report_text import employee_salary_report_text
 from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapshots
 
@@ -1932,17 +1933,9 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                     "detail_rows": [],
                     "meta": {"references_only": True},
                 }
-            # JsonStore reuses a mutable bundle between reads. Take one independent,
-            # consistent snapshot while the service lock is held; payroll may then
-            # run without blocking unrelated CRM requests or reading a newer write.
-            snapshot = deepcopy(
-                {
-                    "settings": bundle["settings"],
-                    "cards": bundle["cards"],
-                    "cashboxes": bundle["cashboxes"],
-                    "cash_transactions": bundle["cash_transactions"],
-                }
-            )
+            # JsonStore reuses mutable records. Detach the complete payroll inputs
+            # under the lock, without copying unrelated card activity/attachments.
+            snapshot = detach_employee_list_inputs(bundle)
 
         return build_full_employee_list(self, snapshot, month)
 

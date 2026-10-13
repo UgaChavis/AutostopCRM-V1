@@ -58,7 +58,8 @@
       invalidateEmployeesReference();
       const employees = await loadEmployeesReference({ month: isCurrent.month, apply: false });
       if (!isCurrent()) return false;
-      const report = await loadPayrollReport({ month: isCurrent.month, apply: false });
+      const report = payrollReportFromEmployeesData(employees, isCurrent.month)
+        || await loadPayrollReport({ month: isCurrent.month, apply: false });
       if (!isCurrent()) return false;
       applyEmployeesReferenceData(employees, isCurrent.month);
       state.payrollReport = report;
@@ -1478,27 +1479,49 @@
       renderRepairOrderRows('works', readRepairOrderRows('works'));
     }
 
-    async function loadEmployeesWorkspace(openModal = false, prepared = null) {
+    async function loadEmployeesWorkspace(prepared = null) {
       const month = els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue();
       const loading = prepared || prepareEmployeesWorkspaceData(month);
-      const loadResult = await loading.promise;
+      const entry = (state.modalStack || []).find((item) => item.key === 'employees');
+      const owns = () => loading.isCurrent() && (!entry || (state.modalStack || []).includes(entry));
+      renderEmployeesWorkspaceLoading(true);
+      let loadResult;
+      try {
+        loadResult = await loading.promise;
+      } catch (error) {
+        if (!owns()) return { applied: false };
+        renderEmployeesWorkspaceLoading(false, error.message);
+        throw error;
+      }
+      if (!owns()) return loadResult;
       if (!loadResult.applied || !loading.isCurrent()) return loadResult;
+      renderEmployeesWorkspaceLoading(false);
       renderEmployeesWorkspace();
       refreshRepairOrderEmployeeSelects();
-      if (openModal) {
-        pushModal('employees', els.employeesModal);
-        els.employeesModal.scrollTop = 0;
-        const dialog = els.employeesModal.querySelector('.dialog');
-        if (dialog instanceof HTMLElement) {
-          dialog.scrollTop = 0;
-          dialog.scrollLeft = 0;
-        }
-        const closeButton = els.employeesModal.querySelector('[data-close="employees"]');
-        if (closeButton instanceof HTMLElement) {
-          closeButton.focus({ preventScroll: true });
-        }
-      }
       return loadResult;
+    }
+
+    function renderEmployeesWorkspaceLoading(loading, error = '') {
+      if (typeof HTMLElement === 'undefined' || !(els.employeesModal instanceof HTMLElement)) return;
+      state.employeesWorkspaceLoading = loading;
+      els.employeesModal.setAttribute('aria-busy', String(loading));
+      for (const key of ['employeesProfilePanel', 'employeesReportShell']) {
+        if (els[key]) els[key].inert = loading || Boolean(error);
+      }
+      if (els.employeesCreateButton) els.employeesCreateButton.disabled = loading || Boolean(error)
+        || !operatorCanAccessEmployeesCashboxes();
+      if (loading && els.employeesList) els.employeesList.textContent = 'ЗАГРУЖАЮ СОТРУДНИКОВ…';
+      if (error && els.employeesList) {
+        els.employeesList.textContent = String(error);
+        const retry = document.createElement('button');
+        retry.className = 'btn';
+        retry.type = 'button';
+        retry.textContent = 'ПОВТОРИТЬ ЗАГРУЗКУ';
+        retry.addEventListener('click', () => {
+          loadEmployeesWorkspace().catch((failure) => setStatus(failure.message, true));
+        });
+        els.employeesList.append(retry);
+      }
     }
 
     async function addEmployeeFromForm() {
@@ -1539,14 +1562,17 @@
         dialog.scrollTop = 0;
         dialog.scrollLeft = 0;
       }
-      const parent = (state.modalStack || []).at(-1);
       const loading = prepared?.promise ? prepared
         : prepareEmployeesWorkspaceData(els.employeesMonthInput?.value || state.payrollMonth || currentPayrollMonthValue());
+      pushModal('employees', els.employeesModal);
+      const closeButton = els.employeesModal.querySelector('[data-close="employees"]');
+      if (closeButton instanceof HTMLElement) closeButton.focus({ preventScroll: true });
+      const parent = (state.modalStack || []).at(-1);
       const owned = {
         ...loading,
         isCurrent: () => loading.isCurrent() && (state.modalStack || []).at(-1) === parent,
       };
-      return loadEmployeesWorkspace(true, owned)
+      return loadEmployeesWorkspace(owned)
         .catch((error) => { if (owned.isCurrent()) setStatus(error.message, true); });
     }
 
@@ -1739,7 +1765,7 @@
         return;
       }
       try {
-        await loadEmployeesWorkspace(false);
+        await loadEmployeesWorkspace();
       } catch (error) {
         setStatus(error.message, true);
       }

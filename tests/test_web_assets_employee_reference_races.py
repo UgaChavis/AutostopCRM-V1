@@ -11,6 +11,21 @@ SOURCE = ROOT / "src/minimal_kanban/web_app_assets/source"
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class EmployeeReferenceRaceTests(unittest.TestCase):
+    def test_standalone_payroll_read_cannot_apply_after_session_or_access_change(self) -> None:
+        self.run_reference_script("""
+  for (const changed of ['session', 'access', 'viewer']) {
+    state.payrollReport={marker:'current'};
+    const offset=requests.length;
+    const pending=loadPayrollReport({month:'2026-09'});
+    if(changed==='session')state.operatorSessionToken+='-new';
+    if(changed==='access')state.employeesCashboxesAccessRevision++;
+    if(changed==='viewer')state.viewerStateGeneration++;
+    requests[offset].resolve({month:'2026-09',summary:{marker:'old'},detail_rows:[]});
+    await pending;
+    assert.equal(state.payrollReport.marker,'current',changed+': stale financial data applied');
+  }
+""")
+
     def run_reference_script(self, body: str) -> None:
         references = (SOURCE / "employees_reference.js").read_text(encoding="utf-8")
         script = (

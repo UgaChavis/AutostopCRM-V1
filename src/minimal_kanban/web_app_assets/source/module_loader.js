@@ -264,7 +264,7 @@
       const cashboxMoneyLoading = cashboxMoneyMethod ? beginCashboxMoneyRequest() : null;
       if (cashboxMoneyMethod && !cashboxMoneyLoading) return false;
       if (payrollOpen && operatorCanViewEmployees()) {
-        prepared = prepareEmployeesWorkspaceData(month, pending, { useEmbeddedPayrollReport: true });
+        prepared = prepareEmployeesWorkspaceData(month, pending);
       }
       if (name === 'inventory' && method === 'openInventoryModal') {
         prepared = prepareInventoryModal();

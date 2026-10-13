@@ -991,3 +991,69 @@ Two consecutive final full browser runs pass 49/49 scenarios on the same UI
 source: first render 500.8ms and 525.9ms. Both have zero console/page errors
 and failed requests and succeed on their first attempt; no speedup is claimed.
 The second native smoke exit is zero. Final progress-doc audit also passes.
+
+## Employees goal, October 2026: EMP-01 (in progress)
+
+The owner authorized a complete Employees review, repair and measured speed pass.
+Start from GitHub `71a3d038` in the existing clean attached worktree, branch
+`codex/crm-employees-stability-performance`; preserve the original 41 staged
+constructor files. The goal is active. No server/client rollout is authorized.
+Use the existing temporary runtime and synthetic fixtures only. Browser plugin
+is not available; use repository Playwright tests. No formula, rounding, payment,
+historical snapshot, permission, native money guard, API/MCP or storage change.
+
+| Area/action | Finding and current work | Evidence / next check |
+| --- | --- | --- |
+| Desktop list, reopen, month change | Reproduced cached balance `0` after a peer's saved `17.35` shift; duplicate report reads. Always obtain one fresh full response, reuse its embedded report and coalesce concurrent reads. | Real failing-before/passing-after browser cases; current-viewer/session/access and month races. |
+| List server preparation | Full cards and unrelated settings copied under the shared lock. Detach only consumed payroll inputs; preserve complete orders and all transaction amounts, use a balance-only transaction projection. | Original response oracle, detached nested/aliased inputs, concurrent write and lock-release tests. Calculators remain unchanged. |
+| Loading and recovery | Window waited for all data. Show a closable loading shell, make unavailable fields inert, show read errors and an explicit read-only retry. | Five real browser cases including the native GET deadline, double month events, peer write, close and failed read. |
+| Profiles and deletion | Keep known IDs, uncertain-write checkpoints, drafts, expected employee versions and caller-owned controls. | Existing real profile/delete cases pass; final CI remains required. |
+| Advances, payouts, shift accruals, reset | Preserve native guards and confirmed receipts; a failed refresh retries reads only. | Existing real money/reset cases pass. Failure injection follows the full response now carrying the report. |
+| Periods, formulas, history, reports and reconciliation | Exact response comparison on frozen inputs, month boundaries, policy dates and Friday before/after 20:00. | 164 original/candidate responses identical; larger fixture, UI print races and final integration remain pending. |
+| Mobile and Windows | Shared-service and existing UI behavior remain compatible. | Next: fresh mobile entry, navigation races, native Windows launcher/settings, final full smoke. |
+
+Baseline full browser smoke passes on the original source. Baseline local CI
+stops at the unrelated client-popup draft test; an isolated one-case diagnostic
+passes its assertion but has Windows SQLite cleanup failure. A separate full
+seven-case client-creation diagnostic passes. Retain these failures; no test,
+retry policy or gate is weakened and the final full CI must succeed.
+
+Preliminary measurements found selector retry backoff adding 100-500ms after
+an early loading shell. The final shared harness uses the same frame-based
+data-ready milestones on both revisions, frozen time and identical serialized
+synthetic fixtures (standard and exactly three times the base collections).
+Do not present earlier instrument-dependent numbers as final acceptance.
+Run three series of twenty without concurrent test load, then record medians,
+p95, request counts and server-lock hold. Full CI, exact-SHA GitHub acceptance,
+publication receipt and the two final clean browser passes are still pending.
+
+Follow-up in this same goal: reproduce and guard late salary-window opening
+after its parent closes, report/print replies after logout or period-dialog
+replacement, and mobile cached re-entry. The unchanged payroll calculators and
+native write services remain the behavioral oracle. This read-service change
+requires a separately reviewed future release; retain the CRM-only UI deploy
+allowlist and do not widen it. The commit containing EMP-01 identifies this
+portion; its exact SHA/CI receipt is stored in the ignored local run artifacts.
+
+EMP-01 local acceptance: final CI exits zero, 2,951 core cases in 648.788s and
+all 30 isolated browser groups, release coverage, docs, parity, JS and existing
+performance gates. Standard fixture: 164 financial service responses are byte
+identical to the Git baseline, SHA-256
+`cf1f9f7ccf139ceee0ddea55f9043a473d14812332e8aefe7fec1bcbe5ad2e03`.
+Same final measurement harness/fixture/time, three series of twenty: server
+list p95 215.1/221.8/220.4ms -> 157.8/161.3/160.8ms; month change
+396.7/429.1/445.7ms -> 244.4/245.4/195.8ms. All events zero. Standard UI
+budgets pass. Reopening is now a fresh balance read instead of the former
+cached-balance/report-only path: p95 131.8/133.2/139.6ms ->
+250.2/268.7/285.6ms. The goal's no-regression criterion is NOT met; investigate
+remaining read preparation in the next portion, without reverting freshness or
+caching financial results. Earlier selector-backoff measurements are discarded.
+Exact x3 measurements and the raw artifacts remain in the ignored local run.
+This published portion fixes confirmed freshness/recovery defects and reduces
+server work; it does not mark the complete Employees goal or release ready.
+
+Real follow-up probes confirm mobile cached re-entry (`0` after the saved
+`17.35` shift) and an old print response closing a newer seven-day period
+dialog. Salary-parent close and print-after-logout probes pass the existing
+guards; retain them. All source work remains local until ordinary GitHub
+publication; production and the original constructor work remain unchanged.

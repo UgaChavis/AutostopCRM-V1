@@ -1131,7 +1131,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             (async () => {{
               const staleWorkspace = loadEmployeesWorkspaceData('2026-01');
               const staleEmployeeRequest = requests[0];
-              const stalePayrollRequest = requests[1];
 
               resetViewerScopedState();
               const currentWorkspace = loadEmployeesWorkspaceData('2026-01');
@@ -1142,12 +1141,12 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 request.url === '/api/get_payroll_report?month=2026-01'
               );
               assert.equal(employeeRequests.length, 2, 'new viewer reused old employee request');
-              assert.equal(payrollRequests.length, 2);
+              assert.equal(payrollRequests.length, 0);
 
               staleEmployeeRequest.resolve({{
                 employees: [{{ id: 'employee-first', viewer: 'FIRST' }}],
+                month: '2026-01', summary: {{viewer:'FIRST'}}, detail_rows: [],
               }});
-              stalePayrollRequest.resolve({{ meta: {{ month: '2026-01', viewer: 'FIRST' }} }});
               const staleWorkspaceResult = await staleWorkspace;
               assert.equal(staleWorkspaceResult.applied, false);
               assert.deepEqual(state.employees, []);
@@ -1160,14 +1159,12 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
               employeeRequests[1].resolve({{
                 employees: [{{ id: 'employee-second', viewer: 'SECOND' }}],
-              }});
-              payrollRequests[1].resolve({{
-                meta: {{ month: '2026-01', viewer: 'SECOND' }},
+                month: '2026-01', summary: {{viewer:'SECOND'}}, detail_rows: [],
               }});
               const currentWorkspaceResult = await currentWorkspace;
               assert.equal(currentWorkspaceResult.applied, true);
               assert.equal(state.employees[0]?.viewer, 'SECOND');
-              assert.equal(state.payrollReport?.meta?.viewer, 'SECOND');
+              assert.equal(state.payrollReport?.summary?.viewer, 'SECOND');
 
               resetViewerScopedState();
               state.payrollMonth = '2026-02';
@@ -1218,7 +1215,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             """
         )
 
-    def test_employee_workspace_loads_in_parallel_and_latest_month_wins(self) -> None:
+    def test_employee_workspace_uses_one_response_and_latest_month_wins(self) -> None:
         employee_loaders = _source_section(
             self.source,
             "function invalidateEmployeeNamesReference()",
@@ -1254,7 +1251,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
                 month: state.payrollMonth,
                 employeesMonth: state.employeesLoadedMonth,
                 employeeId: state.employees[0]?.id || '',
-                reportMonth: state.payrollReport?.meta?.month || '',
+                reportMonth: state.payrollReport?.month || '',
               }});
             }}
             function refreshRepairOrderEmployeeSelects() {{}}
@@ -1292,6 +1289,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
               resolveAll('/api/list_employees?month=2026-02', {{
                 employees: [{{ id: 'february-employee', name: 'February' }}],
+                month: '2026-02', summary: [], detail_rows: [],
               }});
               await drainMicrotasks();
               resolveAll('/api/get_payroll_report?month=2026-02', {{
@@ -1303,6 +1301,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
               resolveAll('/api/list_employees?month=2026-01', {{
                 employees: [{{ id: 'january-employee', name: 'January' }}],
+                month: '2026-01', summary: [], detail_rows: [],
               }});
               await drainMicrotasks();
               resolveAll('/api/get_payroll_report?month=2026-02', {{
@@ -1319,13 +1318,13 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
               assert.equal(
                 januaryStartedInParallel,
-                true,
-                'employee and payroll requests did not start in parallel',
+                false,
+                'workspace recomputed the report embedded in the full employee list',
               );
               assert.equal(state.payrollMonth, '2026-02');
               assert.equal(state.employeesLoadedMonth, '2026-02');
               assert.equal(state.employees[0]?.id, 'february-employee');
-              assert.equal(state.payrollReport?.meta?.month, '2026-02');
+              assert.equal(state.payrollReport?.month, '2026-02');
               assert.equal(state.payrollReportMonth, '2026-02');
               assert.deepEqual(renders, [{{
                 month: '2026-02',
@@ -1471,12 +1470,22 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
 
     def test_employee_salary_reset_permission_payload_and_double_click_guard(self) -> None:
-        async_helpers = _source_section(
-            self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
-        ) + _source_section(
-            self.source,
-            "function invalidateEmployeeNamesReference()",
-            "function applyEmployeesReferenceData(",
+        async_helpers = (
+            _source_section(
+                self.source,
+                "function employeeAsyncContext(",
+                "const EMPLOYEE_INCENTIVE_DEFINITIONS =",
+            )
+            + _source_section(
+                self.source,
+                "function invalidateEmployeeNamesReference()",
+                "function applyEmployeesReferenceData(",
+            )
+            + _source_section(
+                self.source,
+                "function payrollReportFromEmployeesData(",
+                "function prepareEmployeesWorkspaceData(",
+            )
         )
         permission_helper = _source_section(
             self.source,
@@ -1705,12 +1714,22 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
 
     def test_employee_salary_reset_retry_reuses_key_and_conflict_reloads_snapshot(self) -> None:
-        async_helpers = _source_section(
-            self.source, "function employeeAsyncContext(", "const EMPLOYEE_INCENTIVE_DEFINITIONS ="
-        ) + _source_section(
-            self.source,
-            "function invalidateEmployeeNamesReference()",
-            "function applyEmployeesReferenceData(",
+        async_helpers = (
+            _source_section(
+                self.source,
+                "function employeeAsyncContext(",
+                "const EMPLOYEE_INCENTIVE_DEFINITIONS =",
+            )
+            + _source_section(
+                self.source,
+                "function invalidateEmployeeNamesReference()",
+                "function applyEmployeesReferenceData(",
+            )
+            + _source_section(
+                self.source,
+                "function payrollReportFromEmployeesData(",
+                "function prepareEmployeesWorkspaceData(",
+            )
         )
         permission_helper = _source_section(
             self.source,
