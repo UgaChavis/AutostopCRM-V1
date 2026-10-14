@@ -31,8 +31,8 @@ class OperatorAdminAsyncContextTests(unittest.TestCase):
 
     def run_node(self, body: str) -> None:
         helpers = functions("app_main_before_printing.js", "cardFilesApi")
-        if "async function persistOperatorEmployeeBinding(" not in body:
-            helpers += functions("app_main_before_printing.js", "persistOperatorEmployeeBinding")
+        if "const operatorUserSaveCheckpoints" not in body:
+            helpers += read_board_source("operator_admin_persistence.js")
         prefix = """
 const __watchdog=setTimeout(()=>{console.error('Node scenario did not settle');process.exit(124);},5000);
 function runTest(promise){promise.then(()=>clearTimeout(__watchdog)).catch(error=>{clearTimeout(__watchdog);console.error(error);process.exitCode=1;});}

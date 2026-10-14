@@ -1236,3 +1236,77 @@ and Employees remains closed. It passes in 8.933s with no employee writes. This
 retains coverage of cold navigation rather than forcing it into the warm fixture.
 No speedup or runtime change is claimed. Publication and exact-SHA hosted
 acceptance are recorded in the ignored receipt; the continuous goal remains active.
+
+## CM-01: operator-admin save receipts and uncertain writes
+
+CM-00 is published as `f8a1cea39d8e552e7c03359b0a59263b012e1505`; exact-SHA
+`quality.yml` run `38537297285` passes all five jobs. Continue the same admin
+subsystem on disposable users and employees, with native routes and persisted
+readback. Seven of eight baseline probes fail: lost password/binding replies
+are replayed, a wrong-user receipt clears the editor, unresolved save/delete
+actions conflict, an old connection updates the new viewer, and an uncommitted
+binding with the wrong target closes its child form. The existing committed
+binding/readback scenario already passes and remains a positive control.
+
+Keep per-viewer private checkpoints for uncertain saves, deletes and bindings;
+reject conflicting account writes until the pending result is resolved. Capture
+the connection before optional-module loading and discard old connection replies.
+Validate the receipt's account and binding target before accepting it. A binding
+with a lost/malformed receipt reads the existing native user list and accepts
+only the requested employee on the same account incarnation (`created_at`).
+Failed readback or a recreated login retains the draft and does not send another
+POST. If the selection changes during recovery, acknowledge the previous result
+and keep the new choice for a separate explicit click. Confirmed writes finish
+before surface refresh, so a refresh failure is not treated as an unknown write.
+
+Password state cannot be proven by the public user summary. Preserve the editor,
+allow manual login verification and hold same-viewer replays; store no password
+in the private checkpoints. Logout resets all private ownership. Durable receipts
+across reloads, account compare-and-swap or password-result reconciliation would
+require a separately reviewed API decision; none is introduced here.
+
+The eight original after probes pass. Add permanent real-browser regressions for
+these failures, definite rejection/retry, readback failure, changed selections,
+recreated accounts, stale recovery reads, unknown binding conflicts and logout.
+Node ownership tests execute the actual optional persistence module, including
+its private dependencies, with their existing assertions unchanged. New test
+setup failures (missing second user in the DOM and login already opening the
+profile) are retained in the local evidence and corrected before acceptance.
+
+Generated JavaScript parses all 13 scripts. Startup grows by only eight bytes,
+900,991 -> 900,999, within the unchanged 901,000-byte cap; the recovery helpers
+stay in the optional auxiliary module (89,844 -> 97,141 bytes). No latency
+improvement is claimed. The measured correctness effect is one write instead of
+two after a lost reply, zero conflicting POSTs on an unresolved account, and a
+retained draft on an unconfirmed receipt. Business services, permissions CAS,
+native guards, public schemas and persisted formats are unchanged. Full local
+CI, full browser smoke and exact-SHA publication still gate this portion.
+
+The first complete CM-01 CI fails after 2,954 core cases (875.926s): a separate
+permission fixture supplies `isCurrent` but omits the existing mutation ownership
+method, and a source assertion requires a trailing comma after `body: payload`.
+Supply the fixture's owned request and bind the source assertion to the exact
+native save route, POST method and unchanged payload, allowing either JavaScript
+separator. Keep all permission/reset assertions and real native CAS tests. This
+failed candidate is not published; retain its log and rerun the full final gate.
+
+The owner now requests finishing CM-01 and preparing the application for server
+deployment. Do not start CM-02 or another audit area. Finish the existing local
+and exact-SHA hosted gates, then pause the continuous audit and prepare the local
+source receipt/handoff. Server access, activation and installed-client changes
+remain excluded. The pending read-context probes are hypotheses, not completed
+findings. Relative to `71a3d038`, the release includes employee read-service
+changes; even from `88350635` it exceeds the existing CRM-only path allowlist.
+Do not expand that deployment mechanism here; identify the normal coordinated
+runbook path and let the server work establish its actual installed baseline.
+
+CM-01 final local acceptance: complete `run_checks.ps1 -Profile ci` exits zero.
+All 2,954 reported core cases pass in 891.022s (80 existing optional skips), all
+33 isolated browser groups pass, and 36 release cases pass in 3.152s (four
+existing environment skips). Runtime coverage is 81.93%; original source,
+complexity, JS, size and performance gates pass. The 17 new real-browser recovery
+cases pass together in 29.616s. Full smoke then passes 49/49 on attempt one,
+first render 633.2ms, with no console/page/request errors, including ignored
+failures. No runtime changes follow this gate. Recheck the final registry with
+the documentation audit before publishing; exact-SHA hosted acceptance remains
+required and belongs in the local release receipt.

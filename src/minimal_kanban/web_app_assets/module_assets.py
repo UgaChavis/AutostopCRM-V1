@@ -229,6 +229,9 @@ def _module_script(group: str, source: str, public_names: set[str]) -> str:
       sharedFilesUploadCheckpoint = null;
       sharedFilesClipboardCheckpoint = null;
       operatorUserDeleteCheckpoints.clear();
+      operatorUserSaveCheckpoints.clear();
+      operatorEmployeeBindingCheckpoints.clear();
+      operatorAdminWriteViewerKey = '';
     }
 """
         exports.append("resetViewer")

@@ -81,7 +81,7 @@ const assert=require('node:assert/strict');
 const state={operatorUsers:[],operatorPermissionEditorUsername:''};
 const els={adminUserLogin:{value:'EXISTING'},adminUserPassword:{value:'new-password'},adminUserEmployeesCashboxesAccess:{checked:false},adminUserEmployeesReadAccess:{checked:false}};
 const calls=[];
-function beginOperatorUserSaveMutation(){return {viewer:{isCurrent:()=>true},isCurrent:()=>true};}
+function beginOperatorUserSaveMutation(){return {viewer:{isCurrent:()=>true},isCurrent:()=>true,ownsRequest:()=>true};}
 function syncOperatorUserSaveControl(){}
 async function api(path,{body}){calls.push(body);return {user:{username:'EXISTING'}};}
 function applyOperatorUserSummary(){}

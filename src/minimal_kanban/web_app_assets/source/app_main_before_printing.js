@@ -5082,7 +5082,7 @@
         release: () => disabled.forEach((value, control) => { control.disabled = value; }),
       };
       state.operatorDeleteRequest = request;
-      const context = { request,
+      const context = { request, viewer,
         isCurrent: () => state.operatorDeleteRequest === request && viewer.isCurrent() };
       request.lock();
       try {

@@ -61,7 +61,10 @@ class SalaryBalanceResetWebAssetTests(unittest.TestCase):
             permission_save,
         )
         self.assertNotIn("body: {\n            username:", permission_save)
-        self.assertIn("body: payload,", permission_save)
+        self.assertRegex(
+            permission_save,
+            r"cardFilesApi\('/api/save_operator_user',\s*\{\s*method:\s*'POST',\s*body:\s*payload(?:,|\s*\})",
+        )
         self.assertIn("clearOperatorUserEditor();", permission_save)
         editor_clear = _asset_section(
             "function clearOperatorUserEditor(",
