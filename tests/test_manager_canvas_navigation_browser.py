@@ -220,6 +220,25 @@ class ManagerCanvasNavigationBrowserTests(unittest.TestCase):
         )
 
     def test_fitted_scale_below_minimum_does_not_increase_for_zoom_out_or_zero_wheel(self):
+        baseline = self.read()
+
+        def restore_graph():
+            restored = self.context.request.post(
+                self.runtime.base_url + "/api/manager_structure/apply",
+                headers={"X-Operator-Session": self.admin},
+                data={
+                    "operation": "replace",
+                    "diagram": {
+                        field: baseline[field]
+                        for field in ("schema_version", "canvas", "elements", "relations")
+                    },
+                    "expected_version": self.read()["version"],
+                    "idempotency_key": "restore-zoom-floor-" + os.urandom(8).hex(),
+                },
+            )
+            self.assertTrue(restored.ok, restored.text())
+
+        self.addCleanup(restore_graph)
         response = self.context.request.post(
             self.runtime.base_url + "/api/manager_structure/apply",
             headers={"X-Operator-Session": self.admin},
