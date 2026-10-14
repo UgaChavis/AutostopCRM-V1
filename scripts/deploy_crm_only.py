@@ -174,6 +174,18 @@ ALLOWED_CHANGED_PATHS = {
     "tests/test_web_assets_salary_reset.py",
     "tests/test_web_assets_shared_context.py",
     "tests/web_asset_function_support.py",
+    # Reviewed Manager constructor sweep 17b314b8..e9390f46360d; exact paths only.
+    "docs/agent/module_operations/manager_structure.md",
+    "src/minimal_kanban/web_app_assets/source/manager_canvas_navigation.js",
+    "src/minimal_kanban/web_app_assets/source/manager_structure.html",
+    "src/minimal_kanban/web_app_assets/source/manager_structure_mutations.js",
+    "src/minimal_kanban/web_app_assets/source/manager_tool_dialog.js",
+    "tests/test_manager_canvas_navigation_browser.py",
+    "tests/test_manager_dialog_focus_browser.py",
+    "tests/test_manager_dialog_recovery_browser.py",
+    "tests/test_manager_editor_recovery_browser.py",
+    "tests/test_manager_read_freshness_browser.py",
+    "tests/test_manager_structure_browser.py",
 }
 MANAGER_LINK = Path("/opt/autostop-manager-releases/current")
 MANAGER_ENV = Path("/opt/AutostopManager/.crm-mcp.env")

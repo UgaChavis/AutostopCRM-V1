@@ -11,7 +11,32 @@ cards from the pinned catalog; other modules show the instruction saved in CRM.
 Escape closes
 the dialog and returns focus to the original module without moving the viewport.
 The corner button switches to the editor; there the same click selects properties
-and keeps drag, resize and connection editing.
+and keeps drag, resize and connection editing. In clean view, the bottom corner
+controls zoom in, zoom out and fit without changing the saved diagram. When the
+canvas has keyboard focus, `+`/`-` zoom and `0` or Home fits the schema. Zooming
+waits until an active drag finishes; release, cancellation or capture loss ends
+the pointer gesture.
+
+Changing a selected module, closing properties or creating another element asks
+before discarding unsaved edits. **Отмена** explicitly discards the current draft.
+A lost or incomplete save response keeps the original body and idempotency key;
+**Проверить запись** reconciles that attempt instead of starting another write.
+After an acknowledged save, a failed refresh retries only the read. Changing
+sessions disables editing and keeps drafts separate; delayed replies or file
+uploads cannot update another session's form. External deletion closes an
+unchanged editor; a dirty draft keeps its earlier version and must be reconciled.
+Fractional coordinates and anchors accepted by CRM can be edited in the form.
+
+A failed automotive catalog load offers **Повторить загрузку**. Retrying is
+explicit; authentication errors request a new CRM login. Removing the open module
+closes and clears its dialog, and late catalog replies cannot restore it. Unrelated
+graph changes keep the current reading focus and expanded technical details;
+refreshing changed content does not take focus away after another user action.
+Initial graph errors remain visible in clean view with retry or a CRM login link.
+Replies from an older session or superseded read cannot revoke newer access.
+A confirmed unchanged form has no new save to submit; choosing an automatic route
+explicitly rebuilds it on save. Only the newest instruction file selection can
+update the current form.
 
 The source reference and Markdown links open in a separate tab. Relative links
 resolve from the corresponding Manager document in GitHub at the catalog's exact

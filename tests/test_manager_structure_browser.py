@@ -633,6 +633,23 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(
             self.page.locator('[name="title"]').input_value(), "Мой несохранённый текст"
         )
+        before_reload = self.read()
+        discard_prompts = []
+
+        def dismiss_discard(dialog):
+            discard_prompts.append((dialog.type, dialog.message))
+            dialog.dismiss()
+
+        self.page.once("dialog", dismiss_discard)
+        self.page.locator("#reloadSchema").click()
+        self.assertEqual(len(discard_prompts), 1)
+        self.assertEqual(discard_prompts[0][0], "confirm")
+        self.assertIn("несохранённые изменения", discard_prompts[0][1])
+        self.assertEqual(
+            self.page.locator('[name="title"]').input_value(), "Мой несохранённый текст"
+        )
+        self.assertEqual(self.read(), before_reload)
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator("#reloadSchema").click()
         self.page.wait_for_function(
             "() => document.querySelector('[name=title]').value === 'Заявка агента'"

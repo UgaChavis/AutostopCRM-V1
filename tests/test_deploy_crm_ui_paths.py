@@ -68,6 +68,24 @@ class CrmUiReleasePathTests(unittest.TestCase):
             }
         )
 
+    def test_reviewed_manager_constructor_paths_pass_the_real_gate(self):
+        self.policy["validate_ui_changed_paths"](
+            {
+                ".github/workflows/quality.yml",
+                "docs/agent/module_operations/manager_structure.md",
+                "src/minimal_kanban/web_app_assets/source/manager_canvas_navigation.js",
+                "src/minimal_kanban/web_app_assets/source/manager_structure.html",
+                "src/minimal_kanban/web_app_assets/source/manager_structure_mutations.js",
+                "src/minimal_kanban/web_app_assets/source/manager_tool_dialog.js",
+                "tests/test_manager_canvas_navigation_browser.py",
+                "tests/test_manager_dialog_focus_browser.py",
+                "tests/test_manager_dialog_recovery_browser.py",
+                "tests/test_manager_editor_recovery_browser.py",
+                "tests/test_manager_read_freshness_browser.py",
+                "tests/test_manager_structure_browser.py",
+            }
+        )
+
     def test_business_storage_api_mcp_and_server_config_paths_remain_rejected(self):
         for path in (
             "src/minimal_kanban/services/card_service_finance.py",

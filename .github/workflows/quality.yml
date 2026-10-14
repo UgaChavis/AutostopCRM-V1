@@ -323,7 +323,16 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
-        run: python -m unittest tests.test_manager_structure_browser tests.test_manager_tool_concurrency_browser tests.test_manager_instruction_links_browser -v
+        run: >-
+          python -m unittest
+          tests.test_manager_structure_browser
+          tests.test_manager_tool_concurrency_browser
+          tests.test_manager_instruction_links_browser
+          tests.test_manager_canvas_navigation_browser
+          tests.test_manager_dialog_recovery_browser
+          tests.test_manager_dialog_focus_browser
+          tests.test_manager_read_freshness_browser
+          tests.test_manager_editor_recovery_browser -v
 
       - name: Card hydration and print browser regression
         if: ${{ matrix.suite == 'browser-performance' }}
