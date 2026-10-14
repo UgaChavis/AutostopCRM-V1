@@ -694,7 +694,7 @@ Deploy only with explicit owner intent. Normal sequence:
 2. Push the commit to `origin/autostopcrm-v1`.
 3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
 4. Choose the clean Manager source described in [Git Parity](#git-parity) and
-   follow its [release guide and coordinated documentation kit](https://github.com/UgaChavis/AutostopManager/blob/ba61cfa17690f496fae9ab7ce88e09ee2971b040/docs/agent/references/deployment.md).
+   follow its [release guide and coordinated documentation kit](https://github.com/UgaChavis/AutostopManager/blob/8861f8c4fd35bb8988f06e3d5e7c57eb04677047/docs/agent/references/deployment.md).
    Run that source's `scripts/release-gates.sh`; it requires its own
    `.venv/bin/python`. Its temporary
    `AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks. The compatibility
