@@ -75,7 +75,15 @@ class EmployeeWorkspaceRecoveryBrowserTests(UiBrowserTestCase):
         self.load_board()
         self.page.locator("#employeesButton").click()
         self.page.locator("#employeesModal.is-open").wait_for()
+        self.page.wait_for_function(
+            "state.employeesWorkspaceLoading === false && state.employeesReferencePromise === null"
+        )
         self.page.locator('[data-close="employees"]').click()
+        self.assertFalse(
+            self.page.locator("#employeesModal").evaluate(
+                "node => node.classList.contains('is-open')"
+            )
+        )
         self.page.evaluate("""() => {
           const module=boardModuleRecords.get('payroll').exports;
           const open=module.openEmployeesModal;

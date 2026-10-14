@@ -1193,3 +1193,46 @@ exact-SHA hosted acceptance remains the publication gate and is retained in the
 ignored local receipt and native technical journal. No server rollout or installed
 client update belongs to this goal. The legacy term-ID decision and the x3 history
 tail variation above remain explicitly documented.
+
+## Continuous maintenance, October 2026: CM-00 baseline fixture
+
+The owner requests continuous reviewed portions until an explicit stop, with
+direct fast-forward publication to `autostopcrm-v1` and exact-SHA hosted gates.
+Start at accepted `3ba45df28c1758b061d0d18778c1c7d98e36d8cd`, including the
+published Manager catalog pin. Preserve the original 41 staged constructor
+files. Server access, production data, installed-client changes and server
+journal synchronization are outside this goal; keep this registry and local
+receipts. Browser plugin/browser skill is absent; use the explicitly authorized
+repository Playwright flows on disposable state.
+
+Initial full CI fails in the existing employee-workspace late-load case after
+2,954 reported core cases pass (80 existing optional skips). The warm fixture
+waits only for the new immediate modal shell, closes it while its first read may
+still be pending, then intercepts the next read. This produces either no held
+request or a loading overlay blocking the later Clients click. The original
+isolated diagnostic also fails; neither failed run is accepted or retried away.
+
+Wait for the first read and workspace readiness before closing the warmed modal,
+and assert the real close succeeds. Keep the held second read, real close/Clients
+clicks and final modal-ownership assertion. All four scenarios pass in the
+separate settled-fixture diagnostic. No runtime source or deadline is changed.
+Final local CI, full smoke and exact-SHA publication still gate this portion.
+
+CM-01 next: seven disposable admin probes produce six genuine failures for
+replayed lost save/binding responses, a wrong-user receipt clearing the draft,
+conflicting writes to an unresolved account, and applying an old connection's
+reply. The existing eventual binding-readback case passes. Retain the before
+evidence; implement only after this independent baseline portion is accepted.
+
+CM-00 local acceptance: the four unchanged recovery scenarios pass in 11.800s.
+Full final CI exits zero: 2,954 reported core cases in 1,055.613s, all 32 isolated
+browser groups, 36 release cases, runtime coverage 81.93% and all original gates.
+Existing 80 core/four release environment skips remain; mandatory real browser
+groups execute. Full smoke passes 49/49 on attempt one, first render 602.4ms,
+with zero console/page/request errors. A separate cold-data double-close/reopen
+probe holds the first full read, allows native request coalescing, closes with
+actual buttons, opens Clients and releases the old replies: Clients stays on top
+and Employees remains closed. It passes in 8.933s with no employee writes. This
+retains coverage of cold navigation rather than forcing it into the warm fixture.
+No speedup or runtime change is claimed. Publication and exact-SHA hosted
+acceptance are recorded in the ignored receipt; the continuous goal remains active.
