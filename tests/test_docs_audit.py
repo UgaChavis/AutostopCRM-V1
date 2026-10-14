@@ -2002,6 +2002,88 @@ class DocsAuditTests(unittest.TestCase):
             {issue.code for issue in issues},
         )
 
+    def test_manager_storage_transaction_readback_is_not_a_retired_tool(self) -> None:
+        module = load_docs_audit_module()
+        text = (
+            "Readback `get_manager_run` читает run, выбранные events и external steps в одной\n"
+            "SQLite read transaction; `list_manager_runs(include_events=true)` также сохраняет\n"
+            "единый snapshot. Lazy migration выполняет check-and-ALTER под общим writer lock.\n"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "AGENTS.md").write_text(text, encoding="utf-8")
+            self.assertEqual([], module._manager_instruction_issues(root, ["AGENTS.md"]))
+
+    def test_qualified_storage_readback_references_are_not_public_tools(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        for reference in (
+            "`StoreState.list_manager_runs`",
+            "`StoreState.list_manager_runs(include_events=True)`",
+            "`autostop_manager.storage.StoreState.list_manager_runs(include_events=False)`",
+        ):
+            with self.subTest(reference=reference):
+                self.assertIsNone(pattern.search(module._manager_gateway_scan_text(reference)))
+
+    def test_public_storage_named_tool_calls_remain_retired(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        for text in (
+            "Use list_manager_runs.",
+            "Call `list_manager_runs(include_events=true)`.",
+            "SQLite snapshot: `list_manager_runs(include_events=true)`.",
+            "`Client.list_manager_runs(include_events=True)`",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNotNone(pattern.search(module._manager_gateway_scan_text(text)))
+
+    def test_public_tool_context_keeps_storage_paragraph_calls_visible(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        for marker in ("MCP", "Gateway", "tool-instruction", "tool_instruction", "инструмент"):
+            for call in (
+                "list_manager_runs(include_events=true)",
+                "StoreState.list_manager_runs(include_events=True)",
+            ):
+                with self.subTest(marker=marker, call=call):
+                    text = (
+                        "Readback `get_manager_run` читает run в одной SQLite read transaction; "
+                        f"`{call}` сохраняет snapshot. {marker} uses this call."
+                    )
+                    self.assertIsNotNone(pattern.search(module._manager_gateway_scan_text(text)))
+
+    def test_storage_readback_context_keeps_other_retired_tools_visible(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        storage = (
+            "Readback `get_manager_run` читает run в одной SQLite read transaction; "
+            "`list_manager_runs(include_events=true)` сохраняет snapshot. "
+        )
+        for name in (
+            "start_manager_run",
+            "record_manager_run_event",
+            "finish_manager_run",
+            "list_manager_runs",
+        ):
+            with self.subTest(name=name):
+                self.assertIsNotNone(
+                    pattern.search(module._manager_gateway_scan_text(storage + name))
+                )
+
+    def test_storage_exception_requires_exact_readback_context_and_boolean_argument(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        for text in (
+            "Readback `get_manager_run`: `list_manager_runs(include_events=true)` keeps snapshot.",
+            "SQLite read transaction; `list_manager_runs(include_events=true)` keeps snapshot.",
+            "Readback `get_manager_run`: SQLite read transaction; "
+            '`list_manager_runs(include_events="true")` keeps snapshot.',
+            "Readback `get_manager_run`: SQLite read transaction; "
+            "`list_manager_runs(include_events=true)` returns rows.",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNotNone(pattern.search(module._manager_gateway_scan_text(text)))
+
     def test_load_json_rejects_non_standard_constants(self) -> None:
         module = load_docs_audit_module()
 

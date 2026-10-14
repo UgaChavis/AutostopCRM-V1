@@ -1328,6 +1328,34 @@ print(json.dumps({
     return payload
 
 
+def _manager_gateway_scan_text(text: str) -> str:
+    """Keep public legacy calls visible while recognizing storage readbacks."""
+
+    paragraphs = re.split(r"(\n\s*\n)", text)
+    for index, paragraph in enumerate(paragraphs):
+        if re.search(
+            r"\b(?:MCP|Gateway|tools?(?:[-_ ]instructions?)?|инструмент[а-яё]*)\b",
+            paragraph,
+            re.IGNORECASE,
+        ):
+            continue
+        paragraph = re.sub(
+            r"`(?:autostop_manager\.storage\.)?StoreState\.list_manager_runs"
+            r"(?:\([^`\n]*\))?`",
+            lambda match: match.group().replace("list_manager_runs", "storage_readback", 1),
+            paragraph,
+        )
+        if paragraph.lstrip().startswith("Readback `get_manager_run`"):
+            paragraph = re.sub(
+                r"SQLite\s+read\s+transaction;\s+`list_manager_runs"
+                r"\(include_events=(?:true|false|True|False)\)`[^`]*\bsnapshot\b",
+                lambda match: match.group().replace("list_manager_runs", "storage_readback", 1),
+                paragraph,
+            )
+        paragraphs[index] = paragraph
+    return "".join(paragraphs)
+
+
 def _manager_instruction_issues(
     manager_root: Path,
     instruction_files: tuple[str, ...] | list[str],
@@ -1338,8 +1366,9 @@ def _manager_instruction_issues(
         if path.exists():
             text = _read_text(path)
             issues.extend(scan_forbidden_text(path, text, root=manager_root))
+            gateway_text = _manager_gateway_scan_text(text)
             for code, pattern, detail in MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS:
-                if pattern.search(text):
+                if pattern.search(gateway_text):
                     issues.append(Issue(code, _display_path(path, manager_root), detail))
     return issues
 
