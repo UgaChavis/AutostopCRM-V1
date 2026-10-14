@@ -2070,6 +2070,32 @@ class DocsAuditTests(unittest.TestCase):
                     pattern.search(module._manager_gateway_scan_text(storage + name))
                 )
 
+    def test_public_parent_section_keeps_storage_readback_calls_visible(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        for heading in ("## MCP tools", "## Gateway workflows", "## tool-instructions"):
+            for call in (
+                "list_manager_runs(include_events=true)",
+                "StoreState.list_manager_runs(include_events=True)",
+            ):
+                with self.subTest(heading=heading, call=call):
+                    text = (
+                        f"{heading}\n\n### SQLite reads\n\n"
+                        "Readback `get_manager_run` reads one SQLite read transaction; "
+                        f"`{call}` keeps snapshot. This public endpoint is called by the agent."
+                    )
+                    self.assertIsNotNone(pattern.search(module._manager_gateway_scan_text(text)))
+
+    def test_storage_sibling_section_does_not_inherit_previous_public_section(self) -> None:
+        module = load_docs_audit_module()
+        pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]
+        text = (
+            "# Manager internals\n\n## MCP tools\n\nPublic surface description.\n\n"
+            "## SQLite storage\n\nReadback `get_manager_run` reads one SQLite read transaction; "
+            "`list_manager_runs(include_events=true)` keeps snapshot."
+        )
+        self.assertIsNone(pattern.search(module._manager_gateway_scan_text(text)))
+
     def test_storage_exception_requires_exact_readback_context_and_boolean_argument(self) -> None:
         module = load_docs_audit_module()
         pattern = module.MANAGER_GATEWAY_FORBIDDEN_TEXT_PATTERNS[0][1]

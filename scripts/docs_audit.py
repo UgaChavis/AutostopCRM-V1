@@ -1331,13 +1331,20 @@ print(json.dumps({
 def _manager_gateway_scan_text(text: str) -> str:
     """Keep public legacy calls visible while recognizing storage readbacks."""
 
+    public_context = re.compile(
+        r"\b(?:MCP|Gateway|tools?(?:[-_ ]instructions?)?|инструмент[а-яё]*)\b",
+        re.IGNORECASE,
+    )
+    sections: dict[int, bool] = {}
     paragraphs = re.split(r"(\n\s*\n)", text)
     for index, paragraph in enumerate(paragraphs):
-        if re.search(
-            r"\b(?:MCP|Gateway|tools?(?:[-_ ]instructions?)?|инструмент[а-яё]*)\b",
-            paragraph,
-            re.IGNORECASE,
-        ):
+        for line in paragraph.splitlines():
+            heading = re.match(r"^ {0,3}(#{1,6})[ \t]+(.*)$", line)
+            if heading is not None:
+                depth = len(heading.group(1))
+                sections = {level: marked for level, marked in sections.items() if level < depth}
+                sections[depth] = public_context.search(heading.group(2)) is not None
+        if any(sections.values()) or public_context.search(paragraph):
             continue
         paragraph = re.sub(
             r"`(?:autostop_manager\.storage\.)?StoreState\.list_manager_runs"
