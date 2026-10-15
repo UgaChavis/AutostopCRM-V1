@@ -24,8 +24,7 @@ historical-data repair require their own owner request.
 | IR-004 | Description durability, debt owner 012. Combined-field characterization exposed `Card.from_dict` stripping authored whitespace while JsonStore clones cards for save/load. Preserve string text with the existing cap and legacy non-string coercion; verify disk, readback, restart, no-op and complete audit values. | Accepted at `cd28408`; [quality run 38747033335](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38747033335), attempt 1 |
 | IR-005 | `CardService.update_card` ordered simple-field dispatch, debt owner 012. Method lines 235 to 201; branch complexity 27 to 15. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior, defaults and late-validation isolation. | Accepted at `a22aabf`; [quality run 38755458358](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38755458358), attempt 1 |
 | IR-006 | Prepared payment identity guard, debt owner 012. Replaying duplicate IDs adds a third cash movement: 200 to 300 while order paid total stays 200. Include stored-ID collisions after length truncation and a later whitespace trim; preserve correction guards before reconciliation. | Accepted at `eb20a9a`; [quality run 38764443140](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38764443140), attempt 2 |
-| IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Accepted at `f9fbb6c`; [quality run 38776397620](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38776397620), attempt 2 |
-| IR-008 | Bulk matching of historical duplicate payment IDs, owners 012/019. Require one explicit original cash reference within a repeated-ID group, preserve that row alone, and reject ambiguous requests before ledger changes. Unique-ID link precedence stays unchanged. | Full local CI passed on attempt 1; exact-SHA hosted acceptance pending publication |
+| IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Full local CI passed on attempt 1; exact-SHA hosted acceptance pending publication |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -183,44 +182,15 @@ runtime coverage and all existing smoke/performance gates. All five candidate
 files and the full Git patch match the pre-run hashes. Only this result
 metadata is added after validation; hosted acceptance follows publication.
 
-Hosted IR-007 acceptance passed at `f9fbb6c31ef383c1241baa6a94af78a599ffbd4d`:
-all five jobs, 3,089 unit cases (38 environment skips), 82.18% runtime coverage
-and 36 release cases. Attempt 1 repeated the unchanged settings-wizard native
-Qt exit 139; all seven new cancellation tests had already passed. Failed-job
-retry passed on the same SHA with unchanged source, assertions and thresholds.
-Fifty local covered repetitions of the existing Qt test also pass; the Linux
-native crash's root cause remains open. The primary local checkout is updated.
-
-IR-008 before evidence: eight frozen tests produce 48 failing subcases against
-the accepted IR-007 source. An 18-line change in one function groups previous
-cash references by payment ID before reconciliation. A repeated ID requires
-one explicit reference belonging to exactly one original row; otherwise native
-409 leaves files, retained cache and caller data unchanged. Only the selected
-row may keep its movement. Equal signatures and a missing selected cash row
-cannot borrow another row's link. Unique previous IDs retain original-link
-precedence for omitted, retained and foreign input references. Financial edits,
-replacement with new unique IDs, audit order/correlation, restart/no-op replay,
-both public methods/field aliases and both writers are covered. An injected
-final-save failure verifies a completed cash draft does not leak into retained
-state. All eight tests and 82 neighboring checks pass with unchanged assertions.
-Source AST comparison limits the change to the selected function body. Existing
-size/complexity budgets pass. Existing-reference ownership and financial
-agreement remain the separate next boundary; no runtime speed claim is made.
-Full local CI passed on attempt 1: 3,004 core cases (80 environment skips), all
-38 isolated browser groups, 36 release cases (four environment skips), 82.07%
-runtime coverage and all existing smoke/performance gates. All three candidate
-files and the full Git patch match their pre-run hashes. Only this result
-metadata is added after validation; hosted acceptance follows publication.
-
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Historical duplicate-ID matching, then existing cash-reference ownership | IR-004 through IR-007 accepted; IR-008 under validation |
+| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-006 accepted; IR-007 under validation |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
-| Inventory, finance and payroll | Existing cash-reference ownership and financial agreement | IR-007 accepted; IR-008 under validation; other boundaries pending |
+| Inventory, finance and payroll | One cash cancellation with original journal/guard contracts | IR-007 under validation; other boundaries pending |
 | JsonStore and change feed | One persistence or transaction boundary | Pending |
 | Agent, tests and packaging | One runtime/tool/test/build responsibility | Pending |
