@@ -156,7 +156,7 @@ COMPLEXITY_RATCHETS = {
         "Gateway workflow branch complexity split target", 54, 54, "009"
     ),
     "src/minimal_kanban/services/card_service.py:CardService.update_card": RatchetBudget(
-        "card update branch complexity split target", 27, 27, "012"
+        "card update branch complexity after ordered field dispatch", 27, 15, "012"
     ),
 }
 

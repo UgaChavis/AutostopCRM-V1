@@ -4278,57 +4278,23 @@ class CardService(
                 bundle, actor_name=actor_name, source=source
             )
 
-            changed = False
             changed_fields: list[str] = []
-            if "vehicle" in payload:
-                vehicle_changed = self._update_vehicle(
-                    card, payload.get("vehicle", ""), events, actor_name, source
-                )
-                changed = vehicle_changed or changed
-                if vehicle_changed:
-                    changed_fields.append("vehicle")
-            if "vehicle_profile" in payload:
-                profile_changed = self._update_vehicle_profile(
-                    card, payload.get("vehicle_profile"), events, actor_name, source
-                )
-                changed = profile_changed or changed
-                if profile_changed:
-                    changed_fields.append("vehicle_profile")
-            if "title" in payload:
-                title_changed = self._update_title(
-                    card, payload.get("title"), events, actor_name, source
-                )
-                changed = title_changed or changed
-                if title_changed:
-                    changed_fields.append("title")
-            if "description" in payload:
-                description_changed = self._update_description(
-                    card, payload.get("description", ""), events, actor_name, source
-                )
-                changed = description_changed or changed
-                if description_changed:
-                    changed_fields.append("description")
-            if "deadline" in payload:
-                deadline_changed = self._update_deadline(
-                    card, payload.get("deadline"), events, actor_name, source
-                )
-                changed = deadline_changed or changed
-                if deadline_changed:
-                    changed_fields.append("deadline")
-            if "timer_state" in payload:
-                timer_state_changed = self._update_timer_state(
-                    card, payload.get("timer_state"), events, actor_name, source
-                )
-                changed = timer_state_changed or changed
-                if timer_state_changed:
-                    changed_fields.append("timer_state")
-            if "tags" in payload:
-                tags_changed = self._update_tags(
-                    card, payload.get("tags"), events, actor_name, source
-                )
-                changed = tags_changed or changed
-                if tags_changed:
-                    changed_fields.append("tags")
+            # Profile can replace the vehicle label; timer state overrides the
+            # deadline's implicit start. Keep this order independent of JSON keys.
+            for field_name, default_value, update_field in (
+                ("vehicle", "", self._update_vehicle),
+                ("vehicle_profile", None, self._update_vehicle_profile),
+                ("title", None, self._update_title),
+                ("description", "", self._update_description),
+                ("deadline", None, self._update_deadline),
+                ("timer_state", None, self._update_timer_state),
+                ("tags", None, self._update_tags),
+            ):
+                if field_name in payload and update_field(
+                    card, payload.get(field_name, default_value), events, actor_name, source
+                ):
+                    changed_fields.append(field_name)
+            changed = bool(changed_fields)
             if "repair_order" in payload:
                 repair_order_patch = self._validated_repair_order_patch(payload.get("repair_order"))
                 if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED:
