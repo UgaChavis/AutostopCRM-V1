@@ -20,7 +20,9 @@ historical-data repair require their own owner request.
 | --- | --- | --- |
 | IR-001 | Manager structure fingerprints: service-lock/detached-read ownership; canonical JSON, unknown fields and status-only scope. Remove nested copies from hashing; retain detached projection behavior. Baseline: 29 service/Gateway tests. Six added contract tests pass before changes. Measurements and 1,000 differential cases in the local receipt. | Accepted at `456ceaf`; [quality run 38711453626](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38711453626), attempt 2 |
 | IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | Accepted at `7280cf5`, including guard `47d9cb0` and canvas verification repair; [quality run 38725883478](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38725883478), attempt 1 |
-| IR-003 | Automation control transport capability: missing `socket.AF_UNIX` raises `AttributeError` and HTTP 500 on Windows. Preserve the existing unavailable-controller 503 contract before socket creation; exercise direct client and real HTTP status/control with unchanged saved state. | Focused checks and full local CI passed; publication and exact-SHA hosted acceptance pending |
+| IR-003 | Automation control transport capability: missing `socket.AF_UNIX` raises `AttributeError` and HTTP 500 on Windows. Preserve the existing unavailable-controller 503 contract before socket creation; exercise direct client and real HTTP status/control with unchanged saved state. | Accepted at `6d6d140`; [quality run 38736120465](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38736120465), attempt 1 |
+| IR-004 | Description durability, debt owner 012. Combined-field characterization exposed `Card.from_dict` stripping authored whitespace while JsonStore clones cards for save/load. Preserve string text with the existing cap and legacy non-string coercion; verify disk, readback, restart, no-op and complete audit values. | Full local CI passed; publication and exact-SHA hosted acceptance pending |
+| IR-005 | `CardService.update_card` simple-field dispatch, debt owner 012. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior and late-validation isolation while reducing repeated bookkeeping. Baseline: 235 method lines, branch complexity 27; 25 existing focused contract tests pass. | Queued after IR-004 acceptance; dispatch source is unchanged |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -82,14 +84,36 @@ alive after its 10-second test wait. The same covered card-save group (11 cases)
 and printing module (80 cases) pass independently; both pass in the final full
 run. Original logs and live stacks are retained. Source, assertions, timeouts
 and quality thresholds stayed unchanged during that investigation.
+Hosted acceptance passed at `6d6d14016ea43fccc503f8c3b5b124ebf4dff32c`:
+all five jobs, 3,067 unit cases (38 environment skips), 82.12% runtime coverage
+and 36 release cases. The primary local checkout is fast-forwarded to this
+accepted revision.
+
+IR-004 before evidence: 11 failing subcases cover description loss at create,
+update, raw state, model reconstruction, restart, the length boundary and newline
+normalization. `Card.from_dict` applied generic `normalize_text().strip()` to a
+field whose service/editor/agent contract preserves authored text. A field-only
+normalizer preserves strings and keeps the existing 20,000-character cap and
+legacy non-string conversion. All 52 focused and 104 neighboring tests pass,
+including both writer modes, draft rollback and full audit hydration. The audit
+test now requires the complete original value instead of `original.strip()`.
+Across 1,000 deterministic model comparisons, only description text differs;
+all other stored fields, schema and caller payloads match. No runtime speed
+claim is made. The original ordered-dispatch cleanup remains IR-005.
+The real-service probe also confirms that an identical repeated description
+previously reported a change and rewrote state bytes; the candidate preserves
+the text and returns a no-op. Full local CI passed on attempt 1: 2,982 core cases
+(80 environment skips), all 38 isolated browser groups, 36 release cases (four
+environment skips), 82.06% runtime coverage and all existing gates. All five
+candidate files matched their pre-run hashes after validation.
 
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | One snapshot projection, then one card/client/repair operation | Pending |
-| HTTP API and MCP | Windows automation client without AF_UNIX, then route/tool families | IR-003 in progress |
+| Read models and domain services | Description durability, then ordered simple-field updates | IR-004 fix under validation; dispatch cleanup queued as IR-005 |
+| HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
 | Inventory, finance and payroll | One operation/calculation with unchanged financial rules | Pending |

@@ -412,6 +412,13 @@ def normalize_text(value, *, default: str = "", limit: int | None = None) -> str
     return text
 
 
+def _normalize_card_description(value: Any) -> str:
+    """Keep authored Markdown whitespace and tolerate legacy non-text values."""
+    if isinstance(value, str):
+        return str(value)[:CARD_DESCRIPTION_LIMIT]
+    return normalize_text(value, limit=CARD_DESCRIPTION_LIMIT)
+
+
 def normalize_entity_id(value) -> str:
     return normalize_text(value, default="", limit=128) or str(uuid.uuid4())
 
@@ -2163,9 +2170,7 @@ class Card:
             title=normalize_text(
                 payload.get("title"), default="Без названия", limit=CARD_TITLE_LIMIT
             ),
-            description=normalize_text(
-                payload.get("description"), default="", limit=CARD_DESCRIPTION_LIMIT
-            ),
+            description=_normalize_card_description(payload.get("description")),
             board_summary=normalize_text(
                 payload.get("board_summary"), default="", limit=CARD_BOARD_SUMMARY_LIMIT
             ),

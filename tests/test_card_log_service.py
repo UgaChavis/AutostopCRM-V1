@@ -271,7 +271,7 @@ class CardLogServiceTests(CardServiceCase):
             {"card_id": card_id, "limit": 1, "include_full_details": True}
         )
         full_entry = full_log["entries"][0]
-        self.assertEqual(full_entry["details"]["before"], original_description.strip())
+        self.assertEqual(full_entry["details"]["before"], original_description)
         self.assertEqual(full_entry["details"]["after"], updated_description)
         self.assertEqual(full_log["meta"]["include_full_details"], True)
 
