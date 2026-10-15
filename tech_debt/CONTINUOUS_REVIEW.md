@@ -19,7 +19,7 @@ historical-data repair require their own owner request.
 | ID | Scope and evidence | State |
 | --- | --- | --- |
 | IR-001 | Manager structure fingerprints: service-lock/detached-read ownership; canonical JSON, unknown fields and status-only scope. Remove nested copies from hashing; retain detached projection behavior. Baseline: 29 service/Gateway tests. Six added contract tests pass before changes. Measurements and 1,000 differential cases in the local receipt. | Accepted at `456ceaf`; [quality run 38711453626](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38711453626), attempt 2 |
-| IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | 43 focused tests, 28 status-boundary probes and full local CI passed; exact-SHA hosted acceptance pending |
+| IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | Guard source `47d9cb0`; canvas verification repair and repeated full local CI passed; hosted follow-up pending |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -48,13 +48,33 @@ isolated browser groups, 36 release cases (four environment skips), 81.98%
 runtime coverage, core smoke and existing performance gates. The saved patch
 was unchanged throughout validation; hosted acceptance follows publication.
 
+IR-002 hosted verification exposed a pre-existing canvas test setup race:
+`test_zoom_keys_do_not_intercept_editor_inputs` captured a selected view before
+the mode toggle's queued animation-frame `fit()` ran. Holding and releasing
+that callback reproduces the same 6.6-unit translation with no keypress.
+Wait for the scheduled frame before selecting the node; retain the exact
+transform assertion and additionally verify typed text and unchanged saved
+graph. All 11 canvas tests pass locally, including mobile controls. Browser
+plugin not available; the repository Playwright flow uses disposable state.
+Diagnostics and screenshots remain outside Git. Repeated full local CI passed:
+2,972 core cases (81 environment skips), all 38 browser groups, 36 release cases
+(four environment skips), 81.98% runtime coverage and all existing gates.
+The backend guard and verification patch stayed unchanged during that run.
+Runtime UI is unchanged; exact-SHA hosted acceptance follows this test-only
+verification repair.
+
+Observed next availability issue: Windows Python lacks `socket.AF_UNIX`, and
+the optional automation-status client consequently returns HTTP 500 on the
+disposable stand. This known console error is separate from the keyboard flow
+and remains queued for its own bounded repair after IR-002 acceptance.
+
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | Status validation and error side effects, then one graph mutation | IR-001 accepted; IR-002 in progress |
 | Read models and domain services | One snapshot projection, then one card/client/repair operation | Pending |
-| HTTP API and MCP | One route/tool family, schema, failures and readback | Pending |
+| HTTP API and MCP | Windows automation client without AF_UNIX, then route/tool families | Confirmed availability issue queued |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
 | Inventory, finance and payroll | One operation/calculation with unchanged financial rules | Pending |

@@ -160,14 +160,20 @@ class ManagerCanvasNavigationBrowserTests(unittest.TestCase):
 
     def test_zoom_keys_do_not_intercept_editor_inputs(self):
         self.automotive_fixture()
+        before = self.read()
         self.page.locator("#modeToggle").click()
+        # The mode change queues fit(); finish that frame before selecting a node.
+        self.page.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
         self.page.locator("#jump").select_option("element:E1")
         fitted = self.stage()
-        self.page.locator('[name="title"]').focus()
+        title = self.page.locator('[name="title"]')
+        title.focus()
         self.page.keyboard.press("+")
         self.page.keyboard.press("-")
         self.page.keyboard.press("0")
         self.assertEqual(self.stage(), fitted)
+        self.assertIn("+-0", title.input_value())
+        self.assertEqual(self.read(), before)
         self.assertEqual(self.errors, [])
 
     def test_initial_read_failure_is_visible_in_clean_view_and_recoverable(self):
