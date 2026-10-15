@@ -6608,6 +6608,15 @@ class CardService(
             previous_order,
             order,
         )
+        # Prepared IDs include truncation and subsequent model normalization.
+        # Preserve correction guards before checking identity and touching cash.
+        payment_ids = [payment.id for payment in order.payments]
+        if len(payment_ids) != len(set(payment_ids)):
+            self._fail(
+                "validation_error",
+                "Поле repair_order.payments содержит повторяющиеся идентификаторы оплат.",
+                details={"field": "repair_order.payments"},
+            )
         if cashboxes is not None and cash_transactions is not None:
             order = self._sync_repair_order_payment_transactions(
                 card,

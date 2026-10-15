@@ -22,7 +22,8 @@ historical-data repair require their own owner request.
 | IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | Accepted at `7280cf5`, including guard `47d9cb0` and canvas verification repair; [quality run 38725883478](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38725883478), attempt 1 |
 | IR-003 | Automation control transport capability: missing `socket.AF_UNIX` raises `AttributeError` and HTTP 500 on Windows. Preserve the existing unavailable-controller 503 contract before socket creation; exercise direct client and real HTTP status/control with unchanged saved state. | Accepted at `6d6d140`; [quality run 38736120465](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38736120465), attempt 1 |
 | IR-004 | Description durability, debt owner 012. Combined-field characterization exposed `Card.from_dict` stripping authored whitespace while JsonStore clones cards for save/load. Preserve string text with the existing cap and legacy non-string coercion; verify disk, readback, restart, no-op and complete audit values. | Accepted at `cd28408`; [quality run 38747033335](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38747033335), attempt 1 |
-| IR-005 | `CardService.update_card` ordered simple-field dispatch, debt owner 012. Method lines 235 to 201; branch complexity 27 to 15. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior, defaults and late-validation isolation. | Full local CI passed on attempt 1; GitHub publication and hosted acceptance pending |
+| IR-005 | `CardService.update_card` ordered simple-field dispatch, debt owner 012. Method lines 235 to 201; branch complexity 27 to 15. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior, defaults and late-validation isolation. | Accepted at `a22aabf`; [quality run 38755458358](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38755458358), attempt 1 |
+| IR-006 | Prepared payment identity guard, debt owner 012. Replaying duplicate IDs adds a third cash movement: 200 to 300 while order paid total stays 200. Include stored-ID collisions after length truncation and a later whitespace trim; preserve correction guards before reconciliation. | Full local CI passed on attempt 1; GitHub publication and hosted acceptance pending |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -124,13 +125,38 @@ Full local CI passed on attempt 1: 2,982 core cases (80 environment skips), all
 runtime coverage and all existing smoke/performance gates. All three candidate
 files and the full Git patch match their pre-run hashes. Only this result
 metadata is added after validation.
+Hosted acceptance passed at `a22aabf981c0690a0d90af775ed581f9cfc65b2e`:
+all five jobs, 3,075 unit cases (38 environment skips), 82.15% runtime coverage
+and 36 release cases. Primary local checkout advanced to the accepted revision.
+
+IR-006 synthetic reconnaissance also reproduces a collision missed by checking
+only the first normalized ID: an 80-character ID ending in a boundary space
+becomes the same stored 79-character ID as another payment. Across 1,000 model
+vectors, trimming the first-pass ID matches the stable next-round-trip ID.
+No historical records or deployed financial data are changed by this review.
+The final seven-test suite produces 52 expected failing subcases against the
+accepted baseline. All pass with a nine-line guard on prepared payment IDs in
+`_update_repair_order`, after existing correction/number guards and before cash
+or payroll reconciliation. The protected correction error remains
+`repair_order_payment_locked`. Both update methods, field aliases and writer
+modes preserve files, retained cache and caller payloads on rejection. Unique
+IDs keep their cash links and no-op replay; IDs remain local to each order.
+Malformed stored IDs remain readable, while unrelated order/row edits stop
+before an ambiguous reconciliation. Fifty-two neighboring payment, correction,
+cash-revision, closing, payroll and MCP checks pass. The standalone HTTP fixture
+keeps existing test-module budgets unchanged. No runtime speed claim is made.
+Full local CI passed on attempt 1: 2,989 core cases (80 environment skips), all
+38 isolated browser groups, 36 release cases (four environment skips), 82.04%
+runtime coverage and all existing smoke/performance gates. All three candidate
+files and the full Git patch match their pre-run hashes. Only this result
+metadata is added after validation.
 
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Payment identities, then one remaining card/repair responsibility | IR-004 accepted; IR-005 awaiting hosted quality |
+| Read models and domain services | Cash cancellation selection and reconciliation | IR-004 and IR-005 accepted; IR-006 awaiting hosted quality |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
