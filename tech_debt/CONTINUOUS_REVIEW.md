@@ -19,7 +19,8 @@ historical-data repair require their own owner request.
 | ID | Scope and evidence | State |
 | --- | --- | --- |
 | IR-001 | Manager structure fingerprints: service-lock/detached-read ownership; canonical JSON, unknown fields and status-only scope. Remove nested copies from hashing; retain detached projection behavior. Baseline: 29 service/Gateway tests. Six added contract tests pass before changes. Measurements and 1,000 differential cases in the local receipt. | Accepted at `456ceaf`; [quality run 38711453626](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38711453626), attempt 2 |
-| IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | Guard source `47d9cb0`; canvas verification repair and repeated full local CI passed; hosted follow-up pending |
+| IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | Accepted at `7280cf5`, including guard `47d9cb0` and canvas verification repair; [quality run 38725883478](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38725883478), attempt 1 |
+| IR-003 | Automation control transport capability: missing `socket.AF_UNIX` raises `AttributeError` and HTTP 500 on Windows. Preserve the existing unavailable-controller 503 contract before socket creation; exercise direct client and real HTTP status/control with unchanged saved state. | Focused checks and full local CI passed; publication and exact-SHA hosted acceptance pending |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -60,21 +61,35 @@ Diagnostics and screenshots remain outside Git. Repeated full local CI passed:
 2,972 core cases (81 environment skips), all 38 browser groups, 36 release cases
 (four environment skips), 81.98% runtime coverage and all existing gates.
 The backend guard and verification patch stayed unchanged during that run.
-Runtime UI is unchanged; exact-SHA hosted acceptance follows this test-only
-verification repair.
+Runtime UI is unchanged. Exact-SHA hosted acceptance passed at
+`7280cf57f2a3ab17627d341cd5835ae177109e11`: all five jobs, 3,065 unit cases
+(38 environment skips), 82.10% runtime coverage and 36 release cases.
 
-Observed next availability issue: Windows Python lacks `socket.AF_UNIX`, and
-the optional automation-status client consequently returns HTTP 500 on the
-disposable stand. This known console error is separate from the keyboard flow
-and remains queued for its own bounded repair after IR-002 acceptance.
+IR-003 reproduces the observed Windows availability issue with two direct-client
+errors and HTTP 500 from both status and control routes. Check the socket family
+before opening a connection and reuse the existing OSError-to-503 translation.
+Only the two positive Unix-socket tests retain a platform skip; availability
+regressions now run on Windows too. Both routes preserve state-file bytes and
+open no socket when the platform lacks support. Focused local checks: 14 cases,
+six environment skips (two Unix round trips and four POSIX release checks).
+Manager still owns execution and schedules; absence of its controller remains
+unavailable, with no replacement transport or simulated healthy status.
+Full local CI passed: 2,974 core cases (80 environment skips), all 38 isolated
+browser groups, 36 release cases (four environment skips), 82.01% runtime
+coverage and all existing smoke/performance gates. Earlier attempts exposed a
+Playwright driver exit followed by a sync-dispatch loop, and a PDF worker still
+alive after its 10-second test wait. The same covered card-save group (11 cases)
+and printing module (80 cases) pass independently; both pass in the final full
+run. Original logs and live stacks are retained. Source, assertions, timeouts
+and quality thresholds stayed unchanged during that investigation.
 
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
-| Manager structure | Status validation and error side effects, then one graph mutation | IR-001 accepted; IR-002 in progress |
+| Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
 | Read models and domain services | One snapshot projection, then one card/client/repair operation | Pending |
-| HTTP API and MCP | Windows automation client without AF_UNIX, then route/tool families | Confirmed availability issue queued |
+| HTTP API and MCP | Windows automation client without AF_UNIX, then route/tool families | IR-003 in progress |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
 | Inventory, finance and payroll | One operation/calculation with unchanged financial rules | Pending |

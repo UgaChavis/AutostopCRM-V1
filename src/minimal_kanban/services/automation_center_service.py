@@ -175,7 +175,10 @@ class AutomationControlClient:
                 status_code=400,
             )
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            address_family = getattr(socket, "AF_UNIX", None)
+            if address_family is None:
+                raise OSError("Unix-domain sockets are unavailable")
+            with socket.socket(address_family, socket.SOCK_STREAM) as connection:
                 connection.settimeout(self.timeout_seconds)
                 connection.connect(str(self.socket_path))
                 connection.sendall(encoded)

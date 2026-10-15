@@ -230,8 +230,8 @@ class AutomationCenterServiceTests(unittest.TestCase):
         self.assertEqual("blocked", control.maintenance_behavior)
 
 
-@unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
 class AutomationControlClientTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
     def test_bounded_protocol_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "control.sock"
@@ -269,6 +269,7 @@ class AutomationControlClientTests(unittest.TestCase):
         self.assertEqual("crm_operator", received[0]["actor"]["kind"])
         self.assertNotIn("source", received[0]["actor"])
 
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
     def test_command_metadata_is_only_sent_in_protocol_envelope(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "control.sock"
@@ -326,6 +327,19 @@ class AutomationControlClientTests(unittest.TestCase):
         self.assertEqual("automation_control_unavailable", error.exception.code)
         self.assertEqual(503, error.exception.status_code)
 
+    def test_missing_unix_socket_support_is_safe_unavailable_error(self) -> None:
+        client = AutomationControlClient()
+        with patch(
+            "minimal_kanban.services.automation_center_service.socket", spec=socket
+        ) as transport:
+            del transport.AF_UNIX
+            with self.assertRaises(AutomationControlError) as error:
+                client.request("status", {}, actor={"id": "operator", "is_admin": False})
+            transport.socket.assert_not_called()
+
+        self.assertEqual("automation_control_unavailable", error.exception.code)
+        self.assertEqual(503, error.exception.status_code)
+
 
 class AutomationCenterHttpAuthTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -357,11 +371,12 @@ class AutomationCenterHttpAuthTests(unittest.TestCase):
                 "templates": [],
             }
         )
+        self.automation_service = AutomationCenterService(self.client)  # type: ignore[arg-type]
         self.server = ApiServer(
             card_service,
             logger,
             operator_service=self.operator_service,
-            automation_center_service=AutomationCenterService(self.client),  # type: ignore[arg-type]
+            automation_center_service=self.automation_service,
             bearer_token="automation-test-secret",
             start_port=0,
         )
@@ -399,6 +414,43 @@ class AutomationCenterHttpAuthTests(unittest.TestCase):
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def test_missing_unix_socket_support_returns_503_without_changing_state(self) -> None:
+        session = self.operator_service.login({"username": "admin", "password": "admin"})[
+            "session"
+        ]["token"]
+        state_path = Path(self.temp_dir.name) / "state.json"
+        before = state_path.read_bytes()
+        with (
+            patch.object(self.automation_service, "_client", AutomationControlClient()),
+            patch(
+                "minimal_kanban.services.automation_center_service.socket", spec=socket
+            ) as transport,
+        ):
+            del transport.AF_UNIX
+            for route, method, payload in (
+                ("status", "GET", None),
+                (
+                    "control",
+                    "POST",
+                    {
+                        "operation": "set_enabled",
+                        "command_id": "command-no-unix-1",
+                        "job_id": "crm-digest",
+                        "enabled": False,
+                    },
+                ),
+            ):
+                with self.subTest(route=route):
+                    status, result = self.request(
+                        f"/api/automation_center/{route}", payload, method=method, session=session
+                    )
+                    self.assertEqual(503, status)
+                    self.assertEqual("automation_control_unavailable", result["error"]["code"])
+            transport.socket.assert_not_called()
+
+        self.assertEqual(before, state_path.read_bytes())
+        self.assertEqual([], self.client.calls)
 
     def test_operator_can_view_but_only_admin_can_control(self) -> None:
         admin_session = self.operator_service.login({"username": "admin", "password": "admin"})[
