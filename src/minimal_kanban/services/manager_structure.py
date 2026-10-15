@@ -635,7 +635,7 @@ class ManagerStructureService:
             or not 8 <= len(key) <= 128
         ):
             _bad("Нужны актуальная версия и ключ повторного запроса.")
-        if operation not in {
+        if not isinstance(operation, str) or operation not in {
             "upsert_element",
             "upsert_relation",
             "layout_element",

@@ -18,7 +18,8 @@ historical-data repair require their own owner request.
 
 | ID | Scope and evidence | State |
 | --- | --- | --- |
-| IR-001 | Manager structure fingerprints: service-lock/detached-read ownership; canonical JSON, unknown fields and status-only scope. Remove nested copies from hashing; retain detached projection behavior. Baseline: 29 service/Gateway tests. Six added contract tests pass before changes. Measurements and 1,000 differential cases in the local receipt. | Local CI passed; exact-SHA hosted acceptance pending |
+| IR-001 | Manager structure fingerprints: service-lock/detached-read ownership; canonical JSON, unknown fields and status-only scope. Remove nested copies from hashing; retain detached projection behavior. Baseline: 29 service/Gateway tests. Six added contract tests pass before changes. Measurements and 1,000 differential cases in the local receipt. | Accepted at `456ceaf`; [quality run 38711453626](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38711453626), attempt 2 |
+| IR-002 | Mutation operation validation: arrays/objects returned HTTP 500 from set membership instead of domain 422. Check the string type before the allow-list. Assert saved bytes, untouched request keys, existing Unicode 400 errors, and the legacy UTF-8 receipt digest across restart. | 43 focused tests, 28 status-boundary probes and full local CI passed; exact-SHA hosted acceptance pending |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -31,14 +32,27 @@ All 35 focused service/Gateway/digest tests pass; public JSON and storage format
 are unchanged. Full local CI passed: 2,969 reported core cases (81 environment
 skips, including the POSIX-only class), all 38 isolated browser groups, 36 release
 cases (four environment skips), 81.98% runtime coverage, core browser smoke and
-all existing performance gates. The exact-SHA hosted result belongs in the
-publication receipt after the commit is created.
+all existing performance gates. Hosted acceptance: all five jobs pass for
+`456ceaf86d67f194499a07ba3b7d5889cb2b5b17`; 3,062 unit cases (38 environment
+skips), 82.10% runtime coverage and 36 release cases. Attempt 1 had two
+15-second timeouts in unchanged PowerShell completion probes; failed-job retry
+passed on the same SHA. Both attempts remain in the local receipt.
+
+IR-002 before evidence: four direct-service type errors and two real-HTTP 500
+responses reproduce the operation-type bug. The exploratory Unicode hypothesis
+was narrowed after wire testing: invalid surrogate text already returns native
+HTTP 400 `validation_error`, so that behavior and valid UTF-8 receipt hashes are
+preserved. No financial, authorization or persistence-format rule changes.
+Full local CI passed: 2,972 reported core cases (81 environment skips), all 38
+isolated browser groups, 36 release cases (four environment skips), 81.98%
+runtime coverage, core smoke and existing performance gates. The saved patch
+was unchanged throughout validation; hosted acceptance follows publication.
 
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
-| Manager structure | Status validation and error side effects, then one graph mutation | IR-001 in progress |
+| Manager structure | Status validation and error side effects, then one graph mutation | IR-001 accepted; IR-002 in progress |
 | Read models and domain services | One snapshot projection, then one card/client/repair operation | Pending |
 | HTTP API and MCP | One route/tool family, schema, failures and readback | Pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |

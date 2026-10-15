@@ -116,6 +116,63 @@ class ManagerToolStatusTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("demo.inspect", self.service.read()["tool_statuses"])
 
+    def test_non_string_operations_reject_without_changing_saved_bytes(self):
+        self.service.apply(self.request(key="validation-baseline-001"))
+        saved = self.path.read_bytes()
+        cases = (
+            None,
+            False,
+            True,
+            0,
+            1,
+            1.5,
+            [],
+            {},
+            ["set_tool_status"],
+            {"name": "set_tool_status"},
+        )
+        for index, operation in enumerate(cases):
+            with self.subTest(index=index):
+                payload = self.request(key=f"validation-input-{index:03}", operation=operation)
+                try:
+                    with self.assertRaises(ServiceError) as rejected:
+                        self.service.apply(payload)
+                    self.assertEqual(rejected.exception.code, "manager_structure_invalid")
+                    self.assertEqual(rejected.exception.status_code, 422)
+                finally:
+                    self.assertEqual(self.path.read_bytes(), saved)
+                    self.assertEqual(list(self.path.parent.glob("manager-structure-*.tmp")), [])
+
+    def test_unicode_mutation_keeps_legacy_receipt_digest_and_replays_after_restart(self):
+        key = "повтор-🚗-001"
+        payload = self.request(
+            key=key,
+            operation="upsert_element",
+            element={
+                "id": "M1",
+                "kind": "module",
+                "title": "Ремонт 🚗",
+                "x": 10,
+                "y": 10,
+                "width": 100,
+                "height": 80,
+            },
+        )
+        del payload["tool_status"]
+        accepted = self.service.apply(payload)
+        saved = self.path.read_bytes()
+        receipt = json.loads(saved)["receipts"][key]
+        self.assertEqual(
+            receipt["digest"],
+            "6aebaf64b4f993cb5556bbf18d9ccd915cf8a4856d4aeb69caa4ecb37c31712c",
+        )
+        restarted = ManagerStructureService(self.path)
+        replay = restarted.apply(payload)
+        self.assertEqual(replay["version"], accepted["version"])
+        self.assertTrue(replay["deduplicated"])
+        self.assertEqual(self.path.read_bytes(), saved)
+        self.assertEqual(restarted.read()["elements"][0]["title"], "Ремонт 🚗")
+
     def test_status_preserved_through_graph_edits_and_portable_export(self):
         self.service.apply(self.request())
         status = copy.deepcopy(self.service.read()["tool_statuses"])

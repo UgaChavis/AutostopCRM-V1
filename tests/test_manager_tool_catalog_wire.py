@@ -194,3 +194,45 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
         for _ in range(7):
             actual = actual["self"]
         self.assertIsInstance(actual, str)
+
+    def test_invalid_mutation_inputs_keep_native_errors_without_consuming_the_request_key(self):
+        with patch.dict("os.environ", {"AUTOSTOP_MANAGER_STRUCTURE_OWNER_LOGIN": "ADMIN"}):
+            status, before = self.request("/api/manager_structure", headers=self.admin)
+            self.assertEqual(status, 200)
+            payload = {
+                "operation": "set_tool_status",
+                "expected_version": before["data"]["version"],
+                "idempotency_key": "wire-input-validation-001",
+                "tool_status": {"operation_id": "manager.decode_wmi_vpic", "state": "working"},
+            }
+            for fields, expected_status, expected_code in (
+                ({"operation": []}, 422, "manager_structure_invalid"),
+                ({"operation": {}}, 422, "manager_structure_invalid"),
+                ({"operation": "unrecognized"}, 422, "manager_structure_invalid"),
+                (
+                    {"tool_status": {"operation_id": "manager.decode_wmi_vpic", "state": "\ud800"}},
+                    400,
+                    "validation_error",
+                ),
+                ({"idempotency_key": "wire-key-\udfff"}, 400, "validation_error"),
+            ):
+                with self.subTest(fields=fields):
+                    status, response = self.request(
+                        "/api/manager_structure/apply", "POST", {**payload, **fields}, self.admin
+                    )
+                    self.assertEqual(status, expected_status)
+                    self.assertEqual(response["error"]["code"], expected_code)
+                    status, after = self.request("/api/manager_structure", headers=self.admin)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(after["data"], before["data"])
+            status, accepted = self.request(
+                "/api/manager_structure/apply", "POST", payload, self.admin
+            )
+            self.assertEqual(status, 200)
+            self.assertFalse(accepted["data"]["deduplicated"])
+            status, replay = self.request(
+                "/api/manager_structure/apply", "POST", payload, self.admin
+            )
+            self.assertEqual(status, 200)
+            self.assertTrue(replay["data"]["deduplicated"])
+            self.assertEqual(replay["data"]["version"], accepted["data"]["version"])
