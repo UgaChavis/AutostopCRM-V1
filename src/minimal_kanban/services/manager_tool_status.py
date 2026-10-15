@@ -23,17 +23,18 @@ def durable_projection(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def durable_digest(data: dict[str, Any]) -> str:
+    """Hash a stable read snapshot without copying its nested JSON payloads."""
+    scope = {key: value for key, value in data.items() if key not in COMPUTED_FIELDS}
     return hashlib.sha256(
-        json.dumps(
-            durable_projection(data), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode()
+        json.dumps(scope, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
 
 
 def status_scope_digest(data: dict[str, Any], ident: str) -> str:
-    scope = durable_projection(data)
+    scope = dict(data)
     scope.pop("version", None)
-    scope.setdefault("tool_statuses", {}).pop(ident, None)
+    scope["tool_statuses"] = dict(data.get("tool_statuses", {}))
+    scope["tool_statuses"].pop(ident, None)
     return durable_digest(scope)
 
 
