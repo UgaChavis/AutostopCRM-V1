@@ -6608,10 +6608,10 @@ class CardService(
             previous_order,
             order,
         )
-        # Prepared IDs include truncation and subsequent model normalization.
-        # Preserve correction guards before checking identity and touching cash.
+        # Native cash cancellation preserves the IDs of untouched legacy rows.
+        # Ordinary writes require prepared IDs to be unique.
         payment_ids = [payment.id for payment in order.payments]
-        if len(payment_ids) != len(set(payment_ids)):
+        if operation != "cash_cancellation" and len(payment_ids) != len(set(payment_ids)):
             self._fail(
                 "validation_error",
                 "Поле repair_order.payments содержит повторяющиеся идентификаторы оплат.",
@@ -7168,11 +7168,19 @@ class CardService(
         requested_id = normalize_text(transaction_id, default="", limit=128)
         if not requested_id:
             return None, None
+        match: tuple[Card | None, RepairOrderPayment | None] = (None, None)
         for card in cards:
             for payment in card.repair_order.payments:
                 if payment.cash_transaction_id == requested_id:
-                    return card, payment
-        return None, None
+                    if match[0] is not None:
+                        self._fail(
+                            "repair_order_payment_cash_link_ambiguous",
+                            "Кассовое движение связано с несколькими оплатами. Требуется сверка.",
+                            status_code=409,
+                            details={"transaction_id": requested_id},
+                        )
+                    match = card, payment
+        return match
 
     def _refresh_cashbox_updated_at(
         self, cashbox: CashBox, transactions: list[CashTransaction]

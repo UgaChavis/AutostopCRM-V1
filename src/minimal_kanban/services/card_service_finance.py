@@ -1303,32 +1303,50 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 "cashbox_id": cashbox.id,
                 "repair_order_card_id": linked_card.id if linked_card is not None else None,
             }
-            if linked_card is not None and linked_payment is not None:
-                next_order_payload = linked_card.repair_order.to_storage_dict()
-                next_order_payload["payments"] = [
-                    payment.to_storage_dict()
-                    for payment in linked_card.repair_order.payments
-                    if payment.id != linked_payment.id
-                ]
-                if not next_order_payload["payments"]:
-                    next_order_payload["prepayment"] = ""
-                candidate_order = RepairOrder.from_dict(next_order_payload)
-                if (
-                    linked_card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
-                    and not candidate_order.is_paid()
-                ):
-                    next_order_payload["status"] = REPAIR_ORDER_STATUS_OPEN
-                    next_order_payload["closed_at"] = ""
-                changed = self._update_repair_order(
+            linked = linked_card is not None and linked_payment is not None
+            correlation_id = f"repair-order-update:{uuid.uuid4()}" if linked else ""
+            details = {
+                "cash_transaction_id": latest_transaction.id,
+                "cashbox_id": latest_transaction.cashbox_id,
+                "amount_minor": latest_transaction.amount_minor,
+                "amount_display": format_money_minor(latest_transaction.amount_minor),
+            }
+            if linked:
+                details.update(
+                    repair_order_number=linked_card.repair_order.number
+                    or self._next_repair_order_number(cards, exclude_card_id=linked_card.id),
+                    correlation_id=correlation_id,
+                )
+            else:
+                details.update(
+                    cashbox_name=cashbox.name,
+                    direction=latest_transaction.direction,
+                    note=latest_transaction.note,
+                )
+            transactions[:] = [item for item in transactions if item.id != latest_transaction.id]
+            self._append_event(
+                events,
+                actor_name=actor_name,
+                source=source,
+                action="cash_transaction_deleted",
+                message=(
+                    f"{actor_name} удалил движение по кассе"
+                    if linked
+                    else f"{actor_name} отменил последнее движение по кассе"
+                ),
+                card_id=linked_card.id if linked else None,
+                details=details,
+            )
+            if linked:
+                changed = self._cancel_repair_order_cash_payment(
                     linked_card,
                     cards,
-                    next_order_payload,
+                    latest_transaction,
                     events,
                     actor_name,
                     source,
-                    cashboxes=cashboxes,
-                    cash_transactions=transactions,
                     settings=settings,
+                    digest_correlation_id=correlation_id,
                 )
                 if not changed:
                     self._fail(
@@ -1338,27 +1356,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     )
                 self._touch_card(linked_card, actor_name)
                 self._refresh_card_ai_fingerprint_if_agent_changed(linked_card, actor_name, source)
-            else:
-                transactions[:] = [
-                    item for item in transactions if item.id != latest_transaction.id
-                ]
-                self._append_event(
-                    events,
-                    actor_name=actor_name,
-                    source=source,
-                    action="cash_transaction_deleted",
-                    message=f"{actor_name} отменил последнее движение по кассе",
-                    card_id=None,
-                    details={
-                        "cash_transaction_id": latest_transaction.id,
-                        "cashbox_id": latest_transaction.cashbox_id,
-                        "cashbox_name": cashbox.name,
-                        "direction": latest_transaction.direction,
-                        "amount_minor": latest_transaction.amount_minor,
-                        "amount_display": format_money_minor(latest_transaction.amount_minor),
-                        "note": latest_transaction.note,
-                    },
-                )
 
             self._refresh_cashbox_updated_at(cashbox, transactions)
             self._save_bundle(

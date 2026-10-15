@@ -23,7 +23,8 @@ historical-data repair require their own owner request.
 | IR-003 | Automation control transport capability: missing `socket.AF_UNIX` raises `AttributeError` and HTTP 500 on Windows. Preserve the existing unavailable-controller 503 contract before socket creation; exercise direct client and real HTTP status/control with unchanged saved state. | Accepted at `6d6d140`; [quality run 38736120465](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38736120465), attempt 1 |
 | IR-004 | Description durability, debt owner 012. Combined-field characterization exposed `Card.from_dict` stripping authored whitespace while JsonStore clones cards for save/load. Preserve string text with the existing cap and legacy non-string coercion; verify disk, readback, restart, no-op and complete audit values. | Accepted at `cd28408`; [quality run 38747033335](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38747033335), attempt 1 |
 | IR-005 | `CardService.update_card` ordered simple-field dispatch, debt owner 012. Method lines 235 to 201; branch complexity 27 to 15. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior, defaults and late-validation isolation. | Accepted at `a22aabf`; [quality run 38755458358](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38755458358), attempt 1 |
-| IR-006 | Prepared payment identity guard, debt owner 012. Replaying duplicate IDs adds a third cash movement: 200 to 300 while order paid total stays 200. Include stored-ID collisions after length truncation and a later whitespace trim; preserve correction guards before reconciliation. | Full local CI passed on attempt 1; GitHub publication and hosted acceptance pending |
+| IR-006 | Prepared payment identity guard, debt owner 012. Replaying duplicate IDs adds a third cash movement: 200 to 300 while order paid total stays 200. Include stored-ID collisions after length truncation and a later whitespace trim; preserve correction guards before reconciliation. | Accepted at `eb20a9a`; [quality run 38764443140](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38764443140), attempt 2 |
+| IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Full local CI passed on attempt 1; exact-SHA hosted acceptance pending publication |
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -125,6 +126,7 @@ Full local CI passed on attempt 1: 2,982 core cases (80 environment skips), all
 runtime coverage and all existing smoke/performance gates. All three candidate
 files and the full Git patch match their pre-run hashes. Only this result
 metadata is added after validation.
+
 Hosted acceptance passed at `a22aabf981c0690a0d90af775ed581f9cfc65b2e`:
 all five jobs, 3,075 unit cases (38 environment skips), 82.15% runtime coverage
 and 36 release cases. Primary local checkout advanced to the accepted revision.
@@ -151,15 +153,44 @@ runtime coverage and all existing smoke/performance gates. All three candidate
 files and the full Git patch match their pre-run hashes. Only this result
 metadata is added after validation.
 
+Hosted IR-006 acceptance passed at `eb20a9a8ad5c4fbb99addba89e01d6c49328dc06`:
+all five jobs, 3,082 unit cases (38 environment skips), 82.16% runtime coverage
+and 36 release cases. Attempt 1 terminated with native Qt exit 139 during an
+unchanged settings-wizard test, after all seven payment regressions passed.
+The isolated test and 32-case settings UI module pass locally under coverage;
+failed-job retry on the same SHA passed. Source, tests, timeouts and thresholds
+stayed unchanged. The native crash's root cause remains unproven. Primary local
+checkout advanced to the accepted revision.
+
+IR-007 before evidence: 24 failing subcases on the accepted baseline cover
+excess payment deletion and accepted ambiguous cash links. Seven tests now pass
+without changing their frozen assertions. Shared unlinking selects by the exact
+cash-transaction reference and leaves other ledger rows intact; a single cash
+cancellation no longer invokes bulk payment reconciliation. Both journal forms,
+audit order/correlation, closed-order rules, stale revisions, repeated-request
+rejection, both writer modes and late-failure rollback are covered. Native
+cancellation retains untouched legacy IDs, including three-row duplicates;
+ordinary updates keep IR-006 uniqueness validation and cannot select the internal
+cancellation mode through request data. Ambiguous links within/across orders
+return 409 without saved/cache/request changes. HTTP tests retain the 403 access
+boundary and exercise 409 with a separately authorized cash operator. All 70
+neighboring checks pass, including IR-006, reversals, transfers and bundle
+isolation. Existing size/complexity budgets pass; no runtime speed claim is made.
+Full local CI passed on attempt 1: 2,996 core cases (80 environment skips), all
+38 isolated browser groups, 36 release cases (four environment skips), 82.07%
+runtime coverage and all existing smoke/performance gates. All five candidate
+files and the full Git patch match the pre-run hashes. Only this result
+metadata is added after validation; hosted acceptance follows publication.
+
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Cash cancellation selection and reconciliation | IR-004 and IR-005 accepted; IR-006 awaiting hosted quality |
+| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-006 accepted; IR-007 under validation |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | One field/download/print or file lifetime | Pending |
-| Inventory, finance and payroll | One operation/calculation with unchanged financial rules | Pending |
+| Inventory, finance and payroll | One cash cancellation with original journal/guard contracts | IR-007 under validation; other boundaries pending |
 | JsonStore and change feed | One persistence or transaction boundary | Pending |
 | Agent, tests and packaging | One runtime/tool/test/build responsibility | Pending |

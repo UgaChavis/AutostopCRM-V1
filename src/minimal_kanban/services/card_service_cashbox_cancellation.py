@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from .. import models as model_helpers
 from ..models import (
+    AuditEvent,
+    Card,
     CashBox,
     CashTransaction,
     business_timezone,
@@ -113,25 +115,10 @@ class CardServiceCashboxCancellationMixin:
                 "repair_order_card_id": linked_card.id if linked_card is not None else None,
             }
             if linked_card is not None and linked_payment is not None:
-                next_order_payload = linked_card.repair_order.to_storage_dict()
-                next_order_payload["payments"] = [
-                    payment.to_storage_dict()
-                    for payment in linked_card.repair_order.payments
-                    if payment.id != linked_payment.id
-                ]
-                if not next_order_payload["payments"]:
-                    next_order_payload["prepayment"] = ""
-                candidate_order = RepairOrder.from_dict(next_order_payload)
-                if (
-                    linked_card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
-                    and not candidate_order.is_paid()
-                ):
-                    next_order_payload["status"] = REPAIR_ORDER_STATUS_OPEN
-                    next_order_payload["closed_at"] = ""
-                self._update_repair_order(
+                self._cancel_repair_order_cash_payment(
                     linked_card,
                     cards,
-                    next_order_payload,
+                    transaction,
                     events,
                     actor_name,
                     source,
@@ -178,6 +165,43 @@ class CardServiceCashboxCancellationMixin:
                 "cancellation_transaction": self._serialize_cash_transaction(cancellation),
                 "meta": response_meta,
             }
+
+    def _cancel_repair_order_cash_payment(
+        self,
+        card: Card,
+        cards: list[Card],
+        transaction: CashTransaction,
+        events: list[AuditEvent],
+        actor_name: str,
+        source: str,
+        *,
+        settings: dict[str, Any],
+        digest_correlation_id: str = "",
+    ) -> bool:
+        next_payload = card.repair_order.to_storage_dict()
+        next_payload["payments"] = [
+            payment.to_storage_dict()
+            for payment in card.repair_order.payments
+            if payment.cash_transaction_id != transaction.id
+        ]
+        if not next_payload["payments"]:
+            next_payload["prepayment"] = ""
+        candidate = RepairOrder.from_dict(next_payload)
+        if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED and not candidate.is_paid():
+            next_payload["status"] = REPAIR_ORDER_STATUS_OPEN
+            next_payload["closed_at"] = ""
+        # One cancellation leaves all other ledger rows and legacy IDs intact.
+        return self._update_repair_order(
+            card,
+            cards,
+            next_payload,
+            events,
+            actor_name,
+            source,
+            settings=settings,
+            operation="cash_cancellation",
+            digest_correlation_id=digest_correlation_id,
+        )
 
     def _ensure_cash_transaction_cancellable(
         self, transaction: CashTransaction, transactions: list[CashTransaction]
