@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import importlib.util
 import json
 import os
 import selectors
@@ -115,9 +117,10 @@ class EvidenceResult(unittest.TextTestResult):
         self.records = []
 
 
-def original_tests():
+def original_tests(suite=None):
     # No pwsh command, version check or Add-Type warmup precedes this test run.
-    suite = unittest.defaultTestLoader.loadTestsFromName("tests.test_run_checks_interrupt")
+    if suite is None:
+        suite = unittest.defaultTestLoader.loadTestsFromName("tests.test_run_checks_interrupt")
     result = unittest.TextTestRunner(verbosity=2, resultclass=EvidenceResult).run(suite)
     write(
         "original-results.json",
@@ -237,7 +240,21 @@ Mark 'main'
     return report
 
 
-if MODE.startswith("compare-"):
+if MODE == "timeout-evidence":
+    candidate_path = Path(__file__).with_name("timeout_evidence_candidate.py")
+    metadata["candidate_source_sha256"] = hashlib.sha256(candidate_path.read_bytes()).hexdigest()
+    spec = importlib.util.spec_from_file_location("timeout_evidence_candidate", candidate_path)
+    candidate_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(candidate_module)
+    candidate_module.ROOT = ROOT
+    candidate_module.HELPER = ROOT / "scripts" / "ci_gate_completion.ps1"
+    candidate_module.GATE = ROOT / "scripts" / "run_checks.ps1"
+    metadata["profile_only_fixture_roots"] = (
+        "Candidate source copied unchanged; fixture ROOT/HELPER/GATE point to the real checkout"
+    )
+    write("metadata.json", metadata)
+    outcome = original_tests(unittest.defaultTestLoader.loadTestsFromModule(candidate_module))
+elif MODE.startswith("compare-"):
     original_helper = (ROOT / "scripts" / "ci_gate_completion.ps1").read_text(encoding="utf-8")
     explicit_helper = OUT / "explicit-helper.ps1"
     explicit_helper.write_text(
