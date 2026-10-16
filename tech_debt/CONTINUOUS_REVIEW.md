@@ -59,9 +59,9 @@ outside this run.
 | ID | Bounded responsibility and required evidence | State |
 | --- | --- | --- |
 | R2-001 | Worker PDF routing and explicit fallback contracts, separated from isolated real Qt integration. Reproduce the old 10-second false failure, preserve the production 45-second subprocess limit, PDF limits and readable Cyrillic. | Accepted at `af7c539bd06df5a32ca4c30fd8da17dd06ba9dc3`; [candidate CI 38885558451](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38885558451) and [main CI 38886939483](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38886939483), both attempt 1 |
-| R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Revised candidate passed full local CI; exact-SHA candidate and main-branch hosted acceptance pending |
-| R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Pending; unchanged successful repeats are not a fix |
-| R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Pending; global resource exhaustion remains unproven |
+| R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Accepted at `31ff1780ccabaf48dd6ec610392fdab140d909cc`; [candidate CI 38899866646](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38899866646) and [main CI 38902265141](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38902265141), both attempt 1 |
+| R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Investigated on `31ff178`; native Linux cause unresolved, no speculative change or commit |
+| R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Two review-laboratory context ownership defects reproduced and fixed; full local CI passed, exact-SHA candidate/main acceptance pending; historical driver/buffer causes remain unproven |
 | R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Pending; do not restore the cancelled commit wholesale |
 | R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Pending; no historical-data repair |
 | R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
@@ -112,7 +112,7 @@ Successful commands with persistent live descendants are rejected and cleaned.
 Fault tests verify that unrelated processes survive. Diagnostics live under
 ignored `output/runtime-process/` and are uploaded separately for each hosted
 suite/attempt. The previous test selection, order, coverage environment and
-quality limits remain required; full local/hosted acceptance is still pending.
+quality limits remain required; acceptance results are recorded below.
 
 The real 300-second Windows probe initially exposed an early kernel wait result
 at 299.997 seconds. A controlled early-wakeup regression fails before the fix;
@@ -145,7 +145,45 @@ gates. All 41 command controllers finished successfully with no owned live
 descendants left. All ten frozen files matched after validation; only these
 result records were updated afterward. All original 3,351 selected IDs and
 relative order are preserved, with 12 added lifecycle/binding regressions.
-Hosted native Linux and exact-SHA candidate/main acceptance remain required.
+Hosted acceptance passed on both branches at
+`31ff1780ccabaf48dd6ec610392fdab140d909cc`: all five jobs on each branch,
+3,108 Linux unit cases (40 environment skips), 82.22% candidate / 82.21% main
+runtime coverage and 36 release cases. Native Linux signal, orphan, cancellation
+and unrelated-process contracts pass. All eight uploaded controllers on each
+branch finish with exit zero and no owned descendants. The clean primary local
+checkout matches the accepted SHA; 198 evidence members are preserved in an
+externally stored archive with every member checksum verified after compression.
+
+R2-003 retains the two original Linux crash logs. Both terminate inside the same
+wizard-link test, without a saved native/Python stack. On the current base,
+53 neighboring Qt lifecycle tests pass in Windows, both in their original order
+and with forced collection before 534 status-style updates. Closed native dialog
+objects remain after collection/deferred-event draining; this observation does
+not establish the Linux crash's cause. No source change or artificial commit is
+made. Native Linux reproduction or a new fault stack remains necessary; R2-002
+now preserves faulthandler diagnostics for future native failures. Windows
+success and the two passing current Linux gates do not close this finding.
+
+R2-004 reproduces nine failing cases, including two real Chromium context leaks:
+page/event setup can fail before the context's cleanup guard; acquiring a second
+context can fail before the first is protected. A failed/cancelled viewer close
+also prevents the admin close. Protect setup immediately after acquisition and
+register the two contexts with AsyncExitStack in reverse cleanup order. Errors
+and cancellation remain failures; subsequent callbacks run even when one close
+fails. All nine frozen regression tests now pass, including real Chromium
+cancellation, an unrelated live context and a usable driver after cleanup.
+All 95 neighboring smoke, performance and runner checks pass. The native
+lifecycle checks are added to the existing mandatory hosted browser command.
+The business scenarios, their assertions and order stay unchanged. This bounded
+review does not prove a cause for the historical missing driver, buffer error or
+Qt crash; other browser helpers remain separate review responsibilities. No
+runtime speed claim is made. Full local CI passed on attempt 1: 3,015 core cases
+(83 environment skips), all 39 browser groups, 36 release cases (four environment
+skips), 82.10% runtime coverage and all mandatory smoke/performance gates. All
+42 controllers finish with exit zero and no owned descendants. All four frozen
+files match after validation; only these result records are added afterward.
+The prior 3,363 selected cases, core order and all 38 original browser groups
+remain present. Exact-SHA candidate and main hosted acceptance follow publication.
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -323,4 +361,4 @@ research are preserved outside Git; their existence does not imply acceptance.
 | Printing and files | Worker PDF route/fallback and real native rendering | R2-001 accepted; other boundaries pending |
 | Inventory, finance and payroll | Payment cash-link ownership and financial audit safe-fix | IR-007 accepted; R2-006/007 pending |
 | JsonStore and change feed | One persistence or transaction boundary | Pending |
-| Agent, tests and packaging | External runtime test deadlines and owned-process cleanup | R2-002 in validation; other boundaries pending |
+| Agent, tests and packaging | External runtime test deadlines and owned-process cleanup | R2-002 accepted; other boundaries pending |

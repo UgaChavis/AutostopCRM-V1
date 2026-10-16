@@ -352,7 +352,8 @@ jobs:
             tests.test_employee_profile_browser tests.test_employee_workspace_recovery_browser \
             tests.test_employee_delete_browser tests.test_inventory_actions_browser \
             tests.test_dashboard_message_browser tests.test_sticky_actions_browser \
-            tests.test_inventory_material_browser tests.test_operator_admin_browser -v
+            tests.test_inventory_material_browser tests.test_operator_admin_browser \
+            tests.test_browser_lab_cleanup -v
 
       - name: Client search browser regression
         if: ${{ matrix.suite == 'browser-performance' }}

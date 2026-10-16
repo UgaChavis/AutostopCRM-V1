@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import AsyncExitStack
 from typing import Any
 from unittest.mock import patch
 
@@ -206,9 +207,11 @@ async def exercise_board_drop_order(page: Any, runtime: TempRuntime) -> dict[str
 async def exercise_employee_permission_refresh(
     browser: Any, runtime: TempRuntime
 ) -> dict[str, bool]:
-    admin_context = await browser.new_context(viewport={"width": 1440, "height": 960})
-    viewer_context = await browser.new_context(viewport={"width": 1440, "height": 960})
-    try:
+    async with AsyncExitStack() as contexts:
+        admin_context = await browser.new_context(viewport={"width": 1440, "height": 960})
+        contexts.push_async_callback(admin_context.close)
+        viewer_context = await browser.new_context(viewport={"width": 1440, "height": 960})
+        contexts.push_async_callback(viewer_context.close)
         admin = await admin_context.new_page()
         await admin.goto(runtime.browser_url)
         await _login_successfully(admin)
@@ -295,19 +298,16 @@ async def exercise_employee_permission_refresh(
         assert not await viewer.locator("#employeesButton").is_visible()
         assert await viewer.locator("#employeesList").inner_text() == ""
         return {"employee_live_permission_roster": True}
-    finally:
-        await viewer_context.close()
-        await admin_context.close()
 
 
 async def run_review_scenarios(browser: Any, runtime: TempRuntime) -> dict[str, bool]:
     results = {}
     for scenario in (exercise_board_drop_order, exercise_inventory_write_integrity):
         context = await browser.new_context(viewport={"width": 1440, "height": 960})
-        page = await context.new_page()
-        errors = []
-        page.on("pageerror", lambda error: errors.append(str(error)))
         try:
+            page = await context.new_page()
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
             results.update(await scenario(page, runtime))
             assert not errors, errors
         finally:
