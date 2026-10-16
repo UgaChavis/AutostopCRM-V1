@@ -1,0 +1,52 @@
+name: Chromium launch finite diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/chromium-launch-20261017
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QTWEBENGINE_DISABLE_SANDBOX: "1"
+      AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.15"
+      - name: Install exact project dependencies
+        shell: bash
+        run: |
+          python -m pip install -r requirements-dev.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
+      - name: Install mandatory native Chromium and libraries
+        shell: bash
+        run: python -m playwright install --with-deps chromium
+      - name: Compare unchanged source and finite native samples
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p output/chromium-launch
+          python -m tests.runtime_process --timeout-seconds 300 --label chromium-finite-diagnosis -- python .github/diagnostics/chromium_launch_probe.py 2>&1 | tee output/chromium-launch/probe.log
+      - name: Preserve every outcome
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: chromium-launch-${{ github.sha }}
+          path: |
+            output/chromium-launch/
+            output/runtime-process/
+          if-no-files-found: error
