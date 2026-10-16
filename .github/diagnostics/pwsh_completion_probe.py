@@ -142,8 +142,8 @@ def proc_snapshot(pid):
     return result
 
 
-def phase_sample(index, guard):
-    helper = str(ROOT / "scripts" / "ci_gate_completion.ps1").replace("'", "''")
+def phase_sample(index, guard, helper_path=None):
+    helper = str(helper_path or ROOT / "scripts" / "ci_gate_completion.ps1").replace("'", "''")
     source = """function Mark([string]$Name) { [Console]::Error.WriteLine('PHASE|' + $Name + '|' + [Diagnostics.Stopwatch]::GetTimestamp()) }
 [Console]::Error.WriteLine('CLOCK|' + [Diagnostics.Stopwatch]::Frequency)
 Mark 'main'
@@ -163,6 +163,8 @@ Mark 'main'
     selector = selectors.DefaultSelector()
     streams = {"stdout": bytearray(), "stderr": bytearray()}
     eof, arrivals, exit_observed, timeout_snapshot = {}, [], None, None
+    snapshots = []
+    next_snapshot = 1
     assert process.stdout is not None and process.stderr is not None
     for name, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
         os.set_blocking(stream.fileno(), False)
@@ -182,6 +184,14 @@ Mark 'main'
                     selector.unregister(key.fileobj)
             if process.poll() is not None and exit_observed is None:
                 exit_observed = time.monotonic() - started
+            if time.monotonic() - started >= next_snapshot:
+                snapshots.append(
+                    {
+                        "elapsed_seconds": time.monotonic() - started,
+                        "proc": proc_snapshot(process.pid),
+                    }
+                )
+                next_snapshot += 4
             if exit_observed is not None and not selector.get_map():
                 break
         timed_out = exit_observed is None or bool(selector.get_map())
@@ -217,6 +227,7 @@ Mark 'main'
         "process_exit_observed_seconds": exit_observed,
         "pipe_eof_seconds": eof,
         "arrivals": arrivals,
+        "snapshots": snapshots,
         "stdout": captured(bytes(streams["stdout"])),
         "stderr": captured(bytes(streams["stderr"])),
         "timeout_snapshot": timeout_snapshot,
@@ -226,7 +237,28 @@ Mark 'main'
     return report
 
 
-if MODE == "original":
+if MODE.startswith("init-"):
+    helper_source = (ROOT / "scripts" / "ci_gate_completion.ps1").read_text(encoding="utf-8")
+    compile_command = "Add-Type -TypeDefinition @'"
+    if MODE == "init-explicit":
+        compile_command = "Add-Type -ReferencedAssemblies System.Runtime,System.Console,System.Threading -TypeDefinition @'"
+    helper_source = helper_source.replace(
+        "Add-Type -TypeDefinition @'", "Mark 'add-type-enter'\n        " + compile_command
+    )
+    helper_source = helper_source.replace("\n'@\n", "\n'@\n        Mark 'add-type-exit'\n")
+    helper_source = helper_source.replace(
+        "    [AutoStop.Ci.CompletionGuard]::Begin()",
+        "    Mark 'begin-enter'\n    [AutoStop.Ci.CompletionGuard]::Begin()\n    Mark 'begin-exit'",
+    )
+    instrumented = OUT / "instrumented-helper.ps1"
+    instrumented.write_text(helper_source, encoding="utf-8")
+    reports = []
+    if MODE == "init-after-plain":
+        reports.append(phase_sample(0, False))
+    reports.append(phase_sample(len(reports), True, instrumented))
+    write("initialization-results.json", reports)
+    outcome = any(report["timed_out"] or report["exit_code"] != 0 for report in reports)
+elif MODE == "original":
     outcome = original_tests()
 elif MODE == "phases":
     reports = []
