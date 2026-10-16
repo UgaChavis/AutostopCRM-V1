@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -66,3 +67,55 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
                 second.kwargs["env"]["PYTHONPATH"],
                 str(Path.cwd() / "tests") + os.pathsep + "existing",
             )
+
+    def test_external_controller_has_core_and_browser_budgets_without_retries(self):
+        plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
+        with patch("tests.runtime_suite_runner.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0)
+            self.assertEqual(run_plan(plan), 0)
+            self.assertEqual(3, run.call_count)
+            for call, budget in zip(run.call_args_list, (1800, 300, 300), strict=True):
+                command = call.args[0]
+                self.assertEqual("tests.runtime_process", command[2])
+                self.assertEqual(str(budget), command[command.index("--timeout-seconds") + 1])
+                self.assertEqual("--", command[command.index("--label") + 2])
+
+    def test_ci_entrypoints_keep_required_budgets_and_failure_diagnostics(self):
+        root = Path(__file__).resolve().parents[1]
+        profile = (root / "scripts/run_checks.ps1").read_text(encoding="utf-8")
+        workflow = (root / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+        bounded_local = dict(
+            re.findall(
+                r'Invoke-Python -StepName "([^"]+)" -Arguments @\([^)]*\) -TimeoutSeconds (\d+)',
+                profile,
+                re.DOTALL,
+            )
+        )
+        for name, seconds in (
+            ("Runtime branch coverage", "1800"),
+            ("Release branch coverage", "1800"),
+            ("Mandatory core browser smoke", "300"),
+        ):
+            self.assertEqual(seconds, bounded_local.get(name), name)
+        for name, seconds in (
+            ("Unit tests with runtime branch coverage", "1800"),
+            ("Release backup and restore branch coverage", "1800"),
+            ("Manager infrastructure map browser regression", "300"),
+            ("Manager structure constructor browser regression", "300"),
+            ("Card hydration and print browser regression", "300"),
+            ("Card and client save browser regressions", "300"),
+            ("Client search browser regression", "300"),
+            ("Mandatory core browser smoke", "300"),
+            ("Optional full browser smoke", "300"),
+        ):
+            pattern = rf"^      - name: {re.escape(name)}\n.*?(?=^      - name: |\Z)"
+            matches = re.findall(pattern, workflow, re.MULTILINE | re.DOTALL)
+            self.assertEqual(1, len(matches), name)
+            self.assertIn(f"tests.runtime_process --timeout-seconds {seconds}", matches[0], name)
+        self.assertIn("path: output/runtime-process/", workflow)
+        self.assertRegex(workflow, r"name: runtime-process-.*github\.run_attempt")
+        diagnostics_position = workflow.index("- name: Upload runtime process diagnostics")
+        self.assertGreater(
+            diagnostics_position, workflow.index("- name: Optional full browser smoke")
+        )
+        self.assertIn("always() && matrix.suite != 'static'", workflow[diagnostics_position:])

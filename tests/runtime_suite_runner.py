@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CORE_TIMEOUT_SECONDS = 30 * 60
+BROWSER_TIMEOUT_SECONDS = 5 * 60
 
 
 def iter_cases(suite: unittest.TestSuite):
@@ -61,8 +63,20 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
         f"{len(plan.browser_groups)} isolated browser groups; no retries.",
         flush=True,
     )
-    for command in commands:
-        result = subprocess.run(command, cwd=root, env=environment, check=False)
+    for index, command in enumerate(commands):
+        timeout = CORE_TIMEOUT_SECONDS if index == 0 else BROWSER_TIMEOUT_SECONDS
+        controlled = [
+            sys.executable,
+            "-m",
+            "tests.runtime_process",
+            "--timeout-seconds",
+            str(timeout),
+            "--label",
+            "core" if index == 0 else f"browser-{index}",
+            "--",
+            *command,
+        ]
+        result = subprocess.run(controlled, cwd=root, env=environment, check=False)
         if result.returncode:
             return result.returncode
     return 0

@@ -58,8 +58,8 @@ outside this run.
 
 | ID | Bounded responsibility and required evidence | State |
 | --- | --- | --- |
-| R2-001 | Worker PDF routing and explicit fallback contracts, separated from isolated real Qt integration. Reproduce the old 10-second false failure, preserve the production 45-second subprocess limit, PDF limits and readable Cyrillic. | Full local CI passed on attempt 1; exact-SHA candidate and main-branch hosted acceptance pending |
-| R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Pending |
+| R2-001 | Worker PDF routing and explicit fallback contracts, separated from isolated real Qt integration. Reproduce the old 10-second false failure, preserve the production 45-second subprocess limit, PDF limits and readable Cyrillic. | Accepted at `af7c539bd06df5a32ca4c30fd8da17dd06ba9dc3`; [candidate CI 38885558451](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38885558451) and [main CI 38886939483](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38886939483), both attempt 1 |
+| R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Revised candidate passed full local CI; exact-SHA candidate and main-branch hosted acceptance pending |
 | R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Pending; unchanged successful repeats are not a fix |
 | R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Pending; global resource exhaustion remains unproven |
 | R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Pending; do not restore the cancelled commit wholesale |
@@ -75,8 +75,7 @@ Qt PDF with both source strings extracted through QtPdf. The 60-second outer
 probe bound includes the unchanged 45-second production render and process/PDF
 inspection overhead. Poppler rendering was visually inspected: both Cyrillic
 strings and the red CSS styling are present. The production PDF source is
-unchanged; no runtime speed claim is made. Full local and hosted acceptance
-remain required before promotion.
+unchanged; no runtime speed claim is made.
 
 R2-001 full local CI passed on attempt 1: 3,003 reported core cases (80 existing
 environment skips; 3,004 planned IDs include a class-level skip), all 38 isolated
@@ -85,8 +84,68 @@ runtime coverage, mandatory core browser smoke and all existing performance
 gates. All five frozen files, including the unchanged production PDF module,
 matched their pre-run hashes. Only these result records were updated after
 validation. All 128 focused/neighboring checks also pass, including seven
-deterministic contracts and the real native Qt integration. Hosted acceptance
-on the candidate and subsequently the same main-branch SHA is still required.
+deterministic contracts and the real native Qt integration.
+
+R2-001 hosted acceptance passed on both branches at
+`af7c539bd06df5a32ca4c30fd8da17dd06ba9dc3`: all five jobs on each branch,
+3,096 Linux unit cases (38 existing environment skips), 82.21% runtime coverage
+and 36 release cases. The real Qt PDF integration runs without a skip on both
+platforms. The clean primary local checkout was fast-forwarded to the accepted
+SHA. All 28 evidence files, the Git bundle and complete blob inventory are
+preserved in a checksum-verified external handoff archive.
+
+R2-002 reproduces the old lifecycle failure with an unchanged runner and a
+controlled Python child/grandchild, without starting a native browser: the
+group remains alive at 305.1 seconds, then returns zero after explicit release.
+The candidate wraps the existing commands rather than repartitioning them:
+core/release commands have 1,800 seconds, existing browser command groups and
+smoke have 300 seconds, with no retry. Timeout returns 124 and preserves command,
+elapsed time, owned processes, cleanup result and an advance Python traceback.
+Existing nonzero/signal results remain failures, including Linux native exit 139.
+
+Windows ownership uses atomic process creation inside a Job Object, including
+the venv launcher and its children. Only standard handles are inherited; closing
+the controller's job handle terminates its members. The dedicated Linux
+controller adopts orphaned descendants as a subreaper and uses process handles
+plus renewed ancestry/start-time checks for cleanup, including detached children.
+Successful commands with persistent live descendants are rejected and cleaned.
+Fault tests verify that unrelated processes survive. Diagnostics live under
+ignored `output/runtime-process/` and are uploaded separately for each hosted
+suite/attempt. The previous test selection, order, coverage environment and
+quality limits remain required; full local/hosted acceptance is still pending.
+
+The real 300-second Windows probe initially exposed an early kernel wait result
+at 299.997 seconds. A controlled early-wakeup regression fails before the fix;
+waiting on the same handle against a fixed monotonic deadline passes it. The
+final Windows implementation rejects the same group at 300.009
+seconds with exit 124, a saved traceback and five owned processes reduced to
+zero. Both real five-minute results remain in the receipt. The actual
+PowerShell entrypoint retains success 0, child failure 7 and timeout 124.
+All original 3,351 selected IDs and their order remain present; all 38 browser
+groups are unchanged. Eleven real card-save browser cases and all eight PDF
+worker cases pass under the controller. Linux signal/orphan behavior remains
+an explicit hosted gate, including inherited ignored SIGCHLD and native 139.
+
+The first full local R2-002 run was deliberately stopped, without acceptance,
+after a separate controlled probe reproduced delayed Windows cancellation:
+an interrupt requested at 0.2 seconds was delivered only after a five-second
+native wait. Retain the same handle/deadline and poll it in at most 250-ms
+intervals so Python can dispatch cancellation. The probe now exits 130 at
+0.288 seconds and leaves no owned processes. A real cancellation regression
+waits for child readiness before signalling. The aborted run's logs, frozen
+hashes, original process identities and verified cleanup remain in the receipt;
+the changed candidate requires a new complete local run, rather than a retry
+of the unchanged candidate.
+
+R2-002 full local CI passed for the revised candidate on attempt 2: 3,015
+reported core cases (83 environment skips, including three new Linux-specific
+contracts), all 38 unchanged browser groups, 36 release cases (four existing
+environment skips), 82.09% runtime coverage and all existing smoke/performance
+gates. All 41 command controllers finished successfully with no owned live
+descendants left. All ten frozen files matched after validation; only these
+result records were updated afterward. All original 3,351 selected IDs and
+relative order are preserved, with 12 added lifecycle/binding regressions.
+Hosted native Linux and exact-SHA candidate/main acceptance remain required.
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -261,7 +320,7 @@ research are preserved outside Git; their existence does not imply acceptance.
 | Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-007 accepted; R2-005 pending |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
-| Printing and files | Worker PDF route/fallback and real native rendering | R2-001 in validation; other boundaries pending |
+| Printing and files | Worker PDF route/fallback and real native rendering | R2-001 accepted; other boundaries pending |
 | Inventory, finance and payroll | Payment cash-link ownership and financial audit safe-fix | IR-007 accepted; R2-006/007 pending |
 | JsonStore and change feed | One persistence or transaction boundary | Pending |
-| Agent, tests and packaging | One runtime/tool/test/build responsibility | Pending |
+| Agent, tests and packaging | External runtime test deadlines and owned-process cleanup | R2-002 in validation; other boundaries pending |

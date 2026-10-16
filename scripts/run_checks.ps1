@@ -21,10 +21,17 @@ function Invoke-Python {
         [Parameter(Mandatory = $true)]
         [string]$StepName,
         [Parameter(Mandatory = $true)]
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [ValidateRange(0, 1800)]
+        [int]$TimeoutSeconds = 0
     )
 
-    & $pythonExe @Arguments
+    if ($TimeoutSeconds -gt 0) {
+        & $pythonExe -m tests.runtime_process --timeout-seconds $TimeoutSeconds --label $StepName -- $pythonExe @Arguments
+    }
+    else {
+        & $pythonExe @Arguments
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Step '$StepName' failed with exit code $LASTEXITCODE."
     }
@@ -128,7 +135,7 @@ try {
     else {
         Invoke-Python -StepName "Runtime branch coverage" -Arguments @(
             "-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"
-        )
+        ) -TimeoutSeconds 1800
     }
     Invoke-Python -StepName "Combine runtime coverage" -Arguments @(
         "-m", "coverage", "combine"
@@ -152,7 +159,7 @@ try {
     Invoke-Python -StepName "Release branch coverage" -Arguments @(
         "-m", "coverage", "run", "--source=scripts", "-m", "unittest",
         "tests.test_agent_release_backup", "tests.test_agent_release_retention", "-v"
-    )
+    ) -TimeoutSeconds 1800
     Invoke-Python -StepName "Combine release coverage" -Arguments @(
         "-m", "coverage", "combine"
     )
@@ -184,7 +191,7 @@ try {
     )
     Invoke-Python -StepName "Mandatory core browser smoke" -Arguments @(
         "scripts/browser_smoke.py", "--profile", "core", "--attempts", "1"
-    )
+    ) -TimeoutSeconds 300
     Invoke-Python -StepName "Compile release probe scripts" -Arguments @(
         "-m", "py_compile", "scripts/perf_probe.py", "scripts/perf_mcp.py",
         "scripts/perf_workflows.py", "scripts/finance_audit_report.py",

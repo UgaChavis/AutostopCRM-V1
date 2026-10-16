@@ -259,7 +259,7 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
-          coverage run -m unittest discover -s tests -v
+          python -m tests.runtime_process --timeout-seconds 1800 --label core -- python -m coverage run -m unittest discover -s tests -v
           coverage combine
           coverage report --show-missing | tee coverage-runtime.txt
           coverage json -o coverage-runtime.json
@@ -270,7 +270,7 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
-          coverage run --source=scripts -m unittest \
+          python -m tests.runtime_process --timeout-seconds 1800 --label release -- python -m coverage run --source=scripts -m unittest \
             tests.test_agent_release_backup \
             tests.test_agent_release_retention -v
           coverage combine
@@ -317,14 +317,14 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
-        run: python -m unittest tests.test_module_map_browser -v
+        run: python -m tests.runtime_process --timeout-seconds 300 --label module-map -- python -m unittest tests.test_module_map_browser -v
 
       - name: Manager structure constructor browser regression
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
         run: >-
-          python -m unittest
+          python -m tests.runtime_process --timeout-seconds 300 --label manager-browser -- python -m unittest
           tests.test_manager_structure_browser
           tests.test_manager_tool_concurrency_browser
           tests.test_manager_instruction_links_browser
@@ -336,14 +336,14 @@ jobs:
 
       - name: Card hydration and print browser regression
         if: ${{ matrix.suite == 'browser-performance' }}
-        run: python -m unittest tests.test_printing_hydration_overlap_browser -v
+        run: python -m tests.runtime_process --timeout-seconds 300 --label print-hydration -- python -m unittest tests.test_printing_hydration_overlap_browser -v
 
       - name: Card and client save browser regressions
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_UI_BROWSER: "1"
         run: |
-          python -m unittest \
+          python -m tests.runtime_process --timeout-seconds 300 --label card-client-browser -- python -m unittest \
             tests.test_card_save_browser tests.test_card_badges_browser \
             tests.test_clients_creation_browser tests.test_clients_profile_browser \
             tests.test_client_vehicles_browser tests.test_card_files_browser \
@@ -358,14 +358,14 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
-        run: python -m unittest tests.test_mobile_clients_search_browser -v
+        run: python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest tests.test_mobile_clients_search_browser -v
 
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}
         id: core_browser_smoke
         env:
           AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR: output/browser-smoke-core
-        run: python scripts/browser_smoke.py --profile core --attempts 1 | tee browser-smoke-core.json
+        run: python -m tests.runtime_process --timeout-seconds 300 --label core-browser-smoke -- python scripts/browser_smoke.py --profile core --attempts 1 | tee browser-smoke-core.json
 
       - name: Upload failed core browser smoke evidence
         if: ${{ failure() && matrix.suite == 'browser-performance' && steps.core_browser_smoke.outcome == 'failure' }}
@@ -419,7 +419,7 @@ jobs:
 
       - name: Optional full browser smoke
         if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.browser_smoke == 'true' }}
-        run: python scripts/browser_smoke.py --profile full --attempts 1 | tee browser-smoke-full.json
+        run: python -m tests.runtime_process --timeout-seconds 300 --label full-browser-smoke -- python scripts/browser_smoke.py --profile full --attempts 1 | tee browser-smoke-full.json
 
       - name: Optional read-only live probes
         if: ${{ matrix.suite == 'browser-performance' && github.event_name == 'workflow_dispatch' && inputs.live_probes == 'true' }}
@@ -447,6 +447,14 @@ jobs:
             browser-smoke-full.json
             output/playwright/
           if-no-files-found: ignore
+
+      - name: Upload runtime process diagnostics
+        if: ${{ always() && matrix.suite != 'static' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-process-${{ matrix.suite }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: output/runtime-process/
+          if-no-files-found: warn
 
   quality:
     if: ${{ always() }}
