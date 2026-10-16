@@ -1,0 +1,48 @@
+name: PowerShell completion diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/pwsh-completion-20261017
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        mode: [original, phases]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12.15"
+      - name: Prepare isolated probe
+        shell: bash
+        run: |
+          test -x /usr/bin/pwsh
+          python -m pip install coverage==7.15.3
+          git diff --exit-code 6ceed3d5861b28e5f990908a6d7766d357b4f6e5 -- tests/test_run_checks_interrupt.py scripts/ci_gate_completion.ps1 scripts/run_checks.ps1
+      - name: Observe unchanged probe or completion phases
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p output/pwsh-completion
+          python -m tests.runtime_process --timeout-seconds 300 --label pwsh-completion-${{ matrix.mode }} -- python -m coverage run --parallel-mode .github/diagnostics/pwsh_completion_probe.py ${{ matrix.mode }} 2>&1 | tee output/pwsh-completion/${{ matrix.mode }}.log
+      - name: Preserve evidence even on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: pwsh-completion-${{ matrix.mode }}-${{ github.sha }}
+          path: |
+            output/pwsh-completion/
+            output/runtime-process/
+          if-no-files-found: error
