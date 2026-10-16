@@ -63,10 +63,55 @@ outside this run.
 | R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Investigated on `31ff178`; native Linux cause unresolved, no speculative change or commit |
 | R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Accepted at `0ff6687f91603c05d7de45fd15b30133977b592d`; [candidate CI 38911489869](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38911489869) and [main CI 38913268055](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38913268055), both attempt 1; historical driver/buffer causes remain unproven |
 | R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Fresh reproduction on accepted `0ff6687`; full local CI passed on the only permitted unchanged-candidate retry; exact-SHA candidate/main acceptance pending |
-| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Pending; no historical-data repair |
+| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | WIP frozen and externally archived; pre-existing Manager readback race reproduced during full CI; pending accepted shared baseline, no historical-data repair |
 | R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
 | R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
 | R2-009 | Cashbox revision after payment removal: on accepted `0ff6687`, four synthetic cases keep the old cashbox timestamp after removing a ledger row and accept a request with that stale marker. Review revision meaning and all native callers before an independent correction. | New research, separate from payment identity/link validation; no historical repair |
+| R2-010 | Manager manual-status readback ownership: block Save and duplicate Read during fresh-state fetch, preserve draft and recover on failure. | Candidate `6bd85e83b0befc7d75286306cf36858b8caaf920` failed [hosted CI 38947686956](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38947686956) in unchanged PowerShell probe; not accepted or promoted; no unchanged full retry remains |
+| R2-011 | PowerShell completion-probe timeout evidence: retain partial stdout/stderr and initialization phase in the original failure, preserving the 15-second timeout and native exit guards. | Full local CI1 passed; exact-SHA candidate/main hosted acceptance pending; original timeout cause remains unresolved |
+
+R2-010 reproduces a pre-existing readback/save race on both accepted `6ceed3d`
+and the financial WIP: while GET is held, another Save sends the stale revision
+and receives another native 409. Its local full CI passed only on the sole
+justified retry after an unrelated Inventory initial-load timeout; that
+Inventory cause remains unproven. Candidate hosted CI then failed in the first
+unchanged PowerShell process-exit probe after 15 seconds (3,126 cases, one error,
+43 existing skips). Static, browser-performance and Docker asset checks passed;
+unit and aggregate quality failed. Main remains at the accepted R2-005 SHA.
+The candidate, its failures and R2-006 financial WIP remain preserved separately.
+
+R2-011 investigates that failure without rerunning full R2-010 CI. Fresh Ubuntu
+24.04 runners with the same image, Python 3.12.15 and PowerShell 7.6.6 pass all
+seven unchanged tests. Phase evidence places the longest observed stage in
+first-use Add-Type compilation, followed by fast process exit and pipe closure;
+it does not reproduce or prove the cause of the original 15-second failure.
+Fixed alternating reference-list comparisons show only a small warm difference
+and do not justify changing the native guard. Original partial output was not
+retained by the failing unittest traceback and cannot be reconstructed.
+
+A real 15-second sleeping PowerShell probe reproduces that lost-output defect
+on the unchanged accepted helper. Keep the original TimeoutExpired and deadline,
+add its captured streams as exception notes, and mark probe initialization in
+stderr. A new native regression requires both streams and readiness in the
+formatted failure report and rejects a false pass marker. The seven existing
+test bodies, all assertions/skips, the production completion guard and
+run_checks.ps1 remain unchanged. All eight focused cases pass on Windows (two
+existing POSIX skips) and isolated Linux (zero skips); 22 neighboring lifecycle,
+partition and release-path cases pass on Windows (three existing POSIX skips).
+An initial new assertion assumed byte output; Windows returned text, so the
+regression checks the shared formatted report. Both failed fixture evidence and
+the final before/after regression are retained. This improves failure evidence;
+the original intermittent timeout remains an open investigation.
+
+R2-011 full local CI passed on attempt 1: 3,025 reported core cases (83
+existing environment skips), all 39 isolated browser groups, 36 release cases
+(four existing environment skips), 82.10% runtime coverage and all existing
+smoke/performance gates. All 42 controllers finished successfully with no owned
+live descendants. Five real PowerShell process-exit cases, including the
+controlled 15-second timeout, pass; existing native PDF, Chromium cleanup and
+payment reconciliation cases remain unskipped. Both frozen files matched after
+validation; only this result metadata was added afterward. Hosted acceptance
+still requires all five jobs on the candidate SHA and then the same main SHA.
 
 R2-001 replaces the old fixture-heavy worker smoke with deterministic tests for
 thread routing, native failure/timeout, explicit fallback permission, Unicode,

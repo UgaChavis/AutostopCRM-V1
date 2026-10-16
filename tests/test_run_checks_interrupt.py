@@ -8,6 +8,7 @@ import signal
 import subprocess
 import tempfile
 import time
+import traceback
 import unittest
 from pathlib import Path
 
@@ -140,18 +141,29 @@ Write-Host "HARNESS_PASS"
 class CiCompletionProcessExitTests(unittest.TestCase):
     def run_probe(self, body: str) -> subprocess.CompletedProcess[str]:
         helper = str(HELPER).replace("'", "''")
-        source = f". '{helper}'\nInitialize-CiProfileCompletion\n{body}\n"
+        source = (
+            f". '{helper}'\n"
+            "[Console]::Error.WriteLine('CI_PROBE_INITIALIZING')\n"
+            "Initialize-CiProfileCompletion\n"
+            "[Console]::Error.WriteLine('CI_PROBE_READY')\n"
+            f"{body}\n"
+        )
         with tempfile.TemporaryDirectory(prefix="crm-ci-gate-exit-") as directory:
             script = Path(directory) / "probe.ps1"
             script.write_text(source, encoding="utf-8")
-            return subprocess.run(
-                [shutil.which("pwsh"), "-NoProfile", "-File", str(script)],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=15,
-                check=False,
-            )
+            try:
+                return subprocess.run(
+                    [shutil.which("pwsh"), "-NoProfile", "-File", str(script)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=15,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as error:
+                error.add_note(f"PowerShell probe partial stdout: {error.stdout!r}")
+                error.add_note(f"PowerShell probe partial stderr: {error.stderr!r}")
+                raise
 
     def test_incomplete_zero_exit_is_rejected_without_finally_command(self) -> None:
         result = self.run_probe('Write-Host "ABANDONED"; exit 0')
@@ -181,6 +193,21 @@ class CiCompletionProcessExitTests(unittest.TestCase):
             "Initialize-CiProfileCompletion; exit 0"
         )
         self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
+
+    def test_timeout_preserves_partial_output_in_the_failure_report(self) -> None:
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            self.run_probe(
+                "[Console]::Out.WriteLine('PROBE_STDOUT_BEFORE_TIMEOUT'); "
+                "[Console]::Error.WriteLine('PROBE_STDERR_BEFORE_TIMEOUT'); "
+                "Start-Sleep -Seconds 30; Write-Host 'HARNESS_PASS'"
+            )
+        error = caught.exception
+        self.assertEqual(15, error.timeout)
+        report = "".join(traceback.format_exception(error))
+        self.assertIn("PROBE_STDOUT_BEFORE_TIMEOUT", report)
+        self.assertIn("PROBE_STDERR_BEFORE_TIMEOUT", report)
+        self.assertIn("CI_PROBE_READY", report)
+        self.assertNotIn("HARNESS_PASS", report)
 
 
 if __name__ == "__main__":
