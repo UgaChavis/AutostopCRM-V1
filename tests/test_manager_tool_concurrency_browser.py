@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from uuid import uuid4
 
 if __package__:
     from tests import test_manager_structure_browser as browser_support
@@ -388,4 +389,139 @@ class ManagerToolConcurrencyBrowserTests(unittest.TestCase):
         self.assertFalse(
             self.page.get_by_role("button", name="Сохранить отметку").first.is_visible()
         )
+        self.assertEqual(self.errors, [])
+
+    def conflicted_readback(self):
+        self.automotive_fixture()
+        tool = self.context.request.get(
+            self.runtime.base_url + "/api/manager_structure/tool_catalog",
+            headers={"X-Operator-Session": self.admin},
+        ).json()["data"]["modules"]
+        ident = next(item for item in tool if item["element_id"] == "E2")["tool_ids"][0]
+
+        def external_status(state):
+            response = self.context.request.post(
+                self.runtime.base_url + "/api/manager_structure/apply",
+                headers={"X-Operator-Session": self.admin},
+                data={
+                    "operation": "set_tool_status",
+                    "expected_version": self.read()["version"],
+                    "idempotency_key": f"readback-external-{uuid4()}",
+                    "tool_status": {"operation_id": ident, "state": state},
+                },
+            )
+            self.assertEqual(response.status, 200, response.text())
+
+        external_status("working")
+        self.page.reload()
+        self.page.locator('.node[data-id="E2"]').click()
+        card = self.page.locator(".tool-card").first
+        card.get_by_text("Работает нормально", exact=True).first.wait_for()
+        card.locator("select").select_option("not_commissioned")
+        self.page.evaluate("""() => {
+            const original = window.fetch;
+            window.readbackRequests = {reads:0,writes:0};
+            window.fetch = (url, options) => {
+                if (String(url) === '/api/manager_structure') window.readbackRequests.reads++;
+                if (String(url) === '/api/manager_structure/apply') window.readbackRequests.writes++;
+                return original(url, options);
+            };
+        }""")
+        held, gate = [], {"holding": True}
+
+        def hold(route):
+            if gate["holding"]:
+                held.append(route)
+            else:
+                route.continue_()
+
+        def release(*, fail=False):
+            gate["holding"] = False
+            routes, held[:] = list(held), []
+            for route in routes:
+                if fail:
+                    route.fulfill(
+                        status=503,
+                        content_type="application/json",
+                        body=json.dumps(
+                            {
+                                "ok": False,
+                                "error": {
+                                    "code": "synthetic_read_failure",
+                                    "message": "Синтетический отказ перечитывания",
+                                },
+                            },
+                        ),
+                    )
+                else:
+                    route.continue_()
+
+        self.page.route("**/api/manager_structure", hold)
+        self.addCleanup(release)
+        external_status("temporarily_unavailable")
+        card.get_by_role("button", name="Сохранить отметку", exact=True).click()
+        card.get_by_role("button", name="Перечитать состояние", exact=True).wait_for()
+        self.assertEqual(card.locator("select").input_value(), "not_commissioned")
+        return card, ident, held, release
+
+    def test_readback_blocks_save_and_duplicate_read_until_fresh_version(self):
+        card, ident, held, release = self.conflicted_readback()
+        reread = card.get_by_role("button", name="Перечитать состояние", exact=True)
+        save = card.get_by_role("button", name="Сохранить отметку", exact=True)
+        reread.click()
+        self.page.wait_for_function("window.readbackRequests.reads > 0")
+        self.assertTrue(held)
+        self.assertTrue(save.is_disabled())
+        self.assertTrue(reread.is_disabled())
+        self.assertTrue(card.locator("select").is_disabled())
+        counts = card.evaluate("""card => {
+            const before = {...window.readbackRequests};
+            for (const button of card.querySelectorAll('.tool-status-row button')) {
+                button.dispatchEvent(new MouseEvent('click', {bubbles:true}));
+            }
+            return {before,after:{...window.readbackRequests}};
+        }""")
+        self.assertEqual(counts["before"], counts["after"])
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "temporarily_unavailable")
+        release()
+        card.get_by_text(
+            "Актуальное состояние прочитано; подтвердите сохранение вашего выбора.", exact=True
+        ).wait_for()
+        self.assertEqual(card.locator("select").input_value(), "not_commissioned")
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "temporarily_unavailable")
+        save.click()
+        card.locator(".tool-status-error").get_by_text("Сохранено", exact=True).wait_for()
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "not_commissioned")
+        self.assertTrue(save.is_disabled())
+        self.page.reload()
+        self.page.locator('.node[data-id="E2"]').click()
+        self.page.locator(".tool-card").first.get_by_text(
+            "Ещё не введена", exact=True
+        ).first.wait_for()
+        self.assertEqual(self.errors, [])
+
+    def test_failed_readback_restores_controls_and_preserves_unsaved_choice(self):
+        card, ident, held, release = self.conflicted_readback()
+        reread = card.get_by_role("button", name="Перечитать состояние", exact=True)
+        save = card.get_by_role("button", name="Сохранить отметку", exact=True)
+        reread.click()
+        self.page.wait_for_function("window.readbackRequests.reads > 0")
+        self.assertTrue(held)
+        self.assertTrue(save.is_disabled())
+        release(fail=True)
+        card.locator(".tool-status-error").get_by_text(
+            "Синтетический отказ перечитывания", exact=True
+        ).wait_for()
+        self.assertEqual(card.locator("select").input_value(), "not_commissioned")
+        self.assertTrue(save.is_enabled())
+        self.assertTrue(reread.is_enabled())
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "temporarily_unavailable")
+        self.assertEqual(self.page.evaluate("window.readbackRequests.writes"), 1)
+        reread.click()
+        card.get_by_text(
+            "Актуальное состояние прочитано; подтвердите сохранение вашего выбора.", exact=True
+        ).wait_for()
+        save.click()
+        card.locator(".tool-status-error").get_by_text("Сохранено", exact=True).wait_for()
+        self.assertEqual(self.read()["tool_statuses"][ident]["state"], "not_commissioned")
         self.assertEqual(self.errors, [])
