@@ -4,6 +4,13 @@ Owner request, 2026-10-15: review small coherent portions deeply, improve them,
 publish each accepted portion, and continue until an explicit stop. Starting
 revision: `adf0ed49d3e4a97158604bc733bd7e392d3d1e57` on `autostopcrm-v1`.
 
+Second pass, explicitly started by the owner on 2026-10-16: baseline
+`e93b102e41bd515de1891fa5633db6479b83334f`, freshly matched to GitHub with
+[all five quality jobs passing](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38866686592).
+Use a separate clean worktree and portion IDs `R2-NNN`; preserve the old worktree
+and handoff archives. Accepted IR-001 through IR-007 remain accepted. IR-008 was
+not accepted and was reverted; IR-009/010 remain research, not delivered fixes.
+
 Existing size/complexity ownership remains in
 [code_health_audit.py](../scripts/code_health_audit.py). The earlier
 [UI sweep](SWEEP.md) is historical evidence, not acceptance of unreviewed code.
@@ -13,6 +20,24 @@ the exact published SHA's hosted quality result. Detailed synthetic diagnostics
 and publication receipts live under ignored `output/continuous-review/IR-NNN/`.
 A clean portion needs no artificial source change. Production deployment and
 historical-data repair require their own owner request.
+
+For the second pass, freeze source/test hashes, run focused and neighboring
+checks, then the complete `scripts/run_checks.ps1 -Profile ci`. Publish each
+candidate as `codex/crm-review-v2-NNN`; require `unit`, `static`,
+`browser-performance`, `docker-runtime-assets` and `quality` for its exact SHA.
+Only then fast-forward `autostopcrm-v1` and require the same five main-branch
+jobs. A changed base requires validation of the integrated candidate. Do not
+force-push. Diagnose failures before at most one justified unchanged-candidate
+retry; a second failure becomes a separate blocker investigation.
+
+Detailed second-pass evidence lives under ignored
+`output/continuous-review-v2/R2-NNN/`. Its `index.json` inventories every tracked
+file by Git blob and records individual responsibilities in large modules.
+Broad audits do not mark a file deeply reviewed; changed blobs require renewed
+review. Generated files belong with their generators and build checks. Record
+clean reviews without artificial commits. The run continues until the owner's
+explicit stop; deployment, historical financial data and the Manager pin are
+outside this run.
 
 ## Portions
 
@@ -24,7 +49,44 @@ historical-data repair require their own owner request.
 | IR-004 | Description durability, debt owner 012. Combined-field characterization exposed `Card.from_dict` stripping authored whitespace while JsonStore clones cards for save/load. Preserve string text with the existing cap and legacy non-string coercion; verify disk, readback, restart, no-op and complete audit values. | Accepted at `cd28408`; [quality run 38747033335](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38747033335), attempt 1 |
 | IR-005 | `CardService.update_card` ordered simple-field dispatch, debt owner 012. Method lines 235 to 201; branch complexity 27 to 15. Preserve vehicle/profile and deadline/timer ordering, audit order, no-op behavior, defaults and late-validation isolation. | Accepted at `a22aabf`; [quality run 38755458358](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38755458358), attempt 1 |
 | IR-006 | Prepared payment identity guard, debt owner 012. Replaying duplicate IDs adds a third cash movement: 200 to 300 while order paid total stays 200. Include stored-ID collisions after length truncation and a later whitespace trim; preserve correction guards before reconciliation. | Accepted at `eb20a9a`; [quality run 38764443140](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38764443140), attempt 2 |
-| IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Full local CI passed on attempt 1; exact-SHA hosted acceptance pending publication |
+| IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Accepted at `f9fbb6c31ef383c1241baa6a94af78a599ffbd4d`; [quality run 38776397620](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38776397620), attempt 2 |
+| IR-008 | Legacy duplicate payment-ID reconciliation. Draft `6af768fde33feaca92de80e1c520edb0920a91ae` was not accepted; Linux SQLite WAL invalidated startup byte-snapshot assertions. Follow-up local runs exposed separate PDF/browser runner failures. | Cancelled and reverted by `1e4f418`; preserved handoff and worktree; reproduce again as R2-005 |
+| IR-009 | Existing payment cash-link ownership, reuse and consistency; separate audit safe-fix concern. | Research only; reproduce on the new base as R2-006/007 |
+| IR-010 | Combined deadline exceeds the one-year limit although individual fields pass. | Research only; reproduce on the new base as R2-008 |
+
+## Second-pass queue
+
+| ID | Bounded responsibility and required evidence | State |
+| --- | --- | --- |
+| R2-001 | Worker PDF routing and explicit fallback contracts, separated from isolated real Qt integration. Reproduce the old 10-second false failure, preserve the production 45-second subprocess limit, PDF limits and readable Cyrillic. | Full local CI passed on attempt 1; exact-SHA candidate and main-branch hosted acceptance pending |
+| R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Pending |
+| R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Pending; unchanged successful repeats are not a fix |
+| R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Pending; global resource exhaustion remains unproven |
+| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Pending; do not restore the cancelled commit wholesale |
+| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Pending; no historical-data repair |
+| R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
+| R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
+
+R2-001 replaces the old fixture-heavy worker smoke with deterministic tests for
+thread routing, native failure/timeout, explicit fallback permission, Unicode,
+invalid/oversized output and packaged-worker behavior. Its native integration
+runs in an isolated process, disables plain-text fallback, and requires a real
+Qt PDF with both source strings extracted through QtPdf. The 60-second outer
+probe bound includes the unchanged 45-second production render and process/PDF
+inspection overhead. Poppler rendering was visually inspected: both Cyrillic
+strings and the red CSS styling are present. The production PDF source is
+unchanged; no runtime speed claim is made. Full local and hosted acceptance
+remain required before promotion.
+
+R2-001 full local CI passed on attempt 1: 3,003 reported core cases (80 existing
+environment skips; 3,004 planned IDs include a class-level skip), all 38 isolated
+browser groups, 36 release cases (four existing environment skips), 82.09%
+runtime coverage, mandatory core browser smoke and all existing performance
+gates. All five frozen files, including the unchanged production PDF module,
+matched their pre-run hashes. Only these result records were updated after
+validation. All 128 focused/neighboring checks also pass, including seven
+deterministic contracts and the real native Qt integration. Hosted acceptance
+on the candidate and subsequently the same main-branch SHA is still required.
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
@@ -182,15 +244,24 @@ runtime coverage and all existing smoke/performance gates. All five candidate
 files and the full Git patch match the pre-run hashes. Only this result
 metadata is added after validation; hosted acceptance follows publication.
 
+IR-007 hosted acceptance passed at
+`f9fbb6c31ef383c1241baa6a94af78a599ffbd4d`: all five jobs,
+3,089 unit cases (38 environment skips), 82.18% runtime coverage and 36 release
+cases. Attempt 1 had the same native Qt exit 139 in the settings-wizard test as
+IR-006; unchanged attempt 2 passed. Its cause remains unproven and belongs to
+R2-003. The later e93b102 baseline retains all accepted IR-001 through IR-007
+runtime changes. The IR-008 handoff, verification patch and excluded IR-009/010
+research are preserved outside Git; their existence does not imply acceptance.
+
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-006 accepted; IR-007 under validation |
+| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-007 accepted; R2-005 pending |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
-| Printing and files | One field/download/print or file lifetime | Pending |
-| Inventory, finance and payroll | One cash cancellation with original journal/guard contracts | IR-007 under validation; other boundaries pending |
+| Printing and files | Worker PDF route/fallback and real native rendering | R2-001 in validation; other boundaries pending |
+| Inventory, finance and payroll | Payment cash-link ownership and financial audit safe-fix | IR-007 accepted; R2-006/007 pending |
 | JsonStore and change feed | One persistence or transaction boundary | Pending |
 | Agent, tests and packaging | One runtime/tool/test/build responsibility | Pending |

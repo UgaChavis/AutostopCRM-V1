@@ -6,7 +6,6 @@ import json
 import re
 import sys
 import tempfile
-import threading
 import unittest
 from decimal import Decimal
 
@@ -2632,31 +2631,6 @@ class PrintingServiceTests(unittest.TestCase):
 
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
         self.assertLessEqual(len(pdf_bytes), 4096)
-
-    def test_pdf_renderer_falls_back_safely_from_worker_thread(self) -> None:
-        result: dict[str, bytes] = {}
-
-        def run() -> None:
-            result["pdf"] = render_html_to_pdf_bytes(
-                """
-                <!doctype html>
-                <html>
-                  <head><style>body { color: red; }</style></head>
-                  <body><h1>Счет на оплату</h1><p>Владимир Регин</p></body>
-                </html>
-                """,
-                allow_plain_text_fallback=True,
-            )
-
-        thread = threading.Thread(target=run, name="pdf-worker-test")
-        thread.start()
-        thread.join(timeout=10)
-
-        self.assertFalse(thread.is_alive())
-        self.assertIn("pdf", result)
-        self.assertTrue(result["pdf"].startswith(b"%PDF"))
-        self.assertNotIn(b"(????", result["pdf"])
-        self.assertNotIn(b"body { color", result["pdf"])
 
 
 if __name__ == "__main__":
