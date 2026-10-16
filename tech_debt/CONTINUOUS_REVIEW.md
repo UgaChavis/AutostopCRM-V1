@@ -61,11 +61,12 @@ outside this run.
 | R2-001 | Worker PDF routing and explicit fallback contracts, separated from isolated real Qt integration. Reproduce the old 10-second false failure, preserve the production 45-second subprocess limit, PDF limits and readable Cyrillic. | Accepted at `af7c539bd06df5a32ca4c30fd8da17dd06ba9dc3`; [candidate CI 38885558451](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38885558451) and [main CI 38886939483](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38886939483), both attempt 1 |
 | R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Accepted at `31ff1780ccabaf48dd6ec610392fdab140d909cc`; [candidate CI 38899866646](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38899866646) and [main CI 38902265141](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38902265141), both attempt 1 |
 | R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Investigated on `31ff178`; native Linux cause unresolved, no speculative change or commit |
-| R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Two review-laboratory context ownership defects reproduced and fixed; full local CI passed, exact-SHA candidate/main acceptance pending; historical driver/buffer causes remain unproven |
-| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Pending; do not restore the cancelled commit wholesale |
+| R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Accepted at `0ff6687f91603c05d7de45fd15b30133977b592d`; [candidate CI 38911489869](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38911489869) and [main CI 38913268055](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38913268055), both attempt 1; historical driver/buffer causes remain unproven |
+| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Fresh reproduction on accepted `0ff6687`; full local CI passed on the only permitted unchanged-candidate retry; exact-SHA candidate/main acceptance pending |
 | R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Pending; no historical-data repair |
 | R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
 | R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
+| R2-009 | Cashbox revision after payment removal: on accepted `0ff6687`, four synthetic cases keep the old cashbox timestamp after removing a ledger row and accept a request with that stale marker. Review revision meaning and all native callers before an independent correction. | New research, separate from payment identity/link validation; no historical repair |
 
 R2-001 replaces the old fixture-heavy worker smoke with deterministic tests for
 thread routing, native failure/timeout, explicit fallback permission, Unicode,
@@ -183,7 +184,67 @@ skips), 82.10% runtime coverage and all mandatory smoke/performance gates. All
 42 controllers finish with exit zero and no owned descendants. All four frozen
 files match after validation; only these result records are added afterward.
 The prior 3,363 selected cases, core order and all 38 original browser groups
-remain present. Exact-SHA candidate and main hosted acceptance follow publication.
+remain present. Exact-SHA hosted acceptance passed on both branches at
+`0ff6687f91603c05d7de45fd15b30133977b592d`: all five jobs on each branch,
+3,117 Linux unit cases (43 environment skips), 82.21% runtime coverage and
+36 release cases. All three new native Chromium checks run without skips in the
+mandatory browser job. All eight uploaded controllers per branch finish with
+exit zero and no owned descendants. The clean primary checkout is synchronized;
+179 evidence members, including the complete file/responsibility inventory,
+are preserved in a checksum-verified external archive. A controlled owned driver
+termination returns a connection-closed error and leaves no processes; it does
+not reproduce the historical busy loop or establish its cause.
+
+R2-005 reproduces the reverted IR-008 defect on accepted `0ff6687`: eight tests
+produce 48 expected failing subcases. Retaining one of several old payment rows
+with the same ID can preserve unrelated ledger movements or overwrite the
+selected cash link. Within the single reconciliation function, require one
+explicit original cash reference when that old ID is repeated, then match the
+retained row by that reference. Ambiguity remains
+`repair_order_payment_id_ambiguous` HTTP 409, before cash/audit draft changes.
+Unique old IDs retain their original cash-link precedence; explicit replacement
+with new IDs retains its prior behavior. Native cancellation still bypasses
+bulk reconciliation and retains its original guards. No historical data is
+repaired, and no request/response format is replaced.
+
+All eight selected archived tests pass with unchanged assertions after the
+18-line runtime change. The adopted fixture explicitly closes all its stores.
+A ninth test races two operators selecting different duplicate-ID rows: one
+save wins, the other and its stale repeat receive the existing
+`card_update_conflict` 409 without writes; replaying the winner is byte-stable.
+Running that test with the original function compiled from accepted Git source
+produces four additional expected failures. All nine final tests cover 100
+parameterized cases, and 82 neighboring tests pass. Thirty-two additional real
+SQLite scenarios under the module-local Linux idle-WAL policy pass on Windows:
+restart compares the full persisted bundle, state bytes and logical SQL dump;
+warm replay still compares every file byte, including live WAL/SHM. SQLite
+connections are not mocked. Native Linux remains a required hosted gate.
+An AST comparison confines the runtime change to one existing function body;
+no complexity/size limit is raised and no speed claim is made. Full local and
+exact-SHA candidate/main acceptance follow.
+
+The first full R2-005 local run failed in an unchanged Manager browser test:
+`.node[data-id="E1"]` did not become visible within the existing 30-second wait.
+All 3,024 core cases and 26 browser groups had passed. The failed group exited
+nonzero; its controller cleaned its remaining owned child. Frozen hashes,
+original commands and all 28 controller reports are preserved. The same seven
+cases pass in a diagnostic run and in the exact original coverage command.
+A separate clean `0ff6687` worktree passes those seven cases too. Candidate and
+baseline lab seeding take the same 22 payment paths with no repeated old IDs;
+Manager read/status routes call no payment reconciliation and return identical
+200/200/503 responses. The 503 is the established local
+`automation_control_unavailable` boundary, not an unexplained page exception.
+The original visibility timeout's precise cause remains unproven; no Manager
+source, assertion, timeout, skip or immutable pin is changed.
+
+One justified full retry of the unchanged candidate passed: 3,024 core cases
+(83 environment skips), all 39 browser groups, 36 release cases (four environment
+skips), 82.10% runtime coverage and every mandatory smoke/performance gate.
+The previously failed seven-case group passes in that complete run. All 42
+controllers exit zero without owned descendants, and all three frozen files
+match their original pre-run hashes. Only these result records are added after
+validation. No further unchanged-candidate full retry is permitted. The original
+failure and separate comparative diagnosis archives remain preserved.
 
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:

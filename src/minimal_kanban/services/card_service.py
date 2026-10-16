@@ -7251,6 +7251,20 @@ class CardService(
             if cashbox is not None:
                 payment.cashbox_id = cashbox.id
                 payment.cashbox_name = cashbox.name
+        previous_cash_links: dict[str, list[str]] = {}
+        for payment in previous_order.payments:
+            previous_cash_links.setdefault(payment.id, []).append(payment.cash_transaction_id)
+        for payment in next_payments:
+            links = previous_cash_links.get(payment.id, [])
+            if len(links) > 1 and (
+                not payment.cash_transaction_id or links.count(payment.cash_transaction_id) != 1
+            ):
+                self._fail(
+                    "repair_order_payment_id_ambiguous",
+                    "Не удалось однозначно определить исходную оплату заказ-наряда.",
+                    status_code=409,
+                    details={"card_id": card.id, "payment_id": payment.id},
+                )
         next_by_id = {payment.id: payment for payment in next_payments if payment.id}
 
         for previous_payment in previous_order.payments:
@@ -7261,6 +7275,10 @@ class CardService(
             keep_transaction = (
                 existing_transaction is not None
                 and next_payment is not None
+                and (
+                    len(previous_cash_links[previous_payment.id]) == 1
+                    or previous_payment.cash_transaction_id == next_payment.cash_transaction_id
+                )
                 and self._repair_order_payment_financial_signature(previous_payment)
                 == self._repair_order_payment_financial_signature(next_payment)
             )
