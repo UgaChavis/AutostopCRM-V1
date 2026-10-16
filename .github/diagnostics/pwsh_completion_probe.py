@@ -237,7 +237,36 @@ Mark 'main'
     return report
 
 
-if MODE.startswith("init-"):
+if MODE.startswith("compare-"):
+    original_helper = (ROOT / "scripts" / "ci_gate_completion.ps1").read_text(encoding="utf-8")
+    explicit_helper = OUT / "explicit-helper.ps1"
+    explicit_helper.write_text(
+        original_helper.replace(
+            "Add-Type -TypeDefinition @'",
+            "Add-Type -ReferencedAssemblies System.Runtime,System.Console,System.Threading -TypeDefinition @'",
+        ),
+        encoding="utf-8",
+    )
+    first_explicit = MODE == "compare-explicit-first"
+    reports = []
+    for number in range(12):
+        explicit = (number % 2 == 0) == first_explicit
+        report = phase_sample(number, True, explicit_helper if explicit else None)
+        report["references"] = "explicit" if explicit else "default"
+        report["comparison_sample"] = number >= 2
+        reports.append(report)
+        write("comparison-results.json", reports)
+        if report["timed_out"] or report["exit_code"] != 0:
+            break
+    outcome = any(report["timed_out"] or report["exit_code"] != 0 for report in reports)
+    if not outcome:
+        from tests import test_run_checks_interrupt
+
+        test_run_checks_interrupt.HELPER = explicit_helper
+        metadata["profile_only_helper_override"] = str(explicit_helper)
+        write("metadata.json", metadata)
+        outcome = original_tests()
+elif MODE.startswith("init-"):
     helper_source = (ROOT / "scripts" / "ci_gate_completion.ps1").read_text(encoding="utf-8")
     compile_command = "Add-Type -TypeDefinition @'"
     if MODE == "init-explicit":
