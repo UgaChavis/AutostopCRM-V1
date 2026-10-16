@@ -67,10 +67,19 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
                 else None
             ),
         )
-        page.route("**/api/get_card?*", lambda route: card_routes.append(route))
+
+        def hold_route(route, routes, name: str) -> None:
+            routes.append(route)
+            page.evaluate(
+                "name => { window.__printHydrationHeldRoutes ||= {}; "
+                "window.__printHydrationHeldRoutes[name] = true; }",
+                name,
+            )
+
+        page.route("**/api/get_card?*", lambda route: hold_route(route, card_routes, "card"))
         page.route(
             "**/api/get_repair_order_print_workspace",
-            lambda route: print_routes.append(route),
+            lambda route: hold_route(route, print_routes, "print"),
         )
         page.goto(self.runtime.browser_url)
         page.wait_for_function("state.snapshot && state.operatorSessionToken")
@@ -79,14 +88,18 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         ).click()
         page.locator("#cardModal.is-open").wait_for()
         page.wait_for_function("() => state.activeCardIsFull === false")
-        page.wait_for_function("() => window.__AUTOSTOP_UI_BOUND__ === true")
+        page.wait_for_function(
+            "() => window.__AUTOSTOP_UI_BOUND__ === true "
+            "&& window.__printHydrationHeldRoutes?.card === true"
+        )
         self.assertEqual(len(card_routes), 1)
         page.locator("#repairOrderButton").click()
         page.locator("#repairOrderModal.is-open").wait_for()
         page.locator("#repairOrderPrintButton").click()
         page.locator("#repairOrderPrintModal.is-open").wait_for()
         page.wait_for_function(
-            "() => document.querySelector('#repairOrderPrintModal').dataset.printLoadState === 'loading'"
+            "() => document.querySelector('#repairOrderPrintModal').dataset.printLoadState === 'loading' "
+            "&& window.__printHydrationHeldRoutes?.print === true"
         )
         self.assertEqual(len(print_routes), 1)
         print_has_focus = "modal => modal.contains(document.activeElement)"
