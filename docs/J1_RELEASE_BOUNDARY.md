@@ -308,6 +308,13 @@ PID1's canonical cache view and daemon cache must be RO; the protected native
 RW source, durable current cache-view state and actual mount inventory must
 match. Cache-view policy/code/unit and recovery unit/drop-in are bound in the
 bootstrap policy's static inventory. Mutable OAuth/history bytes are not pinned.
+Pending-marker lookup uses strict lstat: only FileNotFoundError is absence;
+I/O/permission uncertainty stops before accepting an otherwise visible READY.
+Owned metadata RPC/daemon-version observations serialize using a bounded Linux
+exclusive flock on the existing immutable root intent file, opened read-only.
+This prevents one observer's fixed version CLI being classified as foreign by
+another. It creates no lockfile, changes no intent bytes, never waits on the
+producer lifetime lock, and retains the original foreign-actor denial.
 
 Each of six profiles retains its first v2 condition and gets a fixed root
 `ready` condition in `z1-j1-kernel-readiness.conf`. The controller/helper/intent,

@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import stat
 import tempfile
+import threading
+import time
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -311,11 +315,12 @@ class KernelCurrentObservationTests(KernelFixture):
             actual_unit=Mock(),
             fixed_command=Mock(side_effect=lambda *a, **kw: self.unit),
             cache_check=Mock(),
-            ready_daemon=Mock(side_effect=lambda *a, **kw: (self.current["daemon"], 99)),
+            ready_daemon=Mock(side_effect=lambda *a, **kw: (self.current["daemon"], -12345)),
             base_arm=Mock(),
         )
         self.boot = self.root / "boot-id"
         self.boot.write_text(self.current["boot_id"])
+        real_close = os.close
         patches = [
             patch.object(kernel, "producer", return_value=self.module),
             patch.object(kernel, "policy_inputs", return_value=({}, {})),
@@ -324,7 +329,9 @@ class KernelCurrentObservationTests(KernelFixture):
             patch.object(kernel, "BOOT_ID", self.boot),
             patch.object(kernel.sys, "platform", "linux"),
             patch.object(kernel.os, "geteuid", return_value=0, create=True),
-            patch.object(kernel.os, "close"),
+            patch.object(
+                kernel.os, "close", side_effect=lambda fd: None if fd == -12345 else real_close(fd)
+            ),
             patch.object(kernel.select, "select", return_value=([], [], [])),
             patch.object(kernel, "read_file", return_value=b"policy"),
         ]
@@ -332,6 +339,11 @@ class KernelCurrentObservationTests(KernelFixture):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
+        self.observation_patch = patch.object(
+            kernel, "observation_lock", return_value=nullcontext()
+        )
+        self.observation_lock = self.observation_patch.start()
+        self.addCleanup(self.observation_patch.stop)
 
     def observe(self, initial=True):
         return kernel.observe(self.native, self.preparation, self.root, initial=initial)
@@ -341,6 +353,7 @@ class KernelCurrentObservationTests(KernelFixture):
         self.assertEqual(2, self.module.read_state.call_count)
         self.assertEqual(2, self.module.actual_unit.call_count)
         self.module.ready_daemon.assert_called_once()
+        self.observation_lock.assert_called_once()
         self.module.cache_check.assert_called_once_with({}, Path("/proc/1/root"))
 
     def test_stale_boot_or_pending_ready_always_deny(self):
@@ -377,9 +390,104 @@ class KernelCurrentObservationTests(KernelFixture):
             self.observe()
         self.module.read_state.side_effect = lambda _: (self.current, raw)
         self.module.ready_daemon.side_effect = None
-        self.module.ready_daemon.return_value = ({**self.daemon, "start_ticks": 322}, 99)
+        self.module.ready_daemon.return_value = ({**self.daemon, "start_ticks": 322}, -12345)
         with self.assertRaisesRegex(kernel.KernelError, "current_daemon_changed"):
             self.observe()
+
+
+@unittest.skipUnless(duty_tests.NATIVE_LINUX, "Requires real Linux read-only intent flock")
+class KernelSerializedObservationTests(KernelCurrentObservationTests):
+    def setUp(self):
+        actual_read = kernel.read_file
+        super().setUp()
+        self.observation_patch.stop()
+        intent = self.root / "immutable-intent.json"
+        intent.write_bytes(
+            json.dumps(
+                {
+                    "schema": "autostop.crm.j1-work-duty-intent.v1",
+                    "attempt_id": self.preparation["attempt_id"],
+                    "crm_revision": self.preparation["crm"]["revision"],
+                    "manager_revision": kernel.MANAGER,
+                }
+            ).encode()
+        )
+        intent.chmod(0o444)
+        path = patch.object(kernel, "OBSERVER_INTENT", intent)
+        path.start()
+        self.addCleanup(path.stop)
+        reader = patch.object(
+            kernel,
+            "read_file",
+            side_effect=lambda path, *args: (
+                b"policy" if path == kernel.POLICY else actual_read(path, *args)
+            ),
+        )
+        reader.start()
+        self.addCleanup(reader.stop)
+
+    def test_current_ready_requires_loaded_notify_main_and_rpc_before_second_state_read(self):
+        # All other native facts remain synthetic; this class uses real flock.
+        self.assertEqual(self.current, self.observe())
+        self.assertEqual(2, self.module.read_state.call_count)
+
+    def test_parallel_owned_version_observers_do_not_become_foreign_actors(self):
+        active, peak = 0, 0
+        mutex = threading.Lock()
+        first_entered, second_started = threading.Event(), threading.Event()
+        errors = []
+        before = kernel.OBSERVER_INTENT.read_bytes()
+
+        def native_probe(*_args, **_kwargs):
+            nonlocal active, peak
+            with mutex:
+                active += 1
+                peak = max(peak, active)
+                if active > 1:
+                    active -= 1
+                    raise self.module.Deny("foreign_same_home_appserver")
+            first_entered.set()
+            second_started.wait(1)
+            time.sleep(0.08)
+            with mutex:
+                active -= 1
+            return self.current["daemon"], -12345
+
+        self.module.ready_daemon.side_effect = native_probe
+
+        def observe(second=False):
+            if second:
+                first_entered.wait(1)
+                second_started.set()
+            try:
+                self.observe()
+            except BaseException as exc:
+                errors.append(exc)
+
+        workers = [threading.Thread(target=observe), threading.Thread(target=observe, args=(True,))]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=3)
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertEqual([], errors)
+        self.assertEqual(1, peak)
+        self.assertEqual(2, self.module.ready_daemon.call_count)
+        self.assertEqual(before, kernel.OBSERVER_INTENT.read_bytes())
+        self.assertEqual(0o444, stat.S_IMODE(kernel.OBSERVER_INTENT.stat().st_mode))
+
+    def test_busy_observer_lock_has_a_bounded_failure_without_native_probe(self):
+        import fcntl
+
+        fd = os.open(kernel.OBSERVER_INTENT, os.O_RDONLY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(kernel.KernelError, "readiness_observer_lock_timeout"):
+                with kernel.observation_lock(self.preparation, time.monotonic() + 0.08):
+                    self.fail("Busy intent must never admit a native probe")
+        finally:
+            os.close(fd)
+        self.module.ready_daemon.assert_not_called()
 
 
 class KernelDutyBindingTests(KernelFixture):

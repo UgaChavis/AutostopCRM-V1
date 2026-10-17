@@ -13,6 +13,7 @@ import stat
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 MODE = "kernel_ro_cold_v1"
@@ -24,6 +25,7 @@ INSTALL = Path("/usr/local/libexec/autostop-j1-kernel-bootstrap")
 CONSUMER = Path("/usr/local/libexec/autostop-crm-j1-duty/kernel.py")
 POLICY = Path("/etc/autostop-j1-kernel-bootstrap/policy.json")
 APPROVAL = POLICY.with_name("approval.json")
+OBSERVER_INTENT = Path("/etc/autostop-crm-j1-duty/intent.json")
 STATE = Path("/var/lib/autostop-j1-kernel-bootstrap/state.json")
 CACHE_POLICY = Path("/etc/autostop-j1-cache-view/policy.json")
 CACHE_CODE = Path("/usr/local/libexec/autostop-j1-cache-view/controller.py")
@@ -418,7 +420,12 @@ def policy_inputs(module, native, preparation):
 
 def cache_view(module, boot):
     """Observe PID1's durable view even when called from a native RW namespace."""
-    require(not os.path.lexists(CACHE_PENDING), "cache_view_pending")
+    try:
+        CACHE_PENDING.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        raise KernelError("cache_view_pending")
     raw = read_file(CACHE_STATE)
     value = decode(raw)
     policy_raw = read_file(CACHE_POLICY)
@@ -506,6 +513,53 @@ def main_process(module, pid, environment, namespace):
     return pid, int(fields[19]), namespace
 
 
+@contextmanager
+def observation_lock(preparation, deadline):
+    """Serialize owned version/RPC probes without changing the immutable intent.
+
+    Another observer's fixed same-HOME version CLI must never be mistaken for
+    a foreign app-server. The producer lifetime lock cannot serve this purpose.
+    Linux flock works on this existing read-only file and releases on death.
+    """
+    import fcntl
+
+    raw = read_file(OBSERVER_INTENT)
+    value = decode(raw)
+    require(
+        value.get("schema") == "autostop.crm.j1-work-duty-intent.v1"
+        and value.get("attempt_id") == preparation["attempt_id"]
+        and value.get("crm_revision") == preparation["crm"]["revision"]
+        and value.get("manager_revision") == MANAGER,
+        "observer_intent_context_mismatch",
+    )
+    fd = os.open(OBSERVER_INTENT, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        require(
+            stat.S_ISREG(info.st_mode)
+            and info.st_nlink == 1
+            and stat.S_IMODE(info.st_mode) == 0o444,
+            "immutable_observer_intent_required",
+        )
+        while True:
+            left = deadline - time.monotonic()
+            require(left > 0, "readiness_observer_lock_timeout")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(min(0.025, left))
+        named = OBSERVER_INTENT.lstat()
+        require(
+            (info.st_dev, info.st_ino) == (named.st_dev, named.st_ino)
+            and read_file(OBSERVER_INTENT) == raw,
+            "observer_intent_changed",
+        )
+        yield
+    finally:
+        os.close(fd)
+
+
 def observe(native, preparation, root, *, initial):
     """Fresh liveness even after commit; initial snapshots are never rewritten."""
     require(sys.platform == "linux" and os.geteuid() == 0, "linux_root_observer_required")
@@ -541,7 +595,8 @@ def observe(native, preparation, root, *, initial):
         )
         # Observe PID1's canonical view, not this legitimate native writer's RW bind.
         module.cache_check(policy, Path("/proc/1/root"))
-        stamp, pidfd = module.ready_daemon(policy, environment, deadline, cold=False)
+        with observation_lock(preparation, deadline):
+            stamp, pidfd = module.ready_daemon(policy, environment, deadline, cold=False)
         try:
             require(
                 stamp == before["daemon"] and not select.select([pidfd], [], [], 0)[0],
