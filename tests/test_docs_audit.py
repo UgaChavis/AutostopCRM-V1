@@ -265,6 +265,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!MCP_GUIDE.md", rules)
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
+        self.assertIn("!docs/J1_RELEASE_BOUNDARY.md", rules)
 
     @unittest.skipUnless(
         os.environ.get("AUTOSTOPCRM_DOCKER_CONTEXT_TESTS") == "1",
@@ -345,6 +346,7 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !CHATGPT_CONNECTOR_SETUP.md",
                 "Docker image excludes canonical documentation: !MCP_GUIDE.md",
                 "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
+                "Docker image excludes canonical documentation: !docs/J1_RELEASE_BOUNDARY.md",
             },
             {issue.detail for issue in issues},
         )

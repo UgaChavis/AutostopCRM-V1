@@ -444,6 +444,7 @@ def validate_telegram(
     expected_revision: str | None,
     release_link: Path,
     owner_config: Path,
+    expected_root: Path | None = None,
 ) -> dict[str, Any]:
     # Raw bridge status contains account id/name/username. Consume it only from
     # the pipe and deliberately retain/echo only technical booleans and hashes.
@@ -466,10 +467,23 @@ def validate_telegram(
     if not release_link.is_symlink():
         raise RuntimeError("automation_release_telegram_link_invalid")
     release_target = release_link.resolve(strict=True)
-    if release_target.parent != release_link.parent.resolve(strict=True):
-        raise RuntimeError("automation_release_telegram_link_invalid")
-    if expected_revision and not release_target.name.endswith(f"-{expected_revision[:12]}"):
-        raise RuntimeError("automation_release_telegram_revision_mismatch")
+    if expected_root is not None:
+        if (
+            not expected_root.is_absolute()
+            or expected_root.is_symlink()
+            or release_target != expected_root.resolve(strict=True)
+        ):
+            raise RuntimeError("automation_release_telegram_link_invalid")
+        if (
+            not expected_revision
+            or (release_target / "REVISION").read_text().strip() != expected_revision
+        ):
+            raise RuntimeError("automation_release_telegram_revision_mismatch")
+    else:
+        if release_target.parent != release_link.parent.resolve(strict=True):
+            raise RuntimeError("automation_release_telegram_link_invalid")
+        if expected_revision and not release_target.name.endswith(f"-{expected_revision[:12]}"):
+            raise RuntimeError("automation_release_telegram_revision_mismatch")
     owner_info = owner_config.lstat()
     if (
         not stat.S_ISREG(owner_info.st_mode)
@@ -531,6 +545,7 @@ def build_parser() -> argparse.ArgumentParser:
     crm_held.add_argument("--expect-released", action="store_true")
     telegram = subparsers.add_parser("telegram")
     telegram.add_argument("--expected-revision")
+    telegram.add_argument("--expected-root", type=Path)
     telegram.add_argument("--release-link", type=Path, required=True)
     telegram.add_argument("--owner-config", type=Path, required=True)
     telegram_inbound = telegram.add_mutually_exclusive_group(required=True)
@@ -582,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_revision=args.expected_revision,
                 release_link=args.release_link,
                 owner_config=args.owner_config,
+                expected_root=args.expected_root,
             )
     except (OSError, ValueError, json.JSONDecodeError, RuntimeError, sqlite3.Error) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))

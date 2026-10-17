@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts import j1_release_boundary as boundary
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -260,7 +262,7 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
         self.assertIn('require_disk_headroom "pre-build" "$prebuild_required_bytes"', script)
         self.assertIn('require_disk_headroom "post-build" "$MIN_FREE_DISK_BYTES"', script)
         self.assertIn('docker tag "$release_image" "$STABLE_IMAGE"', script)
-        self.assertIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
+        self.assertNotIn('docker tag "$rollback_image" "$STABLE_IMAGE"', script)
         self.assertIn("--no-deps --no-build --force-recreate", script)
         self.assertIn("scripts/agent_release_backup.py create", script)
         self.assertIn('"$CRM_DATA_DIR/manager_structure.json"', script)
@@ -272,8 +274,8 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
             'du -sb "$CRM_DATA_DIR/printing/completion_act_forms"',
             script,
         )
-        self.assertIn("restore-crm-changed --backup-dir", script)
-        self.assertIn("restore-manager-changed --backup-dir", script)
+        self.assertNotIn("restore-crm-changed --backup-dir", script)
+        self.assertNotIn("restore-manager-changed --backup-dir", script)
         self.assertIn("rollback_release", script)
         self.assertIn("umask 077", script)
         self.assertIn(
@@ -296,20 +298,17 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
             script,
         )
         self.assertIn("run_release docker compose stop", script)
-        self.assertIn("run_maintenance env AUTOSTOP_RELEASE_IMAGE", script)
-        self.assertEqual(script.count('mkdir -p "$staging_dir/data"'), 1)
-        self.assertEqual(script.count('chmod -R u=rwX,go=rX "$staging_dir"'), 1)
-        self.assertNotIn('chmod -R a+rX "$staging_dir"', script)
+        self.assertIn("J1 FORWARD RECOVERY REQUIRED", script)
         self.assertIn("verify_manager_snapshot_artifact()", script)
-        self.assertIn('printf \'%s\\n\' "$expected_revision" > "$staging_dir/REVISION"', script)
         self.assertIn("MANIFEST.files0", script)
         self.assertIn("MANIFEST.sha256", script)
-        self.assertIn(
-            'verify_manager_snapshot_artifact "$staging_dir" "$expected_revision"', script
-        )
-        self.assertIn(
-            'verify_manager_snapshot_artifact "$manager_release_dir" "$manager_revision"', script
-        )
+        self.assertNotIn("snapshot_manager_commit()", script)
+        self.assertNotIn("validate_manager_snapshot_source_tree()", script)
+        self.assertIn('verify_manager_snapshot_artifact "$target_dir" "$expected_revision"', script)
+        for source in ("work_telegram_prepared_dir",):
+            self.assertIn(
+                f'verify_manager_snapshot_artifact "${source}" "$manager_revision"', script
+            )
         self.assertIn('chmod 0755 "$MANAGER_RELEASE_ROOT"', script)
         self.assertIn('mkdir -p "$MANAGER_RELEASE_ROOT" "$BACKUP_ROOT"', script)
         self.assertIn(
@@ -321,14 +320,21 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
             script,
         )
         self.assertIn('disk_available_bytes "$target_path"', script)
-        self.assertIn('git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"', script)
-        self.assertIn('validate_manager_snapshot_source_tree "$staging_dir"', script)
-        self.assertLess(
-            script.index('validate_manager_snapshot_source_tree "$staging_dir"'),
-            script.index('mkdir -p "$staging_dir/data"'),
+        adoption_start = script.index("adopt_prepared_manager_commit() {")
+        adoption = script[adoption_start : script.index("\n}\n", adoption_start)]
+        self.assertIn("scripts/j1_release_boundary.py verify", adoption)
+        self.assertIn("release_git_assert_exact_state", adoption)
+        self.assertNotIn("archive", adoption)
+        preparation_source = (PROJECT_ROOT / "scripts" / "j1_release_boundary.py").read_text(
+            encoding="utf-8"
         )
+        self.assertIn(
+            'for name in ("manager", "work-telegram", "personal-telegram")', preparation_source
+        )
+        self.assertIn('for name, record in value["sources"].items():', preparation_source)
+        self.assertIn("verify_source(record, MANAGER_REVISION)", preparation_source)
         self.assertEqual(
-            script.count('snapshot_manager_commit "$MANAGER_SOURCE_DIR"'),
+            script.count('adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR"'),
             1,
         )
         self.assertIn("manager_mount_source=", script)
@@ -336,7 +342,7 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
         self.assertNotIn("rsync", script)
         self.assertLess(
             script.index('require_disk_headroom "pre-build"'),
-            script.index('snapshot_manager_commit "$MANAGER_SOURCE_DIR"'),
+            script.index('adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR"'),
         )
         self.assertLess(
             script.index('require_disk_headroom "pre-build"'),
@@ -354,13 +360,6 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
         verifier_start = script.index("verify_manager_snapshot_artifact() {")
         verifier_end = script.index("\n}\n\n", verifier_start) + 2
         verifier = script[verifier_start:verifier_end]
-        source_validator_start = script.index("validate_manager_snapshot_source_tree() {")
-        source_validator_end = script.index("\n}\n\n", source_validator_start) + 2
-        source_validator = script[source_validator_start:source_validator_end]
-        snapshot_start = script.index("snapshot_manager_commit() {")
-        snapshot_end = script.index("\n}\n", snapshot_start) + 2
-        snapshot = script[snapshot_start:snapshot_end]
-
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "manager-source"
@@ -369,6 +368,9 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
             package.mkdir()
             (package / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
             (source / "README.md").write_text("manager\n", encoding="utf-8")
+            worker = source / "worker.sh"
+            worker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            worker.chmod(0o755)
             subprocess.run(["git", "init", "--quiet", str(source)], check=True)
             subprocess.run(["git", "-C", str(source), "add", "."], check=True)
             subprocess.run(
@@ -394,41 +396,17 @@ printf '%s' payload-release | run_release_from_stdin /bin/cat | cmp - <(printf '
                 text=True,
             ).stdout.strip()
 
-            def snapshot_from_source(
-                target: Path, staging: Path, expected_revision: str, *, check: bool = True
-            ) -> subprocess.CompletedProcess[str]:
-                harness = f"""
-set -euo pipefail
-manager_release_dir={shlex.quote(str(target))}
-manager_release_staging_dir={shlex.quote(str(staging))}
-manager_attempt_cleanup_authorized=0
-MANAGER_DEPLOY_BRANCH=AutostopManager
-release_git_assert_exact_state() {{
-  local _label="$1"
-  local source_dir="$2"
-  local _branch="$3"
-  local expected_revision="$4"
-  [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$expected_revision" ]]
-}}
-{verifier}
-{source_validator}
-{snapshot}
-snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {shlex.quote(expected_revision)}
-"""
-                return subprocess.run(
-                    ["bash", "-c", harness],
-                    check=check,
-                    capture_output=True,
-                    text=True,
-                )
-
             target = root / "manager-release"
-            staging = root / "manager-release.partial-test"
-            snapshot_from_source(target, staging, revision)
+            files = boundary.source_files(source, revision)
+            record = boundary.seal(source, target, revision, files)
+            boundary.verify_source(record, revision)
 
             self.assertEqual((target / "REVISION").read_text(encoding="utf-8").strip(), revision)
             self.assertTrue((target / "MANIFEST.files0").is_file())
             self.assertTrue((target / "MANIFEST.sha256").is_file())
+            self.assertTrue((target / "data").is_dir())
+            self.assertEqual(stat.S_IMODE((target / "worker.sh").stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE((target / "README.md").stat().st_mode), 0o644)
             self.assertIn(b"./REVISION\0", (target / "MANIFEST.files0").read_bytes())
             self.assertNotIn(b"./MANIFEST.files0\0", (target / "MANIFEST.files0").read_bytes())
             self.assertNotIn(b"./MANIFEST.sha256\0", (target / "MANIFEST.files0").read_bytes())
@@ -448,6 +426,12 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
                     text=True,
                 )
 
+            self.assertEqual(verify_snapshot().returncode, 0)
+            inventory = target / "MANIFEST.files0"
+            inventory_bytes = inventory.read_bytes()
+            inventory.write_bytes(inventory_bytes.replace(b"./README.md\0", b""))
+            self.assertNotEqual(verify_snapshot().returncode, 0)
+            inventory.write_bytes(inventory_bytes)
             self.assertEqual(verify_snapshot().returncode, 0)
             extra = target / "unexpected.py"
             extra.write_text("unexpected = True\n", encoding="utf-8")
@@ -488,13 +472,39 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
                 text=True,
             ).stdout.strip()
             unsafe_target = root / "unsafe-manager-release"
-            unsafe_staging = root / "unsafe-manager-release.partial-test"
-            unsafe_result = snapshot_from_source(
-                unsafe_target, unsafe_staging, unsafe_revision, check=False
-            )
-            self.assertNotEqual(unsafe_result.returncode, 0)
+            with self.assertRaisesRegex(boundary.BoundaryError, "unsupported_source_entry"):
+                files = boundary.source_files(source, unsafe_revision)
+                boundary.seal(source, unsafe_target, unsafe_revision, files)
             self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged\n")
             self.assertFalse(unsafe_target.exists())
+
+            (source / "REVISION").unlink()
+            for reserved in ("REVISION", "MANIFEST.sha256", "MANIFEST.files0"):
+                with self.subTest(reserved=reserved):
+                    reserved_path = source / reserved
+                    reserved_path.write_text("untrusted metadata\n", encoding="utf-8")
+                    subprocess.run(["git", "-C", str(source), "add", "-A"], check=True)
+                    subprocess.run(
+                        [
+                            "git",
+                            "-C",
+                            str(source),
+                            "-c",
+                            "user.name=AutoStop Test",
+                            "-c",
+                            "user.email=test@example.invalid",
+                            "commit",
+                            "--quiet",
+                            "-m",
+                            reserved,
+                        ],
+                        check=True,
+                    )
+                    reserved_revision = boundary.git(source, "rev-parse", "HEAD").decode().strip()
+                    with self.assertRaisesRegex(boundary.BoundaryError, "unsupported_source_entry"):
+                        boundary.source_files(source, reserved_revision)
+                    self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged\n")
+                    reserved_path.unlink()
 
     def test_deploy_verifies_both_checkouts_before_snapshot_build_or_rotation(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
@@ -503,7 +513,7 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         manager_preflight = script.index('manager_revision="$(')
         oauth_ensure = script.index("scripts/configure_mcp_oauth.py ensure")
         manager_snapshot = script.index(
-            'snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
+            'adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
         )
         image_build = script.index('--tag "$release_image_tag" -')
         self.assertEqual(
@@ -542,7 +552,7 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
             'run_release "$PYTHON_BIN" scripts/agent_release_backup.py verify --backup-dir "$backup_dir"',
             backup_create,
         )
-        activation = script.index('activate_manager_snapshot "$manager_release_dir"', backup_verify)
+        activation = script.index("\nadmit_j1_candidate\n", backup_verify)
         knowledge_sync = script.index("sync_current_manager_knowledge", activation + 1)
         crm_start = script.index(
             'run_release env AUTOSTOP_RELEASE_IMAGE="$release_image" docker compose up',
@@ -588,99 +598,96 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         )
         cleanup_preview = script.index("-m scripts.cleanup_audit_probe_consumer", backup_verify)
         cleanup_apply = script.index('--backup-dir "$backup_dir"', cleanup_preview)
-        activation = script.index('activate_manager_snapshot "$manager_release_dir"', cleanup_apply)
+        activation = script.index("\nadmit_j1_candidate\n", cleanup_apply)
         self.assertLess(backup_verify, cleanup_preview)
         self.assertLess(cleanup_preview, cleanup_apply)
         self.assertLess(cleanup_apply, activation)
 
-    def test_automation_center_release_is_held_backed_up_and_read_back_before_open(
-        self,
-    ) -> None:
+    def test_automation_center_release_is_held_backed_up_and_read_back_before_open(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         release = script[script.index("maintenance_started=1") :]
-
-        snapshot = release.index("coordinated_release_state.py capture")
-        hold = release.index("automation_release_attempt_key", snapshot)
-        registry_backup = release.index("backup-manager-automation-state.py", hold)
-        telegram_pause = release.index("set_work_telegram_duty 0 release", registry_backup)
-        crm_stop = release.index("docker compose stop", telegram_pause)
-        protected_backup = release.index("scripts/agent_release_backup.py create", crm_stop)
-        audit_cleanup = release.index("-m scripts.cleanup_audit_probe_consumer", protected_backup)
-        manager_activate = release.index(
-            'activate_manager_snapshot "$manager_release_dir"', audit_cleanup
+        ordered = (
+            "coordinated_release_state.py capture",
+            "automation_release_attempt_key",
+            "backup-manager-automation-state.py",
+            "docker compose stop",
+            "scripts/agent_release_backup.py create",
+            "-m scripts.cleanup_audit_probe_consumer",
+            "admit_j1_candidate",
+            "activate_manager_automation",
+            "activate_work_telegram_release",
+            "docker compose up",
+            "probe_manager_crm_feed_auth",
+            "capture_manager_automation_status",
+            "verify-feed",
+            "verify-telegram-effects",
+            "--expect-held",
+            "release-hold",
+            "--expect-released",
+            'rm -f "$MAINTENANCE_MARKER_HOST"',
+            "deployment_succeeded=1",
+            "trap - EXIT",
         )
-        scheduler_activate = release.index("activate_manager_automation", manager_activate)
-        telegram_activate = release.index("activate_work_telegram_release", scheduler_activate)
-        crm_start = release.index("docker compose up", telegram_activate)
-        credential_sync = release.index("sync_manager_crm_mcp_configuration", crm_start)
-        scheduler_restart = release.index("activate_manager_automation", credential_sync)
-        feed_auth_probe = release.index("probe_manager_crm_feed_auth", scheduler_restart)
-        restarted_readback = release.index("capture_manager_automation_status", feed_auth_probe)
-        final_feed = release.index("verify-feed", crm_start)
-        telegram_effects = release.index("verify-telegram-effects", final_feed)
-        final_held_readback = release.index("--expect-held", telegram_effects)
-        unhold = release.index("release-hold", final_held_readback)
-        released_readback = release.index("--expect-released", unhold)
-        open_writes = release.index('rm -f "$MAINTENANCE_MARKER_HOST"', released_readback)
-        marked_success = release.index("deployment_succeeded=1", open_writes)
-        trap_removed = release.index("trap - EXIT", marked_success)
-        telegram_restore = release.index(
-            'set_work_telegram_duty "$work_telegram_inbound_before"', trap_removed
+        offset = 0
+        for operation in ordered:
+            with self.subTest(operation=operation):
+                offset = release.index(operation, offset) + len(operation)
+        self.assertEqual(release.count("activate_manager_automation"), 1)
+        before_admission = release[: release.index("admit_j1_candidate")]
+        self.assertNotIn("capture_safe_work_telegram_status", before_admission)
+        self.assertNotIn("set_work_telegram_duty", before_admission)
+        admission_start = script.index("admit_j1_candidate() {")
+        admission = script[admission_start : script.index("\n}\n", admission_start)]
+        self.assertLess(
+            admission.index("prepare_guarded_j1_units"),
+            admission.index("sync_manager_crm_mcp_configuration"),
         )
-
-        self.assertLess(snapshot, hold)
-        self.assertLess(hold, registry_backup)
-        self.assertLess(registry_backup, telegram_pause)
-        self.assertLess(crm_stop, protected_backup)
-        self.assertLess(protected_backup, audit_cleanup)
-        self.assertLess(audit_cleanup, manager_activate)
-        self.assertLess(scheduler_activate, telegram_activate)
-        self.assertLess(telegram_activate, crm_start)
-        self.assertLess(crm_start, credential_sync)
-        self.assertLess(credential_sync, scheduler_restart)
-        self.assertLess(scheduler_restart, feed_auth_probe)
-        self.assertLess(feed_auth_probe, restarted_readback)
-        self.assertLess(restarted_readback, final_held_readback)
-        self.assertLess(final_feed, telegram_effects)
-        self.assertLess(final_held_readback, unhold)
-        self.assertLess(unhold, released_readback)
-        self.assertLess(released_readback, open_writes)
-        self.assertLess(open_writes, marked_success)
-        self.assertLess(marked_success, trap_removed)
-        self.assertLess(trap_removed, telegram_restore)
-
-        self.assertIn('--manager-revision "$manager_revision"', script)
-        self.assertIn('--crm-revision "$crm_revision"', script)
-        self.assertIn('--crm-version "$CRM_APP_VERSION"', script)
+        self.assertLess(
+            admission.index("sync_manager_crm_mcp_configuration"),
+            admission.index("scripts/j1_release_boundary.py admit"),
+        )
+        prepare_start = script.index("prepare_guarded_j1_units() {")
+        prepare = script[prepare_start : script.index("\n}\n", prepare_start)]
+        self.assertLess(
+            prepare.index("verify-closure"),
+            prepare.index('activate_manager_snapshot "$manager_release_dir"'),
+        )
+        self.assertLess(
+            prepare.index("verify-closure"),
+            prepare.index('mv -Tf "$next" "$WORK_TELEGRAM_RELEASE_LINK"'),
+        )
+        self.assertIn("for native_index in 4 5", release)
+        self.assertIn('systemctl start "$native_unit"', release)
+        self.assertIn('systemctl is-active --quiet "$native_unit"', release)
+        for required in (
+            '--manager-revision "$manager_revision"',
+            '--crm-revision "$crm_revision"',
+            '--crm-version "$CRM_APP_VERSION"',
+            "scripts/probe_manager_crm_feed_auth.py",
+            "--require-dependencies-ready",
+        ):
+            self.assertIn(required, script)
         self.assertIn("verify_active_crm_image", release)
         self.assertIn("verify_automation_socket_mount", release)
-        self.assertIn("scripts/probe_manager_crm_feed_auth.py", script)
-        self.assertIn("--require-dependencies-ready", script)
         self.assertNotIn("send-owner-notification", release)
 
-    def test_automation_center_rollback_reholds_and_restores_before_reopening(
-        self,
-    ) -> None:
+    def test_automation_center_failure_preserves_closed_window_and_all_native_roles(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
         rollback = script[script.index("rollback_release() {") : script.index("\non_exit() {")]
-
-        guard = rollback.index("guard_coordinated_rollback")
-        stop_crm = rollback.index("docker compose stop")
-        stop_candidates = rollback.index("stop-candidates", stop_crm)
-        manager_restore = rollback.index('activate_manager_snapshot "$previous_manager_dir"')
-        coordinated_restore = rollback.index("restore_coordinated_release_state", manager_restore)
-        crm_restart = rollback.index("docker compose up", coordinated_restore)
-        health = rollback.index('wait_for_health "$rollback_image"', crm_restart)
-        unhold = rollback.index("release-hold", health)
-        open_writes = rollback.index('rm -f "$MAINTENANCE_MARKER_HOST"', unhold)
-
-        self.assertLess(guard, stop_crm)
-        self.assertLess(stop_crm, stop_candidates)
-        self.assertLess(stop_candidates, manager_restore)
-        self.assertLess(manager_restore, coordinated_restore)
-        self.assertLess(coordinated_restore, crm_restart)
-        self.assertLess(health, unhold)
-        self.assertLess(unhold, open_writes)
+        for unit in (
+            "autostop-j1.service",
+            "autostop-manager-mcp.service",
+            "autostop-manager-scheduler.service",
+            "autostop-work-telegram.service",
+            "autostop-telegram.service",
+            "autostop-codex-wake.service",
+            "autostop-j1-browser.service",
+        ):
+            self.assertIn(unit, rollback)
+        for forbidden in ("restore_coordinated_release_state", "release-hold", "docker compose up"):
+            self.assertNotIn(forbidden, rollback)
+        self.assertIn("systemctl stop", rollback)
+        self.assertIn("docker compose stop", rollback)
 
     def test_deploy_runs_isolated_candidate_manager_knowledge_preflight_before_maintenance(
         self,
@@ -691,7 +698,7 @@ snapshot_manager_commit {shlex.quote(str(source))} {shlex.quote(str(target))} {s
         preflight_end = script.index("\n)\n\nsync_current_manager_knowledge()", preflight_start) + 2
         preflight = script[preflight_start:preflight_end]
         snapshot = script.index(
-            'snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
+            'adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
         )
         preflight_call = script.index("run_isolated_manager_knowledge_preflight", preflight_end)
         image_build = script.index('--tag "$release_image_tag" -')
@@ -946,10 +953,9 @@ fi
         self.assertIn("if (( auth_rotated != 0 )); then", cleanup)
         self.assertIn('rm -rf "$auth_backup_dir"', cleanup)
         self.assertNotIn('rm -rf "$auth_backup_dir"', rollback)
-        self.assertIn("if restore_auth_configuration; then", rollback)
-        self.assertIn("if (( auth_rotated == 0 )); then", rollback)
+        self.assertNotIn("restore_auth_configuration", rollback)
         self.assertNotIn('rm -rf "$auth_backup_dir"', on_exit)
-        self.assertIn("if restore_auth_configuration; then", on_exit)
+        self.assertNotIn("restore_auth_configuration", on_exit)
 
     def test_deploy_makes_public_auth_smoke_mandatory_for_reads_and_writes(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
@@ -995,128 +1001,87 @@ fi
         self.assertEqual(script.count('run_release rm -f "$MAINTENANCE_MARKER_HOST"'), 1)
         self.assertLess(public_connector_index, marker_removal)
 
-    def test_rollback_rearms_marker_and_restores_crm_before_manager_fuser_gate(self) -> None:
+    def test_failed_release_rearms_marker_before_stops_without_database_restore(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
-        rollback_start = script.index("rollback_release()")
-        rollback = script[rollback_start : script.index("\non_exit() {", rollback_start)]
-
+        rollback = script[script.index("rollback_release() {") : script.index("\non_exit() {")]
         marker = rollback.index('install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"')
-        stop = rollback.index("docker compose stop")
-        crm_restore = rollback.index("restore-crm-changed --backup-dir")
-        fuser = rollback.index('fuser "$MANAGER_DB"')
-        manager_restore = rollback.index("restore-manager-changed --backup-dir")
-        self.assertLess(marker, stop)
-        self.assertLess(crm_restore, fuser)
-        self.assertLess(fuser, manager_restore)
+        self.assertLess(marker, rollback.index("systemctl stop"))
+        self.assertLess(marker, rollback.index("docker compose stop"))
+        self.assertNotIn("scripts/agent_release_backup.py", rollback)
+        self.assertNotIn('fuser "$MANAGER_DB"', rollback)
 
     def test_incomplete_rollback_never_reopens_public_writes(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
-        rollback_start = script.index("rollback_release()")
-        rollback = script[rollback_start : script.index("\non_exit() {", rollback_start)]
-
-        marker_removal = rollback.index('run_maintenance rm -f "$MAINTENANCE_MARKER_HOST"')
-        marker_rearm = rollback.index('install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"')
-        stop = rollback.index("docker compose stop")
-        stable_tag = rollback.index('docker tag "$rollback_image" "$STABLE_IMAGE"')
-        crm_restore = rollback.index("restore-crm-changed --backup-dir")
-        health = rollback.index('wait_for_health "$rollback_image"')
-        self.assertIn(
-            "timeout --signal=TERM --kill-after=5 30s \\\n"
-            '    docker tag "$rollback_image" "$STABLE_IMAGE" </dev/null',
-            rollback,
-        )
-        self.assertLess(marker_rearm, stable_tag)
-        self.assertLess(stable_tag, stop)
-        self.assertLess(stable_tag, crm_restore)
-        self.assertLess(stable_tag, health)
-        self.assertIn(
-            "if (( rollback_ok == 1 )); then\n"
-            '      run_maintenance rm -f "$MAINTENANCE_MARKER_HOST" '
-            "|| rollback_ok=0\n"
-            "    fi",
-            rollback,
-        )
-        self.assertLess(stable_tag, marker_removal)
-        self.assertIn("ROLLBACK INCOMPLETE: maintenance marker remains", rollback)
-        self.assertIn(
-            "if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then",
-            rollback,
-        )
+        rollback = script[script.index("rollback_release() {") : script.index("\non_exit() {")]
+        self.assertIn("timeout --signal=TERM --kill-after=5 30s", rollback)
+        self.assertIn('install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"', rollback)
+        for forbidden in (
+            'rm -f "$MAINTENANCE_MARKER_HOST"',
+            "restore-crm-changed",
+            "restore-manager-changed",
+            "restore_auth_configuration",
+            "restore_manager_crm_mcp_configuration",
+            "wait_for_health",
+            'docker tag "$rollback_image"',
+            "activate_manager_snapshot",
+        ):
+            self.assertNotIn(forbidden, rollback)
+        self.assertIn('return "$original_status"', rollback)
 
     @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
     def test_failed_rollback_stop_never_touches_protected_state(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
-        rollback_start = script.index("rollback_release()")
-        rollback = script[rollback_start : script.index("\non_exit() {", rollback_start)]
-
-        stop_guard = rollback.index(
-            'if ! run_maintenance env AUTOSTOP_RELEASE_IMAGE="$release_image"'
-        )
-        abort = rollback.index('return "$original_status"', stop_guard)
-        crm_restore = rollback.index("restore-crm-changed --backup-dir")
-        manager_restore = rollback.index("restore-manager-changed --backup-dir")
-        self.assertLess(stop_guard, abort)
-        self.assertLess(abort, crm_restore)
-        self.assertLess(abort, manager_restore)
-        self.assertIn("protected data remains untouched and maintenance stays active", rollback)
-
+        rollback = script[script.index("rollback_release() {") : script.index("\non_exit() {")]
         with tempfile.TemporaryDirectory() as temp_dir:
-            log_path = Path(temp_dir) / "calls.log"
-            marker_path = Path(temp_dir) / "maintenance"
-            harness = f"""
+            root = Path(temp_dir)
+            for candidate_access in (0, 1):
+                for stop_status in (0, 1):
+                    with self.subTest(candidate_access=candidate_access, stop_status=stop_status):
+                        log_path = root / f"calls-{candidate_access}-{stop_status}.log"
+                        marker_path = root / f"marker-{candidate_access}-{stop_status}"
+                        harness = f"""
 set -u
-MAINTENANCE_MARKER_HOST={marker_path!s}
-release_image=sha256:{"1" * 64}
-rollback_image=autostopcrm-rollback:test
-STABLE_IMAGE=autostopcrm:stable
+MAINTENANCE_MARKER_HOST={shlex.quote(str(marker_path))}
 SERVICE_NAME=autostopcrm
-backup_dir=/does/not-matter
-MANAGER_DB=/does/not-matter.sqlite3
-PYTHON_BIN=python3
-previous_manager_dir=/does/not-matter-manager
+j1_candidate_access_possible={candidate_access}
 rollback_active=0
+PYTHON_BIN=forbidden-python
 install() {{ : > "$MAINTENANCE_MARKER_HOST"; }}
-run_maintenance() {{
-  printf '%s\n' "$*" >> {log_path!s}
-  if [[ "$*" == *"docker compose stop"* ]]; then return 1; fi
-  return 0
-}}
-restore_auth_configuration() {{ printf '%s\n' restore-auth >> {log_path!s}; }}
-activate_manager_snapshot() {{ printf '%s\n' activate-manager >> {log_path!s}; }}
-wait_for_health() {{ printf '%s\n' wait-health >> {log_path!s}; return 0; }}
+timeout() {{ printf '%s\n' "$*" >> {shlex.quote(str(log_path))}; return {stop_status}; }}
+forbidden-python() {{ printf '%s\n' "python $*" >> {shlex.quote(str(log_path))}; return 2; }}
+run_maintenance() {{ printf '%s\n' "maintenance $*" >> {shlex.quote(str(log_path))}; return 1; }}
 {rollback}
-if rollback_release 17; then
-  status=0
-else
-  status=$?
-fi
+if rollback_release 17; then status=0; else status=$?; fi
 printf 'status=%s\n' "$status"
 """
-            completed = subprocess.run(
-                ["bash", "-c", harness],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            calls = log_path.read_text(encoding="utf-8")
-
-        self.assertIn("status=17", completed.stdout)
-        self.assertIn("docker compose stop", calls)
-        for forbidden_call in (
-            "agent_release_backup.py",
-            "restore-auth",
-            "activate-manager",
-            "wait-health",
-            "docker compose up",
-        ):
-            self.assertNotIn(forbidden_call, calls)
+                        completed = subprocess.run(
+                            ["bash", "-c", harness],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        calls = log_path.read_text(encoding="utf-8")
+                        self.assertIn("status=17", completed.stdout)
+                        self.assertTrue(marker_path.is_file())
+                        self.assertIn("systemctl stop", calls)
+                        self.assertIn("docker compose stop", calls)
+                        for forbidden in (
+                            "agent_release_backup.py",
+                            "restore",
+                            "activate-manager",
+                            "wait-health",
+                            "docker compose up",
+                            "rm -f",
+                        ):
+                            self.assertNotIn(forbidden, calls)
 
     def test_premaintenance_attempt_artifacts_have_early_exact_cleanup(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")
 
         early_trap = script.index("trap premaintenance_on_exit EXIT")
         manager_snapshot = script.index(
-            'snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
+            'adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir"'
         )
         image_build = script.index('--tag "$release_image_tag" -')
         rollback_tag = script.index('docker tag "$previous_image_id" "$rollback_image"')
@@ -1127,10 +1092,8 @@ printf 'status=%s\n' "$status"
         self.assertLess(manager_snapshot, full_trap)
         self.assertLess(image_build, full_trap)
         self.assertLess(rollback_tag, full_trap)
-        self.assertLess(
-            script.index("manager_attempt_cleanup_authorized=1"),
-            script.index('mkdir "$staging_dir"'),
-        )
+        self.assertNotIn("manager_attempt_cleanup_authorized=1", script)
+        self.assertIn("manager_attempt_cleanup_authorized=0", script)
         self.assertLess(script.index("release_image_tag_cleanup_authorized=1"), image_build)
         self.assertLess(script.index("rollback_image_cleanup_authorized=1"), rollback_tag)
         cleanup = script[
@@ -1145,8 +1108,9 @@ printf 'status=%s\n' "$status"
         self.assertIn('--restore-image-tag "$release_image_tag"', cleanup)
         on_exit_start = script.index("\non_exit() {")
         on_exit = script[on_exit_start : script.index("trap on_exit EXIT", on_exit_start)]
-        self.assertIn("maintenance_started == 0", on_exit)
-        self.assertIn("cleanup_owned_premaintenance_artifacts", on_exit)
+        self.assertIn("CLOSED RELEASE FAILED", on_exit)
+        self.assertNotIn("cleanup_owned_premaintenance_artifacts", on_exit)
+        self.assertNotIn("restore_auth_configuration", on_exit)
 
     def test_watchdog_precedes_final_reopen_and_retention_is_post_success_only(self) -> None:
         script = (PROJECT_ROOT / "deploy.sh").read_text(encoding="utf-8")

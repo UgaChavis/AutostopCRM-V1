@@ -5,6 +5,37 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
 
+# Dispatch before reading the live shell environment. Preparation creates only
+# new source artifacts and a receipt, without executing the deployment below.
+if [[ "${1:-}" == "--prepare-j1" ]]; then
+  if [[ $# != 5 || "$2" != "--manager-source" || "$4" != "--output" ]]; then
+    echo "usage: $0 --prepare-j1 --manager-source PATH --output NEW_DIRECTORY" >&2
+    exit 2
+  fi
+  exec /usr/bin/python3 -I -S "$ROOT_DIR/scripts/j1_release_boundary.py" prepare \
+    --crm-source "$ROOT_DIR" --manager-source "$3" --output "$5"
+fi
+if [[ $# != 4 || "$1" != "--j1-prepared" || "$3" != "--sha256" ]]; then
+  echo "usage: $0 --prepare-j1 --manager-source PATH --output NEW_DIRECTORY" >&2
+  echo "   or: $0 --j1-prepared /absolute/preparation.json --sha256 HASH" >&2
+  exit 2
+fi
+J1_PREPARATION="$2"
+J1_PREPARATION_SHA256="$4"
+j1_prepared_fields="$(/usr/bin/python3 -I -S "$ROOT_DIR/scripts/j1_release_boundary.py" verify \
+  --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256")"
+mapfile -t j1_prepared <<<"$j1_prepared_fields"
+[[ ${#j1_prepared[@]} == 4 ]] || exit 2
+/usr/bin/python3 -I -S "$ROOT_DIR/scripts/j1_release_boundary.py" rollback-allowed || exit 2
+j1_closed_fields="$(/usr/bin/python3 -I -S "$ROOT_DIR/scripts/j1_release_boundary.py" verify-closure \
+  --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256")"
+mapfile -t j1_closed <<<"$j1_closed_fields"
+[[ ${#j1_closed[@]} == 13 ]] || exit 2
+j1_previously_active="${j1_closed[0]}"
+# The accepted window is already closed; failure must preserve it for explicit
+# forward recovery, rather than restore a snapshot of stopped services.
+j1_candidate_access_possible=1
+
 if [[ -f "$ROOT_DIR/.env" ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -44,6 +75,10 @@ MANAGER_RELEASE_PYTHON="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$MANAGER_SOURCE_DIR/.
 DOCS_AUDIT_PYTHON="${AUTOSTOP_DOCS_AUDIT_PYTHON:-$ROOT_DIR/.venv/bin/python}"
 MANAGER_CRM_MCP_ENV="/opt/AutostopManager/.crm-mcp.env"
 MANAGER_MCP_ACTIVATE_ON_DEPLOY="${AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY:-1}"
+if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" != "${j1_closed[1]}" ]]; then
+  echo "ERROR: native MCP activation must preserve the accepted pre-closure state." >&2
+  exit 2
+fi
 AUTOMATION_SERVICE_NAME="autostop-manager-scheduler.service"
 AUTOMATION_STATE_DIR="/var/lib/autostop-manager-scheduler"
 AUTOMATION_DB="$AUTOMATION_STATE_DIR/registry.sqlite3"
@@ -52,10 +87,27 @@ WORK_TELEGRAM_RELEASE_LINK="/opt/autostop-work-telegram-releases/current"
 WORK_TELEGRAM_STATE_DIR="/var/lib/autostop-work-telegram"
 WORK_TELEGRAM_RUNTIME_DIR="/run/autostop-work-telegram"
 WORK_TELEGRAM_OWNER_CONFIG="/etc/autostop-work-telegram/owner.json"
+WORK_DUTY_CONTROLLER="/usr/local/libexec/autostop-crm-j1-duty/restore.py"
+work_duty_intent_sha256=""
 J1_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_ACTIVATE_ON_DEPLOY:-0}"
+if [[ "$j1_previously_active" == "1" ]]; then
+  if [[ "${AUTOSTOP_J1_ACTIVATE_ON_DEPLOY:-1}" != "1" ]]; then
+    echo "ERROR: the closed release must preserve the previously active J1 worker." >&2
+    exit 2
+  fi
+  J1_ACTIVATE_ON_DEPLOY=1
+fi
+if [[ "$J1_ACTIVATE_ON_DEPLOY" != "$j1_previously_active" ]]; then
+  echo "ERROR: J1 activation must preserve the accepted pre-closure state." >&2
+  exit 2
+fi
 J1_UNIT_NAME="autostop-j1.service"
 J1_UNIT_PATH="/etc/systemd/system/$J1_UNIT_NAME"
 J1_BROWSER_ACTIVATE_ON_DEPLOY="${AUTOSTOP_J1_BROWSER_ACTIVATE_ON_DEPLOY:-0}"
+if [[ "$J1_BROWSER_ACTIVATE_ON_DEPLOY" != "0" ]]; then
+  echo "ERROR: the prepared guard denies the unsupported J1 browser profile." >&2
+  exit 2
+fi
 J1_BROWSER_UNIT_NAME="autostop-j1-browser.service"
 J1_BROWSER_UNIT_PATH="/etc/systemd/system/$J1_BROWSER_UNIT_NAME"
 J1_BROWSER_MARKER_PATH="/run/autostop-j1-browser-attestation/isolation-ready"
@@ -342,7 +394,7 @@ docker compose config --quiet
 
 release_timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 release_revision="${crm_revision:0:12}"
-release_id="${release_timestamp}-${release_revision}-$$"
+release_id="${j1_prepared[0]}"
 automation_release_attempt_key="automation:${release_id}:${manager_revision:0:12}"
 release_image_tag="${AUTOSTOP_RELEASE_IMAGE:-autostopcrm:${release_revision}}"
 release_image=""
@@ -359,7 +411,9 @@ rollback_active=0
 previous_manager_dir=""
 auth_backup_dir="$BACKUP_ROOT/.auth-rollback-$release_id"
 manager_crm_mcp_backup_dir="$BACKUP_ROOT/.manager-crm-mcp-rollback-$release_id"
-manager_release_dir="$MANAGER_RELEASE_ROOT/${release_id}-manager-${manager_revision:0:12}"
+manager_release_dir="${j1_prepared[1]}"
+work_telegram_prepared_dir="${j1_prepared[2]}"
+personal_telegram_prepared_dir="${j1_prepared[3]}"
 manager_release_staging_dir="${manager_release_dir}.partial-$$"
 manager_attempt_cleanup_authorized=0
 premaintenance_cleanup_done=0
@@ -389,7 +443,7 @@ automation_snapshot_captured=0
 automation_registry_preexisting=0
 automation_hold_acquired=0
 automation_scheduler_activation_attempted=0
-work_telegram_inbound_before=0
+work_telegram_inbound_before="${j1_closed[6]}"
 work_telegram_duty_paused=0
 work_telegram_release_attempted=0
 automation_registry_backup_ready=0
@@ -507,67 +561,15 @@ verify_manager_snapshot_artifact() {
   fi
 }
 
-validate_manager_snapshot_source_tree() {
-  local snapshot_dir="$1"
-  local reserved_path
-  if [[ ! -d "$snapshot_dir" ]]; then
-    echo "ERROR: Manager snapshot source directory is unavailable." >&2
-    return 2
-  fi
-  if find "$snapshot_dir" -xdev -type l -print -quit | grep -q .; then
-    echo "ERROR: Manager snapshot source contains unsupported symbolic links." >&2
-    return 2
-  fi
-  if find "$snapshot_dir" -xdev ! -type d ! -type f -print -quit | grep -q .; then
-    echo "ERROR: Manager snapshot source contains unsupported special files." >&2
-    return 2
-  fi
-  for reserved_path in REVISION MANIFEST.files0 MANIFEST.sha256; do
-    if [[ -e "$snapshot_dir/$reserved_path" || -L "$snapshot_dir/$reserved_path" ]]; then
-      echo "ERROR: Manager snapshot source reserves $reserved_path for release metadata." >&2
-      return 2
-    fi
-  done
-}
 
-snapshot_manager_commit() {
-  local source_dir="$1"
-  local target_dir="$2"
-  local expected_revision="$3"
-  local staging_dir="$manager_release_staging_dir"
-  if [[ "$target_dir" != "$manager_release_dir" ]] \
-    || [[ -e "$target_dir" || -L "$target_dir" ]] \
-    || [[ -e "$staging_dir" || -L "$staging_dir" ]]; then
-    echo "ERROR: Manager attempt artifact identity is not clean." >&2
-    return 2
-  fi
-  manager_attempt_cleanup_authorized=1
-  mkdir "$staging_dir"
+adopt_prepared_manager_commit() {
+  local source_dir="$1" target_dir="$2" expected_revision="$3"
+  [[ "$target_dir" == "$manager_release_dir" ]] || return 2
   release_git_assert_exact_state \
-    "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" \
-    "$expected_revision" >/dev/null
-  git -C "$source_dir" archive HEAD | tar -x -C "$staging_dir"
-  release_git_assert_exact_state \
-    "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" \
-    "$expected_revision" >/dev/null
-  validate_manager_snapshot_source_tree "$staging_dir"
-  # Docker can overlay the live manager SQLite data only when the nested
-  # mountpoint already exists inside the immutable read-only source snapshot.
-  mkdir -p "$staging_dir/data"
-  printf '%s\n' "$expected_revision" > "$staging_dir/REVISION"
-  (
-    cd "$staging_dir"
-    find . -xdev -type f \
-      ! -path "./MANIFEST.sha256" \
-      ! -path "./MANIFEST.files0" \
-      -print0 | LC_ALL=C sort -z > MANIFEST.files0
-    xargs -0 -r sha256sum < MANIFEST.files0 > MANIFEST.sha256
-  )
-  # The mounted source must stay readable/traversable to the non-root CRM
-  # process, while the release artifact itself remains root-owned and sealed.
-  chmod -R u=rwX,go=rX "$staging_dir"
-  verify_manager_snapshot_artifact "$staging_dir" "$expected_revision"
-  mv "$staging_dir" "$target_dir"
+    "AutoStopManager" "$source_dir" "$MANAGER_DEPLOY_BRANCH" "$expected_revision" >/dev/null
+  "$PYTHON_BIN" -I -S scripts/j1_release_boundary.py verify \
+    --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256" >/dev/null
+  verify_manager_snapshot_artifact "$target_dir" "$expected_revision"
 }
 activate_manager_snapshot() {
   local target_dir="$1"
@@ -619,12 +621,14 @@ run_isolated_manager_knowledge_preflight() (
     PYTHONPATH="$manager_release_dir" \
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync
   env \
     PYTHONPATH="$manager_release_dir" \
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit
   # The schema probe needs both CRM and Manager dependencies from the CRM venv. Audit the
@@ -633,6 +637,7 @@ run_isolated_manager_knowledge_preflight() (
     PYTHONPATH="$manager_release_dir" \
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     AUTOSTOP_MANAGER_ENV_FILE=/dev/null \
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/docs_audit.py" \
@@ -641,6 +646,7 @@ run_isolated_manager_knowledge_preflight() (
     PYTHONPATH="$manager_release_dir" \
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     AUTOSTOP_MANAGER_ENV_FILE=/dev/null \
     AUTOSTOP_MANAGER_DB="$manager_knowledge_gate_dir/preflight.sqlite3" \
     "$DOCS_AUDIT_PYTHON" "$ROOT_DIR/scripts/check_automotive_tool_catalog.py" \
@@ -664,12 +670,14 @@ sync_current_manager_knowledge() {
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+  AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-sync
   run_release env \
     PYTHONPATH="$MANAGER_CURRENT_LINK" \
     PYTHONSAFEPATH=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+  AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli knowledge-audit
 }
 
@@ -738,13 +746,8 @@ chmod 0755 "$MANAGER_RELEASE_ROOT"
 manager_release_required_bytes=$(( MIN_FREE_DISK_BYTES + manager_archive_bytes ))
 require_disk_headroom \
   "manager-release" "$manager_release_required_bytes" "$MANAGER_RELEASE_ROOT"
-"$PYTHON_BIN" scripts/agent_release_retention.py cleanup-attempt \
-  --manager-release-root "$MANAGER_RELEASE_ROOT" \
-  --release-id "$release_id" \
-  --manager-revision "$manager_revision" \
-  --protected-manager-path "$previous_manager_dir" \
-  --protected-image-tag "$STABLE_IMAGE" >/dev/null
-snapshot_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir" "$manager_revision"
+adopt_prepared_manager_commit "$MANAGER_SOURCE_DIR" "$manager_release_dir" "$manager_revision"
+verify_manager_snapshot_artifact "$work_telegram_prepared_dir" "$manager_revision"
 run_isolated_manager_knowledge_preflight
 
 # The catalog files live outside the Git snapshot. Populate their persistent
@@ -762,6 +765,7 @@ env \
   PYTHONSAFEPATH=1 \
   PYTHONDONTWRITEBYTECODE=1 \
   AUTOSTOP_MANAGER_DB="$MANAGER_DB" \
+  AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null AUTOSTOP_J1_DATA_DIR=/dev/null \
   "$MANAGER_RELEASE_PYTHON" "$catalog_sync_script" \
     --cache-root "$(dirname "$MANAGER_DB")/offline_parts_catalogs"
 require_disk_headroom "post-catalog" "$prebuild_required_bytes"
@@ -1069,25 +1073,19 @@ remove_manager_crm_mcp_backup_if_safe() {
 }
 
 activate_manager_native_mcp() {
-  local target_dir="$1"
-  local mode="$2"
-  local active_manager_dir expected_manager_dir installer
-  active_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
-  expected_manager_dir="$(readlink -f "$target_dir")"
-  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
-    echo "ERROR: Manager native MCP activation source is not the expected release." >&2
-    return 2
-  fi
-  installer="$MANAGER_CURRENT_LINK/scripts/install-manager-mcp.sh"
-  if [[ ! -x "$installer" || -L "$installer" ]]; then
-    echo "ERROR: active Manager native MCP installer is unavailable." >&2
-    return 2
-  fi
-  if [[ "$mode" == "release" ]]; then
-    run_release "$installer" --replace-unit --activate
-  else
-    run_maintenance "$installer" --replace-unit --activate
-  fi
+  local target_dir="$1" mode="$2" attempt ready=0
+  [[ "$mode" == release && "$(readlink -f "$MANAGER_CURRENT_LINK")" == "$(readlink -f "$target_dir")" ]] || return 2
+  run_release systemctl enable --now autostop-manager-mcp.service
+  for attempt in {1..50}; do
+    run_release systemctl is-active --quiet autostop-manager-mcp.service || return 2
+    if (exec 3<>/dev/tcp/127.0.0.1/41931) 2>/dev/null; then ready=1; break; fi
+    run_release sleep 0.2
+  done
+  (( ready == 1 )) || return 2
+  run_release env PYTHONPATH="$manager_release_dir" PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 \
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_MANAGER_DB="$MANAGER_DB" AUTOSTOP_J1_CACHE_DIR=/dev/null \
+    "$MANAGER_RELEASE_PYTHON" -m autostop_manager.cli mcp-probe \
+    --url http://127.0.0.1:41931/mcp --provider-failure-check --store-check
 }
 
 run_automation_release_module() {
@@ -1101,6 +1099,8 @@ run_automation_release_module() {
     PYTHONSAFEPATH=1
     PYTHONDONTWRITEBYTECODE=1
     AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+    AUTOSTOP_J1_CACHE_DIR=/dev/null
+    AUTOSTOP_J1_DATA_DIR=/dev/null
     "AUTOSTOP_AUTOMATION_DB=$AUTOMATION_DB"
     "AUTOSTOP_AUTOMATION_CONTROL_SOCKET=$AUTOMATION_SOCKET"
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.automation_release
@@ -1123,6 +1123,8 @@ capture_manager_automation_status() {
     PYTHONSAFEPATH=1
     PYTHONDONTWRITEBYTECODE=1
     AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+    AUTOSTOP_J1_CACHE_DIR=/dev/null
+    AUTOSTOP_J1_DATA_DIR=/dev/null
     "AUTOSTOP_AUTOMATION_CONTROL_SOCKET=$AUTOMATION_SOCKET"
     "$MANAGER_RELEASE_PYTHON" -m autostop_manager.automation_control status
   )
@@ -1159,36 +1161,22 @@ validate_manager_automation_status() {
 }
 
 capture_safe_work_telegram_status() {
-  local expected_inbound="$1"
-  local expected_revision="$2"
-  local budget_mode="$3"
-  local output="$4"
-  local duty_script="$WORK_TELEGRAM_RELEASE_LINK/scripts/set-work-telegram-duty.sh"
-  local -a validator=(
-    "$PYTHON_BIN" scripts/check_automation_center_release.py telegram
-    --release-link "$WORK_TELEGRAM_RELEASE_LINK"
-    --owner-config "$WORK_TELEGRAM_OWNER_CONFIG"
-  )
-  if [[ "$expected_inbound" == "1" ]]; then
-    validator+=(--expect-inbound)
-  elif [[ "$expected_inbound" == "any" ]]; then
-    validator+=(--allow-either-inbound)
+  local expected_inbound="$1" expected_revision="$2" budget_mode="$3" output="$4"
+  local -a validator=("$PYTHON_BIN" scripts/check_automation_center_release.py telegram
+    --release-link "$WORK_TELEGRAM_RELEASE_LINK" --owner-config "$WORK_TELEGRAM_OWNER_CONFIG"
+    --expected-root "$work_telegram_prepared_dir")
+  if [[ "$expected_inbound" == 1 ]]; then validator+=(--expect-inbound)
+  elif [[ "$expected_inbound" == any ]]; then validator+=(--allow-either-inbound)
+  else validator+=(--expect-outbound-only); fi
+  [[ -z "$expected_revision" ]] || validator+=(--expected-revision "$expected_revision")
+  local -a command=(sudo -u autostop-work-telegram env PYTHONDONTWRITEBYTECODE=1 PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1
+    "PYTHONPATH=$work_telegram_prepared_dir"
+    AUTOSTOP_MANAGER_ENV_FILE=/dev/null AUTOSTOP_J1_CACHE_DIR=/dev/null
+    /opt/autostop-work-telegram-venv/bin/python -m autostop_manager.telegram_bridge --account work status)
+  if [[ "$budget_mode" == release ]]; then
+    run_release "${command[@]}" | run_release_from_stdin "${validator[@]}" >"$output"
   else
-    validator+=(--expect-outbound-only)
-  fi
-  if [[ -n "$expected_revision" ]]; then
-    validator+=(--expected-revision "$expected_revision")
-  fi
-  if [[ ! -x "$duty_script" || -L "$duty_script" ]]; then
-    echo "ERROR: work Telegram duty controller is unavailable." >&2
-    return 2
-  fi
-  if [[ "$budget_mode" == "release" ]]; then
-    run_release "$duty_script" --status \
-      | run_release_from_stdin "${validator[@]}" >"$output"
-  else
-    run_maintenance "$duty_script" --status \
-      | run_maintenance_from_stdin "${validator[@]}" >"$output"
+    run_maintenance "${command[@]}" | run_maintenance_from_stdin "${validator[@]}" >"$output"
   fi
 }
 
@@ -1200,36 +1188,31 @@ safe_telegram_status_has_inbound() {
 }
 
 set_work_telegram_duty() {
-  local enabled="$1"
-  local budget_mode="$2"
-  local duty_script="$WORK_TELEGRAM_RELEASE_LINK/scripts/set-work-telegram-duty.sh"
-  local option="--disable"
-  [[ "$enabled" == "1" ]] && option="--enable"
-  if [[ ! -x "$duty_script" || -L "$duty_script" ]]; then
-    echo "ERROR: work Telegram duty controller is unavailable." >&2
-    return 2
-  fi
-  if [[ "$budget_mode" == "release" ]]; then
-    run_release "$duty_script" "$option"
-  else
-    run_maintenance "$duty_script" "$option"
-  fi
+  local enabled="$1" budget_mode="$2" option=--disabled
+  [[ "$enabled" != 1 ]] || option=--enabled
+  [[ -f "$(dirname "$J1_PREPARATION")/admitted.json" ]] || return 2
+  # Runtime RPC only: no env/wake config changes, unit restart or bootstrap.
+  local -a command=(env PYTHONDONTWRITEBYTECODE=1 PYTHONSAFEPATH=1 PYTHONNOUSERSITE=1
+    "PYTHONPATH=$work_telegram_prepared_dir" AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+    AUTOSTOP_J1_CACHE_DIR=/dev/null /opt/autostop-work-telegram-venv/bin/python
+    -m autostop_manager.telegram_bridge --account work duty-set "$option")
+  if [[ "$budget_mode" == release ]]; then run_release "${command[@]}"
+  else run_maintenance "${command[@]}"; fi
 }
 
 activate_manager_automation() {
-  local installer="$MANAGER_CURRENT_LINK/scripts/install-manager-automation.sh"
-  if [[ ! -x "$installer" || -L "$installer" ]]; then
-    echo "ERROR: active Manager Automation Center installer is unavailable." >&2
-    return 2
-  fi
+  local attempt
   automation_scheduler_activation_attempted=1
-  run_release "$installer" \
-    --activate-under-hold \
-    --replace-unit \
-    --manager-revision "$manager_revision" \
-    --crm-revision "$crm_revision" \
-    --crm-version "$CRM_APP_VERSION" \
-    --release-attempt-key "$automation_release_attempt_key"
+  run_automation_release_module "$manager_release_dir" release hold "$automation_release_attempt_key"
+  run_automation_release_module "$manager_release_dir" release adopt-current "$automation_release_attempt_key"
+  run_release systemctl enable --now "$AUTOMATION_SERVICE_NAME"
+  for attempt in {1..50}; do
+    run_release systemctl is-active --quiet "$AUTOMATION_SERVICE_NAME" || return 2
+    [[ -S "$AUTOMATION_SOCKET" ]] && break
+    run_release sleep 0.2
+  done
+  [[ -S "$AUTOMATION_SOCKET" ]] || return 2
+  run_automation_release_module "$manager_release_dir" release seed "$automation_release_attempt_key"
 }
 
 probe_manager_crm_feed_auth() {
@@ -1239,27 +1222,81 @@ probe_manager_crm_feed_auth() {
 }
 
 activate_work_telegram_release() {
+  local attempt ready=0
   work_telegram_release_attempted=1
-  run_release "$MANAGER_SOURCE_DIR/scripts/deploy_telegram_bridge.sh" \
-    --account work --no-start "$manager_revision"
-  local wake_installer="$WORK_TELEGRAM_RELEASE_LINK/scripts/install-codex-wake.sh"
-  if [[ ! -x "$wake_installer" || -L "$wake_installer" ]]; then
-    echo "ERROR: candidate work Telegram wake installer is unavailable." >&2
-    return 2
-  fi
-  run_release "$wake_installer"
+  # Reuse exact prepared sources and accepted dependency/model selectors.
+  run_release systemctl enable --now autostop-work-telegram.service
+  for attempt in {1..50}; do
+    run_release systemctl is-active --quiet autostop-work-telegram.service || return 2
+    if capture_safe_work_telegram_status 0 "$manager_revision" release "$automation_telegram_status"; then
+      ready=1
+      break
+    fi
+    run_release sleep 0.2
+  done
+  [[ "$ready" == 1 ]] || return 2
+  run_release /usr/local/sbin/autostop-work-telegram-media self-check
+  run_release "$work_telegram_prepared_dir/scripts/run-work-telegram-monitor-voice.sh" --self-check
+  # Preserve daemon/instruction1b and wake.json; never run the bootstrap installer.
 }
 
-prepare_work_telegram_candidate() {
-  local dependency_installer="$MANAGER_SOURCE_DIR/scripts/install-telegram-bridge.sh"
-  local model_installer="$MANAGER_SOURCE_DIR/scripts/provision-telegram-transcription-model.sh"
-  if [[ ! -x "$dependency_installer" || -L "$dependency_installer" \
-    || ! -x "$model_installer" || -L "$model_installer" ]]; then
-    echo "ERROR: work Telegram candidate installers are unavailable." >&2
-    return 2
-  fi
-  run_release "$dependency_installer" --account work --revision "$manager_revision"
-  run_release "$model_installer" --account work --revision "$manager_revision"
+prepare_guarded_j1_units() {
+  local unit next
+  run_release "$PYTHON_BIN" -I -S scripts/j1_release_boundary.py verify-closure \
+    --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256" >/dev/null
+  work_duty_intent_sha256="$(run_release "$PYTHON_BIN" -I -S scripts/j1_release_boundary.py prepare-duty \
+    --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256" \
+    --marker "$MAINTENANCE_MARKER_HOST" --lock "$DEPLOY_LOCK_PATH")"
+  run_release install -D -o root -g root -m 0644 "$ROOT_DIR/scripts/j1_work_duty.py" "$WORK_DUTY_CONTROLLER"
+  run_release install -D -o root -g root -m 0444 "$(dirname "$J1_PREPARATION")/work-duty-intent.json" \
+    /etc/autostop-crm-j1-duty/intent.json
+  run_release install -d -o root -g root -m 0755 /var/lib/autostop-crm-j1-duty
+  # No live alias may change until this second effective quiet/fence readback.
+  snapshot_j1_worker_state
+  # Fixed inert configuration, never a shell hook. It also prevents an
+  # unsupported unit's ExecStopPost from running after its guard returns DENY.
+  for unit in autostop-j1.service autostop-manager-mcp.service autostop-manager-scheduler.service \
+    autostop-work-telegram.service autostop-telegram.service autostop-codex-wake.service \
+    autostop-codex-start.service autostop-j1-browser.service; do
+    run_release install -D -o root -g root -m 0644 "$ROOT_DIR/scripts/j1_release_hooks.conf" \
+      "/etc/systemd/system/$unit.d/98-j1-release-hooks-held.conf"
+  done
+  activate_manager_snapshot "$manager_release_dir"
+  next="$(dirname "$WORK_TELEGRAM_RELEASE_LINK")/.current-$release_id"
+  run_release ln -s "$work_telegram_prepared_dir" "$next"
+  run_release mv -Tf "$next" "$WORK_TELEGRAM_RELEASE_LINK"
+  next="/opt/autostop-telegram-releases/.current-$release_id"
+  run_release ln -s "$personal_telegram_prepared_dir" "$next"
+  run_release mv -Tf "$next" /opt/autostop-telegram-releases/current
+  run_release install -o root -g root -m 0644 \
+    "$personal_telegram_prepared_dir/deploy/systemd/autostop-telegram.service" \
+    /etc/systemd/system/autostop-telegram.service
+  run_release "$manager_release_dir/scripts/install-manager-automation.sh" --replace-unit \
+    --manager-revision "$manager_revision" --crm-revision "$crm_revision" --crm-version "$CRM_APP_VERSION"
+  run_release "$manager_release_dir/scripts/install-manager-mcp.sh" --replace-unit
+  run_release "$manager_release_dir/scripts/install-j1-worker.sh" --replace-unit
+  for unit in autostop-work-telegram.service autostop-codex-wake.service; do
+    run_release install -o root -g root -m 0644 \
+      "$work_telegram_prepared_dir/deploy/systemd/$unit" "/etc/systemd/system/$unit"
+  done
+  run_release install -D -o root -g root -m 0644 "$(dirname "$J1_PREPARATION")/work-duty-restore.conf" \
+    /etc/systemd/system/autostop-work-telegram.service.d/98-j1-work-duty-restore.conf
+  run_release install -o root -g root -m 0755 \
+    "$work_telegram_prepared_dir/scripts/run-work-telegram-media.sh" /usr/local/sbin/autostop-work-telegram-media
+  run_release systemctl daemon-reload
+}
+
+admit_j1_candidate() {
+  j1_candidate_access_possible=1
+  prepare_guarded_j1_units
+  sync_manager_crm_mcp_configuration
+  assert_release_budget
+  local remaining
+  remaining="$(remaining_release_budget)"
+  (( remaining > 0 )) || return 2
+  run_release "$PYTHON_BIN" -I -S scripts/j1_release_boundary.py admit \
+    --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256" \
+    --image "$release_image" --backup "$backup_dir" --timeout "$remaining"
 }
 
 verify_active_crm_image() {
@@ -1289,6 +1326,7 @@ verify_automation_socket_mount() {
 }
 
 snapshot_j1_worker_state() {
+  [[ ! -d "$j1_worker_backup_dir" ]] || return 0
   if [[ -L "$J1_UNIT_PATH" || ( -e "$J1_UNIT_PATH" && ! -f "$J1_UNIT_PATH" ) ]]; then
     echo "ERROR: existing J1 systemd unit is not a regular file." >&2
     return 2
@@ -1313,19 +1351,13 @@ snapshot_j1_worker_state() {
 
 activate_j1_worker() {
   local target_dir="$1"
-  local active_manager_dir expected_manager_dir installer
-  active_manager_dir="$(readlink -f "$MANAGER_CURRENT_LINK")"
-  expected_manager_dir="$(readlink -f "$target_dir")"
-  if [[ "$active_manager_dir" != "$expected_manager_dir" ]]; then
-    echo "ERROR: J1 worker activation source is not the expected Manager release." >&2
-    return 2
-  fi
-  installer="$MANAGER_CURRENT_LINK/scripts/install-j1-worker.sh"
-  if [[ ! -x "$installer" || -L "$installer" ]]; then
-    echo "ERROR: active Manager J1 installer is unavailable." >&2
-    return 2
-  fi
-  run_release "$installer" --replace-unit --activate
+  [[ "$(readlink -f "$MANAGER_CURRENT_LINK")" == "$(readlink -f "$target_dir")" ]] || return 2
+  run_release systemctl enable --now "$J1_UNIT_NAME"
+  run_release sleep 1
+  run_release systemctl is-active --quiet "$J1_UNIT_NAME"
+  run_release "$PYTHON_BIN" -I -S scripts/j1_release_boundary.py native-probe \
+    --crm-source "$ROOT_DIR" --preparation "$J1_PREPARATION" --sha256 "$J1_PREPARATION_SHA256"
+  run_release systemctl is-active --quiet "$J1_UNIT_NAME"
 }
 
 restore_j1_worker_state() {
@@ -1648,132 +1680,20 @@ restore_coordinated_release_state() {
 
 rollback_release() {
   local original_status="$1"
-  local rollback_ok=1
-  local marker_rearmed=1
   set +e
   rollback_active=1
-  # Re-arm write protection before any diagnostic, stop, or restore action.
-  # This remains a direct local operation so an exhausted command budget
-  # cannot reopen a write window during rollback.
-  if ! install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST"; then
-    echo "ROLLBACK CRITICAL: maintenance marker could not be re-armed." >&2
-    rollback_ok=0
-    marker_rearmed=0
-  fi
-  if ! guard_coordinated_rollback; then
-    echo "ROLLBACK CRITICAL: coordinated scheduler/Telegram guard failed." >&2
-    rollback_ok=0
-  fi
-  if (( ${j1_browser_activation_attempted:-0} == 1 )) \
-    && systemctl is-active --quiet "$J1_BROWSER_UNIT_NAME"; then
-    run_maintenance systemctl stop "$J1_BROWSER_UNIT_NAME" || rollback_ok=0
-  fi
-  if (( ${j1_worker_activation_attempted:-0} == 1 )) \
-    && systemctl is-active --quiet "$J1_UNIT_NAME"; then
-    run_maintenance systemctl stop "$J1_UNIT_NAME" || rollback_ok=0
-  fi
-  # Restore the stable reference before any rollback operation can exhaust the
-  # reserve. Retagging does not affect the running container, while it prevents
-  # a watchdog from ever restarting the failed candidate image.
-  if ! timeout --signal=TERM --kill-after=5 30s \
-    docker tag "$rollback_image" "$STABLE_IMAGE" </dev/null; then
-    echo "ROLLBACK CRITICAL: stable image reference could not be restored." >&2
-    rollback_ok=0
-  fi
-  echo "ROLLBACK: restoring the previous CRM image and changed protected data." >&2
-  if ! run_maintenance env AUTOSTOP_RELEASE_IMAGE="$release_image" \
-    docker compose stop --timeout 20 "$SERVICE_NAME" >/dev/null 2>&1; then
-    echo "ROLLBACK CRITICAL: candidate CRM could not be stopped; protected data remains untouched and maintenance stays active; the auth snapshot is preserved." >&2
-    set -e
-    return "$original_status"
-  fi
-  if (( automation_snapshot_captured == 1 )); then
-    run_maintenance "$PYTHON_BIN" scripts/coordinated_release_state.py \
-      stop-candidates || rollback_ok=0
-  fi
-  if (( marker_rearmed == 0 )); then
-    echo "ROLLBACK CRITICAL: CRM remains stopped because write protection is unavailable." >&2
-    if restore_auth_configuration; then
-      if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
-        restore_manager_crm_mcp_configuration || true
-      fi
-      remove_auth_backup_if_safe || true
-    fi
-    set -e
-    return "$original_status"
-  fi
-  if [[ -n "$backup_dir" && -d "$backup_dir" ]]; then
-    local fuser_status=0
-    run_maintenance "$PYTHON_BIN" scripts/agent_release_backup.py \
-      verify --backup-dir "$backup_dir" >&2 || rollback_ok=0
-    run_maintenance "$PYTHON_BIN" scripts/agent_release_backup.py \
-      restore-crm-changed --backup-dir "$backup_dir" >&2 || rollback_ok=0
-    run_maintenance fuser "$MANAGER_DB" >/dev/null 2>&1 || fuser_status=$?
-    if (( fuser_status == 0 )); then
-      echo "ROLLBACK WARNING: manager SQLite is open; only Manager DB restore was skipped." >&2
-      rollback_ok=0
-    elif (( fuser_status == 1 )); then
-      run_maintenance "$PYTHON_BIN" scripts/agent_release_backup.py \
-        restore-manager-changed --backup-dir "$backup_dir" >&2 || rollback_ok=0
-    else
-      echo "ROLLBACK WARNING: could not verify Manager SQLite ownership; Manager DB restore was skipped." >&2
-      rollback_ok=0
-    fi
-  fi
-  restore_auth_configuration || rollback_ok=0
-  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
-    restore_manager_crm_mcp_configuration || rollback_ok=0
-  fi
-  activate_manager_snapshot "$previous_manager_dir" || rollback_ok=0
-  if (( automation_snapshot_captured == 1 )); then
-    restore_coordinated_release_state || rollback_ok=0
-  fi
-  if (( ${j1_worker_activation_attempted:-0} == 1 )); then
-    restore_j1_worker_state || rollback_ok=0
-  fi
-  if (( ${j1_browser_activation_attempted:-0} == 1 )); then
-    restore_j1_browser_state || rollback_ok=0
-  fi
-  if (( ${manager_mcp_activation_attempted:-0} == 1 )); then
-    activate_manager_native_mcp "$previous_manager_dir" maintenance || rollback_ok=0
-  fi
-  run_maintenance env AUTOSTOP_RELEASE_IMAGE="$rollback_image" docker compose up \
-    -d --no-deps --no-build --force-recreate "$SERVICE_NAME" >&2 || rollback_ok=0
-  if wait_for_health "$rollback_image" 0; then
-    # Never reopen writes after an incomplete protected-data, Manager, auth,
-    # image, or health rollback, even when the old container itself is healthy.
-    if (( rollback_ok == 1 && automation_registry_preexisting == 1 )); then
-      run_automation_release_module \
-        "$previous_manager_dir" maintenance release-hold \
-        "$automation_release_attempt_key" || rollback_ok=0
-    fi
-    if (( rollback_ok == 1 )); then
-      run_maintenance rm -f "$MAINTENANCE_MARKER_HOST" || rollback_ok=0
-    fi
-    if (( rollback_ok == 1 )); then
-      echo "ROLLBACK: previous CRM image and protected state are healthy." >&2
-    else
-      echo "ROLLBACK INCOMPLETE: maintenance marker remains; manual recovery is required." >&2
-    fi
-  else
-    rollback_ok=0
-    echo "ROLLBACK FAILED: maintenance marker remains in place; manual recovery is required." >&2
-  fi
-  if (( auth_rotated == 0 )); then
-    remove_auth_backup_if_safe || true
-  else
-    echo "ROLLBACK CRITICAL: auth recovery is incomplete; private snapshot remains at $auth_backup_dir." >&2
-  fi
-  if (( ${manager_crm_mcp_snapshot_created:-0} == 1 )); then
-    if (( ${manager_crm_mcp_synced:-0} == 0 )); then
-      remove_manager_crm_mcp_backup_if_safe || true
-    else
-      echo "ROLLBACK CRITICAL: Manager CRM MCP recovery is incomplete; private snapshot remains at $manager_crm_mcp_backup_dir." >&2
-    fi
-  fi
-  if (( rollback_ok == 0 )); then
-    echo "ROLLBACK completed with warnings; inspect protected data and auth state." >&2
-  fi
+  # The accepted window was already closed. Never restore stopped-service
+  # snapshots, old writers, credentials or DBs over possibly new research.
+  install -D -m 600 /dev/null "$MAINTENANCE_MARKER_HOST" || {
+    echo "RECOVERY CRITICAL: maintenance marker could not be re-armed." >&2
+  }
+  timeout --signal=TERM --kill-after=5 30s systemctl stop \
+    autostop-j1.service autostop-manager-mcp.service autostop-manager-scheduler.service \
+    autostop-work-telegram.service autostop-telegram.service autostop-codex-wake.service \
+    autostop-j1-browser.service >&2 || true
+  timeout --signal=TERM --kill-after=5 30s \
+    docker compose stop --timeout 20 "$SERVICE_NAME" >&2 || true
+  echo "J1 FORWARD RECOVERY REQUIRED: old writers and legacy rollback are forbidden; current research, data, sources, credentials, backups and maintenance marker are preserved." >&2
   set -e
   return "$original_status"
 }
@@ -1783,15 +1703,8 @@ on_exit() {
   trap - EXIT
   if (( status != 0 && maintenance_started == 1 && deployment_succeeded == 0 )); then
     rollback_release "$status" || true
-  elif (( status != 0 && auth_rotated == 1 )); then
-    if restore_auth_configuration; then
-      remove_auth_backup_if_safe || true
-    fi
-  fi
-  if (( status != 0 && maintenance_started == 0 )); then
-    cleanup_owned_premaintenance_artifacts || {
-      echo "WARN: exact pre-maintenance artifact cleanup requires manual review." >&2
-    }
+  elif (( status != 0 )); then
+    echo "CLOSED RELEASE FAILED: preserve source preparation, credentials and closure evidence for forward recovery." >&2
   fi
   exit "$status"
 }
@@ -1833,10 +1746,8 @@ run_release "$PYTHON_BIN" scripts/check_automation_center_release.py \
   --state-dir "$WORK_TELEGRAM_STATE_DIR" \
   --runtime-dir "$WORK_TELEGRAM_RUNTIME_DIR" \
   --output "$automation_telegram_effects"
-capture_safe_work_telegram_status any "" release "$automation_telegram_status"
-if safe_telegram_status_has_inbound "$automation_telegram_status"; then
-  work_telegram_inbound_before=1
-fi
+# Pre-closure intent and runtime duty pause were accepted before writer closure.
+# A stopped bridge cannot supply a readiness probe before candidate admission.
 
 # Acquire the scheduler hold before any schema/install mutation. The command
 # owns the hold with this unique release attempt and returns only after leases
@@ -1855,13 +1766,9 @@ automation_registry_backup_ready=1
 
 # Pause only inbound duty. The local outbound transport remains active for its
 # readiness probe, but this release never invokes a send operation.
-set_work_telegram_duty 0 release
 work_telegram_duty_paused=1
-capture_safe_work_telegram_status 0 "" release "$automation_telegram_status"
-# Prepare dependencies and the local transcription model only after the live
-# Telegram links/config have a rollback snapshot and inbound duty is paused.
-# This does not read chats or send a message.
-prepare_work_telegram_candidate
+# The independently accepted dependency/model runtime remains unchanged.
+# Running the full installer here would alter the inputs being bound by guard.
 
 echo "Maintenance window started; stopping only $SERVICE_NAME."
 run_release docker compose stop --timeout 20 "$SERVICE_NAME"
@@ -1903,10 +1810,9 @@ if [[ -f "$CRM_DATA_DIR/change_feed.sqlite3" ]]; then
 fi
 assert_release_budget
 
-activate_manager_snapshot "$manager_release_dir"
+admit_j1_candidate
 # Read-only instruction audits use the immutable current Manager candidate.
-# Any failure exits under the armed maintenance trap, which restores both the
-# Manager SQLite and the previous current symlink before CRM is restarted.
+# Any failure keeps maintenance and current research for explicit forward recovery.
 sync_current_manager_knowledge
 assert_release_budget
 
@@ -1919,9 +1825,8 @@ capture_manager_automation_status \
 validate_manager_automation_status "$automation_manager_status" --expect-held release
 assert_release_budget
 
-# Switch the work bridge while inbound duty is paused. The deploy script owns
-# its immutable runtime rollback; the coordinated snapshot covers any later
-# candidate failure. This performs only status/self-checks, never a send.
+# Start the already prepared work bridge while runtime duty remains paused.
+# Sources, dependency/model selectors and final environment stay guard-bound.
 activate_work_telegram_release
 capture_safe_work_telegram_status \
   0 "$manager_revision" release "$automation_telegram_status"
@@ -1983,19 +1888,13 @@ run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_agent_ga
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 
-# E8 credentials are synced only after the candidate CRM has passed its
-# internal/public read-only Gateway and OAuth checks.  The helper writes only
-# the fixed loopback CRM MCP URL and current internal bearer into Manager's
-# separate root-only environment file, with a recoverable pre-sync snapshot.
-sync_manager_crm_mcp_configuration
+# Final credentials were bound before any candidate service start. Keep the
+# protected feed-auth check below; do not mutate this immutable guard input.
 assert_release_budget
 
-# The scheduler was first started while the previous Manager credential file
-# was still installed. Restart it under the same owned hold so the live process
-# imports the just-synchronised bearer, then prove the exact process credential
-# can access CRM's non-mutating change-feed readiness route. The probe neither
-# registers the digest consumer nor creates a delivery/ACK.
-activate_manager_automation
+# The scheduler imported the final guard-bound bearer on its first start.
+# Prove that exact process credential can read the CRM change-feed readiness
+# route without changing credentials or restarting an admitted unit.
 probe_manager_crm_feed_auth
 capture_manager_automation_status \
   "$MANAGER_CURRENT_LINK" release "$automation_manager_status"
@@ -2004,17 +1903,14 @@ validate_manager_automation_status \
 assert_release_budget
 
 if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" == "1" ]]; then
-  # The active Manager installer owns its bounded listener/native-MCP probe.
-  # Mark the attempt first so rollback restores the previous service even when
-  # candidate activation stops halfway through.
+  # Start only the accepted guarded unit and retain the bounded listener/MCP probe.
   manager_mcp_activation_attempted=1
   activate_manager_native_mcp "$manager_release_dir" release
   assert_release_budget
 fi
 if [[ "$J1_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   snapshot_j1_worker_state
-  # Rollback must restore the old unit even if candidate installation succeeds
-  # but worker startup or the probe fails partway through.
+  # The original unit backup is retained; failures never restart old J1 code.
   j1_worker_activation_attempted=1
   activate_j1_worker "$manager_release_dir"
   assert_release_budget
@@ -2024,6 +1920,33 @@ if [[ "$J1_BROWSER_ACTIVATE_ON_DEPLOY" == "1" ]]; then
   # passed its protected checks. Its own failure must not discard CRM/Manager.
   activate_j1_browser_optional "$manager_release_dir"
 fi
+
+# Every previously active native role must return through its exact guard.
+# Wake may reuse only an independently accepted warm daemon; cold bootstrap
+# remains unsupported and is rejected by the initial closure contract.
+for native_index in 4 5; do
+  if [[ "${j1_closed[$native_index]}" == "1" ]]; then
+    if [[ "$native_index" == "4" ]]; then native_unit=autostop-telegram.service; else native_unit=autostop-codex-wake.service; fi
+    run_release systemctl start "$native_unit"
+    run_release systemctl is-active --quiet "$native_unit"
+  fi
+done
+native_units=(autostop-j1.service autostop-manager-mcp.service autostop-manager-scheduler.service
+  autostop-work-telegram.service autostop-telegram.service autostop-codex-wake.service)
+for native_index in 0 1 2 3 4 5; do
+  native_unit="${native_units[$native_index]}"
+  if [[ "${j1_closed[$((native_index + 7))]}" == "1" ]]; then
+    run_release systemctl enable "$native_unit"
+    run_release systemctl is-enabled --quiet "$native_unit"
+  else
+    run_release systemctl disable "$native_unit"
+    if run_release systemctl is-enabled --quiet "$native_unit"; then exit 2; fi
+  fi
+  run_release systemctl is-active --quiet "$native_unit"
+done
+run_release systemctl is-active --quiet autostop-manager-scheduler.service autostop-work-telegram.service
+if [[ "$J1_ACTIVATE_ON_DEPLOY" == "1" ]]; then run_release systemctl is-active --quiet "$J1_UNIT_NAME"; fi
+if [[ "$MANAGER_MCP_ACTIVATE_ON_DEPLOY" == "1" ]]; then run_release systemctl is-active --quiet autostop-manager-mcp.service; fi
 
 # Public site/auth/health probes are non-mutating and run while the marker is
 # still active. Removing the marker is the final fallible release action.
@@ -2038,9 +1961,8 @@ wait_for_public_mcp_gateway
 run_release docker compose exec -T "$SERVICE_NAME" python scripts/check_mcp_oauth.py \
   --mcp-url "$PUBLIC_MCP_URL"
 
-# Watchdog installation remains a candidate-phase operation. A failure still
-# has a protected rollback path and cannot turn a reopened healthy release into
-# a misleading failed deploy.
+# Watchdog installation remains inside the protected candidate phase.
+# A failure preserves maintenance and requires explicit forward recovery.
 if [[ "$INSTALL_WATCHDOG" == "1" ]]; then
   if [[ "$(id -u)" -eq 0 ]] && command -v systemctl >/dev/null 2>&1; then
     run_release bash "$ROOT_DIR/scripts/install_production_watchdog.sh"
@@ -2069,8 +1991,8 @@ validate_manager_automation_status \
   "$automation_manager_status" --expect-held release require-dependencies-ready
 
 # The hold is released only after CRM, Manager, timers, feed and Telegram have
-# passed exact readback. If the final marker removal fails, rollback reacquires
-# a new owned hold before touching code or state.
+# passed exact readback. A later failure closes native writers and CRM;
+# it never overlays current data or reopens old code.
 run_automation_release_module \
   "$MANAGER_CURRENT_LINK" release release-hold "$automation_release_attempt_key"
 automation_hold_acquired=0
@@ -2095,16 +2017,28 @@ run_release rm -f "$MAINTENANCE_MARKER_HOST"
 deployment_succeeded=1
 trap - EXIT
 
-# Inbound duty is the only post-commit state restoration.  Keeping it paused
-# until the rollback trap is gone makes it impossible for an owner message to
-# trigger an outbound reply while this release is still protected/in flight.
-# A failure here leaves the already healthy release open and inbound paused;
-# it must never roll back a system that may now have accepted live commands.
-set_work_telegram_duty "$work_telegram_inbound_before" release
-work_telegram_duty_paused=0
-capture_safe_work_telegram_status \
+# Publish durable success only after maintenance removal and trap disposal.
+# First start has no receipt; subsequent starts restore the same desired duty
+# through the fixed hash-bound controller, without mutating startup inputs.
+if ! run_release /usr/bin/python3 -I -S "$WORK_DUTY_CONTROLLER" commit \
+  --intent-sha256 "$work_duty_intent_sha256"; then
+  echo "ERROR: release committed; durable Work duty receipt failed. Forward recovery required." >&2
+  exit 3
+fi
+# Native restoration takes a shared lock, serializing it with any later release.
+flock -u "$DEPLOY_LOCK_FD"
+if ! run_release /usr/bin/python3 -I -S "$WORK_DUTY_CONTROLLER" restore \
+  --intent-sha256 "$work_duty_intent_sha256"; then
+  echo "ERROR: release committed; Work duty restoration is unverified. Forward recovery required." >&2
+  exit 3
+fi
+if ! capture_safe_work_telegram_status \
   "$work_telegram_inbound_before" "$manager_revision" release \
-  "$automation_telegram_status"
+  "$automation_telegram_status"; then
+  echo "ERROR: release committed; Work duty readback failed. Forward recovery required." >&2
+  exit 3
+fi
+work_telegram_duty_paused=0
 
 auth_rotated=0
 remove_auth_backup_if_safe || true

@@ -62,7 +62,7 @@ jobs:
               test ! -e /app/docs/reports
               for document in \
                 AGENTS.md README.md API_GUIDE.md MCP_GUIDE.md CHATGPT_CONNECTOR_SETUP.md \
-                docs/OPERATIONS_RUNBOOK.md \
+                docs/OPERATIONS_RUNBOOK.md docs/J1_RELEASE_BOUNDARY.md \
                 docs/agent/module_operations/README.md \
                 docs/agent/module_operations/crm_commands.md \
                 docs/agent/module_operations/crm_gateway.md \
@@ -122,6 +122,15 @@ jobs:
 
       - name: Verify packaged documentation
         run: docker run --rm --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" scripts/docs_audit.py --format text
+
+      - name: Verify read-only J1 observer with actual pinned SQLite
+        run: |
+          docker run --rm --network none --tmpfs /tmp \
+            --env PYTHONPATH=/app \
+            --env AUTOSTOP_REQUIRE_PINNED_PROBE_RUNTIME=1 \
+            --mount "type=bind,source=${PWD}/tests/test_j1_probe_readonly.py,target=/app/tests/test_j1_probe_readonly.py,readonly" \
+            --entrypoint python "autostopcrm-ci:${GITHUB_SHA}" \
+            /app/tests/test_j1_probe_readonly.py -v
 
       - name: Verify packaged agent browser
         run: |
