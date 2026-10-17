@@ -62,14 +62,15 @@ outside this run.
 | R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Accepted at `31ff1780ccabaf48dd6ec610392fdab140d909cc`; [candidate CI 38899866646](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38899866646) and [main CI 38902265141](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38902265141), both attempt 1 |
 | R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Investigated on `31ff178`; native Linux cause unresolved, no speculative change or commit |
 | R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Accepted at `0ff6687f91603c05d7de45fd15b30133977b592d`; [candidate CI 38911489869](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38911489869) and [main CI 38913268055](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38913268055), both attempt 1; historical driver/buffer causes remain unproven |
-| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Fresh reproduction on accepted `0ff6687`; full local CI passed on the only permitted unchanged-candidate retry; exact-SHA candidate/main acceptance pending |
-| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | WIP frozen and externally archived; pre-existing Manager readback race reproduced during full CI; pending accepted shared baseline, no historical-data repair |
-| R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
+| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Accepted at `6ceed3d5861b28e5f990908a6d7766d357b4f6e5`; [candidate CI 38926449782](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38926449782) and [main CI 38928665928](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38928665928), both attempt 1 |
+| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Frozen WIP preserved separately at unaccepted `3e028481759d7b4d398f0044bb64cedfbe097330` on `wip/crm-review-v2-006-frozen-20261017`; original files/index unchanged; excluded from release candidate and further work paused by owner |
+| R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Accepted at `f6a8fd76ba8b15b47bd883b4620448468173fe1d`; [candidate CI 38984649234](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38984649234) and [main CI 38985596957](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38985596957), both attempt 1; frozen R2-006 and rejected UI/test candidates remain separate |
 | R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
 | R2-009 | Cashbox revision after payment removal: on accepted `0ff6687`, four synthetic cases keep the old cashbox timestamp after removing a ledger row and accept a request with that stale marker. Review revision meaning and all native callers before an independent correction. | New research, separate from payment identity/link validation; no historical repair |
-| R2-010 | Manager manual-status readback ownership: block Save and duplicate Read during fresh-state fetch, preserve draft and recover on failure. | Both `6bd85e8` and integrated `0908fdc1f0e180a3dfc20721afd259585010c899` remain unaccepted; [new CI 38966599748](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38966599748) passes unit/static/Docker and all 20 Manager cases, then fails unchanged print-hydration assertion and teardown; no main promotion |
-| R2-011 | PowerShell completion-probe timeout evidence: retain partial stdout/stderr and initialization phase in the original failure, preserving the 15-second timeout and native exit guards. | Accepted at `480e5537195438148bddc1e41ca94bba2ff0f24a`; [candidate CI 38957449774](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38957449774) and [main CI 38959188893](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38959188893), both attempt 1; original intermittent timeout remains unresolved |
-| R2-012 | Print-hydration test capture readiness: visible loading can precede the Python route capture; preserve real overlap, original assertions/deadlines and production behavior. | Controlled original assertion reproduced on exact rejected `0908fdc1` and accepted `480e553`; stronger existing waits pass native and delayed-capture cases; full local CI passes on the sole justified retry after an unrelated performance refusal; exact-SHA hosted acceptance pending |
+| R2-010 | Manager manual-status readback ownership: block Save and duplicate Read during fresh-state fetch, preserve draft and recover on failure. | Candidates `6bd85e83b0befc7d75286306cf36858b8caaf920` and integrated `0908fdc1f0e180a3dfc20721afd259585010c899` rejected: [first CI 38947686956](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38947686956) hit the PowerShell timeout; [integrated CI 38966599748](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38966599748) failed the print-hydration assertion and teardown. Neither promoted; preserved separately |
+| R2-011 | PowerShell completion-probe timeout evidence: retain partial stdout/stderr and initialization phase in the original failure, preserving the 15-second timeout and native exit guards. | Accepted at `480e5537195438148bddc1e41ca94bba2ff0f24a`; [candidate CI 38957449774](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38957449774) and [main CI 38959188893](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38959188893), both attempt 1; original timeout cause remains unresolved |
+| R2-012 | Print-hydration route-capture readiness: strengthen the existing waits without changing assertions, timeout literals or production code. | Rejected `63b885c30f71ecbb679c29ac4e4c64bb0f429a5a` and its [failed CI 38978979106](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38978979106) remain preserved. Fresh integration with accepted `f6a8fd7` passes full local CI1; new exact-SHA hosted acceptance pending |
+| R2-013 | Separate native Chromium startup crash from client-search behavior; finite Linux baseline/candidate comparison and independent launch samples. | Investigated without a product patch: [diagnostic run 38980458274](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38980458274), three unchanged search cases per revision and six fixed launch samples pass; original SIGSEGV cause unresolved |
 
 R2-010 reproduces a pre-existing readback/save race on both accepted `6ceed3d`
 and the financial WIP: while GET is held, another Save sends the stale revision
@@ -78,8 +79,8 @@ justified retry after an unrelated Inventory initial-load timeout; that
 Inventory cause remains unproven. Candidate hosted CI then failed in the first
 unchanged PowerShell process-exit probe after 15 seconds (3,126 cases, one error,
 43 existing skips). Static, browser-performance and Docker asset checks passed;
-unit and aggregate quality failed. Main remained at R2-005 at that rejection;
-R2-011 is now accepted separately on both branches.
+unit and aggregate quality failed. At that attempt main was at the accepted R2-005 SHA;
+it subsequently advanced to accepted R2-011, `480e553`.
 The candidate, its failures and R2-006 financial WIP remain preserved separately.
 
 R2-011 investigates that failure without rerunning full R2-010 CI. Fresh Ubuntu
@@ -113,57 +114,7 @@ live descendants. Five real PowerShell process-exit cases, including the
 controlled 15-second timeout, pass; existing native PDF, Chromium cleanup and
 payment reconciliation cases remain unskipped. Both frozen files matched after
 validation; only this result metadata was added afterward. Hosted acceptance
-passed on both branches at `480e5537195438148bddc1e41ca94bba2ff0f24a`: all
-five jobs on each branch, 3,127 Linux cases (43 existing skips), all native
-PowerShell cases unskipped and eight clean controllers per run. Its original
-rare timeout remains unresolved.
-
-The integrated R2-010 candidate `0908fdc1` passes its fresh full local CI on
-accepted `480e553`: 3,025 core cases, 39 browser groups, 36 release cases and
-82.10% runtime coverage; 42 controllers leave no owned descendants. Hosted
-unit/static/Docker and all 11 original Manager plus nine concurrency cases pass.
-The unchanged print-hydration test then fails at route count zero instead of
-one; teardown separately raises Directory not empty. The complete rejected
-candidate and diagnostics have a verified 126-member archive. Main remains at
-accepted R2-011; financial R2-006 WIP stays frozen. No workflow rerun is used.
-
-R2-012 preserves that failing run and compares the unchanged single scenario
-on exact accepted `480e553` and candidate `0908fdc1`. Both native isolated cases
-pass. A 200-ms delay before the Python print-route capture reproduces the same
-original assertion on both; on the accepted base, a post-failure observation
-then records the count moving from zero to one while the modal stays open and
-loading. The board has no Manager readback function. This demonstrates the
-missing route-readiness contract; the original uninstrumented schedule remains
-unknown. The later Directory not empty error is not reproduced and remains a
-separate open lifecycle investigation, not a proven cause of the assertion.
-
-Keep one helper inside the existing test method to signal actual route capture.
-Strengthen the existing UI-bound/loading waits with that signal before asserting
-the original route counts. All original assertions, timeout values, sleeps,
-wait count, setup, skips and cleanup are AST-checked unchanged. Production
-sources and request/response shapes are unchanged. The fixed native case and
-the same delayed-capture counterexample pass; all 49 neighboring print/lab
-cases pass without skips. No compiler, runtime cleanup, financial data, source
-pin or performance threshold is changed; full exact-candidate gates follow.
-
-R2-012 full local CI1 passes all test groups but refuses the final performance
-gate: change_feed.read_page p95 is 70.6 ms against the unchanged 50-ms limit.
-All 42 controllers exit zero and leave no descendants. The exact 20-iteration,
-two-warmup standalone benchmark then passes on accepted `480e553` (p95 6.0 ms)
-and the unchanged candidate (6.1 ms). All 219 runtime sources normalize equally;
-15 raw file differences are CRLF versus LF, and the benchmark harness is
-identical. Global background resource activity was not sampled, so the original
-performance refusal's cause remains unproven and no noise/indirect-regression
-claim is made. The original report and both comparisons are retained.
-
-The sole justified unchanged-candidate full retry passes: 3,025 core cases
-(83 existing skips), all 39 browser groups, 36 release cases (four existing
-skips), 82.10% coverage and every existing smoke/performance gate. Feed-read p95
-is 5.1 ms with the same 50-ms limit. The real print-overlap scenario passes
-without a skip, all 42 controllers are clean and both frozen files match.
-Only this result metadata follows validation. No further full unchanged retry
-is allowed across local/hosted validation. The separate historical teardown
-Directory not empty remains unproven and is not declared fixed.
+still requires all five jobs on the candidate SHA and then the same main SHA.
 
 R2-001 replaces the old fixture-heavy worker smoke with deterministic tests for
 thread routing, native failure/timeout, explicit fallback permission, Unicode,
@@ -508,12 +459,124 @@ R2-003. The later e93b102 baseline retains all accepted IR-001 through IR-007
 runtime changes. The IR-008 handoff, verification patch and excluded IR-009/010
 research are preserved outside Git; their existence does not imply acceptance.
 
+R2-010 was integrated with accepted R2-011 without rewriting either history.
+Its fresh local full CI passed (3,025 core cases, 83 existing skips, 39 browser
+groups, 36 release cases and 82.10% runtime coverage); all 42 controllers left
+no owned descendants. Hosted unit passed 3,127 cases and all Manager browser
+checks passed. A separate print-hydration test asserted one captured route
+while its Python route list was still empty; teardown then reported
+DirectoryNotEmpty. Both errors remain preserved, and neither is attributed to
+the Manager source change. R2-012 controlled 200-ms route-capture latency
+reproduced the same assertion on both accepted `480e553` and candidate `0908fdc`.
+Strengthening the existing readiness conditions makes that controlled case and
+the real overlap test pass, preserving all original assertions and timeouts.
+The original hosted micro-schedule and DirectoryNotEmpty cause remain unproven.
+
+R2-012 local full attempt 1 failed its existing change-feed read-page p95 gate:
+70.6 ms against 50 ms. Exact bounded baseline/candidate profiles, with unchanged
+20 samples, two warmups and thresholds, measured 6.0/6.1 ms. The sole justified
+unchanged full retry passed all gates, with p95 5.1 ms and 42 clean controllers.
+This does not prove the original performance failure's cause; background CPU
+and disk activity were not sampled. Hosted print-hydration then passed, but
+Chromium headless-shell build 1223 received signal 11 SI_KERNEL during desktop
+search setUpClass, before any page navigation. Mobile search passed. Unit,
+static and Docker gates passed; browser-performance and aggregate quality
+failed. Seven hosted controllers left no owned descendants. The rejected SHA,
+first logs, local failure, retry justification and checksums are sealed outside
+Git; the branch is retained and main was not advanced.
+
+R2-013 checks that launcher symptom once on a fresh Ubuntu 24.04 runner with
+the same image 20261012.334.1, Python 3.12.15, Playwright 1.60.0 and headless-shell
+build 1223. Baseline `480e553` and rejected `63b885c` each pass the three original
+search cases without skips; their test, runtime and dependency blobs match.
+Six predetermined standalone native launches also pass. Resource snapshots,
+browser identity and all outcomes are retained; three controllers leave no
+owned processes. The original binary checksum and original failure-time
+resource state are unavailable. These finite samples do not reconstruct the
+full-suite load/order or prove a fix. No flags, timeouts, skips, production
+source, deployment or Manager pin were changed. R2-013 is an investigation with
+an unresolved cause, not an accepted repair or a replacement full quality gate.
+
+R2-007 proceeds independently on accepted `480e553`, keeping rejected R2-010/012
+and the four frozen R2-006 financial files intact. Synthetic fixtures reproduce
+unsafe kind proposals in both report branches, including case-folded native
+cancellation kinds, cancellation backreferences, transfer metadata/notes and
+archived orders. Applying selected or all issues can overwrite the protected
+kind. Eight final tests reproduce 134 failures on the unchanged accepted source,
+including upper-case legacy cancellation backreferences;
+the exact same test file is used for the candidate. An earlier HTTP fixture
+correctly received 403 because its administrator lacked cashbox permission;
+the final fixture preserves that denial and separately authorizes an audit
+administrator. The initial system-interpreter import failure ran no product
+tests; both setup errors are preserved as fixture evidence, not bug proof.
+
+The candidate changes only the audit builder's two kind-proposal sites and a
+small shared eligibility helper. A linear ledger pass excludes native reversal
+identity, cancellation backreferences and transfer metadata/legacy notes; an
+ineligible issue stays visible without a kind-changing safe fix. Native apply
+rebuilds its plan from the fresh bundle as before; its CAS, snapshot checks,
+authorization, cancellation errors, request/response schema and other fixes are
+unchanged. Legitimate legacy kind repair remains available. Descriptor copies
+avoid aliasing between issue records. No historical data is rewritten and no
+runtime speed improvement is claimed.
+
+R2-007 full local CI passed on attempt 1 in 1,736.80 seconds: 3,033 core
+cases (83 existing environment skips), all 39 isolated browser groups,
+36 release cases (four existing environment skips), 82.12% runtime coverage
+and all original smoke/performance gates. All 42 controllers finished with no
+owned descendants. Eight new financial cases, nine accepted reconciliation
+cases, the native Qt PDF test, three native Chromium cleanup cases and five
+PowerShell process-exit cases pass without skips. The 148 focused real-WAL
+fixtures and 78 final neighboring checks pass. All four files match their
+pre-run hashes; only this result metadata is added after validation.
+
+R2-007 hosted acceptance completed at
+`f6a8fd76ba8b15b47bd883b4620448468173fe1d`: candidate and main each pass all
+five jobs on attempt 1, 3,135 unit cases (43 existing skips), 36 release cases,
+eight new financial cases and all preserved mandatory integrations. Linux
+runtime coverage is 82.23% / 82.24%; each run's eight controllers leave no owned
+descendants. Four frozen R2-006 files still match their recorded hashes. A sealed
+211-member external evidence archive preserves sources, bundle, tests, failures,
+coverage, CI and the review inventory. No deployment or Manager pin changed.
+
+Fresh R2-012 integration uses that accepted financial base while preserving
+rejected `63b885c` as the first merge parent. Only the review registry overlaps;
+the accepted finance source, helper and tests retain their Git blobs. The
+controlled 200-ms capture delay reproduces the original `0 != 1` assertion on
+accepted `f6a8fd7` (one test, one failure, zero errors/skips, 7.004 seconds).
+The print test and runtime blobs still equal the original before-proof. The
+saved correction adds request-capture markers to the two existing readiness
+conditions; all original assertions, timeout literals, setup, skips and cleanup
+remain. This is a changed-base integration requiring fresh full validation and
+new exact-SHA candidate/main gates, not another full run of rejected `63b885c`.
+The original SIGSEGV, DirectoryNotEmpty and first performance-refusal causes
+remain open; passing this synchronization contract cannot establish their cause.
+
+Fresh R2-012 full local CI passed on attempt 1 in 1,759.36 seconds: 3,033 core
+cases (83 existing environment skips), all 39 isolated browser groups, 36 release
+cases (four existing environment skips), 82.12% runtime coverage and all original
+smoke/performance gates. All 42 controllers leave no owned descendants. The real
+overlap test, eight accepted financial regressions, native Qt PDF, native browser
+cleanup and PowerShell completion checks pass without skips. Both changed files
+and all three accepted financial source/test files retain their pre-run hashes.
+Only registry result and handoff metadata are added after validation.
+
+The owner requested wind-down on 17 October: finish this already-started R2-012
+integration and prepare the release handoff, without starting R2-010, R2-006,
+R2-008/009 or another review. The original frozen cash-link WIP is saved as a
+separate unaccepted Git snapshot; its original worktree, branch and index remain
+unchanged. Deferred UI commits and old archives remain separate. Server update,
+runtime publication, production configuration, pins, migrations and restarts are
+outside this preparation. Repository publication requires a fresh audit of CI
+triggers, local hooks and repository webhooks; the original long review goal
+will be paused after the current package and report are finished.
+
 ## Coverage queue
 
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-007 accepted; R2-005 pending |
+| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-007 and R2-005 accepted; other responsibilities pending |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | Worker PDF route/fallback and real native rendering | R2-001 accepted; other boundaries pending |

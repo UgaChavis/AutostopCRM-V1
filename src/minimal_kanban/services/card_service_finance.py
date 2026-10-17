@@ -32,6 +32,7 @@ from .card_service_cashbox_cancellation import (
     _CASH_TRANSACTION_KIND_CANCELLED,
     CardServiceCashboxCancellationMixin,
 )
+from .finance_audit_payment_fixes import payment_kind_safe_fixes
 from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .journal_labels import day_label, month_label, week_label
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
@@ -1713,6 +1714,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         transactions_by_id = {transaction.id: transaction for transaction in transactions}
         cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
         payment_links = self._finance_payment_links(cards)
+        payment_kind_fixes = payment_kind_safe_fixes(
+            transactions, self._is_cashbox_transfer_transaction
+        )
         payment_refs_by_transaction_id: dict[str, list[tuple[Card, RepairOrderPayment]]] = {}
         for payment_card in cards:
             for payment in payment_card.repair_order.payments:
@@ -1819,11 +1823,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                             card=card,
                             payment=payment,
                             transaction=transaction,
-                            safe_fix={
-                                "kind": "set_transaction_kind",
-                                "cash_transaction_id": transaction.id,
-                                "value": "repair_order_payment",
-                            },
+                            safe_fix=payment_kind_fixes.get(transaction.id, {}).copy() or None,
                         )
                     )
                 expected_note = self._repair_order_cash_transaction_note(order.number)
@@ -2046,11 +2046,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 payment = linked[1] if linked is not None else None
                 safe_fix = None
                 if linked is not None:
-                    safe_fix = {
-                        "kind": "set_transaction_kind",
-                        "cash_transaction_id": transaction.id,
-                        "value": "repair_order_payment",
-                    }
+                    safe_fix = payment_kind_fixes.get(transaction.id, {}).copy() or None
                 issues.append(
                     self._finance_audit_issue(
                         code="legacy_order_note_without_kind",
