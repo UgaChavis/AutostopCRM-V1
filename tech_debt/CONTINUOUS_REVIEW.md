@@ -62,8 +62,8 @@ outside this run.
 | R2-002 | External test lifecycle: core 30 minutes, each browser group five minutes; nonzero timeout, diagnostics and owned-descendant cleanup; same test IDs/order/coverage, no retries. | Accepted at `31ff1780ccabaf48dd6ec610392fdab140d909cc`; [candidate CI 38899866646](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38899866646) and [main CI 38902265141](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38902265141), both attempt 1 |
 | R2-003 | Linux settings-wizard Qt exit 139: window/event teardown and test interaction; fix only a reproduced cause. | Investigated on `31ff178`; native Linux cause unresolved, no speculative change or commit |
 | R2-004 | Browser/context/driver cleanup on errors and cancellation; investigate driver disappearance and `ERR_NO_BUFFER_SPACE` separately. | Accepted at `0ff6687f91603c05d7de45fd15b30133977b592d`; [candidate CI 38911489869](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38911489869) and [main CI 38913268055](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38913268055), both attempt 1; historical driver/buffer causes remain unproven |
-| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Fresh reproduction on accepted `0ff6687`; full local CI passed on the only permitted unchanged-candidate retry; exact-SHA candidate/main acceptance pending |
-| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Pending; no historical-data repair |
+| R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Accepted at `6ceed3d5861b28e5f990908a6d7766d357b4f6e5`; [candidate CI 38926449782](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38926449782) and [main CI 38928665928](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38928665928), both attempt 1; original Manager timeout cause remains unproven |
+| R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Fresh reproduction on accepted `6ceed3d`; bounded candidate under validation; no historical-data repair |
 | R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Pending; separate from normal payment linking |
 | R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
 | R2-009 | Cashbox revision after payment removal: on accepted `0ff6687`, four synthetic cases keep the old cashbox timestamp after removing a ledger row and accept a request with that stale marker. Review revision meaning and all native callers before an independent correction. | New research, separate from payment identity/link validation; no historical repair |
@@ -246,6 +246,50 @@ match their original pre-run hashes. Only these result records are added after
 validation. No further unchanged-candidate full retry is permitted. The original
 failure and separate comparative diagnosis archives remain preserved.
 
+R2-005 hosted acceptance passed on both branches at
+`6ceed3d5861b28e5f990908a6d7766d357b4f6e5`: all five jobs, 3,126 Linux
+unit cases (43 environment skips), 82.22% runtime coverage and 36 release cases.
+All nine payment regressions, the real Qt PDF integration and three native
+Chromium cleanup tests pass without skips. Both hosted runs' eight controllers
+exit zero without owned descendants. The primary checkout is fast-forwarded
+and all 251 evidence/archive members are checksum-verified outside Git.
+
+R2-006 freshly reproduces 208 failing subcases in the original 13 IR-009 tests,
+without changing the accepted backend or archived assertions. Four additional
+two-store races reproduce a second adoption after the initial state-write
+conflict; the first save already has one winner, but retry previously admitted
+a second owner. An original-method comparison also reproduces 16 invalid
+adoptions of advance or transfer metadata, while 28 historical-link controls
+pass. It compiles the accepted reconciliation from Git, drops only the new
+read-only snapshot keyword, forbids the new validator, and changes no sources.
+
+The candidate validates existing cash movements when adopting them or before
+deleting/recreating a previous payment's movement. It uses the existing
+all-card draft, including archived orders, and preserves owner identity across
+orders with equal payment IDs. Stored/proposed duplicate references keep
+`repair_order_payment_cash_link_ambiguous` HTTP 409. Native cancellation guards
+remain in charge of reversals and cancelled rows. Amount, direction, cashbox,
+transfer metadata/legacy notes and known bookkeeping kinds reject with
+`repair_order_payment_cash_link_invalid` HTTP 409. Coherent unowned legacy
+receipts retain their metadata and existing adoption/removal behavior.
+
+Unchanged historical malformed links remain available for audit and text edits;
+they are not silently rewritten. Unique old-ID reference precedence, full-ID
+replacement and the native cancellation path remain intact. Tests cover both
+public update methods, both writers, aliases, real HTTP errors, late rollback,
+cross-store CAS, restart data and byte-stable warm replay. The original 13 test
+bodies are unchanged; fixture cleanup closes the inherited base store. No
+quality limit is raised and no speed claim is made. Full validation follows.
+
+All 16 focused tests pass, including 312 real SQLite WAL/SHM databases on
+Windows with the module-local Linux idle-anchor policy; no SQLite connection
+is mocked. All 161 neighboring checks pass without skips, including accepted
+R2-005 identity handling, cash cancellation, normalization, payroll, operator
+visibility and finance preview/audit contracts. The complete candidate's 667
+tracked files pass existing code-health budgets. Discovery adds exactly 16
+core test IDs; all previous core IDs/order and 39 browser groups are unchanged.
+Native Linux and the full local CI profile remain required for acceptance.
+
 IR-001 measured on Python 3.13.12 with the same harness, three series of 60
 calls and no concurrent tests. Status-scope hash p95 on the public template:
 2.4744/3.0583/2.7096 ms before, 1.2751/1.1544/1.2607 ms after. With 2,000
@@ -416,7 +460,7 @@ research are preserved outside Git; their existence does not imply acceptance.
 | Area | Next bounded review boundary | State |
 | --- | --- | --- |
 | Manager structure | One graph mutation after accepted status validation and error side effects | IR-001 and IR-002 accepted |
-| Read models and domain services | Legacy bulk-payment reconciliation after cash cancellation | IR-004 through IR-007 accepted; R2-005 pending |
+| Read models and domain services | Cash-link financial consistency and ownership after payment identity selection | IR-004 through IR-007 and R2-005 accepted; R2-006 pending |
 | HTTP API and MCP | One transport/protocol or route/tool family | IR-003 accepted; other boundaries pending |
 | Browser and Windows UI | One action's request ownership, draft and recovery | Pending |
 | Printing and files | Worker PDF route/fallback and real native rendering | R2-001 accepted; other boundaries pending |
