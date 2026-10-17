@@ -569,7 +569,7 @@ class J1ReleaseAcceptanceTests(unittest.TestCase):
         self.assertEqual(
             arguments[3:],
             [
-                "--property=NeedDaemonReload,ExecCondition,ExecStart,ExecStartPre,ExecStartPost,ExecReload,ExecStop,ExecStopPost",
+                "--property=Id,NeedDaemonReload,ExecCondition,ExecStart,ExecStartPre,ExecStartPost,ExecReload,ExecStop,ExecStopPost",
                 "--no-pager",
             ],
         )
@@ -577,6 +577,7 @@ class J1ReleaseAcceptanceTests(unittest.TestCase):
         prefix = f"/usr/bin/python3 -I -S {self.guard_root / 'guard.py'}"
         policy_hash = self.refs["policy"]["sha256"]
         fields = {
+            "Id": unit,
             "NeedDaemonReload": "no",
             "ExecCondition": f"{{ argv[]={prefix} check --policy-sha256 {policy_hash} --unit {unit} ; }}",
             "ExecStart": f"{{ argv[]={prefix} launch --policy-sha256 {policy_hash} --unit {unit} ; }}",
@@ -1012,6 +1013,7 @@ class J1ReleaseAcceptanceTests(unittest.TestCase):
                 " restore ", " recover "
             )
             fields = {
+                "Id": kernel.RECOVERY_UNIT,
                 "Type": "oneshot",
                 "User": "root",
                 "Group": "root",

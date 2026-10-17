@@ -488,23 +488,29 @@ class J1ReleaseBoundaryTests(unittest.TestCase):
             def observed(arguments, **kwargs):
                 if arguments[0] == "git":
                     return real_run(arguments, **kwargs)
+                if arguments[0] == "busctl":
+                    self.assertEqual(
+                        arguments[1:4], ["--system", "get-property", "org.freedesktop.systemd1"]
+                    )
+                    self.assertEqual(arguments[-2], "org.freedesktop.systemd1.Service")
+                    self.assertIn(
+                        arguments[-1],
+                        ("ExecStartPre", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost"),
+                    )
+                    return subprocess.CompletedProcess(arguments, 0, "a(sasbttttuii) 0\n", "")
                 self.assertEqual(arguments[:2], ["systemctl", "show"])
                 unit = arguments[2]
                 calls.append(unit)
                 warm = unit == "autostop-codex-start.service"
                 fields = {
+                    "Id": unit,
                     "ActiveState": "active" if warm else "inactive",
                     "SubState": "exited" if warm else "dead",
                     "NeedDaemonReload": "no",
                     "ExecCondition": "{ argv[]=/usr/bin/false ; }",
                     "DropInPaths": str(systemd / (unit + ".d") / boundary.CLOSURE_DROPIN),
                 }
-                fields.update(
-                    dict.fromkeys(
-                        ("ExecStartPre", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost"),
-                        "",
-                    )
-                )
+                # PID1 omits empty Exec vectors, including with systemctl --all.
                 fields.update(overrides)
                 return subprocess.CompletedProcess(
                     arguments, 0, "\n".join(f"{key}={item}" for key, item in fields.items()), ""

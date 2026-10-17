@@ -88,6 +88,14 @@ KERNEL_CONSUMER = DUTY_CONTROLLER.with_name("kernel.py")
 KERNEL_GATE_DROPIN = "z1-j1-kernel-readiness.conf"
 KERNEL_RECOVERY_UNIT = "autostop-j1-native-recover.service"
 KERNEL_RECOVERY_DROPIN = "z1-j1-native-recovery.conf"
+EMPTY_EXEC_FIELDS = (
+    "ExecStartPre",
+    "ExecStartPost",
+    "ExecReload",
+    "ExecStop",
+    "ExecStopPost",
+    "ExecCondition",
+)
 
 
 class BoundaryError(ValueError):
@@ -629,6 +637,43 @@ def verify_dependencies(record: dict[str, str], preparation: dict[str, Any]) -> 
     linked_evidence(value, ("reviewer_manifest",))
 
 
+def empty_exec_fields(unit: str, fields: dict[str, str], names: tuple[str, ...]) -> bool:
+    """Prove omitted Exec vectors through the same fixed unit's typed D-Bus property."""
+    require(unit in ALL_UNITS | {KERNEL_RECOVERY_UNIT}, "fixed_exec_unit_required")
+    require(fields.get("Id") == unit, "loaded_unit_identity_required")
+    require(all(name in EMPTY_EXEC_FIELDS for name in names), "fixed_exec_fields_required")
+    object_path = "/org/freedesktop/systemd1/unit/" + re.sub(
+        r"[^A-Za-z0-9]", lambda match: f"_{ord(match[0]):02x}", unit
+    )
+    for name in names:
+        if name in fields:
+            if fields[name] != "":
+                return False
+            continue
+        result = subprocess.run(
+            [
+                "busctl",
+                "--system",
+                "get-property",
+                "org.freedesktop.systemd1",
+                object_path,
+                "org.freedesktop.systemd1.Service",
+                name,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        require(
+            result.returncode == 0
+            and result.stdout == "a(sasbttttuii) 0\n"
+            and result.stderr == "",
+            "typed_empty_exec_required",
+        )
+    return True
+
+
 def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, bool]:
     """Require an independently accepted closed window before any live effects.
 
@@ -733,7 +778,7 @@ def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, boo
                 "systemctl",
                 "show",
                 unit,
-                "--property=ActiveState,SubState,DropInPaths,ExecCondition,NeedDaemonReload,ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,ExecReload",
+                "--property=Id,ActiveState,SubState,DropInPaths,ExecCondition,NeedDaemonReload,ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,ExecReload",
                 "--no-pager",
             ],
             check=True,
@@ -746,16 +791,7 @@ def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, boo
             fields.get("NeedDaemonReload") == "no"
             and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecCondition", ""))
             == ["/usr/bin/false"]
-            and all(
-                fields.get(name) == ""
-                for name in (
-                    "ExecStartPre",
-                    "ExecStartPost",
-                    "ExecStop",
-                    "ExecStopPost",
-                    "ExecReload",
-                )
-            ),
+            and empty_exec_fields(unit, fields, EMPTY_EXEC_FIELDS[:-1]),
             "loaded_native_closure_required",
         )
         desired_state = (
@@ -1046,7 +1082,7 @@ def verify_loaded_guards(policy_hash: str, intent_hash: str, *, cold: bool = Fal
                 "systemctl",
                 "show",
                 unit,
-                "--property=NeedDaemonReload,ExecCondition,ExecStart,ExecStartPre,ExecStartPost,ExecReload,ExecStop,ExecStopPost",
+                "--property=Id,NeedDaemonReload,ExecCondition,ExecStart,ExecStartPre,ExecStartPost,ExecReload,ExecStop,ExecStopPost",
                 "--no-pager",
             ],
             check=True,
@@ -1067,14 +1103,8 @@ def verify_loaded_guards(policy_hash: str, intent_hash: str, *, cold: bool = Fal
             fields.get("NeedDaemonReload") == "no"
             and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecCondition", "")) == conditions
             and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStart", "")) == starts
-            and all(
-                fields.get(name) == ""
-                for name in (
-                    "ExecStartPre",
-                    "ExecStop",
-                    "ExecStopPost",
-                    "ExecReload",
-                )
+            and empty_exec_fields(
+                unit, fields, ("ExecStartPre", "ExecStop", "ExecStopPost", "ExecReload")
             ),
             "loaded_guard_dispatch_required",
         )
@@ -1082,7 +1112,8 @@ def verify_loaded_guards(policy_hash: str, intent_hash: str, *, cold: bool = Fal
             [duty_command(intent_hash)] if unit == "autostop-work-telegram.service" else []
         )
         require(
-            re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStartPost", "")) == expected_post,
+            re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStartPost", "")) == expected_post
+            and (bool(expected_post) or empty_exec_fields(unit, fields, ("ExecStartPost",))),
             "loaded_guard_dispatch_required",
         )
         if cold and unit in NATIVE_UNITS:
@@ -1129,7 +1160,7 @@ def verify_loaded_recovery(intent_hash: str) -> None:
             "systemctl",
             "show",
             KERNEL_RECOVERY_UNIT,
-            "--property=Type,User,Group,After,BindsTo,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecReload,ExecStop,ExecStopPost,NeedDaemonReload,FragmentPath,DropInPaths",
+            "--property=Id,Type,User,Group,After,BindsTo,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecReload,ExecStop,ExecStopPost,NeedDaemonReload,FragmentPath,DropInPaths",
             "--no-pager",
         ],
         check=True,
@@ -1152,17 +1183,7 @@ def verify_loaded_recovery(intent_hash: str) -> None:
         and {"autostop-codex-start.service", "autostop-j1-cache-view.service"}
         <= set(fields.get("After", "").split())
         and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStart", "")) == [expected]
-        and all(
-            fields.get(key) == ""
-            for key in (
-                "ExecStartPre",
-                "ExecStartPost",
-                "ExecCondition",
-                "ExecReload",
-                "ExecStop",
-                "ExecStopPost",
-            )
-        ),
+        and empty_exec_fields(KERNEL_RECOVERY_UNIT, fields, EMPTY_EXEC_FIELDS),
         "loaded_kernel_recovery_required",
     )
 
