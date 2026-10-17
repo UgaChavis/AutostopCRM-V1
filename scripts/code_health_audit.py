@@ -169,6 +169,7 @@ CANONICAL_DOCS = frozenset(
         "README.md",
         "docs/OPERATIONS_RUNBOOK.md",
         "docs/J1_RELEASE_BOUNDARY.md",
+        "docs/j1_kernel_release_interface_v1.json",
         "docs/agent/module_operations/README.md",
         "docs/agent/module_operations/crm_gateway.md",
         "docs/agent/module_operations/crm_runtime.md",

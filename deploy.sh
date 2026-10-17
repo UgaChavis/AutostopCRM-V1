@@ -1281,6 +1281,21 @@ prepare_guarded_j1_units() {
   done
   run_release install -D -o root -g root -m 0644 "$(dirname "$J1_PREPARATION")/work-duty-restore.conf" \
     /etc/systemd/system/autostop-work-telegram.service.d/98-j1-work-duty-restore.conf
+  if [[ -f "$(dirname "$J1_PREPARATION")/kernel-readiness.conf" ]]; then
+    run_release install -D -o root -g root -m 0644 "$ROOT_DIR/scripts/j1_kernel_bootstrap.py" \
+      /usr/local/libexec/autostop-crm-j1-duty/kernel.py
+    run_release install -D -o root -g root -m 0644 "$(dirname "$J1_PREPARATION")/autostop-j1-native-recover.service" \
+      /etc/systemd/system/autostop-j1-native-recover.service
+    run_release install -D -o root -g root -m 0644 "$(dirname "$J1_PREPARATION")/z1-j1-native-recovery.conf" \
+      /etc/systemd/system/autostop-codex-start.service.d/z1-j1-native-recovery.conf
+    for unit in autostop-j1.service autostop-manager-mcp.service autostop-manager-scheduler.service \
+      autostop-work-telegram.service autostop-telegram.service autostop-codex-wake.service; do
+      local gate_source="kernel-readiness.conf"
+      if [[ "$unit" == "autostop-codex-wake.service" ]]; then gate_source="kernel-wake-readiness.conf"; fi
+      run_release install -D -o root -g root -m 0644 "$(dirname "$J1_PREPARATION")/$gate_source" \
+        "/etc/systemd/system/$unit.d/z1-j1-kernel-readiness.conf"
+    done
+  fi
   run_release install -o root -g root -m 0755 \
     "$work_telegram_prepared_dir/scripts/run-work-telegram-media.sh" /usr/local/sbin/autostop-work-telegram-media
   run_release systemctl daemon-reload

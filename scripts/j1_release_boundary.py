@@ -83,6 +83,11 @@ CACHE_PATH = Path("/var/cache/autostop-j1/research.sqlite3")
 PROC_ROOT = Path("/proc")
 GUARD_PYTHON = Path("/usr/bin/python3")
 NATIVE_READY_SECONDS = 20.0
+KERNEL_MODE = "kernel_ro_cold_v1"
+KERNEL_CONSUMER = DUTY_CONTROLLER.with_name("kernel.py")
+KERNEL_GATE_DROPIN = "z1-j1-kernel-readiness.conf"
+KERNEL_RECOVERY_UNIT = "autostop-j1-native-recover.service"
+KERNEL_RECOVERY_DROPIN = "z1-j1-native-recovery.conf"
 
 
 class BoundaryError(ValueError):
@@ -476,13 +481,31 @@ def linked_evidence(value: dict[str, Any], names: tuple[str, ...]) -> dict[str, 
     return result
 
 
-def lifecycle_proofs(value: dict[str, Any]) -> None:
+def kernel_module() -> Any:
+    path = Path(__file__).with_name("j1_kernel_bootstrap.py")
+    protected(path)
+    spec = importlib.util.spec_from_file_location("crm_kernel_consumer", path)
+    require(spec is not None and spec.loader is not None, "fixed_kernel_consumer_required")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def lifecycle_proofs(
+    value: dict[str, Any],
+    *,
+    context: dict[str, Any] | None = None,
+    evidence_root: Path | None = None,
+    guard_refs: dict[str, Any] | None = None,
+) -> None:
+    cold = value.get("daemon_mode") == KERNEL_MODE
     require(
         value.get("instruction_revision") == INSTRUCTION_REVISION
         and value.get("instruction_root") == INSTRUCTION_ROOT
         and value.get("history_preserved") is True
-        and set(value.get("denied_units", [])) == UNSUPPORTED_UNITS
-        and value.get("daemon_mode") == "accepted_warm",
+        and set(value.get("denied_units", []))
+        == ({"autostop-j1-browser.service"} if cold else UNSUPPORTED_UNITS)
+        and value.get("daemon_mode") in {"accepted_warm", KERNEL_MODE},
         "explicit_warm_lifecycle_required",
     )
     refs = linked_evidence(
@@ -520,10 +543,43 @@ def lifecycle_proofs(value: dict[str, Any]) -> None:
         and refs["wake_config"].get("instruction_revision") == INSTRUCTION_REVISION,
         "wake_instruction_pin_changed",
     )
-    require(
-        refs["bootstrap_preservation_receipt"].get("start_or_restart_performed") is False,
-        "bootstrap_start_forbidden",
-    )
+    if cold:
+        require(context is not None and evidence_root is not None, "kernel_context_required")
+        kernel = kernel_module()
+        try:
+            if guard_refs is None:
+                eligible = kernel.eligibility(
+                    value["bootstrap_preservation_receipt"], context, evidence_root
+                )
+                require(
+                    eligible["instruction_ref"] == value["wake_config"],
+                    "kernel_instruction_ref_changed",
+                )
+            else:
+                preliminary = evidence(context["pre_effect_lifecycle"])
+                eligibility_ref = preliminary["bootstrap_preservation_receipt"]
+                native = kernel.native_acceptance(
+                    value["bootstrap_preservation_receipt"],
+                    eligibility_ref,
+                    context,
+                    evidence_root,
+                    guard_refs["policy"]["sha256"],
+                    guard_refs["state"]["sha256"],
+                )
+                require(
+                    native["global_writer_closure_ref"] == value["writer_admission_closure_receipt"]
+                    and refs["bootstrap_preservation_receipt"]["preserved_thread_ref"]
+                    == value["thread_identity_receipt"],
+                    "kernel_primary_lifecycle_refs_changed",
+                )
+                kernel.observe(native, context, evidence_root, initial=True)
+        except kernel.KernelError as exc:
+            raise BoundaryError(str(exc)) from exc
+    else:
+        require(
+            refs["bootstrap_preservation_receipt"].get("start_or_restart_performed") is False,
+            "bootstrap_start_forbidden",
+        )
     require(
         refs["browser_hold_receipt"].get("activation_allowed") is False, "browser_start_forbidden"
     )
@@ -601,7 +657,10 @@ def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, boo
         and all(type(active) is bool for active in previous.values()),
         "native_desired_states_required",
     )
-    require(closed.get("daemon_mode") == "accepted_warm", "cold_bootstrap_unsupported_keep_closed")
+    require(
+        closed.get("daemon_mode") in {"accepted_warm", KERNEL_MODE},
+        "cold_bootstrap_unsupported_keep_closed",
+    )
     require(
         Path(value["sources"]["work-telegram"]["path"]).is_relative_to(WORK_RELEASE_ROOT),
         "work_media_source_layout_required",
@@ -636,7 +695,6 @@ def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, boo
         and previous["autostop-work-telegram.service"],
         "required_live_roles_missing",
     )
-    require(closed.get("daemon_mode") == "accepted_warm", "cold_bootstrap_unsupported_keep_closed")
     require(
         closed.get("detached_daemons_and_turns_closed") is True
         and closed.get("direct_cli_closed") is True
@@ -657,7 +715,15 @@ def verify_closure(preparation: Path, expected: str, crm: Path) -> dict[str, boo
         and preliminary.get("accepted") is True,
         "pre_effect_lifecycle_acceptance_required",
     )
-    lifecycle_proofs(preliminary)
+    require(
+        preliminary.get("daemon_mode") == closed["daemon_mode"], "closure_lifecycle_mode_mismatch"
+    )
+    lifecycle_proofs(preliminary, context=value, evidence_root=preparation.parent)
+    if closed["daemon_mode"] == KERNEL_MODE:
+        eligible = evidence(preliminary["bootstrap_preservation_receipt"])
+        require(
+            eligible["baseline_ref"] == closed["native_baseline"], "kernel_baseline_ref_changed"
+        )
     for unit in sorted(ALL_UNITS):
         fence = SYSTEMD_ROOT / (unit + ".d") / CLOSURE_DROPIN
         protected(fence)
@@ -873,10 +939,30 @@ def prepare_duty(preparation: Path, expected: str, crm: Path, marker: Path, lock
         stream.write(dropin)
         stream.flush()
         os.fsync(stream.fileno())
+    if closed["daemon_mode"] == KERNEL_MODE:
+        for name, unit in (
+            ("kernel-readiness.conf", None),
+            ("kernel-wake-readiness.conf", "autostop-codex-wake.service"),
+        ):
+            target = preparation.parent / name
+            with target.open("xb") as stream:
+                stream.write(kernel_module().gate_bytes(intent_hash, unit=unit))
+                stream.flush()
+                os.fsync(stream.fileno())
+        for name, raw in (
+            (KERNEL_RECOVERY_UNIT, kernel_module().recovery_bytes(intent_hash)),
+            (KERNEL_RECOVERY_DROPIN, kernel_module().recovery_dropin_bytes()),
+        ):
+            with (preparation.parent / name).open("xb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
     return intent_hash
 
 
-def verify_duty_controller(handoff: dict[str, Any], policy: dict[str, Any]) -> str:
+def verify_duty_controller(
+    handoff: dict[str, Any], policy: dict[str, Any], *, cold: bool = False
+) -> str:
     reference = handoff["work_duty_intent"]
     require(Path(reference["path"]) == DUTY_INTENT, "fixed_work_duty_intent_required")
     intent = evidence(reference)
@@ -913,10 +999,47 @@ def verify_duty_controller(handoff: dict[str, Any], policy: dict[str, Any]) -> s
         )
         protected(Path(record["path"]))
         require(file_hash(Path(record["path"])) == record["sha256"], "work_duty_controller_changed")
+    if cold:
+        helper = {
+            "path": str(KERNEL_CONSUMER),
+            "sha256": file_hash(Path(__file__).with_name("j1_kernel_bootstrap.py")),
+        }
+        require(helper in handoff["files"], "kernel_consumer_not_bound")
+        require(file_hash(KERNEL_CONSUMER) == helper["sha256"], "kernel_consumer_changed")
+        recovery_files = []
+        for path, raw in (
+            (
+                SYSTEMD_ROOT / KERNEL_RECOVERY_UNIT,
+                kernel_module().recovery_bytes(reference["sha256"]),
+            ),
+            (
+                SYSTEMD_ROOT / "autostop-codex-start.service.d" / KERNEL_RECOVERY_DROPIN,
+                kernel_module().recovery_dropin_bytes(),
+            ),
+        ):
+            require(read_file(path) == raw, "fixed_kernel_recovery_required")
+            record = {"path": str(path), "sha256": digest(raw)}
+            require(record in handoff["files"], "kernel_recovery_inventory_required")
+            recovery_files.append(record)
+        for unit in NATIVE_UNITS:
+            gate = SYSTEMD_ROOT / (unit + ".d") / KERNEL_GATE_DROPIN
+            raw = kernel_module().gate_bytes(reference["sha256"], unit=unit)
+            require(read_file(gate) == raw, "fixed_kernel_gate_required")
+            bound = [
+                *expected_files[:2],
+                helper,
+                *recovery_files,
+                {"path": str(gate), "sha256": digest(raw)},
+            ]
+            for record in bound:
+                require(
+                    record in policy["bindings"][unit]["unit_files"] and record in handoff["files"],
+                    "kernel_gate_inventory_required",
+                )
     return reference["sha256"]
 
 
-def verify_loaded_guards(policy_hash: str, intent_hash: str) -> None:
+def verify_loaded_guards(policy_hash: str, intent_hash: str, *, cold: bool = False) -> None:
     for unit in sorted(ALL_UNITS):
         result = subprocess.run(
             [
@@ -933,12 +1056,17 @@ def verify_loaded_guards(policy_hash: str, intent_hash: str) -> None:
         )
         fields = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
         prefix = f"/usr/bin/python3 -I -S {GUARD_ROOT / 'guard.py'}"
+        conditions = [f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"]
+        starts = [f"{prefix} launch --policy-sha256 {policy_hash} --unit {unit}"]
+        if cold and unit == "autostop-codex-start.service":
+            bootstrap = "/usr/bin/python3 -I -S -B /usr/local/libexec/autostop-j1-kernel-bootstrap/bootstrap.py"
+            conditions, starts = [bootstrap + " check"], [bootstrap + " run"]
+        elif cold and unit in NATIVE_UNITS:
+            conditions.append(kernel_module().gate_command(intent_hash))
         require(
             fields.get("NeedDaemonReload") == "no"
-            and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecCondition", ""))
-            == [f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"]
-            and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStart", ""))
-            == [f"{prefix} launch --policy-sha256 {policy_hash} --unit {unit}"]
+            and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecCondition", "")) == conditions
+            and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStart", "")) == starts
             and all(
                 fields.get(name) == ""
                 for name in (
@@ -957,6 +1085,86 @@ def verify_loaded_guards(policy_hash: str, intent_hash: str) -> None:
             re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStartPost", "")) == expected_post,
             "loaded_guard_dispatch_required",
         )
+        if cold and unit in NATIVE_UNITS:
+            ordering = subprocess.run(
+                [
+                    "systemctl",
+                    "show",
+                    unit,
+                    "--property=Requires,Wants,BindsTo,After",
+                    "--no-pager",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            order = dict(line.split("=", 1) for line in ordering.stdout.splitlines() if "=" in line)
+            dependencies = {"autostop-codex-start.service", "autostop-j1-cache-view.service"}
+            require(
+                "autostop-j1-cache-view.service" in order.get("Requires", "").split()
+                and "autostop-codex-start.service" in order.get("Wants", "").split()
+                and "autostop-codex-start.service" in order.get("BindsTo", "").split()
+                and dependencies <= set(order.get("After", "").split()),
+                "loaded_kernel_ordering_required",
+            )
+    if cold:
+        verify_loaded_recovery(intent_hash)
+
+
+def verify_loaded_recovery(intent_hash: str) -> None:
+    result = subprocess.run(
+        ["systemctl", "show", "autostop-codex-start.service", "--property=Wants", "--no-pager"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    require(
+        KERNEL_RECOVERY_UNIT in result.stdout.removeprefix("Wants=").split(),
+        "bootstrap_recovery_want_required",
+    )
+    result = subprocess.run(
+        [
+            "systemctl",
+            "show",
+            KERNEL_RECOVERY_UNIT,
+            "--property=Type,User,Group,After,BindsTo,ExecStart,ExecStartPre,ExecStartPost,ExecCondition,ExecReload,ExecStop,ExecStopPost,NeedDaemonReload,FragmentPath,DropInPaths",
+            "--no-pager",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    fields = dict(row.split("=", 1) for row in result.stdout.splitlines() if "=" in row)
+    expected = duty_command(intent_hash).replace(
+        " restore --intent-sha256 ", " recover --intent-sha256 "
+    )
+    require(
+        fields.get("Type") == "oneshot"
+        and fields.get("User") == "root"
+        and fields.get("Group") == "root"
+        and fields.get("NeedDaemonReload") == "no"
+        and fields.get("FragmentPath") == str(SYSTEMD_ROOT / KERNEL_RECOVERY_UNIT)
+        and fields.get("DropInPaths") == ""
+        and "autostop-codex-start.service" in fields.get("BindsTo", "").split()
+        and {"autostop-codex-start.service", "autostop-j1-cache-view.service"}
+        <= set(fields.get("After", "").split())
+        and re.findall(r"argv\[\]=(.*?) ;", fields.get("ExecStart", "")) == [expected]
+        and all(
+            fields.get(key) == ""
+            for key in (
+                "ExecStartPre",
+                "ExecStartPost",
+                "ExecCondition",
+                "ExecReload",
+                "ExecStop",
+                "ExecStopPost",
+            )
+        ),
+        "loaded_kernel_recovery_required",
+    )
 
 
 def verify_work_startup(binding: dict[str, Any]) -> None:
@@ -1114,7 +1322,18 @@ def verify_acceptance(handoff: dict[str, Any], handoff_hash: str, response: Path
             require(file_hash(Path(file["path"])) == file["sha256"], f"{name}_evidence_changed")
     verify_proof_chain(records, handoff, refs)
     lifecycle = records["lifecycle"]
-    lifecycle_proofs(lifecycle)
+    preliminary = evidence(handoff["pre_effect_lifecycle"])
+    require(
+        lifecycle.get("daemon_mode") in {"accepted_warm", KERNEL_MODE},
+        "explicit_warm_lifecycle_required",
+    )
+    require(
+        lifecycle.get("daemon_mode") == preliminary.get("daemon_mode"), "lifecycle_mode_changed"
+    )
+    cold = lifecycle.get("daemon_mode") == KERNEL_MODE
+    lifecycle_proofs(
+        lifecycle, context=handoff, evidence_root=response.parent, guard_refs=refs if cold else None
+    )
     require(
         lifecycle["pre_effect_acceptance"] == handoff["pre_effect_lifecycle"],
         "pre_effect_lifecycle_changed",
@@ -1122,8 +1341,8 @@ def verify_acceptance(handoff: dict[str, Any], handoff_hash: str, response: Path
     for unit in ALL_UNITS:
         fence = SYSTEMD_ROOT / (unit + ".d") / CLOSURE_DROPIN
         require(not fence.exists() and not fence.is_symlink(), "closure_transition_incomplete")
-    intent_hash = verify_duty_controller(handoff, policy)
-    verify_loaded_guards(refs["policy"]["sha256"], intent_hash)
+    intent_hash = verify_duty_controller(handoff, policy, cold=cold)
+    verify_loaded_guards(refs["policy"]["sha256"], intent_hash, cold=cold)
     # Recheck all inputs after consuming acceptance. systemd launch will check
     # them again in the real service context; this is not native launch proof.
     for record in handoff["sources"].values():
@@ -1153,6 +1372,13 @@ def admit(
         DUTY_INTENT,
         SYSTEMD_ROOT / "autostop-work-telegram.service.d" / DUTY_DROPIN,
     ]
+    if document(preparation.parent / "closure-acceptance.json")["daemon_mode"] == KERNEL_MODE:
+        fixed += [
+            KERNEL_CONSUMER,
+            SYSTEMD_ROOT / KERNEL_RECOVERY_UNIT,
+            SYSTEMD_ROOT / "autostop-codex-start.service.d" / KERNEL_RECOVERY_DROPIN,
+        ]
+        fixed += [SYSTEMD_ROOT / (unit + ".d") / KERNEL_GATE_DROPIN for unit in NATIVE_UNITS]
     handoff = {
         "schema": "autostop.crm.j1-activation-handoff.v1",
         "scope": SCOPE,

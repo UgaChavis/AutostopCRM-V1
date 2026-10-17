@@ -8,8 +8,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
+from scripts import j1_kernel_bootstrap as kernel
 from scripts import j1_release_boundary as boundary
 
 
@@ -941,6 +943,152 @@ class J1ReleaseAcceptanceTests(unittest.TestCase):
         self.documents["lifecycle"]["pre_effect_acceptance"] = self.refs["primary-proof"]
         self.refresh()
         self.refuse("pre_effect_lifecycle_changed")
+
+    def kernel_candidate(self):
+        """Keep real proof-chain/file checks; native boundary stays explicit synthetic."""
+        for name in ("pre-effect", "lifecycle"):
+            self.documents[name]["daemon_mode"] = kernel.MODE
+            self.documents[name]["denied_units"] = ["autostop-j1-browser.service"]
+        self.documents["bootstrap"].update(
+            start_or_restart_performed=True, preserved_thread_ref=self.refs["thread-identity"]
+        )
+        helper_path = boundary.DUTY_CONTROLLER.with_name("kernel.py")
+        helper_path.write_bytes(Path(kernel.__file__).read_bytes())
+        helper_ref = {"path": str(helper_path), "sha256": boundary.file_hash(helper_path)}
+        self.handoff["files"].append(helper_ref)
+        intent_hash = self.refs["work-duty-intent"]["sha256"]
+        recovery_refs = []
+        for path, raw in (
+            (
+                boundary.SYSTEMD_ROOT / boundary.KERNEL_RECOVERY_UNIT,
+                kernel.recovery_bytes(intent_hash),
+            ),
+            (
+                boundary.SYSTEMD_ROOT / (kernel.UNIT + ".d") / boundary.KERNEL_RECOVERY_DROPIN,
+                kernel.recovery_dropin_bytes(),
+            ),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            recovery_refs.append({"path": str(path), "sha256": boundary.digest(raw)})
+        self.handoff["files"].extend(recovery_refs)
+        for unit in boundary.NATIVE_UNITS:
+            gate = boundary.SYSTEMD_ROOT / (unit + ".d") / boundary.KERNEL_GATE_DROPIN
+            gate.parent.mkdir(exist_ok=True, parents=True)
+            gate.write_bytes(kernel.gate_bytes(intent_hash, unit=unit))
+            gate_ref = {"path": str(gate), "sha256": boundary.file_hash(gate)}
+            self.handoff["files"].append(gate_ref)
+            self.documents["policy"]["bindings"][unit]["unit_files"].extend(
+                [*self.duty_files[:2], helper_ref, *recovery_refs, gate_ref]
+            )
+        self.refresh()
+        facade = SimpleNamespace(
+            KernelError=kernel.KernelError,
+            gate_bytes=kernel.gate_bytes,
+            gate_command=kernel.gate_command,
+            recovery_bytes=kernel.recovery_bytes,
+            recovery_dropin_bytes=kernel.recovery_dropin_bytes,
+            native_acceptance=Mock(
+                return_value={"global_writer_closure_ref": self.refs["writer-closure"]}
+            ),
+            observe=Mock(),
+        )
+        return helper_path, facade
+
+    def kernel_systemctl(self, arguments, **kwargs):
+        if arguments[3] == "--property=Requires,Wants,BindsTo,After":
+            return subprocess.CompletedProcess(
+                arguments,
+                0,
+                "Requires=autostop-j1-cache-view.service\nWants=autostop-codex-start.service\n"
+                "BindsTo=autostop-codex-start.service\n"
+                "After=autostop-codex-start.service autostop-j1-cache-view.service\n",
+                "",
+            )
+        if arguments[3] == "--property=Wants":
+            return subprocess.CompletedProcess(arguments, 0, "Wants=" + kernel.RECOVERY_UNIT, "")
+        if arguments[2] == kernel.RECOVERY_UNIT:
+            command = boundary.duty_command(self.refs["work-duty-intent"]["sha256"]).replace(
+                " restore ", " recover "
+            )
+            fields = {
+                "Type": "oneshot",
+                "User": "root",
+                "Group": "root",
+                "NeedDaemonReload": "no",
+                "FragmentPath": str(boundary.SYSTEMD_ROOT / kernel.RECOVERY_UNIT),
+                "DropInPaths": "",
+                "After": kernel.UNIT + " " + kernel.CACHE_UNIT,
+                "BindsTo": kernel.UNIT,
+                "ExecStart": "{ argv[]=" + command + " ; }",
+            }
+            fields.update(
+                {
+                    key: ""
+                    for key in (
+                        "ExecStartPre",
+                        "ExecStartPost",
+                        "ExecCondition",
+                        "ExecReload",
+                        "ExecStop",
+                        "ExecStopPost",
+                    )
+                }
+            )
+            return subprocess.CompletedProcess(
+                arguments, 0, "\n".join(key + "=" + value for key, value in fields.items()), ""
+            )
+        result = self.systemctl_show(arguments, **kwargs)
+        unit = arguments[2]
+        if unit in boundary.NATIVE_UNITS:
+            command = kernel.gate_command(self.refs["work-duty-intent"]["sha256"])
+            rows = result.stdout.splitlines()
+            result.stdout = "\n".join(
+                row + f" {{ argv[]={command} ; }}" if row.startswith("ExecCondition=") else row
+                for row in rows
+            )
+        elif unit == kernel.UNIT:
+            prefix = "/usr/bin/python3 -I -S -B /usr/local/libexec/autostop-j1-kernel-bootstrap/bootstrap.py"
+            result.stdout = "\n".join(
+                f"ExecCondition={{ argv[]={prefix} check ; }}"
+                if row.startswith("ExecCondition=")
+                else f"ExecStart={{ argv[]={prefix} run ; }}"
+                if row.startswith("ExecStart=")
+                else row
+                for row in result.stdout.splitlines()
+            )
+        return result
+
+    def test_kernel_response_keeps_five_fields_seven_refs_and_six_profiles(self):
+        helper, facade = self.kernel_candidate()
+        with (
+            patch.object(boundary, "KERNEL_CONSUMER", helper),
+            patch.object(boundary, "kernel_module", return_value=facade),
+            patch.object(boundary.subprocess, "run", side_effect=self.kernel_systemctl),
+        ):
+            boundary.verify_acceptance(self.handoff, self.handoff_hash, self.response)
+        facade.native_acceptance.assert_called_once()
+        self.assertTrue(facade.observe.call_args.kwargs["initial"])
+        self.assertEqual(5, len(self.documents["response"]))
+        self.assertEqual(7, len(self.documents["response"]["evidence"]))
+        self.assertEqual(6, len(self.documents["policy"]["bindings"]))
+
+    def test_kernel_without_independent_native_acceptance_stops_before_loaded_dispatch(self):
+        helper, facade = self.kernel_candidate()
+        facade.native_acceptance.side_effect = kernel.KernelError(
+            "independent_native_acceptance_required"
+        )
+        with (
+            patch.object(boundary, "KERNEL_CONSUMER", helper),
+            patch.object(boundary, "kernel_module", return_value=facade),
+            patch.object(boundary.subprocess, "run", side_effect=self.kernel_systemctl),
+        ):
+            with self.assertRaisesRegex(
+                boundary.BoundaryError, "independent_native_acceptance_required"
+            ):
+                boundary.verify_acceptance(self.handoff, self.handoff_hash, self.response)
+        self.assertEqual([], self.loaded_calls)
+        facade.observe.assert_not_called()
 
     def test_stale_loaded_guard_wrong_dispatch_and_side_effects_refuse(self):
         for key, value in (

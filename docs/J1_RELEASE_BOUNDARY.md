@@ -69,8 +69,9 @@ Preliminary lifecycle schema is
 closed for native units, detached daemons, active turns, direct CLI, CRM gateway,
 containers, scheduled triggers and browser, with actual hashed containment
 evidence and an independent reviewer. A warm daemon label or PID is insufficient.
-Only separately accepted warm continuation is supported; cold bootstrap is
-rejected. Preserve existing daemon, wake config, thread/history/job identities
+The unchanged warm route requires separately accepted warm continuation. The
+versioned kernel route below has separate eligibility and native acceptance.
+Preserve wake config, thread/history/job identities
 and instruction root/revision `1b87158a7912af35ffddd45edd2df9089eaa8375`.
 
 All eight units need an effective last `zz-j1-release-closed.conf` with:
@@ -119,9 +120,11 @@ Within the remaining release budget (at most 480 seconds), the operator:
    rollback fence, lifecycle and independent reviewer manifests. The snapshot
    helper's `all_writers_quiescent_proven=false` must remain unchanged; separate
    continuous-closure evidence establishes that fact.
-4. Performs the separately authorized fixed v2 `arm`, verifies durable state
-   and no pending marker, then removes only the temporary closure fences under
-   the already installed candidate guards and reloads/readbacks systemd.
+4. Under the continuous independent writer fence, removes only exact owned
+   temporary deny files, reloads systemd and accepts the actual final loaded
+   units/static inputs and six-profile runtimes. Then accepts the quiet
+   prerequisite, performs the separately authorized fixed v2 `arm`, and verifies
+   durable state with no pending marker. This is the normative v3 final order.
 5. Exclusively publishes `activation-acceptance.json` with schema
    `autostop.crm.j1-activation-acceptance.v1`, exact handoff hash/attempt/scope,
    and seven `{path,sha256}` evidence refs: `policy`, `state`, `quiet_window`,
@@ -142,7 +145,7 @@ The consumer rechecks all inputs and actual loaded guard dispatch for eight
 units, writes `admitted.json` including the raw response SHA256, and only then
 starts the accepted systemd profiles. Real guard `check`/`launch` run in each
 actual unit context; calling `check` from a deploy shell would be invalid.
-Bootstrap/browser stay DENY. Six active roles and original enablement must be
+On the warm route bootstrap/browser stay DENY. Six active roles and original enablement must be
 read back before removing maintenance. Final duty restoration uses runtime RPC
 only, with no env/unit/bootstrap or instruction changes.
 
@@ -243,3 +246,91 @@ regain writable ordinary J1 access after any possible candidate access.
 including malformed/unknown state. Reusing an admitted preparation or starting
 a fresh legacy deploy is refused. Forward recovery is an explicit separate
 operation; there is no reset, disarm, old checkpoint overlay or force flag.
+
+## Conditional kernel bootstrap consumer
+
+`kernel_ro_cold_v1` implements the separate
+[coordinator interface decision](j1_kernel_release_interface_v1.json), SHA256
+`12489c8b350ac1ace7e06aa49c47963069afafceecbd72a2f4035e61ec2b5a85`,
+extending consumer contract `eac7e93f3e2499a11d909444d928374b1ca328282de9562bceb8c3419058f0ac`.
+This source implementation grants no activation or native acceptance. Manager89,
+the six immutable v2 profiles/index/guard, finance, catalog and instruction1b
+remain fixed. Browser activation stays denied.
+
+The outer preliminary/final lifecycle documents retain their v3 schemas and
+seven primary links. Each carries the explicit new `daemon_mode`; its
+`denied_units` contains browser only. Preliminary
+`bootstrap_preservation_receipt` points to the strict
+`autostop.j1.kernel-bootstrap-eligibility.v1` document. Its `baseline_ref` is
+the same fresh native baseline, and `instruction_ref` is the same preserved
+wake/config proof. No future READY, policy/armed hash, production acceptance or
+success fact belongs in eligibility.
+
+Final `bootstrap_preservation_receipt` instead has schema
+`autostop.j1.kernel-bootstrap-preservation.v1` and honestly records
+`start_or_restart_performed=true`. Its nested `native_acceptance_ref` uses
+`autostop.j1.kernel-bootstrap-native-acceptance.v1` and the exact earlier
+eligibility reference, new CRM revision/tree, Manager/guard/package tuple,
+bootstrap policy, actual durable base state, boot/generation/daemon identity,
+independent reviewer, primary native evidence and complete writer closure.
+The five-field/seven-reference activation response is unchanged. The
+acceptance's `preservation_ref` is a separate primary preservation document;
+it cannot point back to the enclosing wrapper and create a hash cycle.
+
+New evidence references are physical protected single-link files within the
+externally selected immutable attempt directory, bounded to256KiB. Leaf native
+logs may be non-JSON; typed eligibility, acceptance, wrapper and READY records
+must be strict JSON without duplicate keys or nonfinite numbers. Both actual
+package manifest references must occur in `primary_native_evidence_refs`.
+`ready_state_ref` is an immutable initial snapshot in that directory, distinct
+from the changing `/var/lib/autostop-j1-kernel-bootstrap/state.json`.
+
+The versioned order is: eligibility and external closure; final static
+bootstrap/cache-view and real six-profile runtime acceptance; remove owned deny
+files under the still-independent fence and read back loaded units; quiet
+prerequisite and durable v2 arm; coordinator publishes separate bound bootstrap
+inputs and starts bootstrap only; independent actual production native
+acceptance; final lifecycle/response/admitted; ordinary health and release
+completion; one durable success/duty commit. Pre-arm
+`effective_units_and_runtime_accepted` claims no future bootstrap READY. No six
+profile reaches its application before the separate post-arm native gate.
+
+`scripts/j1_kernel_bootstrap.py` is a read-only library installed as fixed
+`/usr/local/libexec/autostop-crm-j1-duty/kernel.py`. Before importing the
+independently accepted bootstrap package, it checks its manifest and all three
+installed code hashes. It uses only its fixed pure observers, systemctl-show,
+native daemon-version and metadata-only RPC. It never invokes bootstrap
+check/run from a CRM cgroup, starts a daemon, arms, resets, kills or writes DBs.
+Every observation requires actual notify/active/running/MainPID, exact
+PID/start/cgroup/exe/argv/env/mount namespace and socket peer/liveness, preserved
+thread metadata, current boot/policy, stable READY double-read and no pending.
+PID1's canonical cache view and daemon cache must be RO; the protected native
+RW source, durable current cache-view state and actual mount inventory must
+match. Cache-view policy/code/unit and recovery unit/drop-in are bound in the
+bootstrap policy's static inventory. Mutable OAuth/history bytes are not pinned.
+
+Each of six profiles retains its first v2 condition and gets a fixed root
+`ready` condition in `z1-j1-kernel-readiness.conf`. The controller/helper/intent,
+its gate and the fixed recovery artifacts must be in both handoff and every
+profile's `unit_files`. It orders after cache-view/bootstrap and binds to
+bootstrap lifetime. Source89 wake's known Requires edge is reset and represented
+by the explicit BindsTo/Wants/After edges. Condition-skipped bootstrap alone is
+never evidence of readiness.
+
+The initial `ready` permit requires validated admitted/response/native evidence,
+the exact initial current boot/generation, and continuing maintenance. Without
+commit it cannot survive a reboot or a changed generation. After commit it
+validates the immutable release chain and newly observed current READY rather
+than the old PID. Duty restore makes the same fresh check before any RPC and
+again after acquiring the deployment lock.
+
+Bootstrap Wants the fixed `autostop-j1-native-recover.service`, ordered after
+bootstrap/cache-view. This oneshot runs only fixed controller `recover` with
+the intent hash. It returns closed before commit or during maintenance. For a
+committed release it validates the chain/current READY under the deployment
+lock and issues one bounded `/usr/bin/systemctl --no-block start` for the known
+originally desired six roles. Their guards and current-readiness conditions run
+again. No enablement change, unconditional retry, Upholds loop or receipt-supplied
+command exists. Both ordinary boot and a successful bootstrap daemon-loss
+restart request this recovery service; actual systemd255/native recovery is a
+separate mandatory acceptance, not a result of synthetic unit/RPC tests.

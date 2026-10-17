@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -12,6 +13,7 @@ import signal
 import socket
 import stat
 import struct
+import subprocess
 import sys
 import time
 import uuid
@@ -33,6 +35,18 @@ GUARD_PENDING = STATE.parent / "arming-pending.json"
 GUARD = Path("/usr/local/libexec/autostop-j1-candidate-guard/guard.py")
 INDEX = GUARD.parent / "source-index.json"
 DROPIN = Path("/etc/systemd/system/autostop-work-telegram.service.d/98-j1-work-duty-restore.conf")
+KERNEL_CONSUMER = CONTROLLER.with_name("kernel.py")
+KERNEL_MODE = "kernel_ro_cold_v1"
+NATIVE_UNITS = frozenset(
+    {
+        "autostop-j1.service",
+        "autostop-manager-mcp.service",
+        "autostop-manager-scheduler.service",
+        "autostop-work-telegram.service",
+        "autostop-telegram.service",
+        "autostop-codex-wake.service",
+    }
+)
 SOCKET = Path("/run/autostop-work-telegram/bridge.sock")
 BRIDGE_USER = "autostop-work-telegram"
 WORK_UNIT = "autostop-work-telegram.service"
@@ -387,6 +401,8 @@ def expected_commit(intent, intent_hash):
     }
     verify_files(handoff["files"], required)
     verify_files(binding["unit_files"], required)
+    if closed.get("daemon_mode") == KERNEL_MODE:
+        kernel_ready(preparation, root, handoff, response, refs, binding)
     return {
         "schema": "autostop.crm.j1-work-duty-committed.v1",
         "scope": SCOPE,
@@ -399,6 +415,107 @@ def expected_commit(intent, intent_hash):
         "crm_revision": intent["crm_revision"],
         "inbound_enabled": intent["inbound_enabled"],
     }
+
+
+def kernel_ready(preparation, root, handoff, response, refs, binding):
+    """Fixed read-only module, bound before import; historical proof plus fresh READY."""
+    expected = digest(read_file(KERNEL_CONSUMER))
+    required = {str(KERNEL_CONSUMER): expected}
+    verify_files(handoff["files"], required)
+    verify_files(binding["unit_files"], required)
+    spec = importlib.util.spec_from_file_location("accepted_crm_kernel_consumer", KERNEL_CONSUMER)
+    require(spec is not None and spec.loader is not None, "kernel_consumer_required")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    require(digest(read_file(KERNEL_CONSUMER)) == expected, "kernel_consumer_changed")
+    try:
+        preliminary = module.reference(handoff["pre_effect_lifecycle"], root)
+        lifecycle = module.reference(refs["lifecycle"], root)
+        require(
+            preliminary.get("daemon_mode") == KERNEL_MODE
+            and lifecycle.get("daemon_mode") == KERNEL_MODE
+            and lifecycle.get("pre_effect_acceptance") == handoff["pre_effect_lifecycle"],
+            "kernel_lifecycle_changed",
+        )
+        native = module.native_acceptance(
+            lifecycle["bootstrap_preservation_receipt"],
+            preliminary["bootstrap_preservation_receipt"],
+            preparation,
+            root,
+            refs["policy"]["sha256"],
+            refs["state"]["sha256"],
+        )
+        require(
+            native["global_writer_closure_ref"] == lifecycle["writer_admission_closure_receipt"],
+            "kernel_closure_changed",
+        )
+        module.observe(native, preparation, root, initial=not exists(COMMIT))
+    except module.KernelError as exc:
+        raise DutyError(str(exc)) from exc
+
+
+def ready(intent_hash):
+    """Additional six-profile condition; v2 check still runs first in that unit."""
+    platform_required()
+    intent = load_intent(intent_hash)
+    require(not exists(PENDING), "commit_pending")
+    closed = document(
+        Path(intent["preparation_path"]).parent / "closure-acceptance.json",
+        intent["closure_sha256"],
+    )
+    require(closed.get("daemon_mode") == KERNEL_MODE, "kernel_route_required")
+    expected = expected_commit(intent, intent_hash)
+    marker = exists(Path(intent["maintenance_marker"]))
+    if exists(COMMIT):
+        committed_matches(expected)
+        require(not marker, "maintenance_active")
+    else:
+        require(marker, "initial_release_fence_required")
+    return "current_kernel_ready"
+
+
+def recover(intent_hash):
+    """One bounded activation request after bootstrap; no skip/retry loop."""
+    platform_required()
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    intent = load_intent(intent_hash)
+    require(not exists(PENDING), "commit_pending")
+    if not exists(COMMIT):
+        return "closed_uncommitted"
+    marker = Path(intent["maintenance_marker"])
+    closed = document(
+        Path(intent["preparation_path"]).parent / "closure-acceptance.json",
+        intent["closure_sha256"],
+    )
+    require(closed.get("daemon_mode") == KERNEL_MODE, "kernel_route_required")
+    if exists(marker):
+        return "closed_maintenance"
+    with shared_lock(Path(intent["deploy_lock"]), deadline):
+        require(load_intent(intent_hash) == intent, "intent_changed")
+        require(not exists(PENDING), "commit_pending")
+        committed_matches(expected_commit(intent, intent_hash))
+        require(not exists(marker), "maintenance_active")
+        root = Path(intent["preparation_path"]).parent
+        admitted = document(root / "admitted.json")
+        handoff = document(root / "handoff.json", admitted["handoff_sha256"])
+        desired = handoff["desired_native"]
+        require(
+            type(desired) is dict
+            and set(desired) == NATIVE_UNITS
+            and all(type(value) is bool for value in desired.values()),
+            "native_targets_invalid",
+        )
+        units = sorted(unit for unit, enabled in desired.items() if enabled)
+        require(units, "native_targets_empty")
+        # Native units order after this bootstrap, not after this recovery
+        # oneshot. --no-block avoids waiting for their own post-start duty hook.
+        subprocess.run(
+            ["/usr/bin/systemctl", "--no-block", "start", *units],
+            check=True,
+            capture_output=True,
+            timeout=remaining(deadline),
+        )
+    return "native_start_requested"
 
 
 def fsync_directory(path):
@@ -563,7 +680,7 @@ def timeout_handler(_signum, _frame):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("operation", choices=("restore", "commit"))
+    parser.add_argument("operation", choices=("restore", "commit", "ready", "recover"))
     parser.add_argument("--intent-sha256", required=True)
     args = parser.parse_args(argv)
     try:
@@ -571,13 +688,16 @@ def main(argv=None):
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.setitimer(signal.ITIMER_REAL, TIMEOUT_SECONDS)
         try:
-            result = (restore if args.operation == "restore" else commit)(args.intent_sha256)
+            operation = {"restore": restore, "commit": commit, "ready": ready, "recover": recover}[
+                args.operation
+            ]
+            result = operation(args.intent_sha256)
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
     except DutyError as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 1
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         # Never echo socket payloads, account details, paths or credential bytes.
         print(json.dumps({"ok": False, "error": "work_duty_validation_failed"}))
         return 1

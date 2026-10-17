@@ -1,0 +1,147 @@
+{
+  "schema": "autostop.coordinator.kernel-release-interface-decision.v1",
+  "status": "NORMATIVE_SOURCE_INTERFACE_DECISION_NOT_NATIVE_ACCEPTANCE",
+  "authority": "Direct owner server-update order; coordinator resolves the concrete KBC-01/02/03 release-interface omissions.",
+  "extends": {
+    "path": "manager-native-release/bootstrap_kernel_v1/CONSUMER-CONTRACT.json",
+    "sha256": "eac7e93f3e2499a11d909444d928374b1ca328282de9562bceb8c3419058f0ac"
+  },
+  "daemon_mode": "kernel_ro_cold_v1",
+  "immutable": {
+    "manager_revision": "89af29082e0a6f72c5d85ae448acb6d4deec5d94",
+    "manager_tree": "c16c03e349d793bea742c0288d397eceb650682e",
+    "guard_v2_sha256": "d5275167987434dffab4f81f0671c381c7a32f69e281fd8d4f8644715f3427c6",
+    "index_sha256": "1cfd4aff5ba303e00c12f8b70d9408c77de1c08313586acd49cb96a20a524e3c",
+    "old_warm_route": "Unchanged; never relabel a real start/restart as warm or false."
+  },
+  "reference": {
+    "shape": {
+      "path": "protected absolute physical regular file; fixed coordinator evidence roots only",
+      "sha256": "64 lowercase hexadecimal"
+    },
+    "bounded_read_bytes": 262144,
+    "commands_from_receipts": false,
+    "missing_unknown_pending": "STOP"
+  },
+  "eligibility": {
+    "schema": "autostop.j1.kernel-bootstrap-eligibility.v1",
+    "required_fields": [
+      "schema",
+      "daemon_mode",
+      "attempt_id",
+      "crm_revision",
+      "crm_tree",
+      "manager_revision",
+      "guard_v2_sha256",
+      "bootstrap_package_manifest_sha256",
+      "consumer_contract_sha256",
+      "cache_view_package_manifest_sha256",
+      "baseline_ref",
+      "instruction_ref",
+      "history_recovery_ref",
+      "isolated_native_capability_refs",
+      "coordinator"
+    ],
+    "phase": "Before effects and before any candidate DB access. Exactly binds source/static package/platform capability and intended preserved thread/config to the same attempt. It is eligibility only.",
+    "future_fields_forbidden": [
+      "future_bootstrap_READY",
+      "future_armed_state_sha256",
+      "future_bootstrap_policy_sha256",
+      "future_native_production_acceptance",
+      "future_success_commit"
+    ],
+    "no_runtime_acceptance_claim": true
+  },
+  "initial_native_acceptance": {
+    "schema": "autostop.j1.kernel-bootstrap-native-acceptance.v1",
+    "required_fields": [
+      "schema",
+      "daemon_mode",
+      "attempt_id",
+      "crm_revision",
+      "crm_tree",
+      "manager_revision",
+      "guard_v2_sha256",
+      "eligibility_ref",
+      "bootstrap_package_manifest_sha256",
+      "consumer_contract_sha256",
+      "cache_view_package_manifest_sha256",
+      "bootstrap_policy_sha256",
+      "base_policy_sha256",
+      "base_armed_state_sha256",
+      "boot_id",
+      "generation",
+      "ready_state_ref",
+      "daemon",
+      "preservation_ref",
+      "global_writer_closure_ref",
+      "primary_native_evidence_refs",
+      "reviewer",
+      "accepted"
+    ],
+    "phase": "After exact immutable v2 arm, fixed kernel bootstrap start and actual READY, while the independent external writer fence continues. Before final lifecycle response, admitted, release-success or Work duty commit.",
+    "daemon_fields": [
+      "pid",
+      "start_ticks",
+      "argv_sha256",
+      "environment_sha256",
+      "mount_namespace"
+    ],
+    "accepted": "Boolean true only when an independent coordinator/reviewer actually observed all fixed dynamic facts; source/static approval/READY alone cannot produce this value.",
+    "required_live_checks": [
+      "Same current boot/generation/policy and protected READY bytes observed before and after.",
+      "Actual systemd Type=notify active/running, live bound main process and exact static fragments/drop-ins with NeedDaemonReload=no and no unexpected hooks.",
+      "Actual daemon PID/start/cgroup/executable/argv/environment, socket inode/peer and liveness; exact native CLI/daemon version.",
+      "Original intended thread metadata/history/config/instruction identity preserved without new production thread or test turn.",
+      "Native cache-view controller/host canonical RO/protected RW source same inode and actual daemon namespace RO; old namespaces/FDs/actors closed independently.",
+      "Frozen six-profile policy armed, no pending/unknown, all static source/runtime/env/credential/unit bindings accepted.",
+      "Reviewer identity and hash-bound primary actual native evidence; synthetic capability proof remains explicitly separate."
+    ],
+    "reference_location": "Nested native_acceptance_ref inside the versioned bootstrap_preservation_receipt. Preserve the existing five-field/seven-reference top-level response.",
+    "bootstrap_preservation_schema": "autostop.j1.kernel-bootstrap-preservation.v1",
+    "bootstrap_preservation_fields": [
+      "schema",
+      "daemon_mode",
+      "attempt_id",
+      "eligibility_ref",
+      "native_acceptance_ref",
+      "start_or_restart_performed",
+      "preserved_thread_ref",
+      "preserved_instruction_ref",
+      "preserved_history_ref"
+    ],
+    "start_or_restart_performed": "Actual boolean fact; true for the initial cold replacement. It must never be forced false for compatibility."
+  },
+  "phase_definition": {
+    "version": "kernel_ro_cold_v1",
+    "pre_arm_final_acceptance": "Explicit extension of v3: independently accepted final loaded unit/static inputs and actual six Python-profile runtime/env/source/credential bindings. Bootstrap unit static loading, fixed launcher code and tested capability are accepted at this phase; future bootstrap daemon READY/native production acceptance are explicitly NOT claimed here.",
+    "quiet_prerequisite_flag": "For this versioned route only, effective_units_and_runtime_accepted covers the preceding precisely defined pre-arm acceptance. The original warm route retains its definition. A separate mandatory post-arm bootstrap-native gate prevents any final response/reopening until genuine production acceptance.",
+    "sequence": [
+      "Source/static capability eligibility, continuous external all-writer fence, fresh component recovery/offhost verification.",
+      "Final six-profile/runtime/static bootstrap/cache-view inventories behind owned temporary deny fences.",
+      "Remove only owned temporary deny files under the still-independent fence; daemon-reload; actual final loaded static/six-profile runtime acceptance.",
+      "Quiet prerequisite with the explicit kernel_ro_cold_v1 pre-arm scope; durable immutable v2 arm/readback/no pending.",
+      "Publish the bound separate bootstrap/cache-view policy inputs, start fixed bootstrap only; keep native writers/CRM gateway/duty fenced.",
+      "Independent real post-arm bootstrap native acceptance including cache fence, preserved thread/history and exact current generation.",
+      "Final lifecycle carries initial_native_acceptance reference; existing response5/7 and admitted chain; then ordinary candidate health/release completion and one durable release-success/Work duty commit.",
+      "Only after all gates restore originally desired duty and release the external maintenance fence."
+    ],
+    "no_six_dispatch_before_post_arm_native_acceptance": true,
+    "no_original_quiet_checkpoint_reuse_as_new_boot_proof": true
+  },
+  "later_automatic_recovery": {
+    "manual_per_boot_approval_required": false,
+    "authority": "One previously durably committed accepted release/capability chain, exact immutable tuple/policy/static inputs and a new actually observed current boot generation.",
+    "rules": [
+      "Do not re-use the old initial PID/socket/READY as current; do not overwrite immutable initial receipt references.",
+      "Kernel cache-view boot unit orders before bootstrap and all six guarded profiles; bootstrap Type=notify ordering prevents skipped-condition starts from silently staying down.",
+      "Each normal boot/daemon-loss uses actual current protected READY/policy/boot/generation, process/socket/namespace/liveness and fixed accepted runtime checks, plus unchanged durable release-success/duty-intent tuple.",
+      "Initial uncommitted release remains paused; no admitted/commit/unknown/pending or failed dynamic readiness means STOP and no duty restore.",
+      "Post-start duty controller verifies the committed release and fresh dynamic bootstrap readiness through fixed code, not a receipt-supplied command.",
+      "State/READY/current-boot locator is outside immutable initial policy inventories. No old-writer unban, blind restart, old checkpoint overlay or previous financial/history restoration."
+    ]
+  },
+  "server_actions_performed": false,
+  "production_policy_generated": false,
+  "native_or_production_ready": false
+}
