@@ -1,0 +1,132 @@
+name: CRM catalog preparation
+
+on:
+  push:
+    branches:
+      - diagnostics/crm-catalog-export-89af290-20261017
+
+permissions:
+  contents: read
+
+env:
+  CRM_TARGET_SHA: c918c615248a5f1ec5e2245ce614b24ba1be1e1a
+  MANAGER_TARGET_SHA: 89af29082e0a6f72c5d85ae448acb6d4deec5d94
+  CATALOG_MODE: generate
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUTF8: "1"
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.CRM_TARGET_SHA }}
+          persist-credentials: false
+
+      - uses: actions/checkout@v6
+        with:
+          repository: UgaChavis/AutostopManager
+          ref: ${{ env.MANAGER_TARGET_SHA }}
+          path: _manager_source
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Prepare dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update -qq
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install -y --no-install-recommends ripgrep libegl1 libgl1 libopengl0 libglib2.0-0 libnss3 libdbus-1-3 libxkbcommon0
+          python -m venv "$RUNNER_TEMP/catalog-venv"
+          "$RUNNER_TEMP/catalog-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/catalog-venv/bin/python" -m pip install -r requirements-dev.txt -e ./_manager_source
+
+      - name: Seal exact source and generate without network
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CRM_TARGET_SHA"
+          test "$(git -C _manager_source rev-parse HEAD)" = "$MANAGER_TARGET_SHA"
+          mkdir -p output/catalog-preparation "$RUNNER_TEMP/catalog-sealed-manager" "$RUNNER_TEMP/catalog-state"
+          git -C _manager_source archive "$MANAGER_TARGET_SHA" | tar -x -C "$RUNNER_TEMP/catalog-sealed-manager"
+          printf '%s\n' "$MANAGER_TARGET_SHA" > "$RUNNER_TEMP/catalog-sealed-manager/REVISION"
+          export PYTHON_BIN="$RUNNER_TEMP/catalog-venv/bin/python"
+          export OUTPUT_DIR="$GITHUB_WORKSPACE/output/catalog-preparation"
+          export SEALED_MANAGER="$RUNNER_TEMP/catalog-sealed-manager"
+          export RUN_AS="$(id -un)"
+          cat > "$RUNNER_TEMP/catalog-commands.sh" <<'SH'
+          set -euo pipefail
+          export AUTOSTOP_MANAGER_ENV_FILE=/dev/null
+          export AUTOSTOP_MANAGER_DB="$RUNNER_TEMP/catalog-state/schema.sqlite3"
+          export AUTOSTOP_J1_CACHE_DIR="$RUNNER_TEMP/catalog-state/j1"
+          export AUTOSTOP_J1_VIN_CACHE_DIR="$RUNNER_TEMP/catalog-state/j1-vin"
+          export AUTOSTOP_J1_VIN_RESEARCH_ENABLED=0
+          export AUTOSTOP_J1_SEARXNG_URL=
+          ip -json address show > "$OUTPUT_DIR/network-interfaces.json"
+          cp src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json "$OUTPUT_DIR/before-catalog.json"
+          "$PYTHON_BIN" _manager_source/scripts/export-automotive-tools.py \
+            --revision "$MANAGER_TARGET_SHA" --output "$OUTPUT_DIR/generated-catalog.json" > "$OUTPUT_DIR/export.json"
+          if [[ "$CATALOG_MODE" == generate ]]; then
+            code=0
+            "$PYTHON_BIN" scripts/check_automotive_tool_catalog.py \
+              --expected-source-revision "$MANAGER_TARGET_SHA" --manager-root "$SEALED_MANAGER" \
+              --manager-python "$PYTHON_BIN" > "$OUTPUT_DIR/before-check.stdout" 2> "$OUTPUT_DIR/before-check.stderr" || code=$?
+            test "$code" = 2
+            grep -Fq 'CRM automotive catalog source revision differs from the release tuple' "$OUTPUT_DIR/before-check.stderr"
+            printf '%s\n' "$code" > "$OUTPUT_DIR/before-check.exit"
+            cp "$OUTPUT_DIR/generated-catalog.json" src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json
+          else
+            cmp "$OUTPUT_DIR/generated-catalog.json" src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json
+          fi
+          "$PYTHON_BIN" scripts/check_automotive_tool_catalog.py \
+            --expected-source-revision "$MANAGER_TARGET_SHA" --manager-root "$SEALED_MANAGER" \
+            --manager-python "$PYTHON_BIN" > "$OUTPUT_DIR/after-check.json"
+          "$PYTHON_BIN" scripts/docs_audit.py --manager-root "$SEALED_MANAGER" --format json > "$OUTPUT_DIR/cross-docs.json"
+          "$PYTHON_BIN" -m unittest tests.test_automotive_catalog_release tests.test_manager_tool_catalog_wire -v > "$OUTPUT_DIR/focused.stdout" 2> "$OUTPUT_DIR/focused.stderr"
+          "$PYTHON_BIN" - <<'PY'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          out = Path(os.environ['OUTPUT_DIR'])
+          old = json.loads((out/'before-catalog.json').read_text())
+          new = json.loads((out/'generated-catalog.json').read_text())
+          content = lambda b: {k:v for k,v in b.items() if k not in {'source_revision','content_hash'}}
+          report = {
+              'workflow_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'],
+              'crm_target_sha': os.environ['CRM_TARGET_SHA'], 'manager_target_sha': os.environ['MANAGER_TARGET_SHA'],
+              'crm_actual_sha': subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+              'manager_actual_sha': subprocess.check_output(['git','-C','_manager_source','rev-parse','HEAD'],text=True).strip(),
+              'manager_tree': subprocess.check_output(['git','-C','_manager_source','rev-parse','HEAD^{tree}'],text=True).strip(),
+              'catalog_mode': os.environ['CATALOG_MODE'], 'old_source_revision': old['source_revision'],
+              'new_source_revision': new['source_revision'], 'old_content_hash': old['content_hash'],
+              'new_content_hash': new['content_hash'], 'content_equal_ignoring_revision': content(old)==content(new),
+              'content_fields_changed': [k for k in sorted(set(content(old))|set(content(new))) if content(old).get(k)!=content(new).get(k)],
+              'modules': len(new['modules']), 'tools': len(new['tools']),
+              'generated_sha256': hashlib.sha256((out/'generated-catalog.json').read_bytes()).hexdigest(),
+              'network_namespace': 'unshare --net with loopback only', 'provider_tool_calls': False,
+              'business_state_used': False, 'server_actions_performed': False,
+          }
+          (out/'receipt.json').write_text(json.dumps(report,indent=2)+'\n')
+          (out/'artifact-manifest.json').write_text(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in out.iterdir() if p.is_file()},indent=2)+'\n')
+          PY
+          SH
+          sudo unshare --net -- sh -c 'ip link set lo up; exec "$@"' sh runuser -u "$RUN_AS" -- env \
+            PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" GITHUB_SHA="$GITHUB_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            CRM_TARGET_SHA="$CRM_TARGET_SHA" MANAGER_TARGET_SHA="$MANAGER_TARGET_SHA" CATALOG_MODE="$CATALOG_MODE" \
+            PYTHON_BIN="$PYTHON_BIN" OUTPUT_DIR="$OUTPUT_DIR" SEALED_MANAGER="$SEALED_MANAGER" \
+            PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1 bash "$RUNNER_TEMP/catalog-commands.sh"
+
+      - name: Upload exact source catalog evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: crm-catalog-89af290-${{ github.sha }}
+          path: output/catalog-preparation/
+          if-no-files-found: error
