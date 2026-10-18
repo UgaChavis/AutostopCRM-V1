@@ -456,6 +456,11 @@ def inspect(attempt, stage):
     require_marker(plan_ref, plan)
     ownership = io.document(io.read_protected(directory / "closure-owned.json"))
     evidence = {}
+    evidence["process_scope"] = io.document(io.referenced(ownership["process_scope_ref"]))
+    drain_ref = io.reference(directory / "ingress-drain.json")
+    evidence["ingress_drain"] = io.document(io.referenced(drain_ref))
+    idle_ref = evidence["ingress_drain"]["idle_observation_ref"]
+    evidence["ingress_idle"] = io.document(io.referenced(idle_ref))
     inspection = {
         "schema": INSPECTION,
         "stage": stage,
@@ -464,6 +469,9 @@ def inspect(attempt, stage):
         "baseline_sha256": plan["baseline_ref"]["sha256"],
         "candidate": plan["candidate"],
         "native_preserved": True,
+        "process_scope_ref": ownership["process_scope_ref"],
+        "ingress_drain_ref": drain_ref,
+        "ingress_idle_ref": idle_ref,
     }
     state = io.document(io.read_protected(directory / "progress.json"))
     if stage == "closed":
@@ -482,6 +490,7 @@ def inspect(attempt, stage):
         )
         evidence["native"] = authority.verify_preserved(baseline["native"], running=True)
         evidence["guard_starts"] = guard_starts(host, state["native_start_monotonic_us"])
+        evidence["activation_cohort"] = closure.observe_activation(ownership)
         counts = work_counts(host.job_status())
         io.require(counts["enabled"] is False, "work_must_remain_paused")
         evidence["runtime"] = host.probes(plan["candidate"], attempt, held=True)
@@ -495,6 +504,9 @@ def inspect(attempt, stage):
             runtime_ref=save(directory, "inspected-runtime", evidence["runtime"]),
             container_ref=save(directory, "inspected-container", evidence["container"]),
             guard_starts_ref=save(directory, "inspected-guards", evidence["guard_starts"]),
+            activation_cohort_ref=save(
+                directory, "inspected-activation-cohort", evidence["activation_cohort"]
+            ),
         )
     inspection["native_ref"] = save(directory, "inspected-native", evidence["native"])
     ref = save(directory, "inspection", inspection)
@@ -653,7 +665,19 @@ def apply(attempt):
             io.write_new(MARKER, marker_value(plan_ref, plan))
             progress(directory, "draining")
             save(directory, "drain", host.begin_drain(attempt, baseline["host"]))
-            ownership = closure.close_writers(baseline["native"], directory, deadline=host.deadline)
+            ownership = closure.close_writers(
+                baseline["native"],
+                directory,
+                deadline=host.deadline,
+                idle_observer=lambda: save(
+                    directory,
+                    "ingress-idle",
+                    {
+                        "observed_at": utc(),
+                        **host.observe_idle_appserver(),
+                    },
+                ),
+            )
             latest = None
 
             def witness():
@@ -706,6 +730,7 @@ def apply(attempt):
             host.start_native()
             authority.verify_preserved(baseline["native"], running=True)
             guard_starts(host, native_start)
+            closure.observe_activation(ownership)
             io.require(
                 work_counts(host.job_status())["enabled"] is False,
                 "work_reopened_before_acceptance",
@@ -719,6 +744,7 @@ def apply(attempt):
             def still_held():
                 remaining(plan)
                 require_marker(plan_ref, plan)
+                closure.observe_activation(ownership)
                 io.require(
                     work_counts(host.job_status())["enabled"] is False,
                     "work_reopened_before_commit",
@@ -747,6 +773,7 @@ def apply(attempt):
             # This durable transaction MUST precede removal of the old marker.
             io.require(store.head()["record"]["plan"] == plan, "durable_head_readback_failed")
             progress(directory, "committed-opening", commit=commit)
+            closure.release_auxiliary(ownership, commit)
             require_marker(plan_ref, plan)
             MARKER.unlink()
             io.fsync_directory(MARKER.parent)

@@ -16,6 +16,8 @@ from scripts import j1_forward_closure as closure
 from scripts.j1_forward_io import Refusal
 
 ATTEMPT = "7767b188-209a-49a3-8aac-854cf2d4336f"
+FREEZE_PIDS = (538285, 538487, *range(700001, 700012))
+TRANSPORT_PIDS = (538314, *range(800001, 800005))
 
 
 def actor(pid):
@@ -36,8 +38,12 @@ class FakeRunner:
     def __init__(self):
         self.events = []
         self.saved = {}
+        self.scopes = {}
+        self.drains = {}
         self.barriers = {}
-        self.actors = {pid: {**actor(pid), "stopped": False} for pid in closure.ACCEPTED_PIDS}
+        self.actors = {
+            pid: {**actor(pid), "stopped": False} for pid in (*FREEZE_PIDS, *TRANSPORT_PIDS)
+        }
         self.procs = {
             pid: {
                 "start_ticks": row["start_ticks"],
@@ -58,6 +64,15 @@ class FakeRunner:
         self.stopped = False
         self.fail_put = None
         self.fail_save = False
+        self.fail_scope_save = False
+        self.scope_captures = 0
+        self.scope_error = None
+        self.fail_signal = None
+        self.commit_ready = False
+        self.native_peer_live = False
+        self.idle_valid = True
+        self.idle_ref = {"path": "synthetic-idle", "sha256": "d" * 64}
+        self.idle_observed_at = closure.datetime.now(closure.UTC).isoformat()
         self.fail_thaw = None
         self.extra_after_stop = False
         self.on_signal = None
@@ -81,6 +96,171 @@ class FakeRunner:
             return copy.deepcopy(self.saved[str(directory)])
         except KeyError:
             raise FileNotFoundError() from None
+
+    def control_bindings(self, owned):
+        return "c" * 64
+
+    def capture_scope(self, native, owned):
+        self.scope_captures += 1
+        return {
+            "schema": "autostop.j1.crm-forward-process-scope.v1",
+            "attempt_id": owned["attempt_id"],
+            "attempt_dir": owned["attempt_dir"],
+            "consumer_sha256": owned["consumer_sha256"],
+            "native_sha256": closure.io.sha(closure.io.canonical(native)),
+            "boot_id": self.boot,
+            "original_actors": sorted(
+                copy.deepcopy(native["warm_actors"]), key=lambda row: row["pid"]
+            ),
+            "freeze_actors": [actor(pid) for pid in FREEZE_PIDS],
+            "transport_actors": [actor(pid) for pid in TRANSPORT_PIDS],
+            "observation": {
+                "roles": {
+                    str(pid): "daemon"
+                    if pid == 538285
+                    else "proxy"
+                    if pid in FREEZE_PIDS[1:4]
+                    else "helper"
+                    for pid in (*FREEZE_PIDS, *TRANSPORT_PIDS)
+                }
+            },
+        }
+
+    def save_scope(self, directory, value):
+        self.events.append("save_scope")
+        if self.fail_scope_save:
+            raise OSError("scope durability failed")
+        path = str(directory / "process-scope.json")
+        if path in self.scopes:
+            raise FileExistsError()
+        self.scopes[path] = copy.deepcopy(value)
+        return {"path": path, "sha256": closure.io.sha(closure.io.canonical(value))}
+
+    def load_scope(self, reference):
+        scope = copy.deepcopy(self.scopes[reference["path"]])
+        closure.io.require(
+            closure.io.sha(closure.io.canonical(scope)) == reference["sha256"],
+            "reference_hash_mismatch",
+        )
+        return scope
+
+    def scope_actors(self, scope):
+        return copy.deepcopy((scope["freeze_actors"], scope["transport_actors"]))
+
+    def verify_scope(self, scope, *, frozen):
+        self.events.append(("scope_verify", frozen))
+        if self.scope_error:
+            raise Refusal(self.scope_error)
+        writers, transports = self.scope_actors(scope)
+        for expected in writers + transports:
+            actual = self.actors[expected["pid"]]
+            closure._same_actor(expected, actual, full=True)
+            wanted = frozen if expected in writers else False
+            closure.io.require(actual["stopped"] is wanted, "scope_actor_stop_state")
+        return {
+            "scope_sha256": closure.io.sha(closure.io.canonical(scope)),
+            "frozen": frozen,
+            "freeze_count": len(writers),
+            "transport_count": len(transports),
+        }
+
+    def activation_scope(self, scope, *, released=False):
+        self.events.append(("activation_verify", released))
+        if self.scope_error:
+            raise Refusal(self.scope_error)
+        closure.io.require(self.native_peer_live, "activation_native_peer_missing")
+        writers, transports = self.scope_actors(scope)
+        for expected in writers + transports:
+            actual = self.actors[expected["pid"]]
+            closure._same_actor(expected, actual, full=True)
+            wanted = expected in writers and expected["pid"] != 538285 and not released
+            closure.io.require(actual["stopped"] is wanted, "scope_actor_stop_state")
+        return {
+            "scope_sha256": closure.io.sha(closure.io.canonical(scope)),
+            "auxiliary_released": released,
+            "native_control_peer": {"pid": 999000},
+        }
+
+    def staging_scope(self, scope):
+        self.events.append("staging_verify")
+        if self.scope_error:
+            raise Refusal(self.scope_error)
+        closure.io.require(not self.native_peer_live, "staging_native_peer_present")
+        for expected in scope["freeze_actors"] + scope["transport_actors"]:
+            actual = self.actors[expected["pid"]]
+            closure._same_actor(expected, actual, full=True)
+            wanted = expected["pid"] in FREEZE_PIDS[1:]
+            closure.io.require(actual["stopped"] is wanted, "scope_actor_stop_state")
+        return {
+            "schema": "autostop.j1.crm-forward-process-scope-staging.v1",
+            "scope_sha256": closure.io.sha(closure.io.canonical(scope)),
+            "auxiliary_released": False,
+            "native_control_peer": None,
+            "topology_sha256": closure.io.sha(closure.io.canonical(scope["observation"])),
+            "freeze_actors": [
+                {
+                    **row,
+                    "stopped": row["pid"] != 538285,
+                    "thread_states": ["S" if row["pid"] == 538285 else "T"],
+                }
+                for row in scope["freeze_actors"]
+            ],
+            "transport_actors": [
+                {**row, "stopped": False, "thread_states": ["S"]}
+                for row in scope["transport_actors"]
+            ],
+        }
+
+    def idle_observer(self):
+        self.events.append("idle_observer")
+        self.idle_observed_at = closure.datetime.now(closure.UTC).isoformat()
+        closure.io.require(
+            not self.actors[538285]["stopped"]
+            and all(self.actors[pid]["stopped"] for pid in FREEZE_PIDS[1:]),
+            "idle_callback_order",
+        )
+        return copy.deepcopy(self.idle_ref)
+
+    def idle_receipt(self, owned, reference):
+        closure.io.require(
+            self.idle_valid and reference == self.idle_ref, "ingress_idle_not_proven"
+        )
+        return {
+            "metadata_only": True,
+            "all_loaded_and_wake_idle": True,
+            "active_turns": 0,
+            "loaded_count": 7,
+            "observed_at": self.idle_observed_at,
+            "rpc_sha256": closure.host_policy.RPC_SHA,
+            "wake_sha256": closure.host_policy.WAKE_SHA,
+        }
+
+    def admission_window(self, owned):
+        return closure._utc("2026-01-01T00:00:00Z"), closure._utc("2099-01-01T00:00:00Z")
+
+    def save_drain(self, owned, value):
+        self.events.append("save_drain")
+        path = str(Path(owned["attempt_dir"]) / "ingress-drain.json")
+        if path in self.drains:
+            raise FileExistsError()
+        self.drains[path] = copy.deepcopy(value)
+        return {"path": path, "sha256": closure.io.sha(closure.io.canonical(value))}
+
+    def load_drain(self, owned):
+        path = str(Path(owned["attempt_dir"]) / "ingress-drain.json")
+        value = self.drains.get(path)
+        if value is None:
+            return None, None
+        return copy.deepcopy(value), {
+            "path": path,
+            "sha256": closure.io.sha(closure.io.canonical(value)),
+        }
+
+    def committed(self, owned, commit_ref):
+        self.events.append("commit_binding")
+        closure.io.require(
+            self.commit_ready and commit_ref == {"commit": "owned"}, "auxiliary_commit_head"
+        )
 
     def read_barrier(self, path):
         return self.barriers.get(str(path))
@@ -121,6 +301,9 @@ class FakeRunner:
 
     def signal_actor(self, expected, stop):
         closure._same_actor(expected, self.actors[expected["pid"]], full=True)
+        if (expected["pid"], stop) == self.fail_signal:
+            self.fail_signal = None
+            raise OSError("signal failed")
         if not stop and expected["pid"] == self.fail_thaw:
             self.fail_thaw = None
             raise OSError("thaw failed")
@@ -171,6 +354,7 @@ class FakeRunner:
 
     def descriptor_scan(self, processes, frozen, own):
         self.events.append("fds")
+        self.last_descriptor_sets = (set(frozen), set(own))
         if self.scan_error:
             raise Refusal("unexpected_source_write_descriptor")
         return {"frozen_owned_write_fds": 2, "owned_sqlite_coordination_fds": 0}
@@ -189,8 +373,13 @@ class ClosureTests(unittest.TestCase):
             "warm_actors": [actor(pid) for pid in sorted(closure.ACCEPTED_PIDS)],
         }
 
-    def close(self):
-        return closure.close_writers(self.baseline, self.directory, deadline=time.monotonic() + 30)
+    def close(self, *, idle_observer=None):
+        return closure.close_writers(
+            self.baseline,
+            self.directory,
+            deadline=time.monotonic() + 30,
+            idle_observer=idle_observer or self.runner.idle_observer,
+        )
 
     def owned(self):
         return self.runner.saved[str(self.directory)]
@@ -203,10 +392,15 @@ class ClosureTests(unittest.TestCase):
         self.assertFalse(self.runner.stopped)
         self.assertFalse(any(row["stopped"] for row in self.runner.actors.values()))
         self.assertEqual(
-            [event for event in self.runner.events if not isinstance(event, tuple)], ["save"]
+            [event for event in self.runner.events if not isinstance(event, tuple)],
+            ["save_scope", "save"],
         )
         self.assertTrue(
-            all(event[0] == "actor" for event in self.runner.events if isinstance(event, tuple))
+            all(
+                event[0] in {"actor", "scope_verify"}
+                for event in self.runner.events
+                if isinstance(event, tuple)
+            )
         )
 
     def test_prepared_ownership_fences_early_drain_failure(self):
@@ -216,14 +410,213 @@ class ClosureTests(unittest.TestCase):
         self.assertIsNotNone(result["observation"])
         self.assertEqual(len(self.runner.barriers), 8)
         self.assertTrue(self.runner.stopped)
-        self.assertTrue(all(row["stopped"] for row in self.runner.actors.values()))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
 
     def test_close_reuses_prepared_record_without_republication(self):
         prepared = closure.prepare_closure(self.baseline, self.directory)
         closed = self.close()
         self.assertEqual(prepared, closed)
         self.assertEqual(self.runner.events.count("save"), 1)
+        self.assertEqual(self.runner.scope_captures, 1)
+        self.assertEqual(self.runner.events.count("save_scope"), 1)
         self.assertEqual(len(self.runner.barriers), 8)
+
+    def test_v2_freezes_ingress_before_idle_then_daemon_and_preserves_live_transports(self):
+        prepared = closure.prepare_closure(self.baseline, self.directory)
+        closed = self.close()
+        self.assertEqual(closed["schema"], "autostop.j1.crm-forward-closure.v2")
+        self.assertEqual(closed["warm_actors"], self.baseline["warm_actors"])
+        self.assertEqual(prepared, closed)
+        effects = [
+            event
+            for event in self.runner.events
+            if event in ("save_scope", "save", "stop")
+            or isinstance(event, tuple)
+            and event[0] in {"put", "signal"}
+        ]
+        self.assertEqual(effects[:2], ["save_scope", "save"])
+        self.assertEqual(
+            [event[1] for event in effects if isinstance(event, tuple) and event[0] == "signal"],
+            [*FREEZE_PIDS[1:], 538285],
+        )
+        idle_index = self.runner.events.index("idle_observer")
+        daemon_index = self.runner.events.index(("signal", 538285, True))
+        self.assertLess(idle_index, self.runner.events.index("staging_verify"))
+        self.assertLess(self.runner.events.index("save_drain"), daemon_index)
+        self.assertTrue(
+            all(
+                self.runner.events.index(("signal", pid, True)) < idle_index
+                for pid in FREEZE_PIDS[1:]
+            )
+        )
+        self.assertTrue(all(not self.runner.actors[pid]["stopped"] for pid in TRANSPORT_PIDS))
+        self.assertEqual(self.runner.last_descriptor_sets[0], set(FREEZE_PIDS))
+        self.assertFalse(set(TRANSPORT_PIDS) & self.runner.last_descriptor_sets[1])
+        observation = closure.observe_closed(closed)
+        self.assertEqual(observation["scope_sha256"], closed["process_scope_ref"]["sha256"])
+        self.assertEqual({row["pid"] for row in observation["freeze_actors"]}, set(FREEZE_PIDS))
+        self.assertEqual(
+            {row["pid"] for row in observation["transport_actors"]}, set(TRANSPORT_PIDS)
+        )
+
+    def test_scope_durability_failure_cannot_install_fence_or_publish_ownership(self):
+        self.runner.fail_scope_save = True
+        with self.assertRaisesRegex(OSError, "scope durability"):
+            self.close()
+        self.assertEqual(self.runner.saved, {})
+        self.assertEqual(self.runner.barriers, {})
+        self.assertFalse(self.runner.stopped)
+
+    def test_missing_idle_callback_refuses_before_any_ownership_or_effect(self):
+        with self.assertRaises(TypeError):
+            closure.close_writers(self.baseline, self.directory, deadline=time.monotonic() + 30)
+        with self.assertRaisesRegex(Refusal, "ingress_idle_observer_required"):
+            closure.close_writers(
+                self.baseline, self.directory, deadline=time.monotonic() + 30, idle_observer=None
+            )
+        self.assertEqual(self.runner.events, [])
+        self.assertEqual(self.runner.saved, {})
+
+    def test_idle_callback_failure_refences_daemon_first_and_never_authorizes_reopen(self):
+        def refuse_idle():
+            self.runner.idle_observer()
+            self.runner.events.append("idle_failure")
+            raise Refusal("application_still_active")
+
+        with self.assertRaisesRegex(Refusal, "application_still_active"):
+            self.close(idle_observer=refuse_idle)
+        self.assertEqual(self.runner.events.count("idle_observer"), 1)
+        failure_index = self.runner.events.index("idle_failure")
+        first_signal = next(
+            event
+            for event in self.runner.events[failure_index:]
+            if isinstance(event, tuple) and event[0] == "signal"
+        )
+        self.assertEqual(first_signal, ("signal", 538285, True))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+        self.assertEqual(self.runner.drains, {})
+        for action in (closure.observe_closed, closure.reopen_native):
+            with self.assertRaisesRegex(Refusal, "ingress_drain_missing"):
+                action(self.owned())
+        self.assertEqual(len(self.runner.barriers), 8)
+        self.assertFalse(
+            any(
+                isinstance(event, tuple) and event[0] == "signal" and not event[2]
+                for event in self.runner.events
+            )
+        )
+
+    def test_kernel_queue_failure_after_idle_never_publishes_admission(self):
+        def idle_then_queued():
+            ref = self.runner.idle_observer()
+            self.runner.scope_error = "queued_proxy_ingress"
+            return ref
+
+        with self.assertRaisesRegex(Refusal, "queued_proxy_ingress"):
+            self.close(idle_observer=idle_then_queued)
+        self.assertEqual(self.runner.drains, {})
+        self.assertEqual(len(self.runner.barriers), 8)
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+
+    def test_admission_rejects_inexact_states_identity_fields_and_time_even_when_cached(self):
+        owned = self.close()
+        path = next(iter(self.runner.drains))
+        pristine = copy.deepcopy(self.runner.drains[path])
+        mutations = (
+            lambda value: value.update(extra=True),
+            lambda value: value.update(observed_at="2025-01-01T00:00:00Z"),
+            lambda value: value.update(observed_at="2099-01-02T00:00:00Z"),
+            lambda value: value["staging_observation"].update(extra=True),
+            lambda value: value["staging_observation"]["freeze_actors"].pop(),
+            lambda value: value["staging_observation"]["freeze_actors"][1].update(stopped=False),
+            lambda value: value["staging_observation"]["freeze_actors"][1].update(
+                thread_states=["T", "S"]
+            ),
+            lambda value: value["staging_observation"]["transport_actors"][0].update(stopped=True),
+            lambda value: value["staging_observation"]["transport_actors"][0].update(start_ticks=1),
+            lambda value: value["staging_observation"].update(native_control_peer={"pid": 99}),
+        )
+        for index, mutate in enumerate(mutations):
+            value = copy.deepcopy(pristine)
+            mutate(value)
+            self.runner.drains[path] = value
+            with self.subTest(index=index), self.assertRaises(Refusal):
+                closure.observe_closed(owned)
+        self.runner.drains[path] = pristine
+        self.runner.idle_observed_at = "2099-01-01T00:00:00Z"
+        with self.assertRaisesRegex(Refusal, "ingress_admission_window"):
+            closure.observe_closed(owned)
+
+    def test_pre_stopped_derived_writer_is_not_adopted(self):
+        self.runner.actors[FREEZE_PIDS[-1]]["stopped"] = True
+        with self.assertRaisesRegex(Refusal, "scope_actor_stop_state"):
+            self.close()
+        self.assertEqual(self.runner.saved, {})
+        self.assertEqual(self.runner.scopes, {})
+        self.assertFalse(
+            any(event[0] == "signal" for event in self.runner.events if isinstance(event, tuple))
+        )
+
+    def test_mid_freeze_failure_refences_exact_stored_writers_without_transport_signal(self):
+        self.runner.fail_signal = (FREEZE_PIDS[5], True)
+        with self.assertRaisesRegex(OSError, "signal failed"):
+            self.close()
+        self.assertEqual(len(self.runner.barriers), 8)
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+        self.assertTrue(all(not self.runner.actors[pid]["stopped"] for pid in TRANSPORT_PIDS))
+        signaled = [
+            event[1]
+            for event in self.runner.events
+            if isinstance(event, tuple) and event[0] == "signal"
+        ]
+        failure_stop = [index for index, event in enumerate(self.runner.events) if event == "stop"][
+            -1
+        ]
+        self.assertEqual(
+            next(
+                event[1]
+                for event in self.runner.events[failure_stop:]
+                if isinstance(event, tuple) and event[0] == "signal"
+            ),
+            538285,
+        )
+        self.assertEqual(set(signaled), set(FREEZE_PIDS))
+        self.assertEqual(self.runner.scope_captures, 1)
+
+    def test_same_identity_foreign_peer_refusal_cannot_be_cached_or_recaptured(self):
+        owned = self.close()
+        self.runner.scope_error = "scope_socket_peer_changed"
+        with self.assertRaisesRegex(Refusal, "scope_socket_peer_changed"):
+            closure.observe_closed(owned, force_full=True)
+        result = closure.fail_closed(owned)
+        self.assertIn("closure_readback_failed", result["errors"])
+        self.assertIsNone(result["observation"])
+        self.assertEqual(self.runner.scope_captures, 1)
+        self.assertEqual(len(self.runner.barriers), 8)
+
+    def test_cached_sample_refuses_stopped_transport_without_signaling_it(self):
+        owned = self.close()
+        self.runner.actors[538314]["stopped"] = True
+        with self.assertRaisesRegex(Refusal, "scope_transport_stopped"):
+            closure.observe_closed(owned)
+        self.assertFalse(
+            any(
+                event[:2] == ("signal", 538314)
+                for event in self.runner.events
+                if isinstance(event, tuple)
+            )
+        )
+
+    def test_foreign_scope_binding_refused_before_effects_even_with_matching_reference_hash(self):
+        owned = closure.prepare_closure(self.baseline, self.directory)
+        reference = owned["process_scope_ref"]
+        scope = self.runner.scopes[reference["path"]]
+        scope["consumer_sha256"] = "d" * 64
+        reference["sha256"] = closure.io.sha(closure.io.canonical(scope))
+        self.runner.saved[str(self.directory)] = copy.deepcopy(owned)
+        with self.assertRaisesRegex(Refusal, "closure_scope_binding"):
+            closure.fail_closed(owned)
+        self.assertEqual(self.runner.barriers, {})
 
     def test_prepare_never_overwrites_existing_ownership(self):
         prepared = closure.prepare_closure(self.baseline, self.directory)
@@ -282,7 +675,7 @@ class ClosureTests(unittest.TestCase):
         self.assertEqual(effect[0], "save")
         self.assertEqual(sum(item[0] == "put" for item in effect if isinstance(item, tuple)), 8)
         self.assertEqual(len(self.runner.barriers), 8)
-        self.assertTrue(all(item["stopped"] for item in self.runner.actors.values()))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
         self.assertNotIn("start", self.runner.events)
 
     def test_failed_ownership_durability_produces_no_runtime_effect(self):
@@ -304,7 +697,7 @@ class ClosureTests(unittest.TestCase):
             self.close()
         self.assertEqual(len(self.runner.barriers), 8)
         self.assertTrue(self.runner.stopped)
-        self.assertTrue(all(row["stopped"] for row in self.runner.actors.values()))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
         self.assertFalse(
             any(
                 e[0] == "signal" and e[2] is False
@@ -374,23 +767,78 @@ class ClosureTests(unittest.TestCase):
         with self.assertRaisesRegex(Refusal, "unexpected_source_write_descriptor"):
             self.close()
         self.assertEqual(len(self.runner.barriers), 8)
-        self.assertTrue(all(row["stopped"] for row in self.runner.actors.values()))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
 
-    def test_reopen_removes_only_owned_files_and_thaws_without_start(self):
+    def test_reopen_removes_only_owned_files_and_thaws_only_daemon_without_start(self):
         result = self.close()
         self.runner.barriers["/etc/unrelated.conf"] = b"unrelated"
         closure.reopen_native(result)
         self.assertEqual(self.runner.barriers, {"/etc/unrelated.conf": b"unrelated"})
-        self.assertFalse(any(row["stopped"] for row in self.runner.actors.values()))
+        self.assertFalse(self.runner.actors[538285]["stopped"])
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS[1:]))
+        self.assertTrue(all(not self.runner.actors[pid]["stopped"] for pid in TRANSPORT_PIDS))
         self.assertNotIn("start", self.runner.events)
+        self.assertEqual(
+            [
+                event[1]
+                for event in self.runner.events
+                if isinstance(event, tuple) and event[0] == "signal" and not event[2]
+            ],
+            [538285],
+        )
 
     def test_thaw_failure_reinstalls_barriers_and_refreezes_prior_thaw(self):
         result = self.close()
-        self.runner.fail_thaw = 538314
+        self.runner.fail_thaw = 538285
         with self.assertRaises(OSError):
             closure.reopen_native(result)
         self.assertEqual(len(self.runner.barriers), 8)
-        self.assertTrue(all(row["stopped"] for row in self.runner.actors.values()))
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+
+    def test_activation_requires_guarded_native_peer_and_twelve_owned_auxiliaries_frozen(self):
+        owned = self.close()
+        closure.reopen_native(owned)
+        with self.assertRaisesRegex(Refusal, "activation_native_peer_missing"):
+            closure.observe_activation(owned)
+        self.runner.native_peer_live = True
+        observed = closure.observe_activation(owned)
+        self.assertEqual(observed["schema"], "autostop.j1.crm-forward-activation-observation.v2")
+        self.assertEqual(observed["freeze_actors"][0]["stopped"], False)
+        self.assertTrue(all(row["stopped"] for row in observed["freeze_actors"][1:]))
+        self.runner.actors[FREEZE_PIDS[-1]]["stopped"] = False
+        with self.assertRaisesRegex(Refusal, "scope_actor_stop_state"):
+            closure.observe_activation(owned)
+
+    def test_auxiliary_release_requires_commit_and_never_signals_daemon_or_transport(self):
+        owned = self.close()
+        closure.reopen_native(owned)
+        self.runner.native_peer_live = True
+        with self.assertRaisesRegex(Refusal, "auxiliary_commit_head"):
+            closure.release_auxiliary(owned, {"commit": "owned"})
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS[1:]))
+        self.runner.commit_ready = True
+        before = len(self.runner.events)
+        observed = closure.release_auxiliary(owned, {"commit": "owned"})
+        signals = [
+            event[1]
+            for event in self.runner.events[before:]
+            if isinstance(event, tuple) and event[0] == "signal"
+        ]
+        self.assertEqual(signals, list(reversed(FREEZE_PIDS[1:])))
+        self.assertFalse(any(row["stopped"] for row in self.runner.actors.values()))
+        self.assertTrue(observed["process_scope_observation"]["auxiliary_released"])
+
+    def test_partial_auxiliary_release_failure_refreezes_full_recorded_cohort(self):
+        owned = self.close()
+        closure.reopen_native(owned)
+        self.runner.native_peer_live = self.runner.commit_ready = True
+        self.runner.fail_thaw = FREEZE_PIDS[-3]
+        with self.assertRaisesRegex(OSError, "thaw failed"):
+            closure.release_auxiliary(owned, {"commit": "owned"})
+        self.assertEqual(len(self.runner.barriers), 8)
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+        self.assertTrue(all(not self.runner.actors[pid]["stopped"] for pid in TRANSPORT_PIDS))
+        self.assertEqual(self.runner.scope_captures, 1)
 
     def test_foreign_barrier_bytes_never_overwritten(self):
         result = self.close()
@@ -456,6 +904,50 @@ class ClosureTests(unittest.TestCase):
 
 
 class LinuxBackendTests(unittest.TestCase):
+    def test_idle_receipt_requires_exact_pinned_metadata_and_plan_window(self):
+        directory = Path.cwd() / ATTEMPT
+        ref = {"path": str(directory / ("ingress-idle-" + "a" * 32 + ".json")), "sha256": "b" * 64}
+        value = {
+            "observed_at": "2026-10-19T00:02:00Z",
+            "loaded_count": 7,
+            "active_turns": 0,
+            "all_loaded_and_wake_idle": True,
+            "metadata_only": True,
+            "rpc_sha256": closure.host_policy.RPC_SHA,
+            "wake_sha256": closure.host_policy.WAKE_SHA,
+        }
+        runner = closure.LinuxRunner()
+        runner.admission_window = Mock(
+            return_value=(
+                closure._utc("2026-10-19T00:00:00Z"),
+                closure._utc("2026-10-19T00:10:00Z"),
+            )
+        )
+        with patch.object(
+            closure.io, "referenced", side_effect=lambda _ref: closure.io.canonical(value)
+        ):
+            self.assertEqual(runner.idle_receipt({"attempt_dir": str(directory)}, ref), value)
+            for key, bad in (
+                ("metadata_only", False),
+                ("all_loaded_and_wake_idle", False),
+                ("loaded_count", True),
+                ("loaded_count", -1),
+                ("active_turns", False),
+                ("active_turns", 1),
+                ("rpc_sha256", "c" * 64),
+                ("wake_sha256", "c" * 64),
+                ("observed_at", "2026-10-19T00:11:00Z"),
+                ("observed_at", "2026-10-19T00:02:00+01:00"),
+            ):
+                original = value[key]
+                value[key] = bad
+                with self.subTest(key=key, bad=bad), self.assertRaises(Refusal):
+                    runner.idle_receipt({"attempt_dir": str(directory)}, ref)
+                value[key] = original
+            value["pending_rpc_count"] = 0
+            with self.assertRaisesRegex(Refusal, "ingress_idle_not_proven"):
+                runner.idle_receipt({"attempt_dir": str(directory)}, ref)
+
     def units_fixture(
         self,
         *,
@@ -766,13 +1258,78 @@ class LinuxBackendTests(unittest.TestCase):
             patch.object(closure.io, "referenced", return_value=closure.io.canonical(baseline)),
             patch.object(closure.io, "reference", return_value={"sha256": "a" * 64}) as refs,
         ):
-            closure.LinuxRunner().control_bindings(owned)
+            self.assertEqual(
+                closure.LinuxRunner().control_bindings(owned),
+                plan["candidate"]["consumer_sha256"],
+            )
             self.assertEqual(refs.call_count, len(consumers))
+            with self.assertRaisesRegex(Refusal, "control_consumer_binding"):
+                closure.LinuxRunner().control_bindings({**owned, "consumer_sha256": "e" * 64})
             refs.return_value = {"sha256": "c" * 64}
             with self.assertRaisesRegex(Refusal, "control_consumer_changed"):
                 closure.LinuxRunner().control_bindings(owned)
             with self.assertRaisesRegex(Refusal, "control_baseline_binding"):
                 closure.LinuxRunner().control_bindings({**owned, "baseline_sha256": "d" * 64})
+
+    def test_auxiliary_commit_gate_binds_fixed_history_plan_closure_and_durable_head(self):
+        from tests.test_j1_forward_state import ForwardStateTests
+
+        fixture = ForwardStateTests()
+        fixture.root, fixture.base = Path.cwd(), "1" * 64
+        plan = fixture.plan(attempt=ATTEMPT)
+        directory = closure.ATTEMPTS / ATTEMPT
+        root = closure.ATTEMPTS.parent / "state"
+        ref = {"path": str(root / "history" / "00000000000000000001.json"), "sha256": "a" * 64}
+        ownership_ref = {"path": str(directory / "closure-owned.json"), "sha256": "b" * 64}
+        record = {"plan": plan, "proofs": {"closure": ownership_ref}}
+        head = {"sequence": 1, "sha256": ref["sha256"], "record": record}
+        owned = {
+            "attempt_id": ATTEMPT,
+            "attempt_dir": str(directory),
+            "consumer_sha256": plan["candidate"]["consumer_sha256"],
+            "process_scope_ref": {
+                "path": str(directory / "process-scope.json"),
+                "sha256": "c" * 64,
+            },
+        }
+        runner = closure.LinuxRunner()
+        runner.control_bindings = Mock()
+        runner.load_scope = Mock(return_value={"base_sha256": fixture.base})
+        store = Mock()
+        store.head.return_value = head
+        head_ref = {"path": str(root / "HEAD.json"), "sha256": "f" * 64}
+        with (
+            patch.object(closure.io, "read_protected", return_value=closure.io.canonical(plan)),
+            patch.object(
+                closure.io, "referenced", side_effect=lambda _ref: closure.io.canonical(record)
+            ),
+            patch.object(
+                closure.io,
+                "reference",
+                side_effect=lambda path: head_ref if path == root / "HEAD.json" else ownership_ref,
+            ),
+            patch.object(closure.io, "confirm_durable") as durable,
+            patch.object(closure.forward_state, "Store", return_value=store),
+        ):
+            runner.committed(owned, ref)
+            self.assertEqual(store.head.call_count, 2)
+            self.assertEqual(durable.call_args_list[0].args, (ref,))
+            self.assertEqual(durable.call_args_list[1].args, (head_ref,))
+            runner.control_bindings.assert_called_once_with(owned)
+            for bad_ref, bad_owned, error in (
+                ({**ref, "path": str(root / "foreign.json")}, owned, "auxiliary_commit_reference"),
+                (ref, {**owned, "attempt_id": "foreign"}, "auxiliary_commit_binding"),
+                (ref, {**owned, "consumer_sha256": "d" * 64}, "auxiliary_commit_binding"),
+            ):
+                with self.subTest(error=error), self.assertRaisesRegex(Refusal, error):
+                    runner.committed(bad_owned, bad_ref)
+            record["proofs"]["closure"] = {**ownership_ref, "sha256": "d" * 64}
+            with self.assertRaisesRegex(Refusal, "auxiliary_commit_binding"):
+                runner.committed(owned, ref)
+            record["proofs"]["closure"] = ownership_ref
+            store.head.side_effect = [head, {**head, "sha256": "d" * 64}]
+            with self.assertRaisesRegex(Refusal, "auxiliary_commit_head"):
+                runner.committed(owned, ref)
 
     def test_proc_argv_preserves_empty_argument_boundaries(self):
         self.assertEqual(closure._argv(b"python\0arg\0\0"), ("python", "arg", ""))
@@ -909,8 +1466,11 @@ class LinuxBackendTests(unittest.TestCase):
             "suspect": True,
         }
         runner.control_processes = Mock(return_value={777})
-        owned = {"warm_actors": [actor(pid) for pid in sorted(closure.ACCEPTED_PIDS)]}
         with patch.object(closure, "RUNNER", runner):
+            owned = closure.prepare_closure(
+                {"warm_actors": [actor(pid) for pid in sorted(closure.ACCEPTED_PIDS)]},
+                Path.cwd() / ATTEMPT,
+            )
             frozen, own = closure._process_policy(owned, runner.procs)
             self.assertNotIn(777, own)
             self.assertNotIn(777, frozen)

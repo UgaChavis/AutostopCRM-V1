@@ -161,7 +161,10 @@ attempt's hold or desired state.
 Under the original deployment lock, `j1_forward_closure.prepare_closure`
 validates and persists exact ownership before pending-state publication,
 maintenance creation or draining. It performs no barrier, stop or signal
-effects. That record allows a drain failure to establish the same fixed fence.
+effects. A separate immutable `process-scope.json` binds the attempt, boot,
+native authority, consumer bundle and actual process cohort before the closure
+ownership record is published. That record allows a drain failure to establish
+the same fixed fence.
 Normal `close_writers` re-observes and reuses only the exact prepared record
 before installing `zz-j1-forward-closed.conf` in these eight unit directories:
 
@@ -192,12 +195,44 @@ and `NeedDaemonReload=no` before stop effects. It then stops all eight units
 and the fixed `autostopcrm` Compose service. This protocol neither stops other
 projects nor treats an unrelated process as an owned writer.
 
-The accepted warm actors are frozen with PID-incarnation-bound signals and
-checked across every thread. PID/start, executable identity/hash, argv hash,
-UID, cgroup and mount namespace must match the accepted baseline. Unknown
-descendants, replacement PIDs, active native cgroups, unexpected writers,
-queued triggers or writable candidate containers cause refusal. No unknown
-process is signaled to make the evidence pass.
+Closure version 2 keeps the original three accepted warm identities unchanged
+and separately records the processes that must stop writing. This cohort
+contains the accepted daemon, its proven stdio helpers and exact proxy clients
+with kernel socket peers at that daemon. Helpers require parent, pipe and
+entrypoint/source provenance; proxies require the accepted executable/argv and
+the protected listener and peer identities. The reviewed profile pins the
+current 13 writers and five observed transports, including their process
+incarnations and role provenance. A changed cohort requires a newly reviewed
+published profile and consumer bundle; it is never silently adopted.
+
+Normal closure freezes the owned proxy/helper ingress first through exact
+pidfds while the daemon remains running. After those twelve auxiliary writers
+are stopped, the pinned metadata RPC must freshly confirm loaded/wake idle.
+The listener and daemon-facing socket queues must also be empty. Only then
+does the exact daemon pidfd stop its execution; every writer thread must be
+stopped before quiet acceptance. The metadata result does not assert an
+unexposed internal RPC queue counter. Failure fencing instead stops the daemon
+first to prevent further execution, then re-fences only the recorded cohort.
+The accepted SSH
+transport and proven SSH parents remain alive for keepalive. A separately
+classified forwarding-only SSH transport must retain its exact credentials,
+executable, loaded-policy provenance, restricted key/configuration and denied
+source-write access. These transport records grant no writable-descriptor or
+shared-mapping exception. Names, sleeping tasks and an absence of current
+writer descriptors do not establish ownership or closure.
+
+PID/start, executable identity/hash, argv hash, credentials, cgroup, namespaces,
+parent/pipe bindings and the complete daemon peer set must remain unchanged.
+Unknown descendants or proxy peers, replacement PIDs, active native cgroups,
+unexpected writers, queued triggers or writable candidate containers cause
+refusal. A new process is never adopted during capture, restore or failure
+recovery, and no unknown process is signaled to make the evidence pass.
+
+Unit status requires a complete property set. When systemctl omits a fixed
+empty lifecycle command array, an exact typed D-Bus empty-array response must
+confirm it; missing scalar properties remain errors. Global queued jobs use
+the fixed typed `Manager.ListJobs` response. This handles the actual host's CLI
+representations without treating missing output as an empty queue.
 
 Concurrent release and reviewer processes are admitted only through fixed
 same-attempt command forms, protected consumer-source bindings, root identity,
@@ -304,11 +339,14 @@ restore target.
 ## Activate, accept and commit
 
 The restore proof must be verified before activation. The orchestrator removes
-only its exact owned barriers and thaws only its exact owned warm actors,
+only its exact owned barriers and initially thaws only the accepted daemon,
 while maintenance, the Scheduler hold and the original deployment lock remain
 in effect. Removing barriers does not itself start a unit.
 
-The candidate CRM is replaced using the bound image and source identity.
+The other twelve auxiliary writers remain stopped throughout candidate
+activation and signed runtime acceptance. Fresh activation observations bind
+the running daemon, the stopped auxiliary cohort and the newly guarded native
+wake peer. The candidate CRM is replaced using the bound image and source identity.
 Required native roles start through their original actual systemd guard
 dispatch. Acceptance checks the resulting processes and preserved native
 bindings. Running guard `check` or `launch` from the deployment shell cannot
@@ -329,6 +367,8 @@ durable acceptance happens **before maintenance removal**, while the original
 deployment lock is still held. The preserved old duty hook already has its own
 commit, so removing maintenance earlier could restore inbound prematurely.
 
+After the durable commit, a protected history/HEAD and closure-proof readback
+authorizes resuming the exact auxiliary writers under the original lock.
 Final release removes only this attempt's hold/fence according to the consumer's
 ordered state machine, releases the original lock, and restores the preserved
 runtime duty through its fixed controller/RPC with readback. Report completion
@@ -381,7 +421,8 @@ proofs for the new CRM candidate. Previous proofs remain historical evidence.
 | `j1_forward_state.py` | Exact predecessor, pending attempt and append-only successor history |
 | `j1_forward_proofs.py` | Ed25519 envelope verification and plan/time binding |
 | `j1_forward_host.py` | Fixed host commands, Work/Scheduler draining, duty and native starts |
-| `j1_forward_closure.py` | Owned barriers, warm actor freeze/thaw and writer observations |
+| `j1_forward_closure.py` | Owned barriers, exact writer freeze/thaw and closure observations |
+| `j1_forward_process_scope.py` | Attempt-bound helper/proxy ownership, live SSH transport proofs and process topology |
 | `j1_forward_backup.py` | Fixed-profile capture and real disposable restore verification |
 | `j1_forward_transport.py` | Private online transport cache and final-manifest assembly |
 | `j1_forward_runtime.py` | Bounded candidate authentication/read/runtime probes |

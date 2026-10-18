@@ -82,6 +82,10 @@ class FakeHost:
         self.f.fault("drain")
         return {"drained": True}
 
+    def observe_idle_appserver(self):
+        self.f.assertFalse(self.f.auxiliary_live)
+        return self.f.event("ingress.idle")
+
     def replace_crm(self, candidate):
         self.f.assertFalse(self.f.barriers)
         self.f.event("candidate.replace")
@@ -151,6 +155,7 @@ class ForwardReleaseTests(unittest.TestCase):
             ("j1", "manager", "scheduler", "work", "personal", "wake"), True
         )
         self.barriers = False
+        self.auxiliary_live = True
         self.proof_change = None
         self.inspection_change = None
         self.withhold_offhost = False
@@ -219,7 +224,9 @@ class ForwardReleaseTests(unittest.TestCase):
         self.install(r.closure, "close_writers", self.close_writers)
         self.install(r.closure, "prepare_closure", self.prepare_closure)
         self.install(r.closure, "observe_closed", self.observe_closed)
+        self.install(r.closure, "observe_activation", self.observe_activation)
         self.install(r.closure, "reopen_native", self.reopen_native)
+        self.install(r.closure, "release_auxiliary", self.release_auxiliary)
         self.install(r.closure, "fail_closed", self.fail_closed)
         self.install(r.backup, "capture", self.capture)
         self.install(r.transport, "bundle_delta", self.bundle_delta)
@@ -344,6 +351,9 @@ class ForwardReleaseTests(unittest.TestCase):
         return {"preserved": True}
 
     def close_writers(self, _native, directory, **_kwargs):
+        self.auxiliary_live = False
+        self.event("ingress.freeze")
+        _kwargs["idle_observer"]()
         self.event("writers.close")
         self.writers = dict.fromkeys(self.writers, False)
         self.barriers = True
@@ -364,11 +374,28 @@ class ForwardReleaseTests(unittest.TestCase):
     def reopen_native(self, _ownership):
         self.event("writers.reopen")
         self.barriers = False
+        self.assertFalse(self.auxiliary_live)
+
+    def observe_activation(self, _ownership):
+        self.assertFalse(self.barriers)
+        self.assertTrue(all(self.writers.values()))
+        self.assertFalse(self.auxiliary_live)
+        return self.event("activation.cohort")
+
+    def release_auxiliary(self, _ownership, commit_ref):
+        self.assertTrue(self.locked)
+        self.assertTrue(self.marker.exists())
+        self.assertIsNotNone(self.store.record)
+        self.assertTrue(Path(commit_ref["path"]).is_file())
+        self.event("auxiliary.release")
+        self.fault("auxiliary_release")
+        self.auxiliary_live = True
 
     def fail_closed(self, ownership):
         self.assertIsNotNone(ownership)
         self.event("writers.fail_closed")
         self.writers = dict.fromkeys(self.writers, False)
+        self.auxiliary_live = False
         self.barriers = True
         return {"closed": True}
 
@@ -478,6 +505,8 @@ class ForwardReleaseTests(unittest.TestCase):
         result = r.apply(self.plan["attempt_id"])
         self.assertTrue(result["ok"])
         for earlier, later in (
+            ("ingress.freeze", "ingress.idle"),
+            ("ingress.idle", "writers.close"),
             ("backup.capture", "signature.offhost_restore"),
             ("signature.offhost_restore", "writers.reopen"),
             ("writers.reopen", "candidate.replace"),
@@ -485,7 +514,8 @@ class ForwardReleaseTests(unittest.TestCase):
             ("signature.native_acceptance", "commit.begin"),
             ("signature.runtime_acceptance", "commit.begin"),
             ("commit.durable", "head.readback"),
-            ("head.readback", "marker.remove"),
+            ("head.readback", "auxiliary.release"),
+            ("auxiliary.release", "marker.remove"),
             ("marker.removal_fsynced", "lock.release"),
             ("lock.release", "duty.restore"),
             ("duty.restore", "state.finish"),
@@ -493,6 +523,16 @@ class ForwardReleaseTests(unittest.TestCase):
             self.assert_before(earlier, later)
         self.assertFalse(self.marker.exists())
         self.assertTrue(self.host.enabled)
+        self.assertTrue(self.auxiliary_live)
+
+    def test_auxiliary_release_failure_refences_before_lock_opens(self):
+        self.failure = "auxiliary_release"
+        with self.assertRaisesRegex(RuntimeError, "synthetic_auxiliary_release"):
+            r.apply(self.plan["attempt_id"])
+        self.assert_failed_closed()
+        self.assertIsNotNone(self.store.record)
+        self.assertFalse(self.auxiliary_live)
+        self.assertNotIn("marker.remove", self.events())
 
     def test_premutation_validation_failure_has_no_effects(self):
         self.failure = "prevalidation"

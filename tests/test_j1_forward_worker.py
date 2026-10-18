@@ -12,7 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
+from scripts import j1_forward_process_scope as process_scope
 from scripts import j1_forward_proofs as proofs
 from scripts import j1_forward_state as state
 from scripts import j1_forward_transport as transport
@@ -53,7 +55,21 @@ class WorkerTests(unittest.TestCase):
         baseline = {
             "schema": "autostop.j1.crm-forward-baseline.v1",
             "attempt_id": self.attempt,
-            "native": {"base_sha256": "1" * 64, "sha256": "2" * 64},
+            "native": {
+                "base_sha256": "1" * 64,
+                "sha256": "2" * 64,
+                "warm_actors": [self.actor(pid) for pid in process_scope.ORIGINAL],
+                "profiles": {
+                    "autostop-codex-wake.service": {
+                        "interpreter": "/usr/bin/python3",
+                        "interpreter_realpath": "/usr/bin/python3.12",
+                        "interpreter_sha256": "8" * 64,
+                        "module": "fixture.wake",
+                        "arguments": [],
+                        "credentials": [0, 0, [0]],
+                    }
+                },
+            },
             "host": {},
             "previous_container": {},
             "source_consumers": consumers,
@@ -107,8 +123,78 @@ class WorkerTests(unittest.TestCase):
             "candidate": plan["candidate"],
             "native_preserved": True,
         }
+        scope = self.scope(plan, baseline["native"])
+        scope_ref = self.ref("process-scope.json", scope)
+        evidence["process_scope"] = scope
+        staged = {
+            "schema": "autostop.j1.crm-forward-process-scope-staging.v1",
+            "scope_sha256": scope_ref["sha256"],
+            "auxiliary_released": False,
+            "freeze_actors": [
+                {
+                    **row,
+                    "stopped": row["pid"] != 538285,
+                    "thread_states": ["S"] if row["pid"] == 538285 else ["T", "T"],
+                }
+                for row in scope["freeze_actors"]
+            ],
+            "transport_actors": [
+                {**row, "stopped": False, "thread_states": ["S"]}
+                for row in scope["transport_actors"]
+            ],
+            "native_control_peer": None,
+            "topology_sha256": io.sha(io.canonical(scope["observation"])),
+        }
+        evidence["ingress_idle"] = {
+            "observed_at": (now - timedelta(seconds=15)).isoformat(),
+            "loaded_count": 7,
+            "active_turns": 0,
+            "all_loaded_and_wake_idle": True,
+            "metadata_only": True,
+            "rpc_sha256": host_policy.RPC_SHA,
+            "wake_sha256": host_policy.WAKE_SHA,
+        }
+        idle_filename = "ingress-idle-" + "a" * 32 + ".json"
+        evidence["ingress_drain"] = {
+            "schema": "autostop.j1.crm-forward-ingress-drain.v1",
+            "attempt_id": self.attempt,
+            "process_scope_ref": scope_ref,
+            "idle_observation_ref": self.ref(idle_filename, evidence["ingress_idle"]),
+            "staging_observation": staged,
+            "observed_at": (now - timedelta(seconds=10)).isoformat(),
+        }
+        drain_ref = self.ref("ingress-drain.json", evidence["ingress_drain"])
         if stage == "closed":
-            evidence["closure"] = {"schema": "synthetic.closure"}
+            sample = {
+                "schema": process_scope.OBSERVATION_SCHEMA,
+                "scope_sha256": scope_ref["sha256"],
+                "frozen": True,
+                "freeze_actors": [
+                    {**row, "stopped": True, "thread_states": ["T", "T"]}
+                    for row in scope["freeze_actors"]
+                ],
+                "transport_actors": [
+                    {**row, "stopped": False, "thread_states": ["S"]}
+                    for row in scope["transport_actors"]
+                ],
+                "native_control_peer": None,
+                "topology_sha256": io.sha(io.canonical(scope["observation"])),
+            }
+            evidence["process_scope"] = scope
+            evidence["closure"] = {
+                "schema": "autostop.j1.crm-forward-closure-observation.v2",
+                "process_scope_ref": scope_ref,
+                "scope_sha256": scope_ref["sha256"],
+                "process_scope_observation": sample,
+                "ingress_drain_ref": drain_ref,
+                **{
+                    key: [
+                        {"pid": row["pid"], "start_ticks": row["start_ticks"], "stopped": stopped}
+                        for row in scope[key]
+                    ]
+                    for key, stopped in (("freeze_actors", True), ("transport_actors", False))
+                },
+            }
             inspection["writer_closure_confirmed"] = True
         else:
             evidence["guard_starts"] = {
@@ -119,6 +205,42 @@ class WorkerTests(unittest.TestCase):
                     "guard_execution_sha256": "6" * 64,
                 }
                 for i, name in enumerate(sorted(worker.NATIVE_UNITS))
+            }
+            peer_actor = {
+                **self.actor(538285),
+                **{
+                    key: value
+                    for key, value in process_scope.native_profile(baseline["native"]).items()
+                    if key in process_scope.ACTOR_FIELDS
+                },
+                "pid": evidence["guard_starts"]["autostop-codex-wake.service"]["main_pid"],
+                "cgroup": "0::/system.slice/autostop-codex-wake.service",
+            }
+            activation = {
+                **copy.deepcopy(staged),
+                "schema": "autostop.j1.crm-forward-process-scope-activation.v1",
+                "native_control_peer": {
+                    "actor": peer_actor,
+                    "profile": process_scope.native_profile(baseline["native"]),
+                },
+            }
+            evidence["activation_cohort"] = {
+                "schema": "autostop.j1.crm-forward-activation-observation.v2",
+                "process_scope_ref": scope_ref,
+                "scope_sha256": scope_ref["sha256"],
+                "process_scope_observation": activation,
+                "ingress_drain_ref": drain_ref,
+                **{
+                    key: [
+                        {
+                            "pid": row["pid"],
+                            "start_ticks": row["start_ticks"],
+                            "stopped": row["stopped"],
+                        }
+                        for row in activation[key]
+                    ]
+                    for key in ("freeze_actors", "transport_actors")
+                },
             }
             evidence["container"] = {
                 "image": plan["candidate"]["image"],
@@ -133,7 +255,12 @@ class WorkerTests(unittest.TestCase):
             evidence["runtime"]["actual_crm_revision"] = plan["candidate"]["revision"]
             inspection.update(original_guards_executed=True, runtime_checks_passed=True)
         for name, document in evidence.items():
-            inspection[name + "_ref"] = self.ref("inspected-" + name + ".json", document)
+            filename = {
+                "process_scope": "process-scope.json",
+                "ingress_drain": "ingress-drain.json",
+                "ingress_idle": idle_filename,
+            }.get(name, "inspected-" + name + ".json")
+            inspection[name + "_ref"] = self.ref(filename, document)
         result = {
             "ok": True,
             "stage": stage,
@@ -162,11 +289,165 @@ class WorkerTests(unittest.TestCase):
             }
         return result
 
+    def actor(self, pid):
+        return {
+            "pid": pid,
+            "start_ticks": process_scope.STARTS[pid],
+            "exe": "/usr/bin/fixture",
+            "exe_sha256": process_scope._program_sha(pid),
+            "exe_identity": [1, pid],
+            "argv_sha256": process_scope.ARGV[process_scope._kind(pid)],
+            "cgroup": process_scope.CGROUPS[pid],
+            "uid": 996 if pid == 698406 else 0,
+            "mount_namespace": "mnt:[99]",
+        }
+
+    def scope(self, plan, native):
+        roles = {str(pid): "helper_mcp" for pid in process_scope.FREEZE}
+        roles.update(
+            {
+                "538285": "daemon",
+                "538487": "proxy",
+                "699029": "proxy",
+                "699118": "proxy",
+                "919446": "helper_code",
+                "538314": "ssh_original",
+                "698928": "ssh_proxy_parent",
+                "699028": "ssh_proxy_parent",
+                "698344": "ssh_tunnel_monitor",
+                "698406": "ssh_tunnel",
+            }
+        )
+        return {
+            "schema": process_scope.SCHEMA,
+            "profile_sha256": process_scope.PROFILE_SHA256,
+            "attempt_id": self.attempt,
+            "attempt_dir": self.prefix.rstrip("/"),
+            "consumer_sha256": plan["candidate"]["consumer_sha256"],
+            "base_sha256": plan["base_sha256"],
+            "native_sha256": io.sha(io.canonical(native)),
+            "boot_id": "c9a73e36-4570-44c3-ab34-a07d68ff386f",
+            "original_actors": [self.actor(pid) for pid in sorted(process_scope.ORIGINAL)],
+            "freeze_actors": [self.actor(pid) for pid in process_scope.FREEZE],
+            "transport_actors": [self.actor(pid) for pid in process_scope.TRANSPORTS],
+            "observation": {"roles": roles},
+            "native_control_peer": {"profile": process_scope.native_profile(native)},
+        }
+
     def rebind(self, response):
         response["inspection_ref"] = self.ref("inspection-fixture.json", response["inspection"])
 
     def validate(self, response):
         return worker.validate_response(response, attempt=self.attempt, stage=response["stage"])
+
+    def rebind_document(self, response, name):
+        reference = response["inspection"][name + "_ref"]
+        response["inspection"][name + "_ref"] = {
+            "path": reference["path"],
+            "sha256": io.sha(io.canonical(response["evidence"][name])),
+        }
+        self.rebind(response)
+
+    def test_closed_requires_all_thirteen_writers_stopped_and_transports_live(self):
+        for key, index, mutation in (
+            ("freeze_actors", 0, "live"),
+            ("freeze_actors", -1, "thread_live"),
+            ("transport_actors", 0, "stopped"),
+            ("freeze_actors", 1, "missing"),
+            ("freeze_actors", 0, "birth_changed"),
+        ):
+            response = self.response()
+            observed = response["evidence"]["closure"]["process_scope_observation"][key]
+            row = observed[index]
+            if mutation == "live":
+                row.update(stopped=False, thread_states=["S"])
+            elif mutation == "thread_live":
+                row["thread_states"].append("R")
+            elif mutation == "stopped":
+                row.update(stopped=True, thread_states=["T"])
+            elif mutation == "missing":
+                observed.pop(index)
+            else:
+                row["start_ticks"] += 1
+            self.rebind_document(response, "closure")
+            with self.subTest(mutation=mutation), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_activation_rejects_early_auxiliary_release_or_frozen_daemon(self):
+        for index in (0, 1, -1):
+            response = self.response("activated")
+            rows = response["evidence"]["activation_cohort"]["process_scope_observation"][
+                "freeze_actors"
+            ]
+            rows[index]["stopped"] = not rows[index]["stopped"]
+            rows[index]["thread_states"] = ["T" if rows[index]["stopped"] else "S"]
+            self.rebind_document(response, "activation_cohort")
+            with self.subTest(index=index), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_activation_native_peer_must_match_fresh_guarded_wake_process(self):
+        for field, value in (
+            ("pid", 762195),
+            ("cgroup", "0::/foreign.service"),
+            ("uid", 1000),
+            ("argv_sha256", "0" * 64),
+        ):
+            response = self.response("activated")
+            peer = response["evidence"]["activation_cohort"]["process_scope_observation"][
+                "native_control_peer"
+            ]
+            peer["actor"][field] = value
+            self.rebind_document(response, "activation_cohort")
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(io.Refusal, "worker_native_peer_guard_binding"),
+            ):
+                self.validate(response)
+
+    def test_hash_valid_drain_cannot_hide_absent_or_non_idle_metadata(self):
+        for stage in ("closed", "activated"):
+            for field, value in (
+                ("active_turns", 1),
+                ("metadata_only", False),
+                ("rpc_sha256", "0" * 64),
+                ("observed_at", "2020-01-01T00:00:00Z"),
+            ):
+                response = self.response(stage)
+                response["evidence"]["ingress_idle"][field] = value
+                self.rebind_document(response, "ingress_idle")
+                response["evidence"]["ingress_drain"]["idle_observation_ref"] = response[
+                    "inspection"
+                ]["ingress_idle_ref"]
+                self.rebind_document(response, "ingress_drain")
+                name = "closure" if stage == "closed" else "activation_cohort"
+                response["evidence"][name]["ingress_drain_ref"] = response["inspection"][
+                    "ingress_drain_ref"
+                ]
+                self.rebind_document(response, name)
+                with (
+                    self.subTest(stage=stage, field=field),
+                    self.assertRaisesRegex(io.Refusal, "worker_ingress_idle_not_proven"),
+                ):
+                    self.validate(response)
+
+    def test_staging_receipt_cannot_substitute_emergency_daemon_first_freeze(self):
+        response = self.response()
+        staged = response["evidence"]["ingress_drain"]["staging_observation"]
+        staged["freeze_actors"][0].update(stopped=True, thread_states=["T"])
+        self.rebind_document(response, "ingress_drain")
+        response["evidence"]["closure"]["ingress_drain_ref"] = response["inspection"][
+            "ingress_drain_ref"
+        ]
+        self.rebind_document(response, "closure")
+        with self.assertRaisesRegex(io.Refusal, "worker_ingress_actor_state"):
+            self.validate(response)
+
+    def test_scope_identity_partition_must_match_original_authority(self):
+        response = self.response()
+        response["evidence"]["process_scope"]["original_actors"][0]["exe_identity"][1] += 1
+        self.rebind_document(response, "process_scope")
+        with self.assertRaises(io.Refusal):
+            self.validate(response)
 
     def test_release_contract_closed_and_activated_fixtures_validate(self):
         for stage in ("closed", "activated"):

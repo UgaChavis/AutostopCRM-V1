@@ -253,6 +253,312 @@ def _source_consumers(baseline, plan):
     )
 
 
+def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=None):
+    """Bind closure or staged activation to the exact prepared process births."""
+    from scripts import j1_forward_process_scope as process_scope
+
+    fields = set(process_scope.ACTOR_FIELDS)
+    require(
+        type(scope) is dict
+        and set(scope)
+        == {
+            "schema",
+            "profile_sha256",
+            "attempt_id",
+            "attempt_dir",
+            "consumer_sha256",
+            "base_sha256",
+            "native_sha256",
+            "boot_id",
+            "original_actors",
+            "freeze_actors",
+            "transport_actors",
+            "observation",
+            "native_control_peer",
+        }
+        and scope["schema"] == "autostop.j1.crm-forward-process-scope.v1"
+        and scope["profile_sha256"] == process_scope.PROFILE_SHA256
+        and scope["attempt_id"] == plan["attempt_id"]
+        and scope["attempt_dir"] == ATTEMPTS + "/" + plan["attempt_id"]
+        and reference["path"] == scope["attempt_dir"] + "/process-scope.json"
+        and scope["base_sha256"] == plan["base_sha256"]
+        and scope["native_sha256"] == io.sha(io.canonical(native))
+        and scope["consumer_sha256"] == plan["candidate"]["consumer_sha256"]
+        and type(scope["observation"]) is dict,
+        "worker_process_scope_binding",
+    )
+    _uuid(scope["boot_id"])
+    process_scope.validate_scope_shape(scope)
+    require(
+        type(native.get("warm_actors")) is list
+        and len(native["warm_actors"]) == 3
+        and all(type(row) is dict and fields <= set(row) for row in native["warm_actors"])
+        and scope["original_actors"]
+        == sorted(
+            [{key: row[key] for key in fields} for row in native["warm_actors"]],
+            key=lambda row: row["pid"],
+        ),
+        "worker_original_actors_changed",
+    )
+
+    def actors(rows, *, measured=False, stopped=False):
+        require(type(rows) is list and 0 < len(rows) <= 128, "worker_actor_cohort_required")
+        result = {}
+        for row in rows:
+            require(
+                type(row) is dict
+                and set(row) == fields | ({"stopped", "thread_states"} if measured else set())
+                and type(row.get("pid")) is int
+                and row["pid"] > 1
+                and type(row.get("start_ticks")) is int
+                and row["start_ticks"] > 0
+                and type(row.get("uid")) is int
+                and row["uid"] >= 0
+                and _hash(row.get("exe_sha256"))
+                and _hash(row.get("argv_sha256"))
+                and type(row.get("exe")) is str
+                and row["exe"].startswith("/")
+                and type(row.get("exe_identity")) is list
+                and len(row["exe_identity"]) == 2
+                and all(type(value) is int and value >= 0 for value in row["exe_identity"])
+                and type(row.get("cgroup")) is str
+                and row["cgroup"].startswith("0::/")
+                and type(row.get("mount_namespace")) is str
+                and re.fullmatch(r"mnt:\[[0-9]+\]", row["mount_namespace"])
+                and row["pid"] not in result,
+                "worker_actor_identity_invalid",
+            )
+            if measured:
+                states = row["thread_states"]
+                expected_stop = stopped(row["pid"]) if callable(stopped) else stopped
+                require(
+                    row["stopped"] is expected_stop
+                    and type(states) is list
+                    and 0 < len(states) <= 8192
+                    and all(
+                        type(value) is str
+                        and (value == "T" if expected_stop else value in {"R", "S", "D", "I"})
+                        for value in states
+                    ),
+                    "worker_actor_threads_not_proven",
+                )
+            result[row["pid"]] = {key: row[key] for key in fields}
+        return result
+
+    frozen = actors(scope["freeze_actors"])
+    transports = actors(scope["transport_actors"])
+    originals = actors(scope["original_actors"])
+    require(
+        set(originals) == {538285, 538314, 538487}
+        and [row["pid"] for row in scope["freeze_actors"]] == list(process_scope.FREEZE)
+        and [row["pid"] for row in scope["transport_actors"]] == list(process_scope.TRANSPORTS)
+        and all(
+            row["start_ticks"] == process_scope.STARTS[pid]
+            for pid, row in (frozen | transports).items()
+        )
+        and not set(frozen) & set(transports)
+        and {538285, 538487} <= set(frozen)
+        and 538314 in transports
+        and scope["freeze_actors"][0]["pid"] == 538285
+        and all(row["uid"] == 0 for row in frozen.values()),
+        "worker_actor_partition_invalid",
+    )
+    roles = scope["observation"].get("roles")
+    require(
+        type(roles) is dict
+        and set(roles) == {str(pid) for pid in frozen | transports}
+        and roles.get("538285") == "daemon"
+        and roles.get("538314") == "ssh_original"
+        and roles.get("538487") == "proxy"
+        and all(
+            roles[str(pid)] in {"daemon", "helper_mcp", "helper_code", "proxy"} for pid in frozen
+        )
+        and all(
+            roles[str(pid)]
+            in {"ssh_original", "ssh_proxy_parent", "ssh_tunnel_monitor", "ssh_tunnel"}
+            for pid in transports
+        ),
+        "worker_actor_roles_invalid",
+    )
+    activated = starts is not None
+    require(
+        observed.get("schema")
+        == (
+            "autostop.j1.crm-forward-activation-observation.v2"
+            if activated
+            else "autostop.j1.crm-forward-closure-observation.v2"
+        )
+        and observed.get("process_scope_ref") == reference
+        and observed.get("scope_sha256") == reference["sha256"],
+        "worker_closure_scope_changed",
+    )
+    sample = observed.get("process_scope_observation")
+    require(
+        type(sample) is dict
+        and set(sample)
+        == {
+            "schema",
+            "scope_sha256",
+            "freeze_actors",
+            "transport_actors",
+            "native_control_peer",
+            "topology_sha256",
+        }
+        | ({"auxiliary_released"} if activated else {"frozen"})
+        and sample["schema"]
+        == (
+            "autostop.j1.crm-forward-process-scope-activation.v1"
+            if activated
+            else "autostop.j1.crm-forward-process-scope-observation.v1"
+        )
+        and sample["scope_sha256"] == reference["sha256"]
+        and (sample["auxiliary_released"] is False if activated else sample["frozen"] is True)
+        and sample["topology_sha256"] == io.sha(io.canonical(scope["observation"]))
+        and actors(
+            sample["freeze_actors"],
+            measured=True,
+            stopped=(lambda pid: pid != 538285) if activated else True,
+        )
+        == frozen
+        and actors(sample["transport_actors"], measured=True, stopped=False) == transports,
+        "worker_cohort_not_proven",
+    )
+    peer = sample["native_control_peer"]
+    if activated:
+        profile = process_scope.native_profile(native)
+        require(
+            type(peer) is dict
+            and type(scope["native_control_peer"]) is dict
+            and peer.get("profile") == profile == scope["native_control_peer"].get("profile")
+            and type(peer.get("actor")) is dict,
+            "worker_native_peer_profile",
+        )
+        actor = peer["actor"]
+        actors([actor])
+        require(
+            actor["pid"] == starts["autostop-codex-wake.service"]["main_pid"]
+            and actor["exe"] == profile["exe"]
+            and actor["exe_sha256"] == profile["exe_sha256"]
+            and actor["argv_sha256"] == profile["argv_sha256"]
+            and actor["uid"] == profile["credentials"][0]
+            and actor["cgroup"] == "0::/system.slice/autostop-codex-wake.service",
+            "worker_native_peer_guard_binding",
+        )
+    else:
+        require(peer is None, "worker_closed_native_peer_present")
+    for key, members, stopped in (
+        ("freeze_actors", frozen, True),
+        ("transport_actors", transports, False),
+    ):
+        expected = [
+            {
+                "pid": row["pid"],
+                "start_ticks": row["start_ticks"],
+                "stopped": stopped and (not activated or row["pid"] != 538285),
+            }
+            for row in scope[key]
+        ]
+        require(
+            observed.get(key) == expected and len(expected) == len(members),
+            "worker_closure_actor_projection",
+        )
+
+
+def _ingress_evidence(evidence, inspection, plan):
+    """A failed emergency fence cannot stand in for a normal drained admission."""
+    from scripts import j1_forward_host as host_policy
+
+    drain, idle, scope = (
+        evidence[key] for key in ("ingress_drain", "ingress_idle", "process_scope")
+    )
+    reference = inspection["process_scope_ref"]
+    prefix = ATTEMPTS + "/" + plan["attempt_id"] + "/"
+    require(
+        set(drain)
+        == {
+            "schema",
+            "attempt_id",
+            "process_scope_ref",
+            "idle_observation_ref",
+            "staging_observation",
+            "observed_at",
+        }
+        and drain["schema"] == "autostop.j1.crm-forward-ingress-drain.v1"
+        and drain["attempt_id"] == plan["attempt_id"]
+        and drain["process_scope_ref"] == reference
+        and inspection["ingress_drain_ref"]["path"] == prefix + "ingress-drain.json"
+        and drain["idle_observation_ref"] == inspection["ingress_idle_ref"]
+        and re.fullmatch(
+            re.escape(prefix) + r"ingress-idle-[0-9a-f]{32}\.json",
+            inspection["ingress_idle_ref"]["path"],
+        ),
+        "worker_ingress_drain_binding",
+    )
+    require(
+        set(idle)
+        == {
+            "observed_at",
+            "loaded_count",
+            "active_turns",
+            "all_loaded_and_wake_idle",
+            "metadata_only",
+            "rpc_sha256",
+            "wake_sha256",
+        }
+        and type(idle["loaded_count"]) is int
+        and idle["loaded_count"] >= 0
+        and type(idle["active_turns"]) is int
+        and idle["active_turns"] == 0
+        and idle["all_loaded_and_wake_idle"] is True
+        and idle["metadata_only"] is True
+        and idle["rpc_sha256"] == host_policy.RPC_SHA
+        and idle["wake_sha256"] == host_policy.WAKE_SHA
+        and _utc(plan["created_at"])
+        <= _utc(idle["observed_at"])
+        <= _utc(drain["observed_at"])
+        <= _utc(plan["deadline_utc"]),
+        "worker_ingress_idle_not_proven",
+    )
+    staged = drain["staging_observation"]
+    require(type(staged) is dict, "worker_ingress_staging_invalid")
+    closed = evidence.get("closure")
+    require(
+        (closed or evidence["activation_cohort"]).get("ingress_drain_ref")
+        == inspection["ingress_drain_ref"],
+        "worker_ingress_closure_binding",
+    )
+    expected = {
+        "schema": "autostop.j1.crm-forward-process-scope-staging.v1",
+        "scope_sha256": reference["sha256"],
+        "auxiliary_released": False,
+        "native_control_peer": None,
+        "topology_sha256": io.sha(io.canonical(scope["observation"])),
+    }
+    require(
+        set(staged) == set(expected) | {"freeze_actors", "transport_actors"}
+        and all(staged[key] == value for key, value in expected.items()),
+        "worker_ingress_staging_invalid",
+    )
+    for key in ("freeze_actors", "transport_actors"):
+        rows = staged[key]
+        require(type(rows) is list and len(rows) == len(scope[key]), "worker_ingress_actor_count")
+        for actual, original in zip(rows, scope[key], strict=True):
+            stopped = key == "freeze_actors" and original["pid"] != 538285
+            require(
+                type(actual) is dict
+                and set(actual) == set(original) | {"stopped", "thread_states"}
+                and all(actual.get(name) == value for name, value in original.items())
+                and actual["stopped"] is stopped
+                and type(actual["thread_states"]) is list
+                and 0 < len(actual["thread_states"]) <= 8192
+                and all(
+                    value == "T" if stopped else value in {"R", "S", "D", "I"}
+                    for value in actual["thread_states"]
+                ),
+                "worker_ingress_actor_state",
+            )
+
+
 def validate_response(response, *, attempt, stage):
     common = {
         "ok",
@@ -346,6 +652,9 @@ def validate_response(response, *, attempt, stage):
         "candidate",
         "native_preserved",
         "native_ref",
+        "process_scope_ref",
+        "ingress_drain_ref",
+        "ingress_idle_ref",
     }
     fields |= (
         {"writer_closure_confirmed", "closure_ref"}
@@ -356,6 +665,7 @@ def validate_response(response, *, attempt, stage):
             "runtime_ref",
             "container_ref",
             "guard_starts_ref",
+            "activation_cohort_ref",
         }
     )
     require(
@@ -370,10 +680,10 @@ def validate_response(response, *, attempt, stage):
         "worker_inspection_binding",
     )
     evidence = response["evidence"]
-    expected_evidence = (
-        {"native", "closure"}
+    expected_evidence = {"native", "process_scope", "ingress_drain", "ingress_idle"} | (
+        {"closure"}
         if stage == "closed"
-        else {"native", "runtime", "container", "guard_starts"}
+        else {"runtime", "container", "guard_starts", "activation_cohort"}
     )
     require(type(evidence) is dict and set(evidence) == expected_evidence, "worker_evidence_fields")
     for name in expected_evidence:
@@ -391,6 +701,13 @@ def validate_response(response, *, attempt, stage):
     )
     if stage == "closed":
         require(inspection["writer_closure_confirmed"] is True, "worker_closure_missing")
+        _process_scope_evidence(
+            evidence["process_scope"],
+            inspection["process_scope_ref"],
+            evidence["closure"],
+            plan,
+            baseline["native"],
+        )
         transport = response["transport"]
         require(
             type(transport) is dict and set(transport) == {"path", "sha256", "manifest_sha256"},
@@ -426,6 +743,14 @@ def validate_response(response, *, attempt, stage):
                 and _hash(record["guard_execution_sha256"]),
                 "worker_native_guard_record",
             )
+        _process_scope_evidence(
+            evidence["process_scope"],
+            inspection["process_scope_ref"],
+            evidence["activation_cohort"],
+            plan,
+            baseline["native"],
+            starts=starts,
+        )
         container = evidence["container"]
         require(
             container.get("image") == plan["candidate"]["image"]
@@ -443,6 +768,7 @@ def validate_response(response, *, attempt, stage):
             and runtime.get("actual_crm_revision") == plan["candidate"]["revision"],
             "worker_runtime_evidence_invalid",
         )
+    _ingress_evidence(evidence, inspection, plan)
     context = response["backup_context"]
     expected_context = {
         "attempt_id": attempt,
