@@ -50,6 +50,16 @@ DENY_BYTES = (
     b"ExecStartPost=\nExecStop=\nExecStopPost=\nExecReload=\n"
 )
 HOOKS = ("ExecStartPre", "ExecStartPost", "ExecStop", "ExecStopPost", "ExecReload")
+JOB_QUERY = (
+    "/usr/bin/busctl",
+    "--system",
+    "--json=short",
+    "call",
+    "org.freedesktop.systemd1",
+    "/org/freedesktop/systemd1",
+    "org.freedesktop.systemd1.Manager",
+    "ListJobs",
+)
 WRITER_ROOTS = (
     "/opt/autostopcrm/data",
     "/opt/AutostopManager/data",
@@ -157,6 +167,72 @@ def _systemd_launch_command(attempt):
     )
 
 
+def _unit_object_path(unit):
+    io.require(unit in UNITS, "native_unit_required")
+    escaped = "".join(
+        character if character.isalnum() else f"_{ord(character):02x}" for character in unit
+    )
+    return "/org/freedesktop/systemd1/unit/" + escaped
+
+
+def _empty_hooks_command(unit, hooks):
+    io.require(
+        bool(hooks) and tuple(sorted(set(hooks))) == tuple(hooks) and set(hooks) <= set(HOOKS),
+        "fixed_empty_hook_query_required",
+    )
+    return [
+        "/usr/bin/busctl",
+        "--system",
+        "--json=short",
+        "get-property",
+        "org.freedesktop.systemd1",
+        _unit_object_path(unit),
+        "org.freedesktop.systemd1.Service",
+        *hooks,
+    ]
+
+
+def _show_fields(raw, expected, *, omitted=()):
+    rows = [line.split("=", 1) for line in raw.decode().splitlines()]
+    io.require(
+        all(len(row) == 2 for row in rows) and len({row[0] for row in rows}) == len(rows),
+        "unit_status_incomplete",
+    )
+    fields = dict(rows)
+    io.require(
+        set(fields) <= set(expected) and set(expected) - set(fields) <= set(omitted),
+        "unit_status_incomplete",
+    )
+    return fields
+
+
+def _queued_jobs(raw):
+    value = io.document(raw)
+    io.require(
+        type(value) is dict
+        and set(value) == {"type", "data"}
+        and value["type"] == "a(usssoo)"
+        and type(value["data"]) is list
+        and len(value["data"]) == 1
+        and type(value["data"][0]) is list,
+        "job_list_shape_invalid",
+    )
+    jobs = value["data"][0]
+    io.require(len(jobs) <= 65536, "job_list_limit")
+    for row in jobs:
+        io.require(
+            type(row) is list
+            and len(row) == 6
+            and type(row[0]) is int
+            and 0 < row[0] <= 2**32 - 1
+            and all(type(item) is str and item for item in row[1:])
+            and row[4] == "/org/freedesktop/systemd1/job/" + str(row[0])
+            and re.fullmatch(r"/org/freedesktop/systemd1/unit/[A-Za-z0-9_]+", row[5]),
+            "job_row_shape_invalid",
+        )
+    return jobs
+
+
 def _readonly_control_child(argv):
     git = ("/usr/bin/git", "-C", CRM.as_posix())
     if argv in {
@@ -168,16 +244,35 @@ def _readonly_control_child(argv):
         (*git, "ls-remote", "origin", "refs/heads/autostopcrm-v1"),
     }:
         return "/usr/bin/git"
+    if argv == JOB_QUERY:
+        return "/usr/bin/busctl"
     # Both native authority and closure use read-only systemctl show. The
     # property's value is one argv element, never interpreted by a shell.
     if (
-        len(argv) == 5
+        len(argv) in {5, 6}
         and argv[:2] == ("/usr/bin/systemctl", "show")
         and (argv[2] in UNITS or re.fullmatch(r"[A-Za-z0-9_.@:-]+\.(timer|path|socket)", argv[2]))
         and argv[3] == "--no-pager"
-        and re.fullmatch(r"--property=[A-Za-z][A-Za-z,]*", argv[4])
+        and (len(argv) == 5 or argv[4] == "--all")
+        and re.fullmatch(r"--property=[A-Za-z][A-Za-z,]*", argv[-1])
     ):
         return "/usr/bin/systemctl"
+    if (
+        8 <= len(argv) <= 7 + len(HOOKS)
+        and argv[:5]
+        == (
+            "/usr/bin/busctl",
+            "--system",
+            "--json=short",
+            "get-property",
+            "org.freedesktop.systemd1",
+        )
+        and argv[5] in {_unit_object_path(unit) for unit in UNITS}
+        and argv[6] == "org.freedesktop.systemd1.Service"
+        and tuple(sorted(set(argv[7:]))) == argv[7:]
+        and set(argv[7:]) <= set(HOOKS)
+    ):
+        return "/usr/bin/busctl"
     return None
 
 
@@ -513,11 +608,25 @@ class LinuxRunner:
                     "show",
                     unit,
                     "--no-pager",
+                    "--all",
                     "--property=" + ",".join(properties),
                 ],
                 deadline,
             )
-            fields = dict(line.split("=", 1) for line in raw.decode().splitlines() if "=" in line)
+            fields = _show_fields(raw, properties, omitted=HOOKS)
+            missing = tuple(sorted(set(properties) - set(fields)))
+            if missing:
+                # systemctl can omit empty command arrays even with --all.
+                # Only the fixed typed D-Bus empty value proves those omissions.
+                typed = self.command(_empty_hooks_command(unit, missing), deadline)
+                values = [io.document(line) for line in typed.splitlines()]
+                io.require(len(values) == len(missing), "unit_empty_hooks_incomplete")
+                for hook, value in zip(missing, values, strict=True):
+                    io.require(
+                        value == {"type": "a(sasbttttuii)", "data": []},
+                        "unit_empty_hook_not_proven",
+                    )
+                    fields[hook] = ""
             io.require(set(fields) == set(properties), "unit_status_incomplete")
             results[unit] = fields
             for trigger in fields["TriggeredBy"].split():
@@ -531,22 +640,19 @@ class LinuxRunner:
                         "show",
                         trigger,
                         "--no-pager",
+                        "--all",
                         "--property=ActiveState,Job",
                     ],
                     deadline,
-                ).decode()
-                parsed = dict(line.split("=", 1) for line in status.splitlines() if "=" in line)
+                )
+                parsed = _show_fields(status, ("ActiveState", "Job"))
                 io.require(
                     parsed.get("ActiveState") in {"inactive", "failed"} and not parsed.get("Job"),
                     "trigger_active",
                 )
-        jobs = json.loads(
-            self.command(
-                ["/usr/bin/systemctl", "list-jobs", "--no-pager", "--output=json"], deadline
-            )
-        )
+        jobs = _queued_jobs(self.command(list(JOB_QUERY), deadline))
         io.require(
-            type(jobs) is list and not any(row.get("unit") in UNITS for row in jobs),
+            not any(row[1] in UNITS for row in jobs),
             "native_job_queued",
         )
         return results

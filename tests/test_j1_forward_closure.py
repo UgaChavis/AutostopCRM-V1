@@ -456,6 +456,243 @@ class ClosureTests(unittest.TestCase):
 
 
 class LinuxBackendTests(unittest.TestCase):
+    def units_fixture(
+        self,
+        *,
+        missing=closure.HOOKS,
+        values=None,
+        trigger=None,
+        trigger_raw=b"ActiveState=inactive\nJob=\n",
+        typed=None,
+        jobs=None,
+        extra=b"",
+    ):
+        runner = closure.LinuxRunner()
+        fields = {
+            "LoadState": "loaded",
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "NeedDaemonReload": "no",
+            "MainPID": "0",
+            "ExecCondition": "path=/original/guard ; path=/usr/bin/false",
+            **dict.fromkeys(closure.HOOKS, ""),
+            "TriggeredBy": trigger or "",
+            "Job": "",
+        }
+        fields.update(values or {})
+        raw = (
+            "".join(
+                key + "=" + value + "\n" for key, value in fields.items() if key not in missing
+            ).encode()
+            + extra
+        )
+
+        def command(argv, deadline):
+            if tuple(argv) == closure.JOB_QUERY:
+                return (
+                    jobs
+                    if jobs is not None
+                    else closure.io.canonical({"type": "a(usssoo)", "data": [[]]})
+                )
+            if argv[0] == "/usr/bin/busctl":
+                if typed is not None:
+                    if isinstance(typed, BaseException):
+                        raise typed
+                    return typed
+                return b"".join(
+                    closure.io.canonical({"type": "a(sasbttttuii)", "data": []}) for _ in argv[7:]
+                )
+            if argv[2] == trigger:
+                return trigger_raw
+            return raw
+
+        runner.command = Mock(side_effect=command)
+        return runner
+
+    def test_all_eight_units_require_typed_proof_for_omitted_empty_hooks(self):
+        runner = self.units_fixture()
+        units = runner.units(time.monotonic() + 30)
+        self.assertEqual(set(units), set(closure.UNITS))
+        self.assertTrue(all(set(closure.HOOKS) <= set(fields) for fields in units.values()))
+        self.assertTrue(
+            all(fields["Job"] == fields["TriggeredBy"] == "" for fields in units.values())
+        )
+        calls = [call.args[0] for call in runner.command.call_args_list]
+        typed = [
+            command
+            for command in calls
+            if command[0] == "/usr/bin/busctl" and command[3] == "get-property"
+        ]
+        self.assertEqual(len(typed), 8)
+        self.assertEqual(
+            {command[5] for command in typed},
+            {closure._unit_object_path(unit) for unit in closure.UNITS},
+        )
+        self.assertTrue(
+            all(tuple(command[7:]) == tuple(sorted(closure.HOOKS)) for command in typed)
+        )
+        self.assertTrue(all("--all" in command for command in calls if command[1] == "show"))
+        closure._unit_policy(units)
+
+    def test_explicit_empty_hooks_need_no_typed_fallback(self):
+        runner = self.units_fixture(missing=())
+        closure._unit_policy(runner.units(time.monotonic() + 30))
+        self.assertFalse(
+            any(
+                call.args[0][0] == "/usr/bin/busctl" and call.args[0][3] == "get-property"
+                for call in runner.command.call_args_list
+            )
+        )
+
+    def test_nonempty_original_hook_and_guard_are_preserved_and_not_accepted_closed(self):
+        condition = "path=/original/guard ; path=/usr/bin/false"
+        runner = self.units_fixture(
+            missing=tuple(hook for hook in closure.HOOKS if hook != "ExecStartPost"),
+            values={"ExecStartPost": "path=/original/duty-hook", "ExecCondition": condition},
+        )
+        units = runner.units(time.monotonic() + 30)
+        self.assertTrue(
+            all(
+                row["ExecStartPost"] == "path=/original/duty-hook"
+                and row["ExecCondition"] == condition
+                for row in units.values()
+            )
+        )
+        with self.assertRaisesRegex(Refusal, "loaded_barrier_invalid"):
+            closure._unit_policy(units)
+
+    def test_missing_scalar_job_trigger_or_guard_never_defaulted(self):
+        for name in (
+            "LoadState",
+            "ActiveState",
+            "SubState",
+            "NeedDaemonReload",
+            "MainPID",
+            "ExecCondition",
+            "Job",
+            "TriggeredBy",
+        ):
+            with self.subTest(name=name):
+                runner = self.units_fixture(missing=(*closure.HOOKS, name))
+                with self.assertRaisesRegex(Refusal, "unit_status_incomplete"):
+                    runner.units(time.monotonic() + 30)
+                self.assertEqual(runner.command.call_count, 1)
+
+    def test_typed_empty_proof_rejects_nonempty_wrong_type_missing_rows_and_read_failure(self):
+        cases = [
+            (
+                closure.io.canonical({"type": "a(sasbttttuii)", "data": [["/mutable/hook"]]}),
+                "unit_empty_hook_not_proven",
+            ),
+            (closure.io.canonical({"type": "as", "data": []}), "unit_empty_hook_not_proven"),
+            (
+                closure.io.canonical({"type": "a(sasbttttuii)", "data": [], "extra": True}),
+                "unit_empty_hook_not_proven",
+            ),
+            (b"", "unit_empty_hooks_incomplete"),
+            (Refusal("closure_command_failed"), "closure_command_failed"),
+        ]
+        for typed, error in cases:
+            with self.subTest(error=error, typed=typed):
+                runner = self.units_fixture(missing=("ExecStop",), typed=typed)
+                with self.assertRaisesRegex(Refusal, error):
+                    runner.units(time.monotonic() + 30)
+
+    def test_duplicate_and_malformed_systemd_fields_are_refused(self):
+        for extra in (b"Job=unsafe\n", b"malformed\n", b"Unexpected=\n"):
+            with self.subTest(extra=extra):
+                with self.assertRaisesRegex(Refusal, "unit_status_incomplete"):
+                    self.units_fixture(extra=extra).units(time.monotonic() + 30)
+
+    def test_trigger_requires_explicit_empty_job_and_inactive_state(self):
+        for raw, error in (
+            (b"ActiveState=inactive\n", "unit_status_incomplete"),
+            (b"Job=\n", "unit_status_incomplete"),
+            (b"ActiveState=active\nJob=\n", "trigger_active"),
+            (b"ActiveState=inactive\nJob=0\n", "trigger_active"),
+            (b"ActiveState=inactive\nJob=123/start\n", "trigger_active"),
+        ):
+            with self.subTest(raw=raw), self.assertRaisesRegex(Refusal, error):
+                self.units_fixture(trigger="owned.timer", trigger_raw=raw).units(
+                    time.monotonic() + 30
+                )
+        runner = self.units_fixture(trigger="owned.timer")
+        self.assertEqual(len(runner.units(time.monotonic() + 30)), 8)
+        self.assertTrue(
+            all(
+                "--all" in call.args[0]
+                for call in runner.command.call_args_list
+                if call.args[0][1] == "show"
+            )
+        )
+
+    def test_job_zero_is_not_silently_treated_as_empty_and_native_queue_still_refuses(self):
+        units = self.units_fixture(values={"Job": "0"}).units(time.monotonic() + 30)
+        with self.assertRaisesRegex(Refusal, "unit_not_stopped"):
+            closure._unit_policy(units)
+        with self.assertRaisesRegex(Refusal, "native_job_queued"):
+            self.units_fixture(
+                jobs=closure.io.canonical(
+                    {
+                        "type": "a(usssoo)",
+                        "data": [
+                            [
+                                [
+                                    1,
+                                    closure.UNITS[0],
+                                    "start",
+                                    "waiting",
+                                    "/org/freedesktop/systemd1/job/1",
+                                    closure._unit_object_path(closure.UNITS[0]),
+                                ]
+                            ]
+                        ],
+                    }
+                )
+            ).units(time.monotonic() + 30)
+
+    def test_job_list_requires_typed_complete_rows_and_preserves_unrelated_jobs(self):
+        unrelated = [
+            1,
+            "other.service",
+            "start",
+            "waiting",
+            "/org/freedesktop/systemd1/job/1",
+            "/org/freedesktop/systemd1/unit/other_2eservice",
+        ]
+        raw = closure.io.canonical({"type": "a(usssoo)", "data": [[unrelated]]})
+        self.assertEqual(len(self.units_fixture(jobs=raw).units(time.monotonic() + 30)), 8)
+        for value in (
+            {"type": "as", "data": [[]]},
+            {"type": "a(usssoo)", "data": []},
+            {"type": "a(usssoo)", "data": [[unrelated[:-1]]]},
+            {"type": "a(usssoo)", "data": [[[False, *unrelated[1:]]]]},
+        ):
+            with self.subTest(value=value), self.assertRaises(Refusal):
+                self.units_fixture(jobs=closure.io.canonical(value)).units(time.monotonic() + 30)
+
+    def test_readonly_child_forms_include_exact_all_and_typed_hooks_only(self):
+        show = ("/usr/bin/systemctl", "show", closure.UNITS[0], "--no-pager")
+        for flags in ((), ("--all",)):
+            self.assertEqual(
+                closure._readonly_control_child((*show, *flags, "--property=ActiveState,Job")),
+                "/usr/bin/systemctl",
+            )
+        typed = tuple(closure._empty_hooks_command(closure.UNITS[0], ("ExecStartPre", "ExecStop")))
+        self.assertEqual(closure._readonly_control_child(typed), "/usr/bin/busctl")
+        self.assertEqual(closure._readonly_control_child(closure.JOB_QUERY), "/usr/bin/busctl")
+        for command in (
+            (*show, "--all", "--extra", "--property=Job"),
+            (*typed[:-2], "Environment"),
+            (*typed[:-2], "ExecStop", "ExecStop"),
+            (*typed[:3], "set-property", *typed[4:]),
+            (*typed[:5], "/org/freedesktop/systemd1/unit/other", *typed[6:]),
+            (*closure.JOB_QUERY[:-1], "StartUnit"),
+            (*closure.JOB_QUERY, "unexpected"),
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(closure._readonly_control_child(command))
+
     def test_transient_workers_require_explicit_bytecode_suppression(self):
         allowed = closure._forward_commands(ATTEMPT)
         prefix = ("/usr/bin/python3", "-I", "-S")
@@ -642,6 +879,25 @@ class LinuxBackendTests(unittest.TestCase):
             106: process(("/usr/bin/systemctl", "start", closure.UNITS[0]), parent=101),
         }
         self.assertEqual(runner.control_processes({"attempt_id": ATTEMPT}, rows), {101, 102, 105})
+
+    def test_fixed_bus_metadata_children_require_parent_and_actual_busctl_identity(self):
+        runner, argv, process = self.control_fixture()
+        hooks = tuple(closure._empty_hooks_command(closure.UNITS[0], ("ExecStop",)))
+        rows = {
+            101: process(argv["inspect"]),
+            102: process(hooks, parent=101),
+            103: process(closure.JOB_QUERY, parent=101),
+            104: process(hooks, parent=999),
+            105: process((*closure.JOB_QUERY[:-1], "StartUnit"), parent=101),
+        }
+        self.assertEqual(runner.control_processes({"attempt_id": ATTEMPT}, rows), {101, 102, 103})
+        self.assertEqual(
+            [(call.args[0], call.args[2]) for call in runner.control_identity.call_args_list],
+            [(101, "/usr/bin/python3"), (102, "/usr/bin/busctl"), (103, "/usr/bin/busctl")],
+        )
+        runner.control_identity.side_effect = [True, Refusal("control_executable_changed")]
+        with self.assertRaisesRegex(Refusal, "control_executable_changed"):
+            runner.control_processes({"attempt_id": ATTEMPT}, rows)
 
     def test_control_admission_is_not_a_write_descriptor_or_native_cgroup_exemption(self):
         runner = FakeRunner()
