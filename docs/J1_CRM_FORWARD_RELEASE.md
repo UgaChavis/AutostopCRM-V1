@@ -250,11 +250,44 @@ backup helper's read-only SQLite access may use the exact primary database's
 `-shm` coordination file. Primary database or WAL writes are never classified
 as that exception.
 
-Lightweight barrier and actor checks run on every backup callback. Expensive
-systemd, container, process and descriptor scans run at least once per second
-of continued observation, with explicit fresh full scans at the evidence
-boundaries. Scan times/counts remain in the evidence. Observation of a fence
-does not itself claim application acceptance or manufacture an idle result.
+An independent sampler checks protected ownership, boot, scope, admission,
+barriers and all eighteen process identities, waiting 0.2 seconds between
+completed samples. Its age is
+bounded to one second from the **start** of its real checks, including evidence
+publication. It does not share the full scanner's lock or cached observations.
+Each backup callback checks monitor health, reads the actual maintenance marker,
+and rechecks freshness after that I/O. A missed sample, dead observer, failed
+check or expired deadline is sticky; a later successful observation cannot
+rehabilitate the attempt.
+
+One full scanner retains both complete scope checks, systemd/job/container
+checks, executable bytes, process/descriptor/shared-mapping scans and final
+rereads. Its next scan must start within one second of the preceding completed
+scan and finish within thirty seconds and the plan's existing deadline. An
+older completed full reference may be used only while that exact generation's
+successor scan is actually in flight. Its original scan time and count are
+preserved. Executable hashing is deduplicated only within one actor pass after
+fresh executable-FD, metadata, path and process-incarnation checks; subsequent
+passes hash the bytes again.
+
+Captured bytes remain provisional until a new full scan **starts after capture
+returns** and completes successfully. The protected capture-monitor receipt
+binds the plan, consumer, boot, ownership, scope and ingress drain; records the
+actual full references/counts and local monotonic timing; and binds the initial,
+terminal and endpoint sample evidence. Backup evidence binds that receipt and
+the terminal full reference before transport or off-host acceptance. The
+independent worker checks those bindings and timing relationships in the remote
+clock domain; endpoint evidence and the source-bound monitor record do not
+claim independent reobservation of every intermediate event.
+
+Both observers continue during packing, transfer and off-host waiting. Before
+opening the closure, the consumer invalidates publication, joins both readers
+and collects late errors, then performs the mandatory fresh reopening check.
+If a reader cannot terminate, only the consumer exits, leaving pending state
+and maintenance in place for the fixed systemd cold-settlement command. It
+does not mutate closure concurrently with a reader or claim successful fencing
+from a progress label. Observation does not claim application acceptance or
+manufacture an idle result.
 
 ## Backup, off-host restore and signed evidence
 
@@ -265,7 +298,9 @@ Codex durable state, J1 cache and the relevant authority/configuration
 artifacts. Its exact scope, exclusions, optional roots and treatment of
 runtime files are versioned in the profile document and bound by hash.
 
-SQLite backup consumes committed WAL through a read-only source connection.
+SQLite backup copies stable source database/WAL bytes under the continuous
+fence, then consumes committed WAL through a read-only **private staged**
+connection. Production database files are not opened by SQLite during capture.
 The off-host verifier assembles ordinary private copies from the final
 manifest and matching transport cache; it never treats a cache manifest as
 the final backup. It verifies all artifact hashes, performs a real disposable

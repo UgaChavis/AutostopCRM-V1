@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -132,20 +131,6 @@ class QualityAdmissionTests(unittest.TestCase):
         self.jobs["total_count"] = 4
         with self.assertRaises(io.Refusal):
             self.call()
-
-
-class MonitorTests(unittest.TestCase):
-    def test_background_closure_failure_prevents_later_acceptance(self):
-        def refused():
-            raise io.Refusal("actor_was_thawed")
-
-        monitor = release.ClosureMonitor(refused)
-        monitor.start()
-        end = time.monotonic() + 2
-        while monitor.error is None and time.monotonic() < end:
-            time.sleep(0.01)
-        with self.assertRaisesRegex(io.Refusal, "continuous_closure_observation_failed"):
-            monitor.stop()
 
 
 if __name__ == "__main__":

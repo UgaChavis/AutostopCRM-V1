@@ -142,6 +142,40 @@ class FakeHost:
         return {"ok": True}
 
 
+class FakeMonitor:
+    """Orchestration seam; monitor concurrency has its own adversarial tests."""
+
+    def __init__(self, fixture, full, sample, marker, bindings, **_kwargs):
+        self.f, self.full, self.sample, self.marker = fixture, full, sample, marker
+        self.bindings = bindings
+        fixture.monitor = self
+
+    def start(self):
+        self.f.event("monitor.start")
+        self.initial = self.full()
+        self.sample()
+
+    def begin_capture(self):
+        self.f.event("monitor.capture.begin")
+
+    def fence(self):
+        self.marker()
+        return {"attempt_id": self.f.plan["attempt_id"], **self.initial}
+
+    def finish_capture(self):
+        self.f.event("monitor.capture.terminal")
+        self.f.fault("terminal_scan")
+        return {"terminal_full": {"reference": self.full()}}
+
+    def stop(self):
+        self.f.event("monitor.stop")
+        self.f.fault("monitor_stop")
+
+    def cancel(self):
+        self.f.event("monitor.cancel")
+        return self.f.failure != "monitor_nonjoin"
+
+
 class ForwardReleaseTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="j1-release-synthetic-")
@@ -211,7 +245,15 @@ class ForwardReleaseTests(unittest.TestCase):
         self.plan["baseline_ref"] = io.write_new(self.directory / "baseline.json", self.baseline)
         self.plan_ref = io.write_new(self.directory / "plan.json", self.plan)
         self.store, self.host = FakeStore(self), FakeHost(self)
-        self.ownership = {"dropins": ["synthetic-owned-dropin"], "bytes_sha256": "d" * 64}
+        self.ownership = {
+            "dropins": ["synthetic-owned-dropin"],
+            "bytes_sha256": "d" * 64,
+            "boot_id": "00000000-0000-4000-8000-000000000002",
+            "process_scope_ref": io.write_new(self.directory / "scope.json", {"fixture": True}),
+        }
+        self.install(
+            r, "ClosureMonitor", lambda *args, **kwargs: FakeMonitor(self, *args, **kwargs)
+        )
         self.install(r, "Store", lambda *_args: self.store)
         self.install(
             r,
@@ -224,6 +266,7 @@ class ForwardReleaseTests(unittest.TestCase):
         self.install(r.closure, "close_writers", self.close_writers)
         self.install(r.closure, "prepare_closure", self.prepare_closure)
         self.install(r.closure, "observe_closed", self.observe_closed)
+        self.install(r.closure, "sample_closed", lambda *_args: self.event("monitor.sample"))
         self.install(r.closure, "observe_activation", self.observe_activation)
         self.install(r.closure, "reopen_native", self.reopen_native)
         self.install(r.closure, "release_auxiliary", self.release_auxiliary)
@@ -357,6 +400,7 @@ class ForwardReleaseTests(unittest.TestCase):
         self.event("writers.close")
         self.writers = dict.fromkeys(self.writers, False)
         self.barriers = True
+        io.write_new(directory / "ingress-drain.json", {"fixture": True})
         if not (directory / "closure-owned.json").exists():
             io.write_new(directory / "closure-owned.json", self.ownership)
         return self.ownership
@@ -369,9 +413,11 @@ class ForwardReleaseTests(unittest.TestCase):
     def observe_closed(self, _ownership, **_kwargs):
         self.assertFalse(any(self.writers.values()))
         self.assertTrue(self.marker.exists())
+        self.assertTrue(_kwargs["force_full"])
         return {"full_scan_this_sample": True, "closed": True}
 
-    def reopen_native(self, _ownership):
+    def reopen_native(self, _ownership, *, deadline):
+        self.assertEqual(deadline, self.host.deadline)
         self.event("writers.reopen")
         self.barriers = False
         self.assertFalse(self.auxiliary_live)
@@ -402,6 +448,7 @@ class ForwardReleaseTests(unittest.TestCase):
     def capture(self, _output, _context, observer, **_kwargs):
         self.event("backup.capture")
         observer()
+        self.fault("backup_capture")
         return {"manifest_sha256": self.manifest_sha}
 
     def bundle_delta(self, *_args, **_kwargs):
@@ -507,6 +554,12 @@ class ForwardReleaseTests(unittest.TestCase):
         for earlier, later in (
             ("ingress.freeze", "ingress.idle"),
             ("ingress.idle", "writers.close"),
+            ("monitor.start", "monitor.capture.begin"),
+            ("monitor.capture.begin", "backup.capture"),
+            ("backup.capture", "monitor.capture.terminal"),
+            ("monitor.capture.terminal", "transport.bundle"),
+            ("signature.offhost_restore", "monitor.stop"),
+            ("monitor.stop", "writers.reopen"),
             ("backup.capture", "signature.offhost_restore"),
             ("signature.offhost_restore", "writers.reopen"),
             ("writers.reopen", "candidate.replace"),
@@ -524,6 +577,49 @@ class ForwardReleaseTests(unittest.TestCase):
         self.assertFalse(self.marker.exists())
         self.assertTrue(self.host.enabled)
         self.assertTrue(self.auxiliary_live)
+        captured = io.document(io.read_protected(self.directory / "backup-evidence.json"))
+        monitored = io.document(io.referenced(captured["capture_monitor_ref"]))
+        self.assertEqual(captured["terminal_full_ref"], monitored["terminal_full"]["reference"])
+        self.assertEqual(self.monitor.bindings["plan_ref"], self.plan_ref)
+        self.assertEqual(
+            self.monitor.bindings["closure_ref"],
+            io.reference(self.directory / "closure-owned.json"),
+        )
+
+    def test_terminal_full_failure_cannot_publish_backup_or_start_transport(self):
+        self.failure = "terminal_scan"
+        with self.assertRaisesRegex(RuntimeError, "synthetic_terminal_scan"):
+            r.apply(self.plan["attempt_id"])
+        self.assert_failed_closed()
+        self.assertFalse((self.directory / "backup-evidence.json").exists())
+        self.assertNotIn("transport.bundle", self.events())
+        self.assert_before("monitor.cancel", "writers.fail_closed")
+
+    def test_monitor_stop_failure_joins_before_failure_fencing(self):
+        self.failure = "monitor_stop"
+        with self.assertRaisesRegex(RuntimeError, "synthetic_monitor_stop"):
+            r.apply(self.plan["attempt_id"])
+        self.assert_failed_closed()
+        self.assert_before("monitor.cancel", "writers.fail_closed")
+        self.assertNotIn("writers.reopen", self.events())
+
+    def test_nonjoining_reader_ends_only_consumer_for_fixed_cold_settlement(self):
+        self.failure = "monitor_nonjoin"
+        self.withhold_offhost = True
+        with (
+            patch.object(r.time, "sleep", side_effect=TimeoutError("synthetic timeout")),
+            patch.object(r.os, "_exit", side_effect=SystemExit(2)) as terminate,
+            self.assertRaises(SystemExit),
+        ):
+            r.apply(self.plan["attempt_id"])
+        terminate.assert_called_once_with(2)
+        self.assertNotIn("writers.fail_closed", self.events())
+        self.assertNotIn("writers.reopen", self.events())
+        self.assertTrue(self.marker.exists())
+        self.assertEqual(self.store.pending(), self.plan)
+        state = io.document(io.read_protected(self.directory / "progress.json"))
+        self.assertEqual(state["phase"], "failure-closure-incomplete")
+        self.assertFalse(state["readers_stopped"])
 
     def test_auxiliary_release_failure_refences_before_lock_opens(self):
         self.failure = "auxiliary_release"

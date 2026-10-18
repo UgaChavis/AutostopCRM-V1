@@ -12,6 +12,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts import j1_forward_backup as backup_policy
+from scripts import j1_forward_closure as closure_policy
 from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
@@ -287,7 +289,192 @@ class WorkerTests(unittest.TestCase):
                 "sha256": io.sha(b"delta"),
                 "manifest_sha256": "a" * 64,
             }
+            self.add_capture_evidence(result)
         return result
+
+    def add_capture_evidence(self, response):
+        plan, evidence, inspection = (response[key] for key in ("plan", "evidence", "inspection"))
+        scope = evidence["process_scope"]
+        owned = {
+            "schema": closure_policy.SCHEMA,
+            "attempt_id": self.attempt,
+            "attempt_dir": self.prefix.rstrip("/"),
+            "boot_id": scope["boot_id"],
+            "dropins": [
+                {
+                    "unit": unit,
+                    "path": "/etc/systemd/system/" + unit + ".d/" + closure_policy.DROPIN,
+                    "sha256": io.sha(closure_policy.DENY_BYTES),
+                }
+                for unit in closure_policy.UNITS
+            ],
+            "bytes_sha256": io.sha(closure_policy.DENY_BYTES),
+            "warm_actors": copy.deepcopy(response["baseline"]["native"]["warm_actors"]),
+            "baseline_sha256": scope["native_sha256"],
+            "source_roots": [
+                {"path": path, "present": False} for path in closure_policy.WRITER_ROOTS
+            ],
+            "consumer_sha256": plan["candidate"]["consumer_sha256"],
+            "freeze_actors": copy.deepcopy(scope["freeze_actors"]),
+            "process_scope_ref": inspection["process_scope_ref"],
+        }
+        evidence["closure_ownership"] = owned
+        inspection["closure_ownership_ref"] = self.ref("closure-owned.json", owned)
+        now = datetime.now(UTC).timestamp()
+        records = []
+        for index, (name, start, end) in enumerate(
+            (
+                ("capture_initial_full", 10.0, 12.0),
+                ("capture_terminal_full", 12.8, 15.0),
+            ),
+            1,
+        ):
+            full = {
+                **copy.deepcopy(evidence["closure"]),
+                "attempt_id": self.attempt,
+                "boot_id": scope["boot_id"],
+                "full_scan_count": index + 1,
+                "full_scan_at": now - 10 + index,
+                "sampled_at": now - 10 + index,
+                "full_scan_this_sample": True,
+                "full_scan_age_seconds": 0.0001,
+                "units_stopped": list(closure_policy.UNITS),
+                "other_container_count": 0,
+                "frozen_owned_write_fds": 2,
+                "owned_sqlite_coordination_fds": 0,
+            }
+            evidence[name] = full
+            ref = self.ref(f"closed-observation-{index:032x}.json", full)
+            inspection[name + "_ref"] = ref
+            records.append(
+                {
+                    "sequence": index,
+                    "full_scan_count": index + 1,
+                    "started_monotonic": start,
+                    "completed_monotonic": end,
+                    "reference": ref,
+                }
+            )
+        samples = []
+        for index, (name, start, end) in enumerate(
+            (
+                ("capture_first_sample", 12.05, 12.1),
+                ("capture_last_sample", 14.8, 14.9),
+            ),
+            1,
+        ):
+            sample = {
+                "schema": "autostop.j1.crm-forward-closure-sample.v1",
+                "attempt_id": self.attempt,
+                "boot_id": scope["boot_id"],
+                "process_id": 456,
+                "closure_sha256": inspection["closure_ownership_ref"]["sha256"],
+                "process_scope_ref": inspection["process_scope_ref"],
+                "scope_sha256": inspection["process_scope_ref"]["sha256"],
+                "ingress_drain_ref": inspection["ingress_drain_ref"],
+                "freeze_actors": copy.deepcopy(evidence["closure"]["freeze_actors"]),
+                "transport_actors": copy.deepcopy(evidence["closure"]["transport_actors"]),
+                "sampled_at": now - 8 + index,
+                "sampled_started_monotonic": start,
+                "sampled_monotonic": end,
+            }
+            evidence[name] = sample
+            ref = self.ref(f"closed-sample-{index:032x}.json", sample)
+            inspection[name + "_ref"] = ref
+            samples.append(
+                {"started_monotonic": start, "completed_monotonic": end, "reference": ref}
+            )
+        monitor = {
+            "schema": "autostop.j1.crm-forward-capture-monitor.v1",
+            "bindings": {
+                "attempt_id": self.attempt,
+                "boot_id": scope["boot_id"],
+                "closure_ref": inspection["closure_ownership_ref"],
+                "process_scope_ref": inspection["process_scope_ref"],
+                "ingress_drain_ref": inspection["ingress_drain_ref"],
+                "plan_ref": response["plan_ref"],
+                "consumer_sha256": plan["candidate"]["consumer_sha256"],
+            },
+            "generation": "a6b22455-a81f-477e-8296-c591928cfffe",
+            "process_id": 456,
+            "limits": dict(worker.MONITOR_LIMITS),
+            "started_monotonic": 9.5,
+            "capture_started_monotonic": 12.3,
+            "capture_finished_monotonic": 12.7,
+            "capture_finished_after_full_sequence": 1,
+            "capture_last_fence_full_sequence": 1,
+            "observed_monotonic": 15.15,
+            "initial_full": copy.deepcopy(records[0]),
+            "terminal_full": copy.deepcopy(records[-1]),
+            "full_observations": records,
+            "first_sample": samples[0],
+            "last_sample": samples[-1],
+            "sample_count": 12,
+            "fence_count": 6,
+            "maximum_sample_start_gap_seconds": 0.25,
+            "maximum_full_start_gap_seconds": records[1]["started_monotonic"]
+            - records[0]["completed_monotonic"],
+            "maximum_fence_sample_age_seconds": 0.4,
+            "maximum_fence_full_age_seconds": 2.0,
+        }
+        evidence["capture_monitor"] = monitor
+        inspection["capture_monitor_ref"] = self.ref("capture-monitor.json", monitor)
+        evidence["backup_capture"] = {
+            "manifest": {"path": self.prefix + "backup/manifest.json", "sha256": "a" * 64},
+            "manifest_sha256": "a" * 64,
+            "files": 2,
+            "bytes": 30,
+            "capture_monitor_ref": inspection["capture_monitor_ref"],
+            "terminal_full_ref": inspection["capture_terminal_full_ref"],
+            **backup_policy.FALSE_CLAIMS,
+        }
+        inspection["backup_capture_ref"] = self.ref(
+            "backup-evidence.json", evidence["backup_capture"]
+        )
+        self.rebind(response)
+
+    def rebind_monitor(self, response):
+        self.rebind_document(response, "capture_monitor")
+        response["evidence"]["backup_capture"]["capture_monitor_ref"] = response["inspection"][
+            "capture_monitor_ref"
+        ]
+        self.rebind_document(response, "backup_capture")
+
+    def rebind_capture_endpoint(self, response, name):
+        self.rebind_document(response, name)
+        monitor = response["evidence"]["capture_monitor"]
+        endpoint = name.removeprefix("capture_")
+        reference = response["inspection"][name + "_ref"]
+        monitor[endpoint]["reference"] = reference
+        if endpoint in {"initial_full", "terminal_full"}:
+            index = 0 if endpoint == "initial_full" else -1
+            monitor["full_observations"][index]["reference"] = reference
+        if endpoint == "terminal_full":
+            response["evidence"]["backup_capture"]["terminal_full_ref"] = reference
+        self.rebind_monitor(response)
+
+    def capture_manifest(self, response):
+        monitor = response["evidence"]["capture_monitor"]
+        manifest = {
+            "external_closure_observations": [
+                {"attempt_id": self.attempt, **monitor["initial_full"]["reference"]}
+                for _ in range(monitor["fence_count"])
+            ],
+            "artifacts": [
+                {"payload": "000000.bin", "bytes": 10},
+                {"payload": "000001.bin", "bytes": 20},
+            ],
+        }
+        self.bind_manifest(response, manifest)
+        return manifest
+
+    def bind_manifest(self, response, manifest):
+        digest = io.sha(io.canonical(manifest))
+        response["transport"]["manifest_sha256"] = digest
+        captured = response["evidence"]["backup_capture"]
+        captured["manifest_sha256"] = digest
+        captured["manifest"]["sha256"] = digest
+        self.rebind_document(response, "backup_capture")
 
     def actor(self, pid):
         return {
@@ -347,6 +534,345 @@ class WorkerTests(unittest.TestCase):
             "sha256": io.sha(io.canonical(response["evidence"][name])),
         }
         self.rebind(response)
+
+    def test_monitor_fixed_limits_match_reviewed_producer(self):
+        from scripts import j1_forward_monitor as monitor
+
+        self.assertEqual(worker.MONITOR_LIMITS, monitor.LIMITS)
+
+    def test_rehashed_monitor_rejects_unknown_fields_types_limits_and_counts(self):
+        mutations = (
+            lambda m: m.update(extra=True),
+            lambda m: m.update(schema="legacy"),
+            lambda m: m.update(process_id=True),
+            lambda m: m.update(generation="not-a-uuid"),
+            lambda m: m["limits"].update(maximum_sample_age_seconds=2),
+            lambda m: m["limits"].update(maximum_full_scan_seconds=31),
+            lambda m: m["limits"].update(maximum_full_start_gap_seconds=True),
+            lambda m: m["limits"].update(extra=1),
+            lambda m: m.update(sample_count=0),
+            lambda m: m.update(sample_count=3003),
+            lambda m: m.update(sample_count=True),
+            lambda m: m.update(sample_count=1),
+            lambda m: m.update(fence_count=0),
+            lambda m: m.update(fence_count=1_000_001),
+            lambda m: m.update(maximum_sample_start_gap_seconds=-1),
+            lambda m: m.update(maximum_sample_start_gap_seconds=1.01),
+            lambda m: m.update(maximum_sample_start_gap_seconds=0.01),
+            lambda m: m.update(maximum_fence_sample_age_seconds=1.01),
+            lambda m: m.update(maximum_fence_full_age_seconds=31.01),
+            lambda m: m.update(maximum_full_start_gap_seconds=0.1),
+            lambda m: m.update(maximum_full_start_gap_seconds=1.01),
+        )
+        for index, mutate in enumerate(mutations):
+            response = self.response()
+            mutate(response["evidence"]["capture_monitor"])
+            self.rebind_monitor(response)
+            with self.subTest(index=index), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_rehashed_monitor_rejects_each_wrong_binding(self):
+        for key in (
+            "attempt_id",
+            "boot_id",
+            "closure_ref",
+            "process_scope_ref",
+            "ingress_drain_ref",
+            "plan_ref",
+            "consumer_sha256",
+        ):
+            response = self.response()
+            bindings = response["evidence"]["capture_monitor"]["bindings"]
+            if type(bindings[key]) is dict:
+                bindings[key] = {**bindings[key], "sha256": "f" * 64}
+            else:
+                bindings[key] = "f" * 64
+            self.rebind_monitor(response)
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(io.Refusal, "worker_capture_monitor_binding"),
+            ):
+                self.validate(response)
+
+    def test_rehashed_monitor_rejects_capture_and_terminal_sequence_errors(self):
+        cases = (
+            ("started_monotonic", 16),
+            ("capture_started_monotonic", 11.9),
+            ("capture_finished_monotonic", 12.9),
+            ("observed_monotonic", 14.99),
+            ("observed_monotonic", 616),
+            ("capture_finished_after_full_sequence", 0),
+            ("capture_finished_after_full_sequence", True),
+            ("capture_finished_after_full_sequence", 2),
+            ("capture_last_fence_full_sequence", 0),
+            ("capture_last_fence_full_sequence", True),
+            ("capture_last_fence_full_sequence", 2),
+        )
+        for key, value in cases:
+            response = self.response()
+            response["evidence"]["capture_monitor"][key] = value
+            self.rebind_monitor(response)
+            with self.subTest(key=key, value=value), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_rehashed_full_ledger_rejects_replay_overlap_gaps_and_long_scan(self):
+        mutations = (
+            lambda rows: rows[-1].update(sequence=1),
+            lambda rows: rows[0].update(sequence=True),
+            lambda rows: rows[-1].update(full_scan_count=2),
+            lambda rows: rows[-1].update(full_scan_count=True),
+            lambda rows: rows[-1].update(started_monotonic=11.9),
+            lambda rows: rows[-1].update(started_monotonic=13.01),
+            lambda rows: rows[0].update(completed_monotonic=41),
+            lambda rows: rows[-1].update(reference=copy.deepcopy(rows[0]["reference"])),
+            lambda rows: rows[-1]["reference"].update(
+                path=self.prefix + "closed-observation-foreign.json"
+            ),
+            lambda rows: rows[-1]["reference"].update(
+                path=self.prefix + "../closed-observation-" + "a" * 32 + ".json"
+            ),
+        )
+        for index, mutate in enumerate(mutations):
+            response = self.response()
+            monitor = response["evidence"]["capture_monitor"]
+            mutate(monitor["full_observations"])
+            monitor["initial_full"] = copy.deepcopy(monitor["full_observations"][0])
+            monitor["terminal_full"] = copy.deepcopy(monitor["full_observations"][-1])
+            self.rebind_monitor(response)
+            with self.subTest(index=index), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_rehashed_endpoint_full_documents_require_real_full_cohort(self):
+        mutations = (
+            lambda d: d.update(full_scan_this_sample=False),
+            lambda d: d.update(full_scan_count=99),
+            lambda d: d.update(boot_id="other"),
+            lambda d: d.update(attempt_id="other"),
+            lambda d: d.update(full_scan_age_seconds=-1),
+            lambda d: d.update(full_scan_at=True),
+            lambda d: d.update(frozen_owned_write_fds=True),
+            lambda d: d.update(
+                ingress_drain_ref={"path": self.prefix + "ingress-drain.json", "sha256": "f" * 64}
+            ),
+            lambda d: d["units_stopped"].pop(),
+            lambda d: d["freeze_actors"][0].update(stopped=1),
+            lambda d: d["process_scope_observation"]["freeze_actors"][0].update(
+                stopped=False, thread_states=["R"]
+            ),
+            lambda d: d["process_scope_observation"].update(native_control_peer={"pid": 999}),
+        )
+        for name in ("capture_initial_full", "capture_terminal_full"):
+            for index, mutate in enumerate(mutations):
+                response = self.response()
+                mutate(response["evidence"][name])
+                self.rebind_capture_endpoint(response, name)
+                with self.subTest(name=name, index=index), self.assertRaises(io.Refusal):
+                    self.validate(response)
+
+    def test_rehashed_samples_require_actual_bound_identity_and_fresh_start(self):
+        mutations = (
+            lambda d: d.update(extra="full_scan_this_sample"),
+            lambda d: d.update(schema="autostop.j1.crm-forward-closure-observation.v2"),
+            lambda d: d.update(process_id=True),
+            lambda d: d.update(process_id=999),
+            lambda d: d.update(closure_sha256="f" * 64),
+            lambda d: d.update(scope_sha256="f" * 64),
+            lambda d: d.update(attempt_id="other"),
+            lambda d: d.update(boot_id="other"),
+            lambda d: d.update(sampled_at=False),
+            lambda d: d.update(sampled_started_monotonic=12),
+            lambda d: d["freeze_actors"][0].update(stopped=1),
+            lambda d: d["freeze_actors"][0].update(start_ticks=1),
+            lambda d: d["transport_actors"][0].update(stopped=True),
+        )
+        for name in ("capture_first_sample", "capture_last_sample"):
+            for index, mutate in enumerate(mutations):
+                response = self.response()
+                mutate(response["evidence"][name])
+                self.rebind_capture_endpoint(response, name)
+                with self.subTest(name=name, index=index), self.assertRaises(io.Refusal):
+                    self.validate(response)
+        response = self.response()
+        response["evidence"]["capture_last_sample"]["sampled_started_monotonic"] = 14.0
+        response["evidence"]["capture_monitor"]["last_sample"]["started_monotonic"] = 14.0
+        self.rebind_capture_endpoint(response, "capture_last_sample")
+        with self.assertRaisesRegex(io.Refusal, "worker_capture_sample_order"):
+            self.validate(response)
+
+    def test_rehashed_ownership_and_capture_cannot_point_to_other_backup(self):
+        for name, key, value in (
+            ("closure_ownership", "attempt_id", "other"),
+            ("closure_ownership", "consumer_sha256", "f" * 64),
+            ("closure_ownership", "boot_id", "other"),
+            ("closure_ownership", "bytes_sha256", "f" * 64),
+            ("backup_capture", "manifest_sha256", "f" * 64),
+            ("backup_capture", "files", True),
+            ("backup_capture", "bytes", -1),
+            (
+                "backup_capture",
+                "capture_monitor_ref",
+                {"path": self.prefix + "capture-monitor.json", "sha256": "f" * 64},
+            ),
+            (
+                "backup_capture",
+                "terminal_full_ref",
+                {"path": self.prefix + "fake.json", "sha256": "f" * 64},
+            ),
+        ):
+            response = self.response()
+            response["evidence"][name][key] = value
+            self.rebind_document(response, name)
+            with self.subTest(name=name, key=key), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_manifest_witnesses_and_totals_are_bound_even_after_rehashing(self):
+        mutations = (
+            lambda m, r: m["external_closure_observations"].clear(),
+            lambda m, r: m["external_closure_observations"][0].update(attempt_id="other"),
+            lambda m, r: m["external_closure_observations"][0].update(sha256="f" * 64),
+            lambda m, r: m["external_closure_observations"][0].update(
+                path=self.prefix + "foreign.json"
+            ),
+            lambda m, r: m["external_closure_observations"][0].update(
+                **r["evidence"]["capture_monitor"]["terminal_full"]["reference"]
+            ),
+            lambda m, r: m["artifacts"].pop(),
+            lambda m, r: m["artifacts"][0].update(bytes=11),
+            lambda m, r: m["artifacts"][0].update(bytes=True),
+        )
+        for index, mutate in enumerate(mutations):
+            response = self.response()
+            manifest = self.capture_manifest(response)
+            mutate(manifest, response)
+            self.bind_manifest(response, manifest)
+            self.validate(response)
+            with self.subTest(index=index), self.assertRaises(io.Refusal):
+                worker._capture_manifest_evidence(manifest, response)
+
+    def test_manifest_cannot_use_terminal_even_when_monotonic_ticks_tie(self):
+        response = self.response()
+        monitor = response["evidence"]["capture_monitor"]
+        terminal = monitor["full_observations"][-1]
+        terminal.update(started_monotonic=12.7, completed_monotonic=12.7)
+        monitor["terminal_full"] = copy.deepcopy(terminal)
+        self.rebind_monitor(response)
+        manifest = self.capture_manifest(response)
+        manifest["external_closure_observations"][0].update(**terminal["reference"])
+        self.bind_manifest(response, manifest)
+        with self.assertRaisesRegex(io.Refusal, "worker_manifest_witness_order"):
+            worker._capture_manifest_evidence(manifest, response)
+
+    def test_valid_inflight_gap_attestation_need_not_equal_completed_gap(self):
+        response = self.response()
+        response["evidence"]["capture_monitor"]["maximum_full_start_gap_seconds"] = 0.95
+        self.rebind_monitor(response)
+        self.validate(response)
+
+    def test_manifest_cannot_move_back_to_an_older_allowed_full_reference(self):
+        response = self.response()
+        monitor = response["evidence"]["capture_monitor"]
+        middle = {
+            "sequence": 2,
+            "full_scan_count": 3,
+            "started_monotonic": 12.4,
+            "completed_monotonic": 12.6,
+            "reference": {
+                "path": self.prefix + "closed-observation-" + "3" * 32 + ".json",
+                "sha256": "3" * 64,
+            },
+        }
+        monitor["full_observations"].insert(1, middle)
+        monitor["full_observations"][-1].update(sequence=3, full_scan_count=4)
+        monitor["terminal_full"] = copy.deepcopy(monitor["full_observations"][-1])
+        monitor["capture_finished_after_full_sequence"] = 2
+        monitor["capture_last_fence_full_sequence"] = 2
+        response["evidence"]["capture_terminal_full"]["full_scan_count"] = 4
+        self.rebind_capture_endpoint(response, "capture_terminal_full")
+        manifest = self.capture_manifest(response)
+        manifest["external_closure_observations"][1].update(**middle["reference"])
+        self.bind_manifest(response, manifest)
+        self.validate(response)
+        with self.assertRaisesRegex(io.Refusal, "worker_manifest_witness_order"):
+            worker._capture_manifest_evidence(manifest, response)
+
+    def test_bad_manifest_fence_prevents_restore_signing_and_delivery(self):
+        response = self.response()
+        calls, delivered = self.fake_execution(response)
+        with patch.object(
+            worker, "_capture_manifest_evidence", side_effect=io.Refusal("bad-fence")
+        ):
+            with self.assertRaisesRegex(io.Refusal, "bad-fence"):
+                self.instance.run(self.attempt, "closed")
+        self.assertNotIn("restore", calls)
+        self.assertNotIn("sign", calls)
+        self.assertNotIn("deliver", calls)
+        self.assertEqual(delivered, {})
+
+    def test_equal_clock_inflight_reference_was_never_issued_to_capture(self):
+        response = self.response()
+        evidence = response["evidence"]
+        monitor = evidence["capture_monitor"]
+        middle = {
+            "sequence": 2,
+            "full_scan_count": 3,
+            "started_monotonic": 100.0,
+            "completed_monotonic": 100.0,
+            "reference": {
+                "path": self.prefix + "closed-observation-" + "3" * 32 + ".json",
+                "sha256": "3" * 64,
+            },
+        }
+        monitor["full_observations"].insert(1, middle)
+        for row in monitor["full_observations"]:
+            row.update(started_monotonic=100.0, completed_monotonic=100.0)
+        monitor["full_observations"][-1].update(sequence=3, full_scan_count=4)
+        monitor.update(
+            started_monotonic=100.0,
+            capture_started_monotonic=100.0,
+            capture_finished_monotonic=100.0,
+            observed_monotonic=100.0,
+            capture_finished_after_full_sequence=2,
+            capture_last_fence_full_sequence=1,
+            initial_full=copy.deepcopy(monitor["full_observations"][0]),
+            terminal_full=copy.deepcopy(monitor["full_observations"][-1]),
+            maximum_full_start_gap_seconds=0.0,
+            maximum_sample_start_gap_seconds=0.0,
+            maximum_fence_sample_age_seconds=0.0,
+            maximum_fence_full_age_seconds=0.0,
+            sample_count=1,
+        )
+        evidence["capture_terminal_full"]["full_scan_count"] = 4
+        self.rebind_capture_endpoint(response, "capture_terminal_full")
+        evidence["capture_first_sample"].update(
+            sampled_started_monotonic=100.0, sampled_monotonic=100.0
+        )
+        monitor["first_sample"].update(started_monotonic=100.0, completed_monotonic=100.0)
+        self.rebind_capture_endpoint(response, "capture_first_sample")
+        evidence["capture_last_sample"] = copy.deepcopy(evidence["capture_first_sample"])
+        response["inspection"]["capture_last_sample_ref"] = copy.deepcopy(
+            response["inspection"]["capture_first_sample_ref"]
+        )
+        monitor["last_sample"] = copy.deepcopy(monitor["first_sample"])
+        self.rebind_monitor(response)
+        manifest = self.capture_manifest(response)
+        self.validate(response)
+        worker._capture_manifest_evidence(manifest, response)
+        manifest["external_closure_observations"][-1].update(**middle["reference"])
+        self.bind_manifest(response, manifest)
+        self.validate(response)
+        with self.assertRaisesRegex(io.Refusal, "worker_manifest_witness_order"):
+            worker._capture_manifest_evidence(manifest, response)
+
+    def test_jointly_rehashed_truncated_manifest_and_fence_count_fail_coverage(self):
+        response = self.response()
+        manifest = self.capture_manifest(response)
+        manifest["external_closure_observations"].pop()
+        response["evidence"]["capture_monitor"]["fence_count"] -= 1
+        self.rebind_monitor(response)
+        self.bind_manifest(response, manifest)
+        self.validate(response)
+        with self.assertRaisesRegex(io.Refusal, "worker_manifest_fence_coverage"):
+            worker._capture_manifest_evidence(manifest, response)
 
     def test_closed_requires_all_thirteen_writers_stopped_and_transports_live(self):
         for key, index, mutation in (
@@ -621,6 +1147,7 @@ class WorkerTests(unittest.TestCase):
             )
 
     def fake_execution(self, response, *, restore_fails=False):
+        manifest = self.capture_manifest(response) if response["stage"] == "closed" else None
         calls, delivered = [], {}
 
         def download(argv, destination, **kwargs):
@@ -658,6 +1185,7 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(archive_sha, io.sha(b"delta"))
             self.assertEqual(cache, self.cache)
             output.mkdir()
+            worker._new_file(output / "manifest.json", io.canonical(manifest))
 
         def restore(assembled, manifest_sha, output, context, **_kwargs):
             calls.append("restore")

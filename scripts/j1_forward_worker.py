@@ -10,6 +10,7 @@ import argparse
 import base64
 import copy
 import hashlib
+import math
 import os
 import re
 import sqlite3
@@ -37,6 +38,22 @@ INSPECTION_SCHEMA = "autostop.j1.crm-forward-inspection.v1"
 MAX_JSON = 2 * 1024**2
 MAX_DELTA = 16 * 1024**3 + 256 * 1024**2
 MIN_SQLITE = (3, 51, 3)
+MONITOR_LIMITS = {
+    "sample_interval_seconds": 0.2,
+    "maximum_sample_age_seconds": 1.0,
+    "full_refresh_seconds": 0.5,
+    "maximum_full_start_gap_seconds": 1.0,
+    "maximum_full_scan_seconds": 30.0,
+}
+CAPTURE_EVIDENCE = {
+    "closure_ownership",
+    "backup_capture",
+    "capture_monitor",
+    "capture_initial_full",
+    "capture_terminal_full",
+    "capture_first_sample",
+    "capture_last_sample",
+}
 CI_JOBS = sorted(["docker-runtime-assets", "static", "unit", "browser-performance", "quality"])
 NATIVE_UNITS = frozenset(
     {
@@ -559,6 +576,467 @@ def _ingress_evidence(evidence, inspection, plan):
             )
 
 
+def _number(value):
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
+def _capture_monitor_evidence(response):
+    """Validate source-bound monitoring receipts using only the remote clock.
+
+    Intermediate sample/fence maxima are reviewed-monitor attestations. Only
+    supplied endpoint documents and the full-record timing ledger are checked
+    here; this does not reobserve historical processes from the workstation.
+    """
+    from scripts import j1_forward_backup as backup_policy
+    from scripts import j1_forward_closure as closure_policy
+
+    plan, inspection, evidence = (response[name] for name in ("plan", "inspection", "evidence"))
+    prefix = ATTEMPTS + "/" + plan["attempt_id"] + "/"
+    scope = evidence["process_scope"]
+    owned, monitor, captured = (
+        evidence[name] for name in ("closure_ownership", "capture_monitor", "backup_capture")
+    )
+    for name, filename in (
+        ("closure_ownership", "closure-owned.json"),
+        ("capture_monitor", "capture-monitor.json"),
+        ("backup_capture", "backup-evidence.json"),
+    ):
+        require(inspection[name + "_ref"]["path"] == prefix + filename, "worker_capture_path")
+    require(
+        set(owned)
+        == {
+            "schema",
+            "attempt_id",
+            "attempt_dir",
+            "boot_id",
+            "dropins",
+            "bytes_sha256",
+            "warm_actors",
+            "baseline_sha256",
+            "source_roots",
+            "consumer_sha256",
+            "freeze_actors",
+            "process_scope_ref",
+        }
+        and owned["schema"] == closure_policy.SCHEMA
+        and owned["attempt_id"] == plan["attempt_id"]
+        and owned["attempt_dir"] == prefix.rstrip("/")
+        and owned["boot_id"] == scope["boot_id"]
+        and owned["baseline_sha256"] == scope["native_sha256"]
+        and owned["consumer_sha256"] == plan["candidate"]["consumer_sha256"]
+        and owned["process_scope_ref"] == inspection["process_scope_ref"]
+        and io.canonical(owned["freeze_actors"]) == io.canonical(scope["freeze_actors"])
+        and io.canonical(owned["warm_actors"])
+        == io.canonical(response["baseline"]["native"]["warm_actors"])
+        and owned["bytes_sha256"] == io.sha(closure_policy.DENY_BYTES)
+        and owned["dropins"]
+        == [
+            {
+                "unit": unit,
+                "path": "/etc/systemd/system/" + unit + ".d/" + closure_policy.DROPIN,
+                "sha256": io.sha(closure_policy.DENY_BYTES),
+            }
+            for unit in closure_policy.UNITS
+        ],
+        "worker_capture_ownership",
+    )
+    roots = owned["source_roots"]
+    require(
+        type(roots) is list and len(roots) == len(closure_policy.WRITER_ROOTS),
+        "worker_capture_roots",
+    )
+    for row, path in zip(roots, closure_policy.WRITER_ROOTS, strict=True):
+        require(
+            type(row) is dict
+            and type(row.get("present")) is bool
+            and row.get("path") == path
+            and set(row) == {"path", "present"} | ({"dev", "ino"} if row["present"] else set())
+            and (
+                not row["present"]
+                or all(type(row[k]) is int and row[k] >= 0 for k in ("dev", "ino"))
+            ),
+            "worker_capture_roots",
+        )
+    require(
+        set(monitor)
+        == {
+            "schema",
+            "bindings",
+            "generation",
+            "process_id",
+            "limits",
+            "started_monotonic",
+            "capture_started_monotonic",
+            "capture_finished_monotonic",
+            "capture_finished_after_full_sequence",
+            "capture_last_fence_full_sequence",
+            "observed_monotonic",
+            "initial_full",
+            "terminal_full",
+            "full_observations",
+            "first_sample",
+            "last_sample",
+            "sample_count",
+            "fence_count",
+            "maximum_sample_start_gap_seconds",
+            "maximum_full_start_gap_seconds",
+            "maximum_fence_sample_age_seconds",
+            "maximum_fence_full_age_seconds",
+        }
+        and monitor["schema"] == "autostop.j1.crm-forward-capture-monitor.v1"
+        and type(monitor["process_id"]) is int
+        and monitor["process_id"] > 1
+        and monitor["process_id"]
+        not in {row["pid"] for row in (*scope["freeze_actors"], *scope["transport_actors"])}
+        and monitor["bindings"]
+        == {
+            "attempt_id": plan["attempt_id"],
+            "boot_id": scope["boot_id"],
+            "closure_ref": inspection["closure_ownership_ref"],
+            "process_scope_ref": inspection["process_scope_ref"],
+            "ingress_drain_ref": inspection["ingress_drain_ref"],
+            "plan_ref": response["plan_ref"],
+            "consumer_sha256": plan["candidate"]["consumer_sha256"],
+        }
+        and type(monitor["limits"]) is dict
+        and set(monitor["limits"]) == set(MONITOR_LIMITS)
+        and all(
+            _number(value) and value == MONITOR_LIMITS[key]
+            for key, value in monitor["limits"].items()
+        ),
+        "worker_capture_monitor_binding",
+    )
+    _uuid(monitor["generation"])
+    times = (
+        "started_monotonic",
+        "capture_started_monotonic",
+        "capture_finished_monotonic",
+        "observed_monotonic",
+    )
+    metrics = (
+        "maximum_sample_start_gap_seconds",
+        "maximum_full_start_gap_seconds",
+        "maximum_fence_sample_age_seconds",
+        "maximum_fence_full_age_seconds",
+    )
+    require(
+        all(_number(monitor[key]) for key in (*times, *metrics)), "worker_capture_monitor_numbers"
+    )
+    started, capture_start, capture_end, observed = (monitor[key] for key in times)
+    window = (_utc(plan["deadline_utc"]) - _utc(plan["created_at"])).total_seconds()
+    require(
+        started <= capture_start <= capture_end <= observed
+        and observed - started <= min(600, window)
+        and type(monitor["sample_count"]) is int
+        and 1 <= monitor["sample_count"] <= 3002
+        and type(monitor["fence_count"]) is int
+        and 1 <= monitor["fence_count"] <= 1_000_000,
+        "worker_capture_monitor_interval",
+    )
+
+    def record(row, *, full):
+        require(
+            type(row) is dict
+            and set(row)
+            == {"started_monotonic", "completed_monotonic", "reference"}
+            | ({"sequence", "full_scan_count"} if full else set())
+            and _number(row["started_monotonic"])
+            and _number(row["completed_monotonic"])
+            and started <= row["started_monotonic"] <= row["completed_monotonic"] <= observed
+            and row["completed_monotonic"] - row["started_monotonic"] <= (30 if full else 1),
+            "worker_capture_record",
+        )
+        _reference(row["reference"])
+        require(
+            re.fullmatch(
+                re.escape(prefix)
+                + (r"closed-observation-" if full else r"closed-sample-")
+                + r"[0-9a-f]{32}\.json",
+                row["reference"]["path"],
+            ),
+            "worker_capture_record_path",
+        )
+        if full:
+            require(
+                type(row["sequence"]) is int
+                and row["sequence"] > 0
+                and type(row["full_scan_count"]) is int
+                and row["full_scan_count"] > 0,
+                "worker_capture_record_count",
+            )
+
+    records = monitor["full_observations"]
+    require(type(records) is list and 2 <= len(records) <= 1202, "worker_capture_full_count")
+    gaps, paths, hashes = [], set(), set()
+    for index, row in enumerate(records):
+        record(row, full=True)
+        ref = row["reference"]
+        require(
+            row["sequence"] == index + 1
+            and ref["path"] not in paths
+            and ref["sha256"] not in hashes,
+            "worker_capture_full_replay",
+        )
+        paths.add(ref["path"])
+        hashes.add(ref["sha256"])
+        if index:
+            previous = records[index - 1]
+            gap = row["started_monotonic"] - previous["completed_monotonic"]
+            require(
+                0 <= gap <= 1 and row["full_scan_count"] == previous["full_scan_count"] + 1,
+                "worker_capture_full_gap",
+            )
+            gaps.append(gap)
+    initial, terminal = records[0], records[-1]
+    boundary = monitor["capture_finished_after_full_sequence"]
+    issued = monitor["capture_last_fence_full_sequence"]
+    require(
+        type(boundary) is int
+        and 1 <= boundary < len(records)
+        and records[boundary - 1]["started_monotonic"] <= capture_end
+        and records[boundary]["started_monotonic"] >= capture_end
+        and terminal["sequence"] > boundary,
+        "worker_capture_terminal_sequence",
+    )
+    require(
+        type(issued) is int
+        and 1 <= issued <= boundary
+        and records[issued - 1]["completed_monotonic"] <= capture_end,
+        "worker_capture_issued_sequence",
+    )
+    require(
+        io.canonical(monitor["initial_full"]) == io.canonical(initial)
+        and io.canonical(monitor["terminal_full"]) == io.canonical(terminal)
+        and initial["completed_monotonic"]
+        <= capture_start
+        <= capture_end
+        <= terminal["started_monotonic"]
+        and max(gaps) <= monitor["maximum_full_start_gap_seconds"] <= 1
+        and observed - terminal["completed_monotonic"] <= 31
+        and monitor["maximum_fence_sample_age_seconds"] <= 1
+        and monitor["maximum_fence_full_age_seconds"] <= 31,
+        "worker_capture_terminal_order",
+    )
+    first, last = monitor["first_sample"], monitor["last_sample"]
+    for row in (first, last):
+        record(row, full=False)
+    require(
+        initial["completed_monotonic"]
+        <= first["started_monotonic"]
+        <= first["completed_monotonic"]
+        <= capture_start
+        and first["completed_monotonic"] <= last["completed_monotonic"]
+        and 0 <= observed - last["started_monotonic"] <= 1
+        and first["started_monotonic"] <= last["started_monotonic"]
+        and monitor["maximum_sample_start_gap_seconds"] <= 1,
+        "worker_capture_sample_order",
+    )
+    if monitor["sample_count"] == 1:
+        require(
+            first == last and monitor["maximum_sample_start_gap_seconds"] == 0,
+            "worker_capture_sample_count",
+        )
+    else:
+        span = last["started_monotonic"] - first["started_monotonic"]
+        require(
+            first["reference"]["path"] != last["reference"]["path"]
+            and first["reference"]["sha256"] != last["reference"]["sha256"]
+            and 0
+            < span / (monitor["sample_count"] - 1)
+            <= monitor["maximum_sample_start_gap_seconds"]
+            <= span,
+            "worker_capture_sample_count",
+        )
+    for name, row in (("capture_initial_full", initial), ("capture_terminal_full", terminal)):
+        require(inspection[name + "_ref"] == row["reference"], "worker_capture_full_reference")
+        full = evidence[name]
+        require(
+            set(full)
+            == {
+                "schema",
+                "attempt_id",
+                "boot_id",
+                "full_scan_at",
+                "full_scan_count",
+                "units_stopped",
+                "other_container_count",
+                "process_scope_ref",
+                "scope_sha256",
+                "freeze_actors",
+                "transport_actors",
+                "process_scope_observation",
+                "ingress_drain_ref",
+                "frozen_owned_write_fds",
+                "owned_sqlite_coordination_fds",
+                "sampled_at",
+                "full_scan_this_sample",
+                "full_scan_age_seconds",
+            }
+            and full["attempt_id"] == plan["attempt_id"]
+            and full["boot_id"] == scope["boot_id"]
+            and full["ingress_drain_ref"] == inspection["ingress_drain_ref"]
+            and full["full_scan_this_sample"] is True
+            and type(full["full_scan_count"]) is int
+            and full["full_scan_count"] == row["full_scan_count"]
+            and full["units_stopped"] == list(closure_policy.UNITS)
+            and all(
+                type(full[key]) is int and 0 <= full[key] <= 16_000_000
+                for key in (
+                    "other_container_count",
+                    "frozen_owned_write_fds",
+                    "owned_sqlite_coordination_fds",
+                )
+            )
+            and all(
+                _number(full[key])
+                for key in ("full_scan_at", "sampled_at", "full_scan_age_seconds")
+            )
+            and 0 <= full["full_scan_age_seconds"] <= 30
+            and _utc(plan["created_at"]).timestamp()
+            <= full["full_scan_at"]
+            <= full["sampled_at"]
+            <= _utc(plan["deadline_utc"]).timestamp(),
+            "worker_capture_full_evidence",
+        )
+        _process_scope_evidence(
+            scope, inspection["process_scope_ref"], full, plan, response["baseline"]["native"]
+        )
+        for key, stopped in (("freeze_actors", True), ("transport_actors", False)):
+            expected = [
+                {"pid": actor["pid"], "start_ticks": actor["start_ticks"], "stopped": stopped}
+                for actor in scope[key]
+            ]
+            require(io.canonical(full[key]) == io.canonical(expected), "worker_capture_full_actors")
+    for name, row in (("capture_first_sample", first), ("capture_last_sample", last)):
+        require(inspection[name + "_ref"] == row["reference"], "worker_capture_sample_reference")
+        sample = evidence[name]
+        require(
+            set(sample)
+            == {
+                "schema",
+                "attempt_id",
+                "boot_id",
+                "process_id",
+                "closure_sha256",
+                "process_scope_ref",
+                "scope_sha256",
+                "ingress_drain_ref",
+                "freeze_actors",
+                "transport_actors",
+                "sampled_at",
+                "sampled_started_monotonic",
+                "sampled_monotonic",
+            }
+            and sample["schema"] == "autostop.j1.crm-forward-closure-sample.v1"
+            and sample["attempt_id"] == plan["attempt_id"]
+            and sample["boot_id"] == scope["boot_id"]
+            and type(sample["process_id"]) is int
+            and sample["process_id"] == monitor["process_id"]
+            and sample["closure_sha256"] == inspection["closure_ownership_ref"]["sha256"]
+            and sample["process_scope_ref"] == inspection["process_scope_ref"]
+            and sample["scope_sha256"] == inspection["process_scope_ref"]["sha256"]
+            and sample["ingress_drain_ref"] == inspection["ingress_drain_ref"]
+            and all(
+                _number(sample[key])
+                for key in ("sampled_at", "sampled_started_monotonic", "sampled_monotonic")
+            )
+            and sample["sampled_started_monotonic"] == row["started_monotonic"]
+            and sample["sampled_monotonic"] == row["completed_monotonic"]
+            and _utc(plan["created_at"]).timestamp()
+            <= sample["sampled_at"]
+            <= _utc(plan["deadline_utc"]).timestamp(),
+            "worker_capture_sample_evidence",
+        )
+        for key, stopped in (("freeze_actors", True), ("transport_actors", False)):
+            expected = [
+                {"pid": actor["pid"], "start_ticks": actor["start_ticks"], "stopped": stopped}
+                for actor in scope[key]
+            ]
+            require(
+                io.canonical(sample[key]) == io.canonical(expected), "worker_capture_sample_actors"
+            )
+    require(
+        evidence["capture_first_sample"]["sampled_at"]
+        <= evidence["capture_last_sample"]["sampled_at"],
+        "worker_capture_sample_clock",
+    )
+    require(
+        set(captured)
+        == {
+            "manifest",
+            "manifest_sha256",
+            "files",
+            "bytes",
+            "capture_monitor_ref",
+            "terminal_full_ref",
+        }
+        | set(backup_policy.FALSE_CLAIMS)
+        and all(captured[key] is False for key in backup_policy.FALSE_CLAIMS)
+        and type(captured["files"]) is int
+        and 0 < captured["files"] <= backup_policy.MAX_FILES
+        and type(captured["bytes"]) is int
+        and 0 <= captured["bytes"] <= backup_policy.MAX_TOTAL_BYTES
+        and captured["capture_monitor_ref"] == inspection["capture_monitor_ref"]
+        and captured["terminal_full_ref"] == inspection["capture_terminal_full_ref"]
+        and captured["manifest_sha256"] == response["transport"]["manifest_sha256"],
+        "worker_backup_capture_binding",
+    )
+    _reference(captured["manifest"])
+    require(
+        captured["manifest"]
+        == {"path": prefix + "backup/manifest.json", "sha256": captured["manifest_sha256"]},
+        "worker_backup_manifest_binding",
+    )
+
+
+def _capture_manifest_evidence(manifest, response):
+    """Cross-bind the restored manifest's actual fence references to its monitor."""
+    captured = response["evidence"]["backup_capture"]
+    monitor = response["evidence"]["capture_monitor"]
+    _bound(manifest, captured["manifest"])
+    witnesses = manifest.get("external_closure_observations")
+    require(
+        type(witnesses) is list and len(witnesses) == monitor["fence_count"],
+        "worker_manifest_witness_count",
+    )
+    allowed = {
+        (row["reference"]["path"], row["reference"]["sha256"]): row["sequence"]
+        for row in monitor["full_observations"]
+        if row["completed_monotonic"] <= monitor["capture_finished_monotonic"]
+        and row["sequence"] <= monitor["capture_last_fence_full_sequence"]
+    }
+    previous = 0
+    for witness in witnesses:
+        require(
+            type(witness) is dict
+            and set(witness) == {"attempt_id", "path", "sha256"}
+            and witness["attempt_id"] == response["plan"]["attempt_id"],
+            "worker_manifest_witness_binding",
+        )
+        _reference({key: witness[key] for key in ("path", "sha256")})
+        sequence = allowed.get((witness["path"], witness["sha256"]), 0)
+        require(sequence > 0 and sequence >= previous, "worker_manifest_witness_order")
+        previous = sequence
+    require(previous == monitor["capture_last_fence_full_sequence"], "worker_manifest_last_witness")
+    artifacts = manifest.get("artifacts")
+    require(type(artifacts) is list, "worker_manifest_artifacts")
+    require(len(witnesses) == 2 * len(artifacts) + 2, "worker_manifest_fence_coverage")
+    payloads = []
+    for row in artifacts:
+        require(type(row) is dict, "worker_manifest_artifacts")
+        if "payload" in row:
+            require(
+                type(row.get("bytes")) is int and row["bytes"] >= 0,
+                "worker_manifest_artifact_bytes",
+            )
+            payloads.append(row)
+    require(
+        len(payloads) == captured["files"]
+        and sum(row["bytes"] for row in payloads) == captured["bytes"],
+        "worker_manifest_capture_totals",
+    )
+
+
 def validate_response(response, *, attempt, stage):
     common = {
         "ok",
@@ -657,7 +1135,7 @@ def validate_response(response, *, attempt, stage):
         "ingress_idle_ref",
     }
     fields |= (
-        {"writer_closure_confirmed", "closure_ref"}
+        {"writer_closure_confirmed", "closure_ref"} | {name + "_ref" for name in CAPTURE_EVIDENCE}
         if stage == "closed"
         else {
             "original_guards_executed",
@@ -681,7 +1159,7 @@ def validate_response(response, *, attempt, stage):
     )
     evidence = response["evidence"]
     expected_evidence = {"native", "process_scope", "ingress_drain", "ingress_idle"} | (
-        {"closure"}
+        {"closure"} | CAPTURE_EVIDENCE
         if stage == "closed"
         else {"runtime", "container", "guard_starts", "activation_cohort"}
     )
@@ -769,6 +1247,8 @@ def validate_response(response, *, attempt, stage):
             "worker_runtime_evidence_invalid",
         )
     _ingress_evidence(evidence, inspection, plan)
+    if stage == "closed":
+        _capture_monitor_evidence(response)
     context = response["backup_context"]
     expected_context = {
         "attempt_id": attempt,
@@ -1044,6 +1524,9 @@ class Worker:
                 assembled,
                 timeout=_remaining(plan),
             )
+            manifest_path = _physical(assembled / "manifest.json")
+            require(manifest_path.stat().st_size <= 64 * 1024**2, "worker_manifest_size")
+            _capture_manifest_evidence(io.document(manifest_path.read_bytes()), response)
             restored = backup.verify_and_restore(
                 assembled,
                 manifest_sha,

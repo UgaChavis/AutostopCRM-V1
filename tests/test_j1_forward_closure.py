@@ -299,7 +299,9 @@ class FakeRunner:
         self.events.append(("actor", expected["pid"], full))
         return copy.deepcopy(self.actors[expected["pid"]])
 
-    def signal_actor(self, expected, stop):
+    def signal_actor(self, expected, stop, *, deadline=None):
+        if deadline is not None:
+            closure._remaining(deadline)
         closure._same_actor(expected, self.actors[expected["pid"]], full=True)
         if (expected["pid"], stop) == self.fail_signal:
             self.fail_signal = None
@@ -795,6 +797,25 @@ class ClosureTests(unittest.TestCase):
         self.assertEqual(len(self.runner.barriers), 8)
         self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
 
+    def test_reopen_cannot_outlive_plan_while_full_check_completes(self):
+        owned = self.close()
+        original_observe = closure._observe
+
+        with patch.object(closure.time, "monotonic", return_value=100) as clock:
+
+            def expire_after_observation(*args, **kwargs):
+                observed = original_observe(*args, **kwargs)
+                clock.return_value = 101.01
+                return observed
+
+            with (
+                patch.object(closure, "_observe", side_effect=expire_after_observation),
+                self.assertRaises(Refusal),
+            ):
+                closure.reopen_native(owned, deadline=101)
+        self.assertEqual(len(self.runner.barriers), 8)
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in FREEZE_PIDS))
+
     def test_activation_requires_guarded_native_peer_and_twelve_owned_auxiliaries_frozen(self):
         owned = self.close()
         closure.reopen_native(owned)
@@ -877,6 +898,151 @@ class ClosureTests(unittest.TestCase):
         self.assertTrue(observed["full_scan_this_sample"])
         self.assertNotIn("accepted", observed)
 
+    def test_full_observation_scopes_only_its_actor_hash_pass_and_keeps_both_scope_scans(self):
+        owned = self.close()
+        actual_actor = self.runner.actor
+        contexts = []
+
+        def actor_in_pass(expected, *, full=False):
+            contexts.append((full, getattr(closure._HASH_PASS, "cache", None)))
+            return actual_actor(expected, full=full)
+
+        with (
+            patch.object(self.runner, "actor", side_effect=actor_in_pass),
+            patch.object(self.runner, "verify_scope", wraps=self.runner.verify_scope) as scope,
+            patch.object(self.runner, "descriptor_scan", wraps=self.runner.descriptor_scan) as fds,
+        ):
+            closure.observe_closed(owned, force_full=True)
+        self.assertEqual(scope.call_count, 2)
+        self.assertEqual(fds.call_count, 1)
+        full_contexts = [context for full, context in contexts if full]
+        self.assertEqual(len(full_contexts), 18)
+        self.assertTrue(all(context is full_contexts[0] for context in full_contexts))
+        self.assertIsNotNone(full_contexts[0])
+        self.assertTrue(all(context is None for full, context in contexts if not full))
+        self.assertFalse(hasattr(closure._HASH_PASS, "cache"))
+
+    def test_activation_hashes_share_one_fresh_pass_without_cross_pass_reuse(self):
+        owned = self.close()
+        closure.reopen_native(owned)
+        actual_actor = self.runner.actor
+        contexts = []
+
+        def actor_in_pass(expected, *, full=False):
+            self.assertTrue(full)
+            contexts.append(getattr(closure._HASH_PASS, "cache", None))
+            return actual_actor(expected, full=full)
+
+        with patch.object(self.runner, "actor", side_effect=actor_in_pass):
+            first = closure._activation_actors(owned, released=False)
+            second = closure._activation_actors(owned, released=False)
+        self.assertEqual(first, second)
+        self.assertEqual(len(contexts), 36)
+        self.assertIsNotNone(contexts[0])
+        self.assertTrue(all(context is contexts[0] for context in contexts[:18]))
+        self.assertTrue(all(context is contexts[18] for context in contexts[18:]))
+        self.assertIsNot(contexts[0], contexts[18])
+        self.assertFalse(hasattr(closure._HASH_PASS, "cache"))
+
+    def test_sample_is_fresh_and_distinct_without_cache_or_full_observer(self):
+        owned = self.close()
+        previous_cache = copy.deepcopy(closure._CACHE)
+        self.runner.events.clear()
+        before = time.monotonic()
+        with (
+            patch.object(closure, "_CACHE", Mock()),
+            patch.object(self.runner, "verify_scope", side_effect=AssertionError("full scan")),
+            patch.object(self.runner, "units", side_effect=AssertionError("unit scan")),
+            patch.object(closure, "_executable_hash_pass", side_effect=AssertionError("hash pass")),
+        ):
+            observed = closure.sample_closed(owned)
+        self.assertEqual(closure._CACHE, previous_cache)
+        self.assertEqual(observed["schema"], "autostop.j1.crm-forward-closure-sample.v1")
+        self.assertEqual(observed["process_id"], os.getpid())
+        self.assertEqual(observed["closure_sha256"], closure.io.sha(closure.io.canonical(owned)))
+        self.assertEqual(observed["process_scope_ref"], owned["process_scope_ref"])
+        self.assertIsNotNone(observed["ingress_drain_ref"])
+        self.assertEqual(len(observed["freeze_actors"]), 13)
+        self.assertEqual(len(observed["transport_actors"]), 5)
+        self.assertTrue(all(row["stopped"] for row in observed["freeze_actors"]))
+        self.assertTrue(all(not row["stopped"] for row in observed["transport_actors"]))
+        self.assertLessEqual(before, observed["sampled_started_monotonic"])
+        self.assertLessEqual(observed["sampled_started_monotonic"], observed["sampled_monotonic"])
+        self.assertLessEqual(observed["sampled_monotonic"], time.monotonic())
+        self.assertFalse(any(key.startswith("full_scan") for key in observed))
+        self.assertNotIn("process_scope_observation", observed)
+        self.assertNotIn("accepted", observed)
+        self.assertEqual(
+            self.runner.events,
+            [("actor", pid, False) for pid in (*FREEZE_PIDS, *TRANSPORT_PIDS)],
+        )
+
+    def test_sample_does_not_wait_for_full_scan_lock(self):
+        owned = self.close()
+        finished, errors = threading.Event(), []
+
+        def sample():
+            try:
+                closure.sample_closed(owned)
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        thread = threading.Thread(target=sample)
+        with closure._LOCK:
+            thread.start()
+            completed_while_locked = finished.wait(2)
+        thread.join(5)
+        self.assertTrue(completed_while_locked)
+        self.assertEqual(errors, [])
+        self.assertFalse(thread.is_alive())
+
+    def test_sample_refuses_actor_drift_and_missing_admission(self):
+        owned = self.close()
+        changes = (
+            (538285, {"stopped": False}, "warm_actor_not_frozen"),
+            (538314, {"stopped": True}, "scope_transport_stopped"),
+            (538487, {"start_ticks": 1}, "warm_actor_changed"),
+            (538487, {"argv_sha256": "f" * 64}, "warm_actor_changed"),
+            (538487, {"mount_namespace": "mnt:[other]"}, "warm_actor_changed"),
+        )
+        for pid, updates, error in changes:
+            pristine = self.runner.actors[pid].copy()
+            self.runner.actors[pid].update(updates)
+            with self.subTest(updates=updates), self.assertRaisesRegex(Refusal, error):
+                closure.sample_closed(owned)
+            self.runner.actors[pid] = pristine
+        self.runner.drains.clear()
+        with self.assertRaisesRegex(Refusal, "ingress_drain_missing"):
+            closure.sample_closed(owned)
+
+    def test_sample_refuses_ownership_boot_and_scope_drift(self):
+        owned = self.close()
+        with patch.object(self.runner, "load", return_value={**owned, "boot_id": "other"}):
+            with self.assertRaisesRegex(Refusal, "closure_ownership_changed"):
+                closure.sample_closed(owned)
+        self.runner.boot = "other"
+        with self.assertRaisesRegex(Refusal, "closure_boot_changed"):
+            closure.sample_closed(owned)
+        self.runner.boot = owned["boot_id"]
+        with patch.object(self.runner, "load_scope", return_value={}):
+            with self.assertRaisesRegex(Refusal, "closure_scope_binding"):
+                closure.sample_closed(owned)
+
+    def test_sample_rechecks_barriers_after_actor_reads(self):
+        owned = self.close()
+        actual_actor = self.runner.actor
+
+        def remove_barrier(expected, *, full=False):
+            result = actual_actor(expected, full=full)
+            self.runner.barriers.pop(owned["dropins"][0]["path"], None)
+            return result
+
+        with patch.object(self.runner, "actor", side_effect=remove_barrier):
+            with self.assertRaisesRegex(Refusal, "barrier_changed"):
+                closure.sample_closed(owned)
+
     def test_boot_change_blocks_old_pid_ownership(self):
         result = self.close()
         self.runner.boot = "boot-2"
@@ -901,6 +1067,144 @@ class ClosureTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(self.runner.events.count("fds"), 1)
         self.assertFalse(any(thread.is_alive() for thread in threads))
+
+
+class ExecutableHashPassTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.source = Path(directory.name) / "executable"
+        self.source.write_bytes(b"same executable bytes")
+        self.path = Mock(spec=Path)
+        self.path.open.side_effect = self.source.open
+        self.info = SimpleNamespace(
+            **{field: getattr(self.source.stat(), field) for field in closure._EXE_METADATA}
+        )
+        self.path.stat.return_value = self.info
+        patches = (
+            patch.object(closure.os, "fstat", return_value=self.info),
+            patch.object(closure.os, "readlink", return_value="/fixed/executable"),
+            patch.object(closure, "_stat", return_value=(100, 1, "T")),
+            patch.object(closure.hashlib, "sha256", wraps=closure.hashlib.sha256),
+        )
+        self.fd_stat, self.readlink, self.birth, self.hash_calls = [p.start() for p in patches]
+        for item in patches:
+            self.addCleanup(item.stop)
+
+    def digest(self, info=None):
+        return closure._executable_sha(
+            self.path,
+            info or self.info,
+            exe="/fixed/executable",
+            pid=123,
+            birth=100,
+        )
+
+    def test_pass_hashes_each_distinct_binary_once_and_next_pass_rehashes(self):
+        with closure._executable_hash_pass():
+            first = self.digest()
+            self.assertEqual(self.digest(), first)
+            other = SimpleNamespace(**vars(self.info))
+            other.st_ino += 1
+            self.fd_stat.return_value = other
+            self.path.stat.return_value = other
+            self.assertEqual(self.digest(other), first)
+            self.assertEqual(self.hash_calls.call_count, 2)
+        self.assertFalse(hasattr(closure._HASH_PASS, "cache"))
+        with closure._executable_hash_pass():
+            self.assertEqual(self.digest(other), first)
+        self.assertEqual(self.hash_calls.call_count, 3)
+        self.assertEqual(self.fd_stat.call_count, 8)
+        self.assertEqual(self.path.stat.call_count, 4)
+        self.assertEqual(self.readlink.call_count, 4)
+        self.assertEqual(self.birth.call_count, 4)
+
+    def test_no_implicit_cache_outside_a_pass(self):
+        self.digest()
+        self.digest()
+        self.assertEqual(self.hash_calls.call_count, 2)
+        self.assertFalse(hasattr(closure._HASH_PASS, "cache"))
+
+    def test_every_metadata_field_invalidates_pass_hash(self):
+        for field in closure._EXE_METADATA:
+            with self.subTest(field=field), closure._executable_hash_pass():
+                self.fd_stat.return_value = self.info
+                self.path.stat.return_value = self.info
+                self.hash_calls.reset_mock()
+                self.digest()
+                changed = SimpleNamespace(**vars(self.info))
+                setattr(changed, field, getattr(changed, field) + 1)
+                self.fd_stat.return_value = changed
+                self.path.stat.return_value = changed
+                self.digest(changed)
+                self.assertEqual(self.hash_calls.call_count, 2)
+
+    def test_cache_hit_refuses_changed_open_descriptor_or_path(self):
+        changed = SimpleNamespace(**vars(self.info))
+        changed.st_ctime_ns += 1
+        for boundary in ("open", "after", "path", "link", "birth"):
+            with self.subTest(boundary=boundary), closure._executable_hash_pass():
+                self.fd_stat.side_effect = None
+                self.path.stat.return_value = self.info
+                self.readlink.return_value = "/fixed/executable"
+                self.birth.return_value = (100, 1, "T")
+                self.hash_calls.reset_mock()
+                self.digest()
+                if boundary == "open":
+                    self.fd_stat.side_effect = [changed]
+                elif boundary == "after":
+                    self.fd_stat.side_effect = [self.info, changed]
+                elif boundary == "path":
+                    self.path.stat.return_value = changed
+                elif boundary == "link":
+                    self.readlink.return_value = "/replaced/executable"
+                else:
+                    self.birth.return_value = (101, 1, "T")
+                with self.assertRaisesRegex(Refusal, "actor_executable_changed|actor_reused"):
+                    self.digest()
+                self.assertEqual(self.hash_calls.call_count, 1)
+
+    def test_failed_hash_verification_is_not_cached_and_scope_cleans_up(self):
+        changed = SimpleNamespace(**vars(self.info))
+        changed.st_size += 1
+        with self.assertRaisesRegex(Refusal, "actor_executable_changed"):
+            with closure._executable_hash_pass():
+                self.fd_stat.side_effect = [self.info, changed]
+                try:
+                    self.digest()
+                finally:
+                    self.assertEqual(closure._HASH_PASS.cache, {})
+        self.assertFalse(hasattr(closure._HASH_PASS, "cache"))
+        self.fd_stat.side_effect = None
+        with closure._executable_hash_pass():
+            self.digest()
+        self.assertEqual(self.hash_calls.call_count, 2)
+
+    def test_hash_passes_are_thread_local(self):
+        barrier = threading.Barrier(2)
+        caches, errors = [], []
+
+        def read():
+            try:
+                with closure._executable_hash_pass():
+                    self.digest()
+                    caches.append(closure._HASH_PASS.cache)
+                    barrier.wait(timeout=3)
+                    self.digest()
+                if hasattr(closure._HASH_PASS, "cache"):
+                    raise AssertionError("thread cache survived pass")
+            except BaseException as error:
+                errors.append(error)
+
+        threads = [threading.Thread(target=read) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertIsNot(caches[0], caches[1])
+        self.assertEqual(self.hash_calls.call_count, 2)
 
 
 class LinuxBackendTests(unittest.TestCase):
@@ -1570,6 +1874,27 @@ class LinuxBackendTests(unittest.TestCase):
             with self.assertRaisesRegex(Refusal, "warm_actor_changed"):
                 runner.signal_actor(expected, True)
         opened.assert_called_once_with(538285, 0)
+        sent.assert_not_called()
+        closed.assert_called_once_with(42)
+
+    def test_slow_identity_hash_cannot_signal_continue_after_plan_deadline(self):
+        runner = closure.LinuxRunner()
+        expected = actor(538285)
+        with (
+            patch.object(closure.time, "monotonic", return_value=100) as clock,
+            patch.object(closure.os, "pidfd_open", return_value=42, create=True),
+            patch.object(closure.signal, "pidfd_send_signal", create=True) as sent,
+            patch.object(closure.os, "close") as closed,
+        ):
+
+            def delayed_actor(_expected, *, full=False):
+                self.assertTrue(full)
+                clock.return_value = 101.01
+                return {**expected, "stopped": True}
+
+            runner.actor = delayed_actor
+            with self.assertRaises(Refusal):
+                runner.signal_actor(expected, False, deadline=101)
         sent.assert_not_called()
         closed.assert_called_once_with(42)
 

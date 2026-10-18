@@ -15,7 +15,6 @@ import socket
 import stat
 import subprocess
 import sys
-import threading
 import time
 import urllib.request
 import uuid
@@ -33,6 +32,7 @@ from scripts import j1_forward_io as io
 from scripts import j1_forward_proofs as signatures
 from scripts import j1_forward_transport as transport
 from scripts.j1_forward_host import CRM, DOCKER, Host, check_container_preserved, work_counts
+from scripts.j1_forward_monitor import ClosureMonitor
 from scripts.j1_forward_state import PLAN_SCHEMA, SCOPE, Store, validate_plan
 
 ROOT = Path("/var/lib/autostop-crm-forward")
@@ -476,6 +476,22 @@ def inspect(attempt, stage):
     state = io.document(io.read_protected(directory / "progress.json"))
     if stage == "closed":
         io.require(state["phase"] == "awaiting-offhost-restore", "closed_inspection_phase")
+        for name, path in (
+            ("closure_ownership", directory / "closure-owned.json"),
+            ("backup_capture", directory / "backup-evidence.json"),
+            ("capture_monitor", directory / "capture-monitor.json"),
+        ):
+            inspection[name + "_ref"] = io.reference(path)
+            evidence[name] = io.document(io.referenced(inspection[name + "_ref"]))
+        captured_monitor = evidence["capture_monitor"]
+        for name, record in (
+            ("capture_initial_full", captured_monitor["initial_full"]),
+            ("capture_terminal_full", captured_monitor["terminal_full"]),
+            ("capture_first_sample", captured_monitor["first_sample"]),
+            ("capture_last_sample", captured_monitor["last_sample"]),
+        ):
+            inspection[name + "_ref"] = record["reference"]
+            evidence[name] = io.document(io.referenced(record["reference"]))
         evidence["closure"] = closure.observe_closed(ownership, force_full=True)
         evidence["native"] = authority.verify_preserved(
             baseline["native"], running=False, owned_closure=projection(ownership)
@@ -596,37 +612,6 @@ def _record_failure(directory, plan_ref, plan, baseline, host, ownership, error)
     return failure
 
 
-class ClosureMonitor:
-    """Observe closure during blocking packing and off-host transport work."""
-
-    def __init__(self, witness):
-        self.witness = witness
-        self.stop_event = threading.Event()
-        self.error = None
-        self.thread = threading.Thread(target=self._run, daemon=True)
-
-    def _run(self):
-        while not self.stop_event.wait(0.4):
-            try:
-                self.witness()
-            except BaseException as error:
-                self.error = error
-                return
-
-    def start(self):
-        self.thread.start()
-
-    def check(self):
-        if self.error is not None:
-            raise io.Refusal("continuous_closure_observation_failed") from self.error
-
-    def stop(self):
-        self.stop_event.set()
-        self.thread.join(timeout=35)
-        io.require(not self.thread.is_alive(), "closure_monitor_did_not_stop")
-        self.check()
-
-
 def apply(attempt):
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     store = Store(STATE, plan["base_sha256"])
@@ -645,8 +630,16 @@ def apply(attempt):
         if mutation_owned:
             with cleanup_signals():
                 if monitor is not None:
-                    monitor.stop_event.set()
-                    monitor.thread.join(timeout=35)
+                    if not monitor.cancel():
+                        # A reader may still own closure's full-scan lock. End
+                        # only this consumer; the fixed ExecStopPost reconciles
+                        # the durable pending attempt after all threads die.
+                        # Never mutate the closure concurrently with readers.
+                        failure_recorded = True
+                        try:
+                            progress(directory, "failure-closure-incomplete", readers_stopped=False)
+                        finally:
+                            os._exit(2)
                 record_failure(
                     directory, plan_ref, plan, baseline, host, ownership, sys.exception()
                 )
@@ -678,25 +671,42 @@ def apply(attempt):
                     },
                 ),
             )
-            latest = None
 
-            def witness():
-                nonlocal latest
-                if monitor is not None:
-                    monitor.check()
+            def marker_check():
                 remaining(plan)
                 require_marker(plan_ref, plan)
-                observed = closure.observe_closed(ownership)
-                if latest is None or observed["full_scan_this_sample"]:
-                    latest = save(directory, "closed-observation", observed)
-                return {"attempt_id": attempt, **latest}
 
-            witness()
-            monitor = ClosureMonitor(witness)
+            monitor = ClosureMonitor(
+                lambda: save(
+                    directory,
+                    "closed-observation",
+                    closure.observe_closed(ownership, force_full=True),
+                ),
+                lambda: closure.sample_closed(ownership),
+                marker_check,
+                {
+                    "attempt_id": attempt,
+                    "boot_id": ownership["boot_id"],
+                    "closure_ref": io.reference(directory / "closure-owned.json"),
+                    "process_scope_ref": ownership["process_scope_ref"],
+                    "ingress_drain_ref": io.reference(directory / "ingress-drain.json"),
+                    "plan_ref": plan_ref,
+                    "consumer_sha256": plan["candidate"]["consumer_sha256"],
+                },
+                deadline=host.deadline,
+            )
             monitor.start()
+            witness = monitor.fence
+            monitor.begin_capture()
             captured = backup.capture(
                 directory / "backup", context(plan), witness, timeout=min(remaining(plan), 3600)
             )
+            captured_monitor = monitor.finish_capture()
+            captured["capture_monitor_ref"] = io.write_new(
+                directory / "capture-monitor.json", captured_monitor
+            )
+            captured["terminal_full_ref"] = captured_monitor["terminal_full"]["reference"]
+            witness()
             io.write_new(directory / "backup-evidence.json", captured)
             known = io.reference(CACHE_INVENTORY) if CACHE_INVENTORY.exists() else None
             packed = transport.bundle_delta(
@@ -721,10 +731,12 @@ def apply(attempt):
             )
             witness()
             monitor.stop()
+            remaining(plan)
+            require_marker(plan_ref, plan)
             progress(directory, "activating-crm")
             # The accepted quiet interval ends here. Reopen only the owned
             # barrier before introducing the candidate's first writable mount.
-            closure.reopen_native(ownership)
+            closure.reopen_native(ownership, deadline=host.deadline)
             host.replace_crm(plan["candidate"])
             native_start = int(time.monotonic() * 1_000_000)
             host.start_native()
@@ -749,6 +761,7 @@ def apply(attempt):
                     work_counts(host.job_status())["enabled"] is False,
                     "work_reopened_before_commit",
                 )
+                remaining(plan)
 
             native = await_proof(
                 directory, "native_acceptance", plan_ref, plan, baseline, still_held

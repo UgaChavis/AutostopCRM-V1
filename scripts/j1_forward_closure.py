@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -90,6 +91,63 @@ IDENTITY_FIELDS = tuple(key for key in ACTOR_FIELDS if key != "exe_sha256")
 ACCEPTED_PIDS = {538285, 538314, 538487}
 _LOCK = threading.RLock()
 _CACHE = {}
+_HASH_PASS = threading.local()
+_EXE_METADATA = (
+    "st_dev",
+    "st_ino",
+    "st_size",
+    "st_mtime_ns",
+    "st_ctime_ns",
+    "st_uid",
+    "st_gid",
+    "st_mode",
+    "st_nlink",
+)
+
+
+@contextmanager
+def _executable_hash_pass():
+    """Share byte hashes only within this thread's one explicit actor pass."""
+    previous = getattr(_HASH_PASS, "cache", None)
+    _HASH_PASS.cache = {}
+    try:
+        yield
+    finally:
+        if previous is None:
+            del _HASH_PASS.cache
+        else:
+            _HASH_PASS.cache = previous
+
+
+def _executable_sha(path, initial, *, exe, pid, birth):
+    """Hash an opened executable, rechecking its identity even on a pass hit."""
+    key = tuple(getattr(initial, field) for field in _EXE_METADATA)
+    io.require(stat.S_ISREG(initial.st_mode), "actor_executable_not_regular")
+    cache = getattr(_HASH_PASS, "cache", None)
+    with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        io.require(
+            tuple(getattr(before, field) for field in _EXE_METADATA) == key,
+            "actor_executable_changed",
+        )
+        digest = None if cache is None else cache.get(key)
+        if digest is None:
+            hasher = hashlib.sha256()
+            for chunk in iter(lambda: stream.read(1024**2), b""):
+                hasher.update(chunk)
+            digest = hasher.hexdigest()
+        after = os.fstat(stream.fileno())
+        final = path.stat()
+        io.require(
+            tuple(getattr(after, field) for field in _EXE_METADATA) == key
+            and tuple(getattr(final, field) for field in _EXE_METADATA) == key
+            and os.readlink(path) == exe,
+            "actor_executable_changed",
+        )
+        io.require(_stat(pid)[0] == birth, "actor_reused_during_read")
+    if cache is not None:
+        cache[key] = digest
+    return digest
 
 
 def _remaining(deadline):
@@ -515,11 +573,7 @@ class LinuxRunner:
             mount_namespace=os.readlink(root / "ns/mnt"),
         )
         if full:
-            hasher = hashlib.sha256()
-            with (root / "exe").open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1024**2), b""):
-                    hasher.update(chunk)
-            actor["exe_sha256"] = hasher.hexdigest()
+            actor["exe_sha256"] = _executable_sha(root / "exe", info, exe=exe, pid=pid, birth=birth)
         tasks = []
         for task in (root / "task").iterdir():
             task_state = _proc_bytes(task / "stat").rsplit(b") ", 1)[1].split()[0]
@@ -528,7 +582,7 @@ class LinuxRunner:
         io.require(_stat(pid)[0] == birth, "actor_reused_during_read")
         return actor
 
-    def signal_actor(self, expected, stop):
+    def signal_actor(self, expected, stop, *, deadline=None):
         io.require(
             hasattr(os, "pidfd_open") and hasattr(signal, "pidfd_send_signal"), "pidfd_required"
         )
@@ -536,14 +590,20 @@ class LinuxRunner:
         try:
             actual = self.actor(expected, full=True)
             _same_actor(expected, actual, full=True)
+            if deadline is not None:
+                _remaining(deadline)
             signal.pidfd_send_signal(fd, signal.SIGSTOP if stop else signal.SIGCONT)
-            deadline = time.monotonic() + 5
+            observed_until = (
+                min(deadline, time.monotonic() + 5)
+                if deadline is not None
+                else time.monotonic() + 5
+            )
             while True:
                 actual = self.actor(expected)
                 _same_actor(expected, actual)
                 if actual["stopped"] is stop:
                     break
-                io.require(time.monotonic() < deadline, "actor_signal_not_observed")
+                io.require(time.monotonic() < observed_until, "actor_signal_not_observed")
                 time.sleep(0.01)
         finally:
             os.close(fd)
@@ -1199,6 +1259,64 @@ def _unit_policy(units, *, stopped=True):
             )
 
 
+def _closed_actors(closure, deadline, *, full=False):
+    scope = _scope(closure)
+    writers, transport = RUNNER.scope_actors(scope)
+    actors = []
+    transports = []
+    with _executable_hash_pass() if full else nullcontext():
+        for expected in writers:
+            _remaining(deadline)
+            actual = RUNNER.actor(expected, full=full)
+            _same_actor(expected, actual, full=full)
+            io.require(actual.get("stopped") is True, "warm_actor_not_frozen")
+            actors.append(
+                {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": True}
+            )
+        for expected in transport:
+            _remaining(deadline)
+            actual = RUNNER.actor(expected, full=full)
+            _same_actor(expected, actual, full=full)
+            io.require(actual.get("stopped") is False, "scope_transport_stopped")
+            transports.append(
+                {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": False}
+            )
+    return scope, writers, actors, transports
+
+
+def sample_closed(closure: dict) -> dict:
+    """Sample a closed generation without a full scan or its shared lock.
+
+    The caller must stop and join its samplers before any closure mutation.
+    This sample cannot replace a completed full observation or authorize a
+    phase transition. Both clocks are local to this process; consumers bound
+    freshness from the start so a delayed sample cannot appear newly checked.
+    """
+    started = time.monotonic()
+    deadline = started + 30
+    _validate(closure)
+    _barriers(closure)
+    drain_ref = _ingress_drain(closure, required=True)
+    _scope_value, _writers, actors, transports = _closed_actors(closure, deadline)
+    _barriers(closure)
+    _remaining(deadline)
+    return {
+        "schema": "autostop.j1.crm-forward-closure-sample.v1",
+        "attempt_id": closure["attempt_id"],
+        "boot_id": closure["boot_id"],
+        "process_id": os.getpid(),
+        "closure_sha256": io.sha(io.canonical(closure)),
+        "process_scope_ref": dict(closure["process_scope_ref"]),
+        "scope_sha256": closure["process_scope_ref"]["sha256"],
+        "ingress_drain_ref": drain_ref,
+        "freeze_actors": actors,
+        "transport_actors": transports,
+        "sampled_started_monotonic": started,
+        "sampled_at": time.time(),
+        "sampled_monotonic": time.monotonic(),
+    }
+
+
 def _observe(closure, *, force_full=False, deadline=None, require_admission=False):
     deadline = deadline or time.monotonic() + 30
     _validate(closure)
@@ -1208,24 +1326,7 @@ def _observe(closure, *, force_full=False, deadline=None, require_admission=Fals
     key = (os.getpid(), io.sha(io.canonical(closure)))
     cached = _CACHE.get(key)
     full = force_full or cached is None or now - cached[0] >= 1.0
-    scope = _scope(closure)
-    writers, transport = RUNNER.scope_actors(scope)
-    actors = []
-    transports = []
-    for expected in writers:
-        _remaining(deadline)
-        actual = RUNNER.actor(expected, full=full)
-        _same_actor(expected, actual, full=full)
-        io.require(actual.get("stopped") is True, "warm_actor_not_frozen")
-        actors.append({"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": True})
-    for expected in transport:
-        _remaining(deadline)
-        actual = RUNNER.actor(expected, full=full)
-        _same_actor(expected, actual, full=full)
-        io.require(actual.get("stopped") is False, "scope_transport_stopped")
-        transports.append(
-            {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": False}
-        )
+    scope, writers, actors, transports = _closed_actors(closure, deadline, full=full)
     if full:
         scope_observation = RUNNER.verify_scope(scope, frozen=True)
         units = RUNNER.units(deadline)
@@ -1281,15 +1382,16 @@ def _activation_actors(closure, *, released):
     scope = _scope(closure)
     writers, transports = RUNNER.scope_actors(scope)
     observed_writers, observed_transports = [], []
-    for group, output in ((writers, observed_writers), (transports, observed_transports)):
-        for expected in group:
-            actual = RUNNER.actor(expected, full=True)
-            _same_actor(expected, actual, full=True)
-            stopped = group is writers and expected["pid"] != 538285 and not released
-            io.require(actual.get("stopped") is stopped, "activation_actor_stop_state")
-            output.append(
-                {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": stopped}
-            )
+    with _executable_hash_pass():
+        for group, output in ((writers, observed_writers), (transports, observed_transports)):
+            for expected in group:
+                actual = RUNNER.actor(expected, full=True)
+                _same_actor(expected, actual, full=True)
+                stopped = group is writers and expected["pid"] != 538285 and not released
+                io.require(actual.get("stopped") is stopped, "activation_actor_stop_state")
+                output.append(
+                    {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": stopped}
+                )
     return observed_writers, observed_transports
 
 
@@ -1477,18 +1579,26 @@ def fail_closed(closure: dict) -> dict:
         }
 
 
-def reopen_native(closure: dict) -> None:
+def reopen_native(closure: dict, *, deadline=None) -> None:
     """Open the owned daemon for guarded activation; auxiliary writers stay T."""
     with _LOCK:
-        _observe(closure, force_full=True, require_admission=True)
-        deadline = time.monotonic() + 90
+        deadline = deadline if deadline is not None else time.monotonic() + 90
+        _observe(
+            closure,
+            force_full=True,
+            require_admission=True,
+            deadline=min(deadline, time.monotonic() + 30),
+        )
         try:
             for entry in closure["dropins"]:
+                _remaining(deadline)
                 RUNNER.remove_barrier(Path(entry["path"]))
             RUNNER.reload(deadline)
-            RUNNER.signal_actor(closure["freeze_actors"][0], False)
+            _remaining(deadline)
+            RUNNER.signal_actor(closure["freeze_actors"][0], False, deadline=deadline)
             _open_barriers(closure)
             _activation_actors(closure, released=False)
+            _remaining(deadline)
         except BaseException:
             fail_closed(closure)
             raise
