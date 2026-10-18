@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.response import addinfourl
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.deployment_security import (  # noqa: E402
+    DeploymentSecurityError,
+    is_loopback_host,
+    load_agent_gateway_security_policy,
+)
 from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 PERF_PROBE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
@@ -39,6 +45,9 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+_LOCAL_SERVICE_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}), _NoRedirectHandler
+)
 
 
 def _urlopen_no_redirect(request: urllib.request.Request, *, timeout: float) -> addinfourl:
@@ -168,6 +177,64 @@ def _url(base_url: str, path: str) -> str:
     return base_url.rstrip("/") + "/" + path.lstrip("/")
 
 
+@dataclass(frozen=True, repr=False)
+class McpServiceAuth:
+    identity: str
+    token: str
+
+
+def _mcp_service_request(
+    base_url: str,
+    path: str,
+    method: str,
+    payload: dict[str, Any] | None,
+    auth: McpServiceAuth,
+) -> tuple[str, dict[str, Any] | None, dict[str, str]]:
+    origin = urlsplit(base_url)
+    if (
+        origin.scheme not in {"http", "https"}
+        or not is_loopback_host(origin.hostname or "")
+        or origin.username is not None
+        or origin.password is not None
+        or origin.path not in {"", "/"}
+        or origin.query
+        or origin.fragment
+    ):
+        raise ValueError("MCP service auth requires a loopback API origin")
+    route = urlsplit(path)
+    if (
+        route.scheme
+        or route.netloc
+        or route.fragment
+        or (method, route.path)
+        not in {
+            ("GET", "/api/get_board_snapshot"),
+            ("GET", "/api/get_board_revision"),
+            ("POST", "/api/get_card"),
+        }
+    ):
+        raise ValueError("MCP service auth is limited to performance probe read routes")
+    if any(
+        not value or any(ord(char) < 32 or ord(char) > 126 for char in value)
+        for value in (auth.identity, auth.token)
+    ):
+        raise ValueError("Missing or invalid MCP service credentials")
+    if method == "GET":
+        query = dict(parse_qsl(route.query))
+        query["source"] = "mcp_agent_gateway_v2"
+        path = urlunsplit(("", "", route.path, urlencode(query), ""))
+    else:
+        payload = {**(payload or {}), "source": "mcp_agent_gateway_v2"}
+    return (
+        path,
+        payload,
+        {
+            "X-Autostop-Agent-Identity": auth.identity,
+            "X-Autostop-Agent-Token": auth.token,
+        },
+    )
+
+
 def request_json(
     base_url: str,
     path: str,
@@ -176,9 +243,17 @@ def request_json(
     payload: dict[str, Any] | None = None,
     gzip_ok: bool = False,
     bearer_token: str = "",
+    mcp_service_auth: McpServiceAuth | None = None,
     timeout: float = 15.0,
 ) -> tuple[dict[str, Any], ProbeResult]:
     headers = {"Content-Type": "application/json"}
+    open_request = _urlopen_no_redirect
+    if mcp_service_auth is not None:
+        path, payload, service_headers = _mcp_service_request(
+            base_url, path, method, payload, mcp_service_auth
+        )
+        headers.update(service_headers)
+        open_request = _LOCAL_SERVICE_OPENER.open
     if bearer_token:
         if any(ord(char) < 32 or ord(char) == 127 for char in bearer_token):
             raise ValueError("Invalid API bearer token")
@@ -196,7 +271,7 @@ def request_json(
     )
     started_at = time.perf_counter()
     try:
-        with _urlopen_no_redirect(request, timeout=timeout) as response:
+        with open_request(request, timeout=timeout) as response:
             raw_body = _read_response_body(response)
             duration_ms = (time.perf_counter() - started_at) * 1000
             encoding = str(response.headers.get("Content-Encoding", "") or "")
@@ -211,7 +286,13 @@ def request_json(
                 server_timing=str(response.headers.get("Server-Timing", "") or ""),
             )
     except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            exc.close()
+            raise ValueError(
+                f"API authentication failed (HTTP {exc.code}) for {urlsplit(path).path}"
+            ) from exc
         if 300 <= exc.code < 400:
+            exc.close()
             raise ValueError(f"API request redirected: {path}") from exc
         raw_body = _read_response_body(exc)
         duration_ms = (time.perf_counter() - started_at) * 1000
@@ -239,6 +320,7 @@ def measure(
     payload: dict[str, Any] | None = None,
     gzip_ok: bool = False,
     bearer_token: str = "",
+    mcp_service_auth: McpServiceAuth | None = None,
 ) -> tuple[dict[str, Any] | None, list[ProbeResult]]:
     results: list[ProbeResult] = []
     latest_payload: dict[str, Any] | None = None
@@ -250,6 +332,7 @@ def measure(
             payload=payload,
             gzip_ok=gzip_ok,
             bearer_token=bearer_token,
+            mcp_service_auth=mcp_service_auth,
         )
     for _ in range(max(1, iterations)):
         latest_payload, result = request_json(
@@ -259,6 +342,7 @@ def measure(
             payload=payload,
             gzip_ok=gzip_ok,
             bearer_token=bearer_token,
+            mcp_service_auth=mcp_service_auth,
         )
         results.append(
             ProbeResult(
@@ -491,6 +575,16 @@ def main() -> int:
         default="MINIMAL_KANBAN_API_BEARER_TOKEN",
         help="Read the API bearer from this environment variable, never a process argument.",
     )
+    parser.add_argument(
+        "--mcp-service-auth",
+        action="store_true",
+        help="Use the configured Gateway service identity for loopback read probes only.",
+    )
+    parser.add_argument(
+        "--mcp-token-env",
+        default="MINIMAL_KANBAN_MCP_BEARER_TOKEN",
+        help="Read the scoped MCP service token from this environment variable.",
+    )
     parser.add_argument("--max-snapshot-identity-ms", default=0.0)
     parser.add_argument("--max-snapshot-identity-bytes", default=0.0)
     parser.add_argument("--max-snapshot-gzip-ms", default=0.0)
@@ -519,6 +613,14 @@ def main() -> int:
             if local_server is not None
             else str(os.environ.get(args.token_env, "") or "").strip()
         )
+        authentication = {"bearer_token": bearer_token}
+        if args.mcp_service_auth and local_server is None:
+            policy = load_agent_gateway_security_policy()
+            if not (policy.gateway_enabled and policy.raw_enabled):
+                raise ValueError("MCP service auth requires the enabled Gateway and raw API")
+            authentication["mcp_service_auth"] = McpServiceAuth(
+                policy.service_identity, str(os.environ.get(args.mcp_token_env, "") or "").strip()
+            )
         rows: list[dict[str, Any]] = []
         snapshot_payload, results = measure(
             base_url,
@@ -526,7 +628,7 @@ def main() -> int:
             "/api/get_board_snapshot?compact=1&include_archive=0",
             iterations=iterations,
             warmup_iterations=warmup_iterations,
-            bearer_token=bearer_token,
+            **authentication,
         )
         rows.append(summarize(results))
 
@@ -537,7 +639,7 @@ def main() -> int:
             iterations=iterations,
             warmup_iterations=warmup_iterations,
             gzip_ok=True,
-            bearer_token=bearer_token,
+            **authentication,
         )
         rows.append(summarize(results))
 
@@ -547,7 +649,7 @@ def main() -> int:
             "/api/get_board_revision?compact=1&include_archive=0",
             iterations=iterations,
             warmup_iterations=warmup_iterations,
-            bearer_token=bearer_token,
+            **authentication,
         )
         rows.append(summarize(results))
 
@@ -561,7 +663,7 @@ def main() -> int:
                 warmup_iterations=warmup_iterations,
                 method="POST",
                 payload={"card_id": card_id},
-                bearer_token=bearer_token,
+                **authentication,
             )
             rows.append(summarize(results))
 
@@ -592,6 +694,7 @@ def main() -> int:
         urllib.error.URLError,
         json.JSONDecodeError,
         gzip.BadGzipFile,
+        DeploymentSecurityError,
         ValueError,
     ) as exc:
         print(

@@ -381,17 +381,18 @@ def _authenticate_oauth_owner(
     session_token = str(_nested_oauth_value(data, "token") or "").strip()
     resolved_username = str(_nested_oauth_value(data, "username") or username).strip()
     is_admin = _nested_oauth_value(data, "is_admin") is True
+    if not session_token:
+        return None
     try:
-        if session_token:
-            board_api._request(
-                "/api/logout_operator",
-                {"source": "mcp_oauth_consent"},
-                method="POST",
-                extra_headers={"X-Operator-Session": session_token},
-            )
+        logout = board_api._request(
+            "/api/logout_operator",
+            {"source": "mcp_oauth_consent"},
+            method="POST",
+            extra_headers={"X-Operator-Session": session_token},
+        )
     except BoardApiTransportError:
-        pass
-    return resolved_username if is_admin and session_token else None
+        return None
+    return resolved_username if is_admin and logout.get("ok") is True else None
 
 
 def create_mcp_server(

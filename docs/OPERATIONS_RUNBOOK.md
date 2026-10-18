@@ -435,9 +435,17 @@ read their bearer tokens from container environment variables, so no credential
 appears in a process argument:
 
 ```bash
-docker exec autostopcrm python scripts/perf_probe.py --base-url http://127.0.0.1:41731 --token-env MINIMAL_KANBAN_API_BEARER_TOKEN --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
+docker exec autostopcrm python scripts/perf_probe.py --base-url http://127.0.0.1:41731 --mcp-service-auth --warmup-iterations 2 --iterations 20 --max-snapshot-gzip-ms 800 --max-snapshot-gzip-bytes 80000 --max-revision-ms 500 --max-revision-server-ms 20 --max-get-card-ms 150
 docker exec autostopcrm python scripts/perf_mcp.py --mcp-url http://127.0.0.1:41831/mcp --token-env MINIMAL_KANBAN_MCP_BEARER_TOKEN --iterations 5
 ```
+
+The API probe uses `AUTOSTOP_AGENT_SERVICE_IDENTITY` and
+`MINIMAL_KANBAN_MCP_BEARER_TOKEN` with the existing Gateway protocol; Gateway
+and raw API must be enabled, while Gateway writes can stay disabled. This mode
+accepts only a loopback API origin and the three measured read routes, bypasses
+environment proxies and refuses redirects. If an API bearer is configured,
+`--token-env` still supplies it separately. Without Gateway service auth, use
+`--token-env` with a configured API bearer. Anonymous API reads remain denied.
 
 Production MCP write benchmarks remain disabled without a separate owner
 approval. A pre-release state benchmark must use the script's temporary copy;
