@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 import os
 import re
 import socket
@@ -50,6 +51,95 @@ APPSERVER_EXE = (
 # The immutable accepted-warm receipt also contains an SSH process and a Codex
 # CLI process. Only this exact appserver argv is the metadata socket daemon.
 APPSERVER_ARGV_SHA = "9383275e42881531784824264afe133ba8a005572197385171f2cf9be72897a1"
+PERFORMANCE_URL = "http://127.0.0.1:41731"
+PERFORMANCE_ITERATIONS = 20
+PERFORMANCE_WARMUPS = 2
+PERFORMANCE_LIMITS = (
+    ("--max-snapshot-gzip-ms", "snapshot.gzip", "p95_ms", 800),
+    ("--max-snapshot-gzip-bytes", "snapshot.gzip", "bytes", 80000),
+    ("--max-revision-ms", "revision", "p95_ms", 500),
+    ("--max-revision-server-ms", "revision", "server_timing_metrics.app.p95_ms", 20),
+    ("--max-get-card-ms", "get_card", "p95_ms", 150),
+)
+
+
+def performance_report(report: dict) -> dict:
+    """Adapt perf_probe's measured result after the command exited successfully."""
+    require(
+        type(report) is dict
+        and "ok" not in report
+        and report.get("base_url") == PERFORMANCE_URL
+        and report.get("local_temp_server") is False
+        and type(report.get("iterations")) is int
+        and report["iterations"] == PERFORMANCE_ITERATIONS
+        and type(report.get("warmup_iterations")) is int
+        and report["warmup_iterations"] == PERFORMANCE_WARMUPS
+        and report.get("threshold_status") == "passed"
+        and report.get("violations") == [],
+        "runtime_probe_failed_performance",
+    )
+    rows = report.get("rows")
+    labels = {"snapshot.identity", "snapshot.gzip", "revision", "get_card"}
+    require(
+        type(rows) is list
+        and len(rows) == len(labels)
+        and all(type(row) is dict and type(row.get("label")) is str for row in rows)
+        and {row["label"] for row in rows} == labels,
+        "performance_rows_required",
+    )
+
+    def timing(value, fields):
+        require(type(value) is dict, "performance_timing_required")
+        for field in fields:
+            metric = value.get(field)
+            require(
+                type(metric) in (int, float) and math.isfinite(metric) and metric >= 0,
+                "performance_timing_required",
+            )
+        require(
+            value["p50_ms"] <= value["p95_ms"] <= value["max_ms"]
+            and value["avg_ms"] <= value["max_ms"],
+            "performance_timing_inconsistent",
+        )
+
+    by_label = {row["label"]: row for row in rows}
+    for row in rows:
+        statuses = row.get("statuses")
+        require(
+            type(row.get("samples")) is int
+            and row["samples"] == PERFORMANCE_ITERATIONS
+            and type(row.get("status")) is int
+            and row["status"] == 200
+            and type(statuses) is list
+            and len(statuses) == PERFORMANCE_ITERATIONS
+            and all(type(status) is int and status == 200 for status in statuses)
+            and type(row.get("bytes")) is int
+            and row["bytes"] > 0,
+            "performance_samples_required",
+        )
+        timing(row, ("min_ms", "avg_ms", "p50_ms", "p95_ms", "max_ms"))
+        require(
+            row["min_ms"] <= min(row["avg_ms"], row["p50_ms"]), "performance_timing_inconsistent"
+        )
+    require(by_label["snapshot.gzip"].get("encoding") == "gzip", "performance_gzip_required")
+    metrics = by_label["revision"].get("server_timing_metrics")
+    require(type(metrics) is dict, "performance_server_timing_required")
+    app = metrics.get("app")
+    require(
+        type(app) is dict
+        and type(app.get("samples")) is int
+        and app["samples"] == PERFORMANCE_ITERATIONS,
+        "performance_server_timing_required",
+    )
+    timing(app, ("avg_ms", "p50_ms", "p95_ms", "max_ms"))
+    # Recheck the command's exact budgets. perf_probe's bytes metric is mean
+    # wire size, and latency/server limits are p95 of the measured samples.
+    for _flag, label, metric_path, limit in PERFORMANCE_LIMITS:
+        metric = by_label[label]
+        for part in metric_path.split("."):
+            metric = metric[part]
+        require(metric <= limit, "performance_budget_exceeded")
+    return {**report, "ok": True}
 
 
 def appserver_actor(native: dict) -> dict:
@@ -660,22 +750,17 @@ class Host:
             "performance": [
                 "scripts/perf_probe.py",
                 "--base-url",
-                "http://127.0.0.1:41731",
+                PERFORMANCE_URL,
                 "--mcp-service-auth",
                 "--warmup-iterations",
-                "2",
+                str(PERFORMANCE_WARMUPS),
                 "--iterations",
-                "20",
-                "--max-snapshot-gzip-ms",
-                "800",
-                "--max-snapshot-gzip-bytes",
-                "80000",
-                "--max-revision-ms",
-                "500",
-                "--max-revision-server-ms",
-                "20",
-                "--max-get-card-ms",
-                "150",
+                str(PERFORMANCE_ITERATIONS),
+                *[
+                    value
+                    for flag, _label, _metric, limit in PERFORMANCE_LIMITS
+                    for value in (flag, str(limit))
+                ],
             ],
         }
         for name, args in commands.items():
@@ -686,6 +771,8 @@ class Host:
                     timeout=120,
                 )
             )
+            if name == "performance":
+                reports[name] = performance_report(reports[name])
             require(
                 type(reports[name]) is dict and reports[name].get("ok") is True,
                 "runtime_probe_failed_" + name,

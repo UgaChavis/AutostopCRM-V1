@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+import copy
 import datetime
+import io
 import stat
 import struct
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from scripts import j1_forward_host as host
 from scripts import j1_forward_runtime as runtime
-from scripts.j1_forward_io import Refusal, canonical, sha
+from scripts import perf_probe
+from scripts.j1_forward_io import Refusal, canonical, document, sha
 
 
 def work_status(*, enabled=True):
@@ -509,6 +513,209 @@ class RuntimeOperatorTests(unittest.TestCase):
         client = SimpleNamespace(request=Mock(side_effect=replies))
         with self.assertRaisesRegex(runtime.ProbeError, "anonymous_guard_failed_public_api"):
             runtime.public_checks(client, "https://crm.autostopcrm.ru", "http://127.0.0.1:41731")
+
+
+class PerformanceContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Execute the real CLI, measurement loop, summary and threshold logic.
+        # Only HTTP responses and credential loading are replaced with fixtures.
+        stdout = io.StringIO()
+
+        def response(_base, path, **kwargs):
+            gzip = kwargs.get("gzip_ok", False)
+            duration = 50.0 if "get_board_snapshot" in path else 10.0
+            payload = {"data": {"cards": [{"id": "synthetic-card"}]}}
+            return payload, perf_probe.ProbeResult(
+                path, 200, duration, 79700 if gzip else 120000, "gzip" if gzip else "", "app;dur=5"
+            )
+
+        cls.arguments = [
+            "scripts/perf_probe.py",
+            "--base-url",
+            "http://127.0.0.1:41731",
+            "--mcp-service-auth",
+            "--warmup-iterations",
+            "2",
+            "--iterations",
+            "20",
+            "--max-snapshot-gzip-ms",
+            "800",
+            "--max-snapshot-gzip-bytes",
+            "80000",
+            "--max-revision-ms",
+            "500",
+            "--max-revision-server-ms",
+            "20",
+            "--max-get-card-ms",
+            "150",
+        ]
+        with (
+            patch.object(perf_probe.sys, "argv", cls.arguments),
+            patch.object(perf_probe, "request_json", side_effect=response) as requests,
+            patch.object(
+                perf_probe,
+                "load_agent_gateway_security_policy",
+                return_value=SimpleNamespace(
+                    gateway_enabled=True, raw_enabled=True, service_identity="fixture"
+                ),
+            ),
+            patch.dict(perf_probe.os.environ, {}, clear=True),
+            redirect_stdout(stdout),
+        ):
+            cls.exit_code = perf_probe.main()
+        cls.measured_requests = requests.call_count
+        cls.report = document(stdout.getvalue().encode())
+
+    def setUp(self):
+        self.report = copy.deepcopy(type(self).report)
+        self.rows = {row["label"]: row for row in self.report["rows"]}
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.instance = host.Host({"legacy_crm_revision": "a" * 40}, Path(self.temporary.name))
+
+    def test_real_cli_success_without_ok_is_adapted_without_losing_measurements(self):
+        self.assertEqual(self.exit_code, 0)
+        self.assertEqual(self.measured_requests, 4 * (2 + 20))
+        self.assertNotIn("ok", self.report)
+        self.assertEqual(self.report["threshold_status"], "passed")
+        self.assertEqual(self.report["violations"], [])
+        commands = []
+
+        def run(arguments, *, label, **_):
+            commands.append(arguments)
+            if label == "probe-performance":
+                self.assertEqual(arguments[7:], self.arguments)
+                return canonical(self.report)
+            if label == "probe-feed":
+                return canonical(
+                    {"ok": True, "crm_change_feed_ready": True, "consumer_unchanged": True}
+                )
+            return canonical({"ok": True})
+
+        with (
+            patch.object(self.instance, "run", side_effect=run),
+            patch.object(self.instance, "manager", return_value={"ok": True}),
+            patch.object(self.instance, "validate_manager", return_value={"ok": True}),
+        ):
+            result = self.instance.probes({"revision": "b" * 40}, "attempt", held=True)
+        self.assertEqual(result["performance"], {**self.report, "ok": True})
+        self.assertEqual(len(commands), 5)
+        self.assertEqual(result["actual_crm_revision"], "b" * 40)
+
+    def test_success_requires_measurement_metadata_and_no_reported_violation(self):
+        for key, bad in (
+            ("threshold_status", "failed"),
+            ("violations", [{"metric": "bytes"}]),
+            ("iterations", 19),
+            ("iterations", True),
+            ("warmup_iterations", 0),
+            ("local_temp_server", True),
+            ("base_url", "http://127.0.0.1:1"),
+            ("ok", True),
+        ):
+            with self.subTest(key=key, bad=bad), self.assertRaises(Refusal):
+                host.performance_report({**self.report, key: bad})
+        with self.assertRaises(Refusal):
+            host.performance_report({"ok": True})
+
+    def test_each_required_operation_must_have_unique_measured_row(self):
+        for label in self.rows:
+            with self.subTest(missing=label), self.assertRaisesRegex(Refusal, "rows_required"):
+                host.performance_report(
+                    {**self.report, "rows": [r for r in self.report["rows"] if r["label"] != label]}
+                )
+        duplicate = self.report["rows"][:-1] + [self.report["rows"][0]]
+        with self.assertRaisesRegex(Refusal, "rows_required"):
+            host.performance_report({**self.report, "rows": duplicate})
+
+    def test_all_measured_samples_must_be_successful_and_counted(self):
+        for key, bad in (
+            ("samples", 19),
+            ("samples", True),
+            ("status", 500),
+            ("statuses", []),
+            ("statuses", [200] * 19 + [500]),
+            ("statuses", [200] * 21),
+            ("statuses", [True]),
+            ("bytes", 0),
+            ("bytes", "79700"),
+        ):
+            with self.subTest(key=key, bad=bad):
+                report = copy.deepcopy(self.report)
+                report["rows"][1][key] = bad
+                with self.assertRaisesRegex(Refusal, "samples_required"):
+                    host.performance_report(report)
+
+    def test_condensed_http_status_summary_is_not_raw_sample_evidence(self):
+        for row in self.report["rows"]:
+            row["statuses"] = [200]
+        with self.assertRaisesRegex(Refusal, "samples_required"):
+            host.performance_report(self.report)
+
+    def test_all_five_budgets_are_rechecked_even_with_claimed_pass(self):
+        cases = (
+            ("snapshot.gzip", "p95_ms", 800),
+            ("snapshot.gzip", "bytes", 80000),
+            ("revision", "p95_ms", 500),
+            ("revision", "server_timing_metrics.app.p95_ms", 20),
+            ("get_card", "p95_ms", 150),
+        )
+        for label, path, limit in cases:
+            with self.subTest(metric=label + "." + path):
+                report = copy.deepcopy(self.report)
+                row = next(item for item in report["rows"] if item["label"] == label)
+                for part in path.split(".")[:-1]:
+                    row = row[part]
+                row[path.split(".")[-1]] = limit
+                if path.endswith("p95_ms"):
+                    row["max_ms"] = limit + 1
+                self.assertTrue(host.performance_report(report)["ok"])
+                row[path.split(".")[-1]] = limit + 1
+                with self.assertRaisesRegex(Refusal, "budget_exceeded"):
+                    host.performance_report(report)
+
+    def test_revision_server_timing_requires_every_measured_sample(self):
+        for bad in (None, {}, {"samples": 19, "p95_ms": 5}, {"samples": True, "p95_ms": 5}):
+            with self.subTest(app=bad):
+                report = copy.deepcopy(self.report)
+                report["rows"][2]["server_timing_metrics"]["app"] = bad
+                with self.assertRaisesRegex(Refusal, "server_timing_required"):
+                    host.performance_report(report)
+
+    def test_nonfinite_missing_or_inconsistent_latency_is_not_a_pass(self):
+        for metric in (None, True, "10", float("inf"), float("nan"), -1):
+            with self.subTest(metric=metric):
+                self.rows["get_card"]["p95_ms"] = metric
+                with self.assertRaisesRegex(Refusal, "timing_required"):
+                    host.performance_report(self.report)
+        self.rows["get_card"]["p95_ms"] = 11
+        with self.assertRaisesRegex(Refusal, "timing_inconsistent"):
+            host.performance_report(self.report)
+
+    def test_gzip_metric_requires_actual_compressed_response(self):
+        self.rows["snapshot.gzip"]["encoding"] = "identity"
+        with self.assertRaisesRegex(Refusal, "gzip_required"):
+            host.performance_report(self.report)
+
+    def test_nonzero_exit_cannot_be_overridden_by_success_shaped_stdout(self):
+        def subprocess_result(arguments, **_):
+            is_performance = "scripts/perf_probe.py" in arguments
+            return SimpleNamespace(
+                returncode=1 if is_performance else 0,
+                stdout=canonical(self.report if is_performance else {"ok": True}),
+                stderr=b"",
+            )
+
+        with (
+            patch.object(host.subprocess, "run", side_effect=subprocess_result),
+            patch.object(host, "write_new"),
+            patch.object(self.instance, "manager") as manager,
+            patch.object(self.instance, "validate_manager"),
+        ):
+            with self.assertRaisesRegex(Refusal, "forward_command_failed_probe-performance"):
+                self.instance.probes({"revision": "b" * 40}, "attempt", held=True)
+        manager.assert_not_called()
 
 
 if __name__ == "__main__":
