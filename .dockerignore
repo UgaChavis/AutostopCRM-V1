@@ -40,6 +40,7 @@ start_autostopvpn.ps1
 !CHATGPT_CONNECTOR_SETUP.md
 !docs/OPERATIONS_RUNBOOK.md
 !docs/J1_RELEASE_BOUNDARY.md
+!docs/J1_CRM_FORWARD_RELEASE.md
 !docs/agent/module_operations/*.md
 **/*.png
 !src/minimal_kanban/static/favicon.png
