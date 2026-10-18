@@ -1,5 +1,6 @@
 """Synthetic-only recovery tests; no application imports or production paths."""
 
+import base64
 import json
 import os
 import sqlite3
@@ -102,6 +103,84 @@ class ForwardBackupTests(unittest.TestCase):
         self.assertFalse(checked["production_restore_performed"])
         for key in b.FALSE_CLAIMS:
             self.assertIs(checked[key], False)
+
+    @staticmethod
+    def oauth_ciphertext():
+        # Shape-only fixture: deliberately no encryption key or authentic MAC.
+        return base64.urlsafe_b64encode(b"\x80" + bytes(8 + 16 + 16 + 32))
+
+    def test_encrypted_oauth_state_restores_exact_opaque_bytes(self):
+        raw = self.oauth_ciphertext()
+        (self.source / "mcp-oauth-state.json").write_bytes(raw)
+        result = self.capture()
+        item = next(
+            i for i in self.manifest()["artifacts"] if i["logical_name"] == "mcp-oauth-state.json"
+        )
+        self.assertEqual(item["kind"], "file")
+        self.assertNotIn("inspection", item)
+        self.verify(result)
+        self.assertEqual((self.restore / item["payload"]).read_bytes(), raw)
+        self.assertEqual((self.source / "mcp-oauth-state.json").read_bytes(), raw)
+
+    def test_legacy_plaintext_oauth_state_keeps_json_validation(self):
+        (self.source / "mcp-oauth-state.json").write_bytes(b' {"synthetic":true}\n')
+        result = self.capture()
+        item = next(
+            i for i in self.manifest()["artifacts"] if i["logical_name"] == "mcp-oauth-state.json"
+        )
+        self.assertEqual(item["kind"], "json")
+        self.assertEqual(item["inspection"]["json"], "valid")
+        self.verify(result)
+
+    def test_malformed_oauth_plaintext_or_envelope_is_not_exempt(self):
+        token = self.oauth_ciphertext()
+        malformed = (
+            b'{"broken":',
+            b"not-json",
+            b" " + token,
+            token + b"\n",
+            token + b"=",
+            base64.urlsafe_b64encode(b"\x81" + bytes(72)),
+            base64.urlsafe_b64encode(b"\x80" + bytes(71)),
+            base64.urlsafe_b64encode(b"\x80" + bytes(2 * 1024**2)),
+        )
+        for index, raw in enumerate(malformed):
+            with self.subTest(index=index):
+                (self.source / "mcp-oauth-state.json").write_bytes(raw)
+                output = self.root / f"malformed-{index}"
+                with self.assertRaisesRegex(b.BackupRefusal, "invalid_json"):
+                    b.capture(output, self.context, self.fence)
+                self.assertFalse((output / "manifest.json").exists())
+
+    def test_oauth_ciphertext_exception_is_exact_root_and_component(self):
+        raw = self.oauth_ciphertext()
+        candidate = self.source / "mcp-oauth-state.json"
+        candidate.write_bytes(raw)
+        self.assertEqual(b.payload_kind("crm", candidate.name, candidate), "file")
+        for component, relative in (
+            ("crm", "other.json"),
+            ("crm", "nested/mcp-oauth-state.json"),
+            ("telegram", candidate.name),
+            ("forward_state", candidate.name),
+        ):
+            with self.subTest(component=component, relative=relative):
+                self.assertEqual(b.payload_kind(component, relative, candidate), "json")
+                with self.assertRaisesRegex(b.BackupRefusal, "invalid_json"):
+                    b.inspect_json(candidate, "json", time.monotonic() + 5)
+
+    def test_forged_opaque_kind_cannot_bypass_plaintext_oauth_validation(self):
+        (self.source / "mcp-oauth-state.json").write_text('{"synthetic":true}')
+        self.capture()
+
+        def forge(manifest):
+            item = next(
+                i for i in manifest["artifacts"] if i["logical_name"] == "mcp-oauth-state.json"
+            )
+            item["kind"] = "file"
+            item.pop("inspection")
+
+        with self.assertRaisesRegex(b.BackupRefusal, "artifact_kind_mismatch"):
+            self.verify(self.altered_manifest(forge))
 
     def test_callback_refusal_leaves_no_complete_marker(self):
         calls = 0

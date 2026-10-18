@@ -21,7 +21,7 @@ import types
 import zlib
 from pathlib import Path
 
-BACKUP_SHA256 = "11be895320d1163134620cafa0a7f3a2ffce7eb73e18f05fcd8319340e56efd9"
+BACKUP_SHA256 = "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157"
 PROFILE_SHA256 = "66c61b117a07c96a7fa3dc89b35ced9e5a9d840364bf976a0056897ba97bde09"
 STAGE_SCHEMA = "autostop.j1.online-transport-cache.v1"
 CACHE_SCHEMA = "autostop.j1.verified-transport-inventory.v1"

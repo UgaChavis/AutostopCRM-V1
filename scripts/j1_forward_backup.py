@@ -280,6 +280,32 @@ def json_kind(component, relative):
     return suffix[1:] if managed and suffix in (".json", ".jsonl") else "file"
 
 
+def payload_kind(component, relative, path):
+    """Recognize the application's encrypted OAuth bytes, without decrypting."""
+    kind = json_kind(component, relative)
+    if component != "crm" or relative != "mcp-oauth-state.json":
+        return kind
+    # OAuthStateProvider writes Fernet ciphertext under this historical .json
+    # name. Legacy plaintext and every other managed JSON remain JSON-checked.
+    limit = 2 * 1024**2  # Same bound as oauth_provider.OAUTH_STATE_MAX_BYTES.
+    with path.open("rb") as stream:
+        raw = stream.read(limit + 1)
+    if len(raw) <= limit and re.fullmatch(rb"[A-Za-z0-9_-]+={0,2}", raw):
+        try:
+            token = base64.b64decode(raw, altchars=b"-_", validate=True)
+        except ValueError:
+            return kind
+        if (
+            base64.urlsafe_b64encode(token) == raw
+            and token[:1] == b"\x80"
+            and len(token) >= 73
+            and (len(token) - 57) % 16 == 0
+        ):
+            # This is format recognition, not MAC authentication or JSON proof.
+            return "file"
+    return kind
+
+
 def check_context(value):
     require(
         type(value) is dict
@@ -360,7 +386,7 @@ def _scan(component, root, deadline):
                     if stream.read(16) == b"SQLite format 3\x00":
                         kind = "sqlite"
                 if kind == "file":
-                    kind = json_kind(component, relative)
+                    kind = payload_kind(component, relative, path)
         else:
             raise BackupRefusal("unsupported_source_special_file")
         entries.append(Item(component, relative, path, kind, tuple(version(info)), detail))
@@ -828,7 +854,8 @@ def verify_and_restore(
         with source.open("rb") as stream:
             is_sqlite = stream.read(16) == b"SQLite format 3\x00"
         require(
-            kind == ("sqlite" if is_sqlite else json_kind(key[0], key[1])), "artifact_kind_mismatch"
+            kind == ("sqlite" if is_sqlite else payload_kind(key[0], key[1], source)),
+            "artifact_kind_mismatch",
         )
         total += item["bytes"]
         require(total <= MAX_TOTAL_BYTES, "total_size_limit")

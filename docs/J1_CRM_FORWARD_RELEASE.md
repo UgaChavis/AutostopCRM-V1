@@ -109,6 +109,16 @@ closed-window backup. Changing files may be skipped during prestaging and must
 be supplied from the final backup. The off-host worker later checks every
 selected cached blob against the actual final manifest and its SHA256.
 
+The CRM root file `mcp-oauth-state.json` normally contains encrypted Fernet
+bytes despite its historical extension. Only this exact file, with a bounded,
+canonical Fernet version/length envelope, is preserved as opaque bytes. Legacy
+plaintext in that file and all other managed JSON/JSONL retain strict JSON
+validation. Capture and off-host verification use the same classifier; the
+restore still requires exact ciphertext size and SHA256. Recognizing this
+envelope does not authenticate its MAC, decrypt its contents, or establish that
+its plaintext is valid JSON. The required private configuration remains in the
+full backup scope.
+
 ## Apply and establish closure
 
 Run the prepared attempt through the versioned dispatcher:
