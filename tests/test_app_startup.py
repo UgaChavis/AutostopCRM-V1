@@ -107,6 +107,10 @@ class AppStartupTests(unittest.TestCase):
             modules["start_embedded_agent_runtime"].call_args.kwargs["api_bearer_token"],
         )
         self.assertIs(mcp_controller, ownership["mcp_controller"])
+        self.assertEqual(
+            api_server.agent_bearer_token,
+            modules["McpRuntimeController"].call_args.kwargs["api_bearer_token"],
+        )
         self.assertIs(tunnel_controller, ownership["tunnel_controller"])
 
     def test_shutdown_releases_api_and_logger_after_mcp_stop_failure(self) -> None:

@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import ipaddress
 import os
 import re
 from collections import Counter
@@ -51,6 +52,13 @@ _PLACEHOLDER_PARTS = (
 
 class DeploymentSecurityError(RuntimeError):
     """Raised when production security settings are incomplete or unsafe."""
+
+
+def is_loopback_host(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host.casefold() == "localhost"
 
 
 def bearer_token_entropy_bits(token: str) -> float:

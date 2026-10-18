@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import json
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -17,7 +16,6 @@ from uuid import uuid4
 
 from mcp.server.auth.provider import AuthorizeError
 from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 from starlette.requests import Request
@@ -32,12 +30,16 @@ from ..config import (
 )
 from ..deployment_security import load_agent_gateway_security_policy
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
-from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 from .agent_gateway_support import _read_annotations as _read_tool_annotations
 from .agent_gateway_v2 import register_agent_gateway_v2
-from .auth import StaticBearerTokenVerifier, build_auth_settings
+from .auth import (
+    StaticBearerTokenVerifier,
+    _truthy_environment,
+    build_auth_settings,
+    build_mcp_transport_security,
+)
 from .board_card_timer_writes import (
     BoardCardTimerWriteContext,
     register_board_card_timer_writes,
@@ -392,13 +394,6 @@ def _authenticate_oauth_owner(
     return resolved_username if is_admin and session_token else None
 
 
-def _truthy_environment(name: str, *, default: bool = False) -> bool:
-    raw = str(os.environ.get(name) or "").strip().casefold()
-    if not raw:
-        return default
-    return raw in {"1", "true", "yes", "on"}
-
-
 def create_mcp_server(
     board_api: BoardApiClient,
     logger: Logger,
@@ -414,10 +409,10 @@ def create_mcp_server(
     allowed_origins: list[str] | tuple[str, ...] | None = None,
     oauth_state_file: Path | None = None,
 ) -> FastMCP:
+    resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
     resolved_host = host or get_mcp_host()
     resolved_port = port or get_mcp_port()
     resolved_path = path or get_mcp_path()
-    resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
     raw_resource_url = (public_endpoint_url or "").strip().rstrip("/")
     resource_url = _absolute_http_url(raw_resource_url) or ""
     server_base_url = (
@@ -466,22 +461,17 @@ def create_mcp_server(
         "get_board_events",
         "get_gpt_wall",
     ]
-    transport_security = TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=derive_allowed_hosts(
-            f"http://{resolved_host}:{resolved_port}{resolved_path}",
-            public_base_url,
-            tunnel_url,
-            public_endpoint_url,
-            extra_hosts=allowed_hosts,
-        ),
-        allowed_origins=derive_allowed_origins(
-            f"http://{resolved_host}:{resolved_port}{resolved_path}",
-            public_base_url,
-            tunnel_url,
-            public_endpoint_url,
-            extra_origins=allowed_origins,
-        ),
+    transport_security = build_mcp_transport_security(
+        host=resolved_host,
+        port=resolved_port,
+        path=resolved_path,
+        bearer_token=resolved_token,
+        public_base_url=public_base_url,
+        tunnel_url=tunnel_url,
+        public_endpoint_url=public_endpoint_url,
+        advertised_base_url=server_base_url,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
     )
 
     auth_settings = None

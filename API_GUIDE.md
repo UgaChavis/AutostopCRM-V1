@@ -40,7 +40,8 @@ Generate a token in integration settings and configure API bearer mode before
 enabling network access. Embedded agents receive the configured API credential
 or a private per-instance credential when API bearer mode is off. This credential
 does not permit a network bind or grant operator/admin access and is never
-included in public responses. Standalone agents use
+included in public responses. Embedded MCP clients also receive the running
+API instance's credential. Standalone agents use
 `MINIMAL_KANBAN_API_BEARER_TOKEN`. Legacy anonymous API
 integrations must configure a credential.
 

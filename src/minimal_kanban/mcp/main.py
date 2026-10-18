@@ -289,6 +289,8 @@ def run() -> int:
             api_base_url,
             ownership=embedded_ownership,
         )
+        if embedded_api_server is not None:
+            api_bearer_token = embedded_api_server.agent_bearer_token
 
         (
             resolved_mcp_host,

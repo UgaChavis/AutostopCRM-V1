@@ -269,7 +269,7 @@ class GatewayReleaseProbeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_maintenance_change_feed_readback_reuses_release_proof_headers(self) -> None:
         revision = "a" * 40
-        token = "maintenance-release-probe-token"
+        token = GATEWAY_ENV["MINIMAL_KANBAN_MCP_BEARER_TOKEN"]
         with tempfile.TemporaryDirectory() as temp_dir:
             marker = Path(temp_dir) / "maintenance.marker"
             marker.write_text("maintenance", encoding="utf-8")

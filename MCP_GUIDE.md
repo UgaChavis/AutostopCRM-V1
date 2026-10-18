@@ -20,6 +20,13 @@ lookup when its available context is sufficient.
   `MINIMAL_KANBAN_MCP_ALLOWED_ORIGINS` are explicit transport allowlists, not
   permissive fallbacks.
 
+Non-loopback MCP listeners and configured public or tunnel URLs require a strong
+MCP bearer token before server initialization, including a loopback listener
+published through a tunnel. An API credential does not satisfy this requirement.
+Desktop and embedded MCP clients receive their owned API instance's configured
+or private runtime credential. External API connections retain their explicitly
+configured credential; runtime credentials are never saved in settings.
+
 ## Public Gateway Surface
 
 The public 24-tool surface contains these stable names:

@@ -367,7 +367,9 @@ def _launch_desktop_runtime(
 
     _show_splash(app, splash, "Готовлю окно...")
     mcp_controller = modules["McpRuntimeController"](
-        board_api_url=api_server.base_url, logger=logger
+        board_api_url=api_server.base_url,
+        api_bearer_token=api_server.agent_bearer_token,
+        logger=logger,
     )
     ownership["mcp_controller"] = mcp_controller
     tunnel_controller = modules["TunnelRuntimeController"](logger=logger)

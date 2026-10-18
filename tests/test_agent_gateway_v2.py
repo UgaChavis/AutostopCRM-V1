@@ -50,8 +50,11 @@ from tests.gateway_v2_store_quote_conductor_support import (
     register_fake_store_quote_conductor,
 )
 from tests.gateway_v2_telegram_behavior_contracts import GatewayV2TelegramBehaviorContractsMixin
+from tests.mcp_credentials import MCP_TEST_TOKEN
 
 GATEWAY_ENV = {
+    "MINIMAL_KANBAN_MCP_BEARER_TOKEN": MCP_TEST_TOKEN,
+    "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
     "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
     "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",
@@ -3924,7 +3927,7 @@ class AgentGatewayV2Tests(
                 host="127.0.0.1",
                 port=41836,
                 path="/mcp",
-                bearer_token="b" * 48,
+                bearer_token=MCP_TEST_TOKEN[::-1],
                 public_endpoint_url="https://crm.example/mcp",
             )
 
@@ -4341,14 +4344,14 @@ class AgentGatewayV2Tests(
                     host="127.0.0.1",
                     port=41832,
                     path="/mcp",
-                    bearer_token="a" * 48,
+                    bearer_token=MCP_TEST_TOKEN,
                     public_endpoint_url="https://crm.example/mcp",
                     oauth_state_file=Path(temp_dir) / "oauth-state.json",
                 )
         provider = server._auth_server_provider
         self.assertIsInstance(provider, ProductionOAuthAuthorizationServerProvider)
         self.assertIsNotNone(server._token_verifier)
-        self.assertIsNotNone(await provider.load_access_token("a" * 48))
+        self.assertIsNotNone(await provider.load_access_token(MCP_TEST_TOKEN))
         self.assertIsNone(await provider.load_access_token("wrong"))
 
 

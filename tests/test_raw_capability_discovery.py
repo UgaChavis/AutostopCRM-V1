@@ -14,9 +14,12 @@ if str(SRC) not in sys.path:
 
 from minimal_kanban.mcp.raw_capability_discovery import raw_capability_discovery_score
 from minimal_kanban.mcp.server import create_mcp_server
+from tests.mcp_credentials import MCP_TEST_TOKEN
 from tests.test_agent_gateway_v2 import FakeBoardApi
 
 GATEWAY_ENV = {
+    "MINIMAL_KANBAN_MCP_BEARER_TOKEN": MCP_TEST_TOKEN,
+    "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
     "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
     "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",

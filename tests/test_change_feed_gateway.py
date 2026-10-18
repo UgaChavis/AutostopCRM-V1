@@ -29,8 +29,11 @@ from minimal_kanban.mcp.raw_gateway import (  # noqa: E402
 )
 from minimal_kanban.mcp.server import create_mcp_server  # noqa: E402
 from scripts import crm_capability_parity  # noqa: E402
+from tests.mcp_credentials import MCP_TEST_TOKEN  # noqa: E402
 
 GATEWAY_ENV = {
+    "MINIMAL_KANBAN_MCP_BEARER_TOKEN": MCP_TEST_TOKEN,
+    "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
     "AUTOSTOP_DEPLOYMENT_ENV": "development",
     "AUTOSTOP_AGENT_GATEWAY_ENABLED": "1",
     "AUTOSTOP_AGENT_GATEWAY_WRITES_ENABLED": "1",

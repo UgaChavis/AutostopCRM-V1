@@ -19,8 +19,11 @@ class McpRuntimeState:
 
 
 class McpRuntimeController:
-    def __init__(self, *, board_api_url: str, logger: Logger) -> None:
+    def __init__(
+        self, *, board_api_url: str, logger: Logger, api_bearer_token: str | None = None
+    ) -> None:
         self._board_api_url = board_api_url.rstrip("/")
+        self._api_bearer_token = api_bearer_token
         self._logger = logger.getChild("mcp.runtime_control")
         self._runtime: McpServerRuntime | None = None
         self._state = McpRuntimeState(
@@ -57,7 +60,9 @@ class McpRuntimeController:
 
         board_api = BoardApiClient(
             self._board_api_url,
-            bearer_token=self._local_api_token(settings),
+            bearer_token=self._api_bearer_token
+            if self._api_bearer_token is not None
+            else self._local_api_token(settings),
             timeout_seconds=float(settings.openai.timeout_seconds),
             logger=self._logger,
         )

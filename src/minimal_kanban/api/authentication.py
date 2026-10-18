@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import hmac
-import ipaddress
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
 from ..config import get_mcp_bearer_token
-from ..deployment_security import bearer_token_is_strong
+from ..deployment_security import bearer_token_is_strong, is_loopback_host
 
 
 def has_api_credential(
@@ -27,11 +26,7 @@ def has_api_credential(
 def validate_api_listener(
     host: str, bearer_token: str | None, operator_auth_available: bool
 ) -> None:
-    try:
-        loopback = ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        loopback = host.casefold() == "localhost"
-    if loopback:
+    if is_loopback_host(host):
         return
     api_credential = bearer_token_is_strong(bearer_token or "")
     operator_and_scoped_service = (

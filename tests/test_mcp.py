@@ -82,6 +82,8 @@ _install_windows_socketpair_timeout_shim()
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -94,6 +96,7 @@ from minimal_kanban.mcp.session_utils import managed_streamable_http_client
 from minimal_kanban.mcp.tool_registry import PUBLIC_MCP_TOOL_NAMES
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
+from tests.mcp_credentials import MCP_TEST_TOKEN
 
 EXPECTED_MCP_TOOLS = set(PUBLIC_MCP_TOOL_NAMES)
 
@@ -297,7 +300,7 @@ class _McpServerFixtureMixin:
                 host="127.0.0.1",
                 port=self.mcp_port,
                 path="/bridge",
-                bearer_token="mcp-secret",
+                bearer_token=MCP_TEST_TOKEN,
                 public_endpoint_url="https://agent.example/bridge",
                 oauth_state_file=self.oauth_state_file,
             )
@@ -337,7 +340,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
         self,
     ) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 with (
@@ -362,7 +365,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 tools = await session.list_tools()
@@ -1532,7 +1535,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_get_cards_defaults_to_compact_payload(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_card = await session.call_tool(
@@ -1580,7 +1583,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_attachment_read_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_card = await session.call_tool(
@@ -1647,7 +1650,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_shared_file_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 uploaded = await session.call_tool(
@@ -1692,7 +1695,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_cleanup_tool_reaches_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created = await session.call_tool(
@@ -1713,7 +1716,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_returns_structured_validation_errors(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 invalid = await session.call_tool("get_card", {"card_id": "missing-card"})
@@ -1742,7 +1745,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_manager_operation_tools_reach_backend_in_dry_run(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 scan = await session.call_tool("manager_board_scan", {"limit": 5})
@@ -1839,7 +1842,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_inventory_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 saved = await session.call_tool(
@@ -1925,7 +1928,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_client_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_client = await session.call_tool(
@@ -2072,7 +2075,7 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
 
     async def test_mcp_move_card_supports_before_card_id_reordering(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_column = await session.call_tool(
@@ -2185,7 +2188,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 port=port,
                 path="/fallback",
                 bearer_token=None,
-                public_endpoint_url="https://agent.example/fallback",
+                public_endpoint_url=f"http://127.0.0.1:{port}/fallback",
                 oauth_state_file=self.oauth_state_file,
             )
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
@@ -2446,10 +2449,10 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 host="127.0.0.1",
                 port=port,
                 path="/mcp",
-                bearer_token=None,
+                bearer_token=MCP_TEST_TOKEN,
                 tunnel_url=tunnel_url,
             )
-            runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
+            runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="bearer")
             runtime.start()
 
             async with httpx.AsyncClient(headers={"Host": "demo.ngrok-free.app"}) as client:
@@ -2457,7 +2460,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
             self.assertNotEqual(response.status_code, 421)
 
             async with create_test_mcp_http_client(
-                headers={"Host": "demo.ngrok-free.app"}
+                headers={"Host": "demo.ngrok-free.app", "Authorization": f"Bearer {MCP_TEST_TOKEN}"}
             ) as http_client:
                 async with open_mcp_session(runtime.base_url, http_client=http_client) as session:
                     tools = await session.list_tools()
@@ -2497,7 +2500,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 port=port,
                 path="/fallback",
                 bearer_token=None,
-                public_endpoint_url="https://agent.example/fallback",
+                public_endpoint_url=f"http://127.0.0.1:{port}/fallback",
                 oauth_state_file=self.oauth_state_file,
             )
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
@@ -2543,7 +2546,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 port=port,
                 path="/fallback",
                 bearer_token=None,
-                public_endpoint_url="https://agent.example/fallback",
+                public_endpoint_url=f"http://127.0.0.1:{port}/fallback",
                 oauth_state_file=self.oauth_state_file,
             )
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
@@ -2590,7 +2593,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
                 port=port,
                 path="/fallback",
                 bearer_token=None,
-                public_endpoint_url="https://agent.example/fallback",
+                public_endpoint_url=f"http://127.0.0.1:{port}/fallback",
                 oauth_state_file=self.oauth_state_file,
             )
             runtime = McpServerRuntime(mcp_server, self.logger, auth_mode="none")
@@ -2611,7 +2614,7 @@ class McpServerTransportTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTe
 
     async def test_mcp_sticky_deadline_total_seconds_and_short_id_delete_work(self) -> None:
         async with create_test_mcp_http_client(
-            headers={"Authorization": "Bearer mcp-secret"}
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
         ) as http_client:
             async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
                 created_sticky = await session.call_tool(
