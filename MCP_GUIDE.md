@@ -26,6 +26,8 @@ published through a tunnel. An API credential does not satisfy this requirement.
 Desktop and embedded MCP clients receive their owned API instance's configured
 or private runtime credential. External API connections retain their explicitly
 configured credential; runtime credentials are never saved in settings.
+Owner consent closes its temporary operator login session before approval;
+failed session cleanup denies consent.
 
 ## Public Gateway Surface
 

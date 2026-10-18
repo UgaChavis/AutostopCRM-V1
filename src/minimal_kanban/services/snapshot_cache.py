@@ -27,12 +27,12 @@ def build_prepared_snapshot_data(
     snapshot: dict[str, Any], *, json_dumps: Callable[..., str]
 ) -> PreparedSnapshotData:
     heavy_payload = {key: snapshot[key] for key in _SNAPSHOT_HEAVY_KEYS}
-    heavy_bytes = json_dumps(heavy_payload, safe_depth=7).encode("utf-8")
+    heavy_bytes = json_dumps(heavy_payload, safe_depth=7, separators=(",", ":")).encode("utf-8")
     static_meta = {key: value for key, value in snapshot["meta"].items() if key != "generated_at"}
-    meta_bytes = json_dumps(static_meta, safe_depth=6).encode("utf-8")
-    meta_separator = b", " if len(meta_bytes) > 2 else b""
+    meta_bytes = json_dumps(static_meta, safe_depth=6, separators=(",", ":")).encode("utf-8")
+    meta_separator = b"," if len(meta_bytes) > 2 else b""
     payload_prefix = (
-        heavy_bytes[:-1] + b', "meta": ' + meta_bytes[:-1] + meta_separator + b'"generated_at": '
+        heavy_bytes[:-1] + b',"meta":' + meta_bytes[:-1] + meta_separator + b'"generated_at":'
     )
     return PreparedSnapshotData(payload_prefix=payload_prefix)
 

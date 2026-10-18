@@ -1647,6 +1647,7 @@ class BoardApiClient:
                 if (
                     normalized_name
                     in {
+                        "X-Operator-Session",
                         "X-Autostop-Agent-Identity",
                         "X-Autostop-Agent-Token",
                         OAUTH_AUDIT_ACTOR_HEADER,
