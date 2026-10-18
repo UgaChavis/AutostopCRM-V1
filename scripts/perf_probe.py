@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import secrets
 import statistics
 import sys
 import tempfile
@@ -111,6 +112,7 @@ class LocalTempServer:
     base_url: str
     server: Any
     temp_dir: tempfile.TemporaryDirectory[str]
+    bearer_token: str = ""
 
     def stop(self) -> None:
         try:
@@ -147,16 +149,19 @@ def start_local_temp_server() -> LocalTempServer:
             "actor_name": "PERF",
         }
     )
+    bearer_token = secrets.token_urlsafe(32)
     server = ApiServer(
         service,
         logger,
         host="127.0.0.1",
         start_port=42751,
         fallback_limit=20,
-        bearer_token="",
+        bearer_token=bearer_token,
     )
     server.start()
-    return LocalTempServer(base_url=server.base_url, server=server, temp_dir=temp_dir)
+    return LocalTempServer(
+        base_url=server.base_url, server=server, temp_dir=temp_dir, bearer_token=bearer_token
+    )
 
 
 def _url(base_url: str, path: str) -> str:
@@ -510,7 +515,7 @@ def main() -> int:
         local_server = start_local_temp_server() if args.local_temp_server else None
         base_url = local_server.base_url if local_server is not None else args.base_url
         bearer_token = (
-            ""
+            local_server.bearer_token
             if local_server is not None
             else str(os.environ.get(args.token_env, "") or "").strip()
         )

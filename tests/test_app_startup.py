@@ -102,6 +102,10 @@ class AppStartupTests(unittest.TestCase):
 
         self.assertIs(api_server, ownership["api_server"])
         self.assertIs(agent_control, ownership["agent_control"])
+        self.assertEqual(
+            api_server.agent_bearer_token,
+            modules["start_embedded_agent_runtime"].call_args.kwargs["api_bearer_token"],
+        )
         self.assertIs(mcp_controller, ownership["mcp_controller"])
         self.assertIs(tunnel_controller, ownership["tunnel_controller"])
 

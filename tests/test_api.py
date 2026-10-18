@@ -521,6 +521,7 @@ class ApiServerTests(unittest.TestCase):
             operator_service=self.operator_service,
             start_port=self.port,
             fallback_limit=TEST_API_PORT_FALLBACK_LIMIT,
+            bearer_token="test-api-token",
         )
         self.server.start()
         self.addCleanup(self.server.stop)
@@ -539,7 +540,10 @@ class ApiServerTests(unittest.TestCase):
         data = None
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
-        merged_headers = {"Content-Type": "application/json"}
+        merged_headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-api-token",
+        }
         if headers:
             merged_headers.update(headers)
         request = urllib.request.Request(
@@ -580,7 +584,10 @@ class ApiServerTests(unittest.TestCase):
         timeout: float = TEST_HTTP_TIMEOUT_SECONDS,
     ) -> tuple[int, dict[str, str], bytes]:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
-        merged_headers = {"Content-Type": "application/json"}
+        merged_headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-api-token",
+        }
         if headers:
             merged_headers.update(headers)
         request = urllib.request.Request(
@@ -611,7 +618,7 @@ class ApiServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(health["ok"])
         self.assertEqual(health["data"]["base_url"], self.base_url)
-        self.assertFalse(health["data"]["auth_required"])
+        self.assertTrue(health["data"]["auth_required"])
 
         status, created = self.request(
             "/api/create_card",
@@ -2376,8 +2383,8 @@ class ApiServerTests(unittest.TestCase):
         self.base_url = self.server.base_url
 
         local_status, local_payload = self.request("/api/get_cards", method="GET")
-        self.assertEqual(local_status, 200)
-        self.assertTrue(local_payload["ok"])
+        self.assertEqual(local_status, 401)
+        self.assertEqual(local_payload["error"]["code"], "unauthorized")
 
         proxy_headers = {"X-Forwarded-For": "203.0.113.10"}
         cases = (
@@ -2400,6 +2407,7 @@ class ApiServerTests(unittest.TestCase):
     def test_proxied_post_auth_preflight_precedes_json_and_size_checks(self) -> None:
         proxy_headers = {
             "Content-Type": "application/json",
+            "Authorization": "Bearer test-api-token",
             "X-Forwarded-For": "203.0.113.10",
         }
         cases = (
@@ -2510,7 +2518,11 @@ class ApiServerTests(unittest.TestCase):
         token = logged_in["data"]["session"]["token"]
         allowed_request = urllib.request.Request(
             f"{self.base_url}{path}",
-            headers={**proxy_headers, "X-Operator-Session": token},
+            headers={
+                **proxy_headers,
+                "X-Operator-Session": token,
+                "Authorization": "Bearer test-api-token",
+            },
             method="GET",
         )
         with urllib.request.urlopen(allowed_request, timeout=5) as response:
@@ -2577,7 +2589,10 @@ class ApiServerTests(unittest.TestCase):
                 "POST",
                 "/api/get_board_revision",
                 body=b"\xff",
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer test-api-token",
+                },
             )
             response = connection.getresponse()
             payload = json.loads(response.read().decode("utf-8"))
@@ -2595,7 +2610,10 @@ class ApiServerTests(unittest.TestCase):
                 "POST",
                 "/api/get_board_revision",
                 body=raw_body,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer test-api-token",
+                },
             )
             response = connection.getresponse()
             payload = json.loads(response.read().decode("utf-8"))
@@ -4520,6 +4538,7 @@ class ApiServerTests(unittest.TestCase):
 
         request = urllib.request.Request(
             f"{self.base_url}/api/repair_order_text?card_id={card_id}",
+            headers={"Authorization": "Bearer test-api-token"},
             method="GET",
         )
         with urllib.request.urlopen(request, timeout=5) as response:
@@ -7085,7 +7104,10 @@ class ApiServerTests(unittest.TestCase):
         request = urllib.request.Request(
             f"{self.base_url}/api/create_card",
             data=b"{broken",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer test-api-token",
+            },
             method="POST",
         )
         with self.assertRaises(urllib.error.HTTPError) as invalid_json:

@@ -7,6 +7,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+from ..config import get_api_bearer_token
 from ..json_safety import bounded_dict_list, bounded_text_list
 from ..models import parse_datetime, utc_now, utc_now_iso
 from .compact_context import build_ai_compact_context_packet
@@ -106,7 +107,13 @@ class AgentControlService:
     def bind_board_service(self, board_service: Any | None) -> None:
         self._board_service = board_service
 
-    def start_worker(self, *, logger: Any, board_api_url: str | None = None) -> bool:
+    def start_worker(
+        self,
+        *,
+        logger: Any,
+        board_api_url: str | None = None,
+        api_bearer_token: str | None = None,
+    ) -> bool:
         if self._worker_thread is not None and self._worker_thread.is_alive():
             return True
         if not get_agent_enabled() or not get_agent_openai_api_key():
@@ -117,7 +124,7 @@ class AgentControlService:
         )
         self._worker_thread = threading.Thread(
             target=self._worker_loop,
-            args=(logger, resolved_board_api_url),
+            args=(logger, resolved_board_api_url, api_bearer_token),
             name="minimal-kanban-agent-worker",
             daemon=True,
         )
@@ -615,7 +622,9 @@ class AgentControlService:
             return "configured_but_worker_idle"
         return "missing_api_key"
 
-    def _worker_loop(self, logger: Any, board_api_url: str) -> None:
+    def _worker_loop(
+        self, logger: Any, board_api_url: str, api_bearer_token: str | None = None
+    ) -> None:
         from ..mcp.client import BoardApiClient
         from .openai_client import OpenAIJsonAgentClient
         from .runner import DEFAULT_SYSTEM_PROMPT, AgentRunner
@@ -654,7 +663,12 @@ class AgentControlService:
                             "Board API URL is not configured for embedded agent runtime."
                         )
                     board_api = BoardApiClient(
-                        resolved_board_api_url, logger=logger, default_source="agent"
+                        resolved_board_api_url,
+                        bearer_token=api_bearer_token
+                        if api_bearer_token is not None
+                        else get_api_bearer_token(),
+                        logger=logger,
+                        default_source="agent",
                     )
                     health = board_api.health()
                     if not health.get("ok"):

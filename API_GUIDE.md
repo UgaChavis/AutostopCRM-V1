@@ -22,8 +22,27 @@ download routes require `Authorization: Bearer <token>`. The board,
 `/dashboard`, `/module-map`, and `/manager-structure` shells, content-fingerprinted `/assets/board.*`
 resources, favicons, and `/api/health` are static exceptions. The shells contain
 no business data; the map topology and dashboard content use authenticated reads.
-Requests arriving through the browser proxy also enforce operator-session
-and admin rules where applicable.
+Every non-static read, mutation, and protected download requires a current
+operator session or an authenticated service identity, including direct local
+requests. With no API bearer configured, the public login route remains
+available; an absent token does not grant access to CRM data. Bearer-only
+integrations retain access to bearer-class routes; operator/admin routes and
+human permission checks retain their additional restrictions. Proxy requests
+still require an operator session.
+
+Desktop and embedded API listeners keep their configured loopback default.
+A non-loopback API bind requires a strong API bearer credential or an operator
+authentication service with a strong scoped MCP service credential. The shared
+deployment token policy validates credentials before listener or handler
+initialization. The latter supports the existing container/browser-proxy setup;
+its MCP token retains its feed/Gateway scope and is not an API bearer.
+Generate a token in integration settings and configure API bearer mode before
+enabling network access. Embedded agents receive the configured API credential
+or a private per-instance credential when API bearer mode is off. This credential
+does not permit a network bind or grant operator/admin access and is never
+included in public responses. Standalone agents use
+`MINIMAL_KANBAN_API_BEARER_TOKEN`. Legacy anonymous API
+integrations must configure a credential.
 
 Successful JSON response:
 

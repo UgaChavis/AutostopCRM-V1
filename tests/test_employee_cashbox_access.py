@@ -981,7 +981,7 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         )
         self.assertEqual(projected, {"status": "closed"})
 
-    def test_local_internal_calls_without_human_session_keep_full_contract(self) -> None:
+    def test_authenticated_service_calls_without_human_session_keep_full_contract(self) -> None:
         status, cashboxes = self.api.request("/api/list_cashboxes", method="GET")
         self.assertEqual(status, 200)
         self.assertIn("statistics", cashboxes["data"]["cashboxes"][0])

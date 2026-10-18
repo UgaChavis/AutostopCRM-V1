@@ -69,13 +69,9 @@ def _reachable_board_api_url(
 
 
 def _runtime_bind_host(configured_host: str | None, *, env_explicit: bool) -> str:
-    host = str(configured_host or "").strip() or "0.0.0.0"
+    host = str(configured_host or "").strip() or "127.0.0.1"
     if host.startswith("[") and host.endswith("]"):
-        host = host[1:-1].strip() or "0.0.0.0"
-    if env_explicit:
-        return host
-    if host in {"127.0.0.1", "localhost"}:
-        return "0.0.0.0"
+        host = host[1:-1].strip() or "127.0.0.1"
     return host
 
 
@@ -191,6 +187,7 @@ def _start_embedded_api_runtime(
         service=service,
         logger=logger,
         board_api_url=embedded_api_server.base_url,
+        api_bearer_token=embedded_api_server.agent_bearer_token,
     )
     ownership["agent_control"] = embedded_agent_control
     logger.info("embedded_api_started_for_mcp url=%s", embedded_api_server.base_url)

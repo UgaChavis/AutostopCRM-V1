@@ -187,8 +187,6 @@ def _load_runtime_modules():
 def _resolve_api_runtime_config(settings, get_api_host, get_api_port, get_api_bearer_token):
     host_from_env = os.environ.get("MINIMAL_KANBAN_API_HOST")
     api_host = get_api_host() if host_from_env is not None else settings.local_api.local_api_host
-    if host_from_env is None and api_host in {"127.0.0.1", "localhost"}:
-        api_host = "0.0.0.0"
     api_port = (
         get_api_port()
         if os.environ.get("MINIMAL_KANBAN_API_PORT") is not None
@@ -358,6 +356,7 @@ def _launch_desktop_runtime(
         service=service,
         logger=logger,
         board_api_url=api_server.base_url,
+        api_bearer_token=api_server.agent_bearer_token,
     )
     ownership["agent_control"] = agent_control
     _install_unhandled_exception_handler(

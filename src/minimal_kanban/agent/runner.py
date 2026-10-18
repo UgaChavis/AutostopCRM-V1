@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import Any
 
+from ..config import get_api_bearer_token
 from ..json_safety import bounded_dict_list, bounded_text_list
 from ..json_safety import json_safe_value as _json_safe_value
 from ..mcp.client import BoardApiClient, BoardApiTransportError, discover_board_api
@@ -2517,11 +2518,12 @@ class AgentRunner(AgentRunnerOutputMixin):
 
 
 def build_board_api_client(*, logger: logging.Logger) -> BoardApiClient:
-    board_api_url = get_agent_board_api_url() or discover_board_api(timeout_seconds=1.0)
-    if not board_api_url:
+    token = get_api_bearer_token()
+    api_url = get_agent_board_api_url() or discover_board_api(bearer_token=token)
+    if not api_url:
         raise RuntimeError("Unable to discover a reachable local board API for the server agent.")
     try:
-        client = BoardApiClient(board_api_url, logger=logger, default_source="agent")
+        client = BoardApiClient(api_url, bearer_token=token, logger=logger, default_source="agent")
         health = client.health()
     except BoardApiTransportError as exc:
         raise RuntimeError(f"Board API is not reachable for the server agent: {exc}") from exc

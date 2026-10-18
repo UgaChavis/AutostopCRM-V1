@@ -435,6 +435,7 @@ class PerfProbeTests(unittest.TestCase):
 
         class FakeLocalServer:
             base_url = "http://127.0.0.1:42751"
+            bearer_token = "temporary-probe-token"
 
             def __init__(self) -> None:
                 self.stopped = False
@@ -487,7 +488,8 @@ class PerfProbeTests(unittest.TestCase):
         self.assertTrue(payload["local_temp_server"])
         self.assertEqual(payload["base_url"], fake_server.base_url)
         self.assertEqual(set(seen_base_urls), {fake_server.base_url})
-        self.assertEqual(set(seen_tokens), {""})
+        self.assertEqual(set(seen_tokens), {fake_server.bearer_token})
+        self.assertNotIn(fake_server.bearer_token, stdout.getvalue())
 
     def test_main_reads_remote_api_token_from_environment_without_printing_it(self) -> None:
         module = load_perf_probe_module()
@@ -531,6 +533,7 @@ class PerfProbeTests(unittest.TestCase):
 
         class FakeLocalServer:
             base_url = "http://127.0.0.1:42751"
+            bearer_token = "temporary-probe-token"
 
             def __init__(self) -> None:
                 self.stopped = False

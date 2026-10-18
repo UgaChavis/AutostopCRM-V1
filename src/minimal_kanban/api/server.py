@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import re
+import secrets
 import socket
 import sys
 import threading
@@ -67,6 +68,7 @@ from ..web_assets import (
     BOARD_WEB_APP_MODULES,
     MODULE_MAP_INFRASTRUCTURE,
 )
+from .authentication import has_api_credential, validate_api_listener
 from .automation_center import build_automation_center_routes
 from .change_feed import (
     AUTOMATION_CHANGE_FEED_ROUTES,
@@ -1277,8 +1279,10 @@ class AuthenticationPolicy:
         admin_only_routes: set[str],
         maintenance_technical_write_routes: set[str],
         operator_permission_routes: dict[str, str] | None = None,
+        agent_bearer_token: str = "",
     ) -> None:
         self._bearer_token = bearer_token
+        self._agent_bearer_token = agent_bearer_token
         self._operator_service = operator_service
         self._readonly_routes = frozenset(readonly_routes)
         self._operator_session_routes = frozenset(operator_session_routes)
@@ -1310,21 +1314,16 @@ class AuthenticationPolicy:
             setattr(handler, "_automation_feed_authenticated", True)
             return True
         if not self._bearer_token:
-            return True
-        if hmac.compare_digest(auth_header, f"Bearer {self._bearer_token}"):
+            # Operator, Gateway or scoped feed identity is enforced before dispatch.
             return True
         try:
-            query_payload = (
-                query if query is not None else handler._query_payload(urlsplit(handler.path).query)
-            )
-            access_token = str(query_payload.get("access_token", "") or "").strip()
+            if has_api_credential(handler, self._bearer_token, query):
+                return True
         except ServiceError as exc:
             handler._send_error_response(
                 request_id, exc.status_code, exc.code, exc.message, exc.details
             )
             return False
-        if hmac.compare_digest(access_token, self._bearer_token):
-            return True
         handler._send_error_response(
             request_id,
             HTTPStatus.UNAUTHORIZED,
@@ -1406,12 +1405,15 @@ class AuthenticationPolicy:
                     message="Сервис входа операторов временно недоступен.",
                 )
                 return None
-            return payload
         if operator_session_resolved:
             session = resolved_operator_session
         else:
-            session = self._operator_service.resolve_session(
-                handler.headers.get("X-Operator-Session", "")
+            session = (
+                self._operator_service.resolve_session(
+                    handler.headers.get("X-Operator-Session", "")
+                )
+                if self._operator_service is not None
+                else None
             )
             if session is None:
                 session = self._trusted_agent_session(handler, route, payload)
@@ -1421,7 +1423,17 @@ class AuthenticationPolicy:
             getattr(handler, "_automation_feed_authenticated", False)
         ):
             next_payload["_automation_service"] = True
-        if route != "/api/login_operator" and session is None and self.is_proxied_request(handler):
+        api_service_authenticated = session is None and has_api_credential(
+            handler, self._bearer_token or self._agent_bearer_token
+        )
+        if (
+            route != "/api/login_operator"
+            and session is None
+            and (
+                self.is_proxied_request(handler)
+                or not (api_service_authenticated or next_payload.get("_automation_service"))
+            )
+        ):
             self._reject(
                 handler,
                 request_id,
@@ -1433,8 +1445,8 @@ class AuthenticationPolicy:
         required_permission = self._operator_permission_routes.get(route, "")
         if (
             required_permission
-            and session is not None
             and not operator_has_permission(session, required_permission)
+            and not (session is None and api_service_authenticated)
         ):
             self._reject(
                 handler,
@@ -1548,6 +1560,8 @@ class AuthenticationPolicy:
                 status_code=HTTPStatus.UNAUTHORIZED,
             )
         if audit_actor:
+            if self._operator_service is None:
+                return None
             if not verify_oauth_audit_assertion(
                 subject=audit_actor,
                 method=handler.command,
@@ -1560,11 +1574,7 @@ class AuthenticationPolicy:
                     "OAuth-аудит Gateway не прошёл проверку.",
                     status_code=HTTPStatus.UNAUTHORIZED,
                 )
-            verified_actor = (
-                self._operator_service.resolve_oauth_audit_admin(audit_actor)
-                if self._operator_service is not None
-                else None
-            )
+            verified_actor = self._operator_service.resolve_oauth_audit_admin(audit_actor)
             if not verified_actor:
                 raise ServiceError(
                     "unauthorized",
@@ -2156,6 +2166,7 @@ class ApiServer:
         self._start_port = resolved_start_port
         self._fallback_limit = resolved_fallback_limit
         self._bearer_token = bearer_token if bearer_token is not None else get_api_bearer_token()
+        self.agent_bearer_token = self._bearer_token or secrets.token_urlsafe(32)
         self._operator_service = operator_service
         self._clipboard_file_provider = clipboard_file_provider or list_clipboard_file_paths
 
@@ -2171,6 +2182,7 @@ class ApiServer:
     def start(self) -> None:
         if self._server is not None:
             return
+        validate_api_listener(self.host, self._bearer_token, self._operator_service is not None)
         handler = self._make_handler()
         candidate_ports = (
             range(self._start_port, self._start_port + self._fallback_limit)
@@ -2438,6 +2450,7 @@ class ApiServer:
 
         authentication_policy = AuthenticationPolicy(
             bearer_token=bearer_token,
+            agent_bearer_token=self.agent_bearer_token,
             operator_service=operator_service,
             readonly_routes=readonly_routes,
             operator_session_routes=operator_session_routes,

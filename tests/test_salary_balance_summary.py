@@ -248,7 +248,9 @@ class EmployeeSalaryBalanceSummaryTests(CardServiceCase):
         summary, full = self._assert_balance_summary_matches_full_ledger(employee["id"])
         self.assertEqual(summary["balance_minor"], 2500)
 
-        server = ApiServer(self.service, self.logger, start_port=0)
+        server = ApiServer(
+            self.service, self.logger, start_port=0, bearer_token="salary-test-token"
+        )
         with patch.object(
             self.service,
             "_employee_salary_ledger_revision",
@@ -257,7 +259,11 @@ class EmployeeSalaryBalanceSummaryTests(CardServiceCase):
             try:
                 server.start()
                 with urllib.request.urlopen(
-                    f"{server.base_url}/api/list_employees", timeout=10
+                    urllib.request.Request(
+                        f"{server.base_url}/api/list_employees",
+                        headers={"Authorization": "Bearer salary-test-token"},
+                    ),
+                    timeout=10,
                 ) as response:
                     self.assertEqual(response.status, 200)
                     payload = json.loads(response.read().decode("utf-8"))["data"]

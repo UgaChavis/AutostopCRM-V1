@@ -63,9 +63,11 @@ class ReachableBoardApiUrlTests(unittest.TestCase):
 
 
 class RuntimeBindHostTests(unittest.TestCase):
-    def test_converts_localhost_to_wildcard_when_host_is_not_explicit(self) -> None:
-        self.assertEqual(_runtime_bind_host("127.0.0.1", env_explicit=False), "0.0.0.0")
-        self.assertEqual(_runtime_bind_host("localhost", env_explicit=False), "0.0.0.0")
+    def test_preserves_loopback_when_host_is_not_explicit(self) -> None:
+        self.assertEqual(_runtime_bind_host("127.0.0.1", env_explicit=False), "127.0.0.1")
+        self.assertEqual(_runtime_bind_host("localhost", env_explicit=False), "localhost")
+        self.assertEqual(_runtime_bind_host(None, env_explicit=False), "127.0.0.1")
+        self.assertEqual(_runtime_bind_host("", env_explicit=True), "127.0.0.1")
 
     def test_keeps_host_when_env_is_explicit(self) -> None:
         self.assertEqual(_runtime_bind_host("127.0.0.1", env_explicit=True), "127.0.0.1")
@@ -295,6 +297,7 @@ class McpMainRunTests(unittest.TestCase):
             service=card_service,
             logger=logger,
             board_api_url="http://127.0.0.1:41731",
+            api_bearer_token=api_server.agent_bearer_token,
         )
         runtime.start.assert_called_once_with()
         runtime.stop.assert_called_once_with()

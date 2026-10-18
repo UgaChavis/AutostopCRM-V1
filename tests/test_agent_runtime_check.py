@@ -875,11 +875,13 @@ class AgentControlServiceTests(unittest.TestCase):
                 started = control.start_worker(
                     logger=logging.getLogger("test.agent.worker"),
                     board_api_url="http://127.0.0.1:41731",
+                    api_bearer_token="configured-api-token",
                 )
 
             self.assertTrue(started)
             self.assertEqual(len(created_threads), 1)
             self.assertEqual(created_threads[0].args[1], "http://127.0.0.1:41731")
+            self.assertEqual(created_threads[0].args[2], "configured-api-token")
             control.close()
 
 

@@ -49,6 +49,7 @@ class PartsStoreApiTests(unittest.TestCase):
             operator_service=operator_service,
             start_port=0,
             fallback_limit=1,
+            bearer_token="parts-store-test-token",
         )
         self.server.start()
         self.addCleanup(self.server.stop)
@@ -68,7 +69,11 @@ class PartsStoreApiTests(unittest.TestCase):
                 method,
                 path,
                 body=body,
-                headers={"Content-Type": "application/json", **(headers or {})},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer parts-store-test-token",
+                    **(headers or {}),
+                },
             )
             response = connection.getresponse()
             return response.status, json.loads(response.read().decode("utf-8"))
