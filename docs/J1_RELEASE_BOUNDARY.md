@@ -247,6 +247,12 @@ including malformed/unknown state. Reusing an admitted preparation or starting
 a fresh legacy deploy is refused. Forward recovery is an explicit separate
 operation; there is no reset, disarm, old checkpoint overlay or force flag.
 
+For a CRM-only successor after a completed `accepted_warm` arm, use the separate
+[CRM-only post-arm release v1 runbook](J1_CRM_FORWARD_RELEASE.md). It preserves
+the original Manager89 authority and records each new CRM candidate in an
+independently verified successor chain; it does not replay this initial-arm
+procedure or treat the earlier CRM image as accepted for a later release.
+
 ## Conditional kernel bootstrap consumer
 
 `kernel_ro_cold_v1` implements the separate

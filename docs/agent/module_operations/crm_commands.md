@@ -16,6 +16,11 @@ private business data; keep it out of Git and shared output.
 | --- | --- | --- |
 | `scripts/run_checks.ps1 -Profile changed` | Changed-file Ruff, generated JS and code health | R/S; local only |
 | `scripts/run_checks.ps1 -Profile ci` | Canonical full local CI profile, including unit/coverage, docs, browser core and performance | S; disposable fixtures, not deploy |
+| `scripts/j1_forward_release.py` via `deploy.sh --forward-j1 build`, `prepare --image DIGEST --ci-run-id ID`, `apply --attempt UUID` | Versioned post-arm CRM successor; exact source/CI, quiet backup, independent restore and real native guards; see [forward runbook](../../J1_CRM_FORWARD_RELEASE.md) | **X/T**; explicitly authorized release only; internal `run`/`settle` retain failure barriers |
+| `scripts/j1_forward_worker.py --attempt UUID --stage closed\|activated --ssh-key PATH --reviewer-key PATH --openssl PATH --cache PATH` | Finite Windows custodian; actual off-host restore before signed acceptance | **T**; private ACL custody; no arbitrary signing operation |
+| `scripts/j1_forward_backup.py inventory` or `verify --backup-dir PATH --manifest-sha256 HASH --output NEW_PATH --context PATH` | Full approved durable profile and disposable verification | R/S; verification never writes production restore destinations |
+| `scripts/j1_forward_transport.py` operations `stage`, `bundle-assets`, `import-assets`, `bundle-delta`, `assemble-delta` | Hash-bound online transport cache and bounded flat archives | R/S; private outputs; transport grants no quiet, backup or activation acceptance |
+| `scripts/j1_forward_runtime.py --public-url URL --api-url URL` | Real public health and authorized operator reads, mandatory logout | T; release probe with existing credentials; emits technical results only |
 | `scripts/docs_audit.py --format text [--manager-root /path/to/selected-manager-source]` | Document links, Gateway names, optional registered Manager/CRM schema parity | R; synthetic schema process |
 | `scripts/code_health_audit.py --format text [--include-untracked]` | File roles and size/complexity budgets | R |
 | `scripts/coverage_audit.py --format text` | Runtime/release coverage floors | R; after coverage run |

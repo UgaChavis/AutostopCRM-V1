@@ -5,6 +5,15 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT_DIR"
 
+# An armed installation uses the separate monotonic CRM successor consumer.
+# This dispatch never changes the legacy initial-activation refusal below.
+if [[ "${1:-}" == "--forward-j1" ]]; then
+  shift
+  exec env LD_LIBRARY_PATH=/opt/autostop-sqlite/3.51.3/lib \
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -I -S -B \
+    "$ROOT_DIR/scripts/j1_forward_release.py" "$@"
+fi
+
 # Dispatch before reading the live shell environment. Preparation creates only
 # new source artifacts and a receipt, without executing the deployment below.
 if [[ "${1:-}" == "--prepare-j1" ]]; then
