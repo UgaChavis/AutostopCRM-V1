@@ -10,10 +10,13 @@ import threading
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 from scripts import j1_forward_io as io
+from scripts import j1_forward_recovery_state as recovery
 from scripts import j1_forward_state as state
 
 
@@ -638,6 +641,473 @@ class ForwardStateTests(unittest.TestCase):
         with patch.object(state, "_sync_directory", side_effect=sync):
             with self.assertRaisesRegex(io.Refusal, "state_terminal_head_changed"):
                 self.store.confirm_finished(plan)
+
+    def recovery_fixture(self):
+        now = datetime.now(UTC)
+        origin = self.plan()
+        origin["created_at"] = (now - timedelta(days=2)).isoformat()
+        origin["deadline_utc"] = (now - timedelta(days=1)).isoformat()
+        plan = self.plan()
+        plan["created_at"] = (now - timedelta(seconds=1)).isoformat()
+        plan["deadline_utc"] = (now + timedelta(seconds=300)).isoformat()
+        plan["candidate"]["revision"] = "a" * 40
+        old, new = (self.root / "attempts" / value["attempt_id"] for value in (origin, plan))
+        for directory in (old, new):
+            directory.mkdir(parents=True)
+        origin["baseline_ref"] = io.write_new(
+            old / "baseline.json", {"synthetic": origin["attempt_id"]}
+        )
+        retained = self.root / "origins" / origin["attempt_id"]
+        retained.mkdir(parents=True)
+        io.write_new(retained / "pending.json", origin)
+        envelope = {
+            "schema": recovery.RECOVERY_SCHEMA,
+            "recovery_id": plan["attempt_id"],
+            "nonce": "a" * 64,
+            "origin_pending_ref": self.store.begin(origin),
+            "origin_plan_ref": io.write_new(old / "plan.json", origin),
+            "origin_closure_ref": io.write_new(
+                old / "closure-owned.json", {"synthetic": "old closure"}
+            ),
+            "origin_scope_ref": io.write_new(
+                old / "process-scope.json", {"synthetic": "old scope"}
+            ),
+            "origin_failure_ref": io.write_new(old / "failure.json", {"synthetic": "old failure"}),
+            "origin_bundle_ref": io.write_new(
+                retained / "bundle.json", {"synthetic": "old bundle"}
+            ),
+            "deployment_lock_identity": [1, 123],
+        }
+        for name in ("recovery_code_ref", "ci_ref", "hold_ref"):
+            envelope[name] = io.write_new(new / (name + ".json"), {"synthetic": name})
+        plan["baseline_ref"] = io.write_new(
+            new / "baseline.json",
+            {"recovery_origin": {key: envelope[key] for key in recovery.ORIGIN_FIELDS}},
+        )
+        envelope["plan_ref"] = io.write_new(new / "plan.json", plan)
+        proofs = {
+            name: io.write_new(
+                new / (name + "-new-proof.json"),
+                {"synthetic_proof": name, "attempt_id": plan["attempt_id"]},
+            )
+            for name in state.PROOF_FIELDS
+        }
+        return origin, plan, envelope, proofs
+
+    def test_recovery_begin_preserves_original_bytes_and_has_explicit_active_identity(self):
+        origin, plan, envelope, _ = self.recovery_fixture()
+        original = self.store.pending_path.read_bytes()
+        self.assertEqual(
+            self.store.active_plan(),
+            {"plan": origin, "origin_plan_ref": None, "recovery_ref": None},
+        )
+        reference = self.store.begin_recovery(envelope)
+        self.assertEqual(self.store.begin_recovery(copy.deepcopy(envelope)), reference)
+        self.assertEqual(self.store.pending_path.read_bytes(), original)
+        self.assertEqual(Path(self.store._archive_ref(envelope)["path"]).read_bytes(), original)
+        self.assertEqual(
+            self.store.active_plan(),
+            {
+                "plan": plan,
+                "origin_plan_ref": envelope["origin_plan_ref"],
+                "recovery_ref": reference,
+            },
+        )
+        self.assertEqual(self.store.head()["sequence"], 0)
+
+    def test_active_recovery_blocks_every_v1_mutating_or_terminal_api(self):
+        origin, _, envelope, _ = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        for action in (
+            lambda: self.store.begin(origin),
+            lambda: self.store.commit(origin, self.proofs()),
+            lambda: self.store.recover(origin),
+            lambda: self.store.finish(origin),
+            lambda: self.store.confirm_finished(origin),
+        ):
+            with (
+                self.subTest(action=action),
+                self.assertRaisesRegex(io.Refusal, "state_recovery_active"),
+            ):
+                action()
+        self.assertEqual(self.store.pending(), origin)
+        self.assertFalse(self.store.head_path.exists())
+
+    def test_recovery_publication_interrupt_before_pointer_can_retry_exact_envelope(self):
+        origin, _, envelope, _ = self.recovery_fixture()
+        write = io.write_new
+
+        def interrupted(path, value):
+            if path == self.store.recovery_path:
+                raise OSError("pointer publication interrupted")
+            return write(path, value)
+
+        with patch.object(io, "write_new", side_effect=interrupted), self.assertRaises(OSError):
+            self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+        self.assertEqual(self.store.pending(), origin)
+        archive = Path(self.store._archive_ref(envelope)["path"]).read_bytes()
+        self.store.begin_recovery(envelope)
+        self.assertEqual(Path(self.store._archive_ref(envelope)["path"]).read_bytes(), archive)
+
+    def test_recovery_publication_unknown_after_pointer_is_idempotent(self):
+        _, _, envelope, _ = self.recovery_fixture()
+        write = io.write_new
+
+        def interrupted(path, value):
+            result = write(path, value)
+            if path == self.store.recovery_path:
+                raise OSError("pointer acknowledgment lost")
+            return result
+
+        with patch.object(io, "write_new", side_effect=interrupted), self.assertRaises(OSError):
+            self.store.begin_recovery(envelope)
+        self.assertEqual(self.store.begin_recovery(envelope), self.store._recovery_ref(envelope))
+
+    def test_recovery_nonce_or_foreign_envelope_cannot_replace_active_owner(self):
+        _, _, envelope, _ = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        changed = copy.deepcopy(envelope)
+        changed["nonce"] = "b" * 64
+        before = self.store.recovery_path.read_bytes()
+        with self.assertRaisesRegex(io.Refusal, "recovery_baseline_origin_binding"):
+            self.store.begin_recovery(changed)
+        self.assertEqual(self.store.recovery_path.read_bytes(), before)
+
+    def test_recovery_rejects_foreign_pending_and_nonidentical_original_bytes(self):
+        origin, _, envelope, _ = self.recovery_fixture()
+        raw = self.store.pending_path.read_bytes()
+        self.store.pending_path.write_bytes(raw + b" ")
+        with self.assertRaisesRegex(io.Refusal, "recovery_pending_bytes_changed"):
+            self.store.begin_recovery(envelope)
+        self.store.pending_path.write_bytes(
+            io.canonical({**origin, "attempt_id": str(uuid.uuid4())})
+        )
+        with self.assertRaisesRegex(io.Refusal, "state_pending_mismatch"):
+            self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+
+    def test_recovery_envelope_fields_nonce_lock_refs_and_fixed_paths_are_strict(self):
+        _, _, envelope, _ = self.recovery_fixture()
+        changes = (
+            lambda e: e.update(extra=True),
+            lambda e: e.update(schema="unknown"),
+            lambda e: e.update(nonce="a" * 63),
+            lambda e: e.update(deployment_lock_identity=[True, 1]),
+            lambda e: e.update(recovery_id=str(uuid.uuid4())),
+            lambda e: e["origin_pending_ref"].update(sha256="f" * 64),
+            lambda e: e["origin_pending_ref"].update(path=str(self.root / "other-pending.json")),
+            lambda e: e["ci_ref"].update(sha256="f" * 64),
+        )
+        for change in changes:
+            altered = copy.deepcopy(envelope)
+            change(altered)
+            with self.subTest(change=change), self.assertRaises(io.Refusal):
+                self.store.begin_recovery(altered)
+        self.assertFalse(self.store.recovery_path.exists())
+
+    def test_recovery_window_expired_future_or_oversized_is_refused_before_effects(self):
+        _, plan, envelope, _ = self.recovery_fixture()
+        now = datetime.now(UTC)
+        for start, end in ((-100, -1), (100, 200), (-1, 601)):
+            changed = copy.deepcopy(plan)
+            changed["created_at"] = (now + timedelta(seconds=start)).isoformat()
+            changed["deadline_utc"] = (now + timedelta(seconds=end)).isoformat()
+            path = Path(envelope["plan_ref"]["path"])
+            path.write_bytes(io.canonical(changed))
+            envelope["plan_ref"] = io.reference(path)
+            with (
+                self.subTest(start=start, end=end),
+                self.assertRaisesRegex(io.Refusal, "recovery_window"),
+            ):
+                self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+
+    def test_recovery_changed_base_host_sequence_or_predecessor_does_not_gain_authority(self):
+        _, plan, envelope, _ = self.recovery_fixture()
+        for key, value in (
+            ("host", "foreign"),
+            ("sequence", 2),
+            ("base_sha256", "b" * 64),
+            ("predecessor_sha256", "b" * 64),
+        ):
+            path = Path(envelope["plan_ref"]["path"])
+            path.write_bytes(io.canonical({**plan, key: value}))
+            envelope["plan_ref"] = io.reference(path)
+            with self.subTest(key=key), self.assertRaises(io.Refusal):
+                self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+
+    def test_recovery_commits_v2_then_consumes_pending_without_losing_origin_archive(self):
+        origin, plan, envelope, proofs = self.recovery_fixture()
+        original = self.store.pending_path.read_bytes()
+        self.store.begin_recovery(envelope)
+        committed = self.store.commit_recovery(envelope, proofs)
+        record = self.store.head()["record"]
+        self.assertEqual(record["schema"], recovery.COMMIT_SCHEMA)
+        self.assertEqual(record["origin_plan"], origin)
+        self.assertEqual(record["plan"], plan)
+        self.assertEqual(self.store.pending_path.read_bytes(), original)
+        self.assertEqual(self.store.commit_recovery(envelope, proofs), committed)
+        self.assertEqual(self.store.finish_recovery(envelope), committed)
+        self.assertIsNone(self.store.pending())
+        self.assertIsNone(self.store.active_plan())
+        self.assertEqual(self.store.head()["record"], record)
+        self.assertEqual(Path(self.store._archive_ref(envelope)["path"]).read_bytes(), original)
+        self.assertEqual(self.store.finish_recovery(envelope), committed)
+        successor = self.plan(sequence=2, predecessor=committed["sha256"])
+        self.store.begin(successor)
+        self.store.commit(successor, self.proofs())
+        self.assertEqual(len(self.store._records()), 2)
+
+    def test_recovery_commit_requires_five_new_real_unique_evidence_files(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        variants = (
+            {},
+            {**proofs, "extra": envelope["origin_scope_ref"]},
+            {**proofs, "closure": envelope["origin_closure_ref"]},
+            {**proofs, "backup": proofs["closure"]},
+            {**proofs, "backup": {**proofs["backup"], "sha256": "f" * 64}},
+        )
+        for altered in variants:
+            with self.subTest(proofs=altered), self.assertRaises(io.Refusal):
+                self.store.commit_recovery(envelope, altered)
+        self.assertFalse(self.store.head_path.exists())
+        Path(proofs["backup"]["path"]).unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.store.commit_recovery(envelope, proofs)
+        self.assertFalse(self.store.head_path.exists())
+
+    def test_recovery_uncommitted_finish_never_removes_pending(self):
+        origin, _, envelope, _ = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        with self.assertRaisesRegex(io.Refusal, "state_recovery_uncommitted"):
+            self.store.finish_recovery(envelope)
+        self.assertEqual(self.store.pending(), origin)
+        self.assertTrue(self.store.recovery_path.exists())
+
+    def test_recovery_history_before_head_requires_explicit_v2_repair(self):
+        origin, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        with (
+            patch.object(io, "atomic_replace", side_effect=OSError("lost HEAD")),
+            self.assertRaises(OSError),
+        ):
+            self.store.commit_recovery(envelope, proofs)
+        self.assertEqual(self.store.pending(), origin)
+        with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
+            self.store.head()
+        with self.assertRaisesRegex(io.Refusal, "state_recovery_active"):
+            self.store.recover(origin)
+        reference = self.store.recover_recovery(envelope)
+        self.assertEqual(self.store.head()["sha256"], reference["sha256"])
+        self.assertEqual(self.store.recover_recovery(envelope), reference)
+        self.store.finish_recovery(envelope)
+
+    def test_recovery_durability_failure_keeps_original_pending_and_active_owner(self):
+        origin, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        self.store.commit_recovery(envelope, proofs)
+        original = self.store._durable
+
+        def interrupted(reference):
+            if reference["path"] == str(self.store.head_path):
+                raise OSError("HEAD not durable")
+            return original(reference)
+
+        with (
+            patch.object(self.store, "_durable", side_effect=interrupted),
+            self.assertRaises(OSError),
+        ):
+            self.store.finish_recovery(envelope)
+        self.assertEqual(self.store.pending(), origin)
+        self.assertTrue(self.store.recovery_path.exists())
+
+    def test_recovery_finish_interruption_after_pending_unlink_still_blocks_new_begin(self):
+        _, plan, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        committed = self.store.commit_recovery(envelope, proofs)
+        original = state._sync_directory
+
+        def interrupted(path):
+            if not self.store.pending_path.exists() and self.store.recovery_path.exists():
+                raise OSError("pending absence not durable")
+            original(path)
+
+        with (
+            patch.object(state, "_sync_directory", side_effect=interrupted),
+            self.assertRaises(OSError),
+        ):
+            self.store.finish_recovery(envelope)
+        self.assertTrue(self.store.recovery_path.exists())
+        self.assertEqual(self.store.active_plan()["plan"], plan)
+        with self.assertRaisesRegex(io.Refusal, "state_recovery_active"):
+            self.store.begin(self.plan(sequence=2, predecessor=committed["sha256"]))
+        self.assertEqual(self.store.finish_recovery(envelope), committed)
+
+    def test_recovery_finish_lost_terminal_acknowledgment_reestablishes_absence(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        committed = self.store.commit_recovery(envelope, proofs)
+        original = state._sync_directory
+
+        def interrupted(path):
+            if not self.store.pending_path.exists() and not self.store.recovery_path.exists():
+                raise OSError("terminal acknowledgment lost")
+            original(path)
+
+        with (
+            patch.object(state, "_sync_directory", side_effect=interrupted),
+            self.assertRaises(OSError),
+        ):
+            self.store.finish_recovery(envelope)
+        self.assertIsNone(self.store.pending())
+        self.assertFalse(self.store.recovery_path.exists())
+        self.assertEqual(self.store.finish_recovery(envelope), committed)
+
+    def test_recovery_history_remembers_both_original_and_recovery_attempt_ids(self):
+        origin, plan, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        committed = self.store.commit_recovery(envelope, proofs)
+        self.store.finish_recovery(envelope)
+        for attempt in (origin["attempt_id"], plan["attempt_id"]):
+            with (
+                self.subTest(attempt=attempt),
+                self.assertRaisesRegex(io.Refusal, "state_attempt_replayed"),
+            ):
+                self.store.begin(
+                    self.plan(sequence=2, predecessor=committed["sha256"], attempt=attempt)
+                )
+
+    def test_recovery_historical_archive_or_envelope_change_is_not_hidden_by_head(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        self.store.commit_recovery(envelope, proofs)
+        self.store.finish_recovery(envelope)
+        for path in (
+            Path(self.store._archive_ref(envelope)["path"]),
+            Path(self.store._recovery_ref(envelope)["path"]),
+        ):
+            original = path.read_bytes()
+            path.write_bytes(original + b" ")
+            with (
+                self.subTest(path=path),
+                self.assertRaisesRegex(io.Refusal, "reference_hash_mismatch"),
+            ):
+                self.store.head()
+            path.write_bytes(original)
+
+    def test_recovery_committed_proofs_cannot_change_on_idempotent_commit(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        self.store.commit_recovery(envelope, proofs)
+        path = Path(envelope["plan_ref"]["path"]).parent / "another-backup.json"
+        changed = {**proofs, "backup": io.write_new(path, {"different": "proof"})}
+        with self.assertRaisesRegex(io.Refusal, "state_committed_proofs_mismatch"):
+            self.store.commit_recovery(envelope, changed)
+
+    def test_recovery_new_baseline_must_bind_exact_eleven_origin_fields(self):
+        _, plan, envelope, _ = self.recovery_fixture()
+        baseline_path = Path(plan["baseline_ref"]["path"])
+        original = io.document(baseline_path.read_bytes())
+        self.assertEqual(len(original["recovery_origin"]), 11)
+        for change in (
+            lambda value: value["recovery_origin"].pop("origin_failure_ref"),
+            lambda value: value["recovery_origin"].update(nonce="b" * 64),
+            lambda value: value["recovery_origin"].update(extra="unbound"),
+        ):
+            altered = copy.deepcopy(original)
+            change(altered)
+            baseline_path.write_bytes(io.canonical(altered))
+            plan["baseline_ref"] = io.reference(baseline_path)
+            plan_path = Path(envelope["plan_ref"]["path"])
+            plan_path.write_bytes(io.canonical(plan))
+            envelope["plan_ref"] = io.reference(plan_path)
+            with (
+                self.subTest(change=change),
+                self.assertRaisesRegex(io.Refusal, "recovery_baseline_origin_binding"),
+            ):
+                self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+
+    def test_recovery_origin_bundle_and_pending_are_retained_at_exact_origin_root(self):
+        origin, _, envelope, _ = self.recovery_fixture()
+        retained = self.root / "origins" / origin["attempt_id"]
+        raw = (retained / "pending.json").read_bytes()
+        (retained / "pending.json").write_bytes(raw + b" ")
+        with self.assertRaisesRegex(io.Refusal, "reference_hash_mismatch"):
+            self.store.begin_recovery(envelope)
+        (retained / "pending.json").write_bytes(raw)
+        self.store.begin_recovery(envelope)
+        self.assertEqual(self.store.pending_path.read_bytes(), raw)
+        self.assertEqual(envelope["origin_bundle_ref"]["path"], str(retained / "bundle.json"))
+
+    def test_recovery_deadline_is_rechecked_after_lock_wait(self):
+        _, plan, envelope, _ = self.recovery_fixture()
+        original = self.store._locked
+
+        @contextmanager
+        def delayed_lock(**kwargs):
+            with original(**kwargs) as present, patch.object(recovery, "datetime") as clock:
+                clock.now.return_value = datetime.fromisoformat(plan["deadline_utc"]) + timedelta(
+                    seconds=1
+                )
+                yield present
+
+        with (
+            patch.object(self.store, "_locked", delayed_lock),
+            self.assertRaisesRegex(io.Refusal, "recovery_window_expired_or_future"),
+        ):
+            self.store.begin_recovery(envelope)
+        self.assertFalse(self.store.recovery_path.exists())
+        self.assertFalse(self.store.recoveries.exists())
+
+    def test_recovery_commit_after_deadline_cannot_publish_history(self):
+        origin, plan, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        with patch.object(recovery, "datetime") as clock:
+            clock.now.return_value = datetime.fromisoformat(plan["deadline_utc"]) + timedelta(
+                seconds=1
+            )
+            with self.assertRaisesRegex(io.Refusal, "recovery_window_expired_or_future"):
+                self.store.commit_recovery(envelope, proofs)
+        self.assertEqual(self.store.pending(), origin)
+        self.assertFalse(self.store.head_path.exists())
+        self.assertFalse(self.store.history.exists())
+
+    def test_recovery_finish_rechecks_foreign_pending_after_terminal_pointer_removal(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        self.store.commit_recovery(envelope, proofs)
+        original = state._sync_directory
+
+        def reappear(path):
+            original(path)
+            if not self.store.pending_path.exists() and not self.store.recovery_path.exists():
+                io.write_new(self.store.pending_path, self.plan())
+
+        with (
+            patch.object(state, "_sync_directory", side_effect=reappear),
+            self.assertRaisesRegex(io.Refusal, "state_terminal_pending_changed"),
+        ):
+            self.store.finish_recovery(envelope)
+        self.assertTrue(self.store.pending_path.exists())
+
+    def test_recovery_v2_history_rejects_unknown_fields_even_with_matching_head_hash(self):
+        _, _, envelope, proofs = self.recovery_fixture()
+        self.store.begin_recovery(envelope)
+        reference = self.store.commit_recovery(envelope, proofs)
+        path = Path(reference["path"])
+        record = io.document(path.read_bytes())
+        record["accepted"] = True
+        path.write_bytes(io.canonical(record))
+        io.atomic_replace(
+            self.store.head_path,
+            {"schema": state.HEAD_SCHEMA, "sequence": 1, "sha256": io.reference(path)["sha256"]},
+        )
+        with self.assertRaisesRegex(io.Refusal, "commit_fields"):
+            self.store.head()
 
 
 if __name__ == "__main__":

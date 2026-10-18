@@ -18,6 +18,9 @@ from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
 from scripts import j1_forward_proofs as proofs
+from scripts import j1_forward_recovery_scope as recovery_scope
+from scripts import j1_forward_recovery_state as recovery_state
+from scripts import j1_forward_recovery_worker as recovery_worker
 from scripts import j1_forward_state as state
 from scripts import j1_forward_transport as transport
 from scripts import j1_forward_worker as worker
@@ -47,7 +50,7 @@ class WorkerTests(unittest.TestCase):
     def ref(self, name, value):
         return {"path": self.prefix + name, "sha256": io.sha(io.canonical(value))}
 
-    def response(self, stage="closed"):
+    def response(self, stage="closed", *, recovery=False):
         now = datetime.now(UTC)
         consumers = {
             "scripts/" + path.name: io.sha(path.read_bytes())
@@ -78,6 +81,15 @@ class WorkerTests(unittest.TestCase):
             "review_key_ref": review,
             "backup_profile_sha256": transport.PROFILE_SHA256,
             "deployment_lock_identity": [1, 2],
+            "maintenance_parent": {
+                "schema": "autostop.j1.crm-forward-marker-parent.v1",
+                "path": "/opt/autostopcrm/data",
+                "dev": 1,
+                "ino": 3,
+                "uid": 10001,
+                "gid": 10001,
+                "mode": 0o700,
+            },
             "ci": {
                 "run_id": 1234,
                 "revision": "3" * 40,
@@ -86,6 +98,8 @@ class WorkerTests(unittest.TestCase):
                 "conclusion": "success",
             },
         }
+        if recovery:
+            recovery_documents = self.recovery_material(baseline, now)
         baseline_ref = self.ref("baseline.json", baseline)
         plan = {
             "schema": state.PLAN_SCHEMA,
@@ -103,7 +117,7 @@ class WorkerTests(unittest.TestCase):
             },
             "baseline_ref": baseline_ref,
             "created_at": (now - timedelta(minutes=1)).isoformat(),
-            "deadline_utc": (now + timedelta(minutes=10)).isoformat(),
+            "deadline_utc": (now + timedelta(minutes=9)).isoformat(),
             "candidate_may_have_written": True,
             "old_writer_allowed": False,
         }
@@ -126,6 +140,20 @@ class WorkerTests(unittest.TestCase):
             "native_preserved": True,
         }
         scope = self.scope(plan, baseline["native"])
+        if recovery:
+            origin_scope = recovery_documents["origin_scope"]
+            scope.update(
+                schema=recovery_scope.SCHEMA,
+                profile_sha256=recovery_scope.PROFILE_SHA256,
+                transport_actors=[self.actor(pid) for pid in recovery_scope.TRANSPORTS],
+                origin_scope=origin_scope,
+                origin_scope_ref=dict(recovery_scope.ORIGIN_SCOPE_REF),
+                recovery_origin_refs=copy.deepcopy(recovery_scope.ORIGIN_REFS),
+                original_liveness=[self.actor(pid) for pid in (538285, 538487)],
+                retired_transports=[self.actor(pid) for pid in recovery_scope.RETIRED],
+                disposition=recovery_scope.DISPOSITION,
+                observation=recovery_scope._origin_projection(origin_scope),
+            )
         scope_ref = self.ref("process-scope.json", scope)
         evidence["process_scope"] = scope
         staged = {
@@ -147,6 +175,8 @@ class WorkerTests(unittest.TestCase):
             "native_control_peer": None,
             "topology_sha256": io.sha(io.canonical(scope["observation"])),
         }
+        if recovery:
+            self.recovery_sample(staged)
         evidence["ingress_idle"] = {
             "observed_at": (now - timedelta(seconds=15)).isoformat(),
             "loaded_count": 7,
@@ -182,6 +212,8 @@ class WorkerTests(unittest.TestCase):
                 "native_control_peer": None,
                 "topology_sha256": io.sha(io.canonical(scope["observation"])),
             }
+            if recovery:
+                self.recovery_sample(sample)
             evidence["process_scope"] = scope
             evidence["closure"] = {
                 "schema": "autostop.j1.crm-forward-closure-observation.v2",
@@ -226,6 +258,8 @@ class WorkerTests(unittest.TestCase):
                     "profile": process_scope.native_profile(baseline["native"]),
                 },
             }
+            if recovery:
+                self.recovery_sample(activation)
             evidence["activation_cohort"] = {
                 "schema": "autostop.j1.crm-forward-activation-observation.v2",
                 "process_scope_ref": scope_ref,
@@ -290,7 +324,209 @@ class WorkerTests(unittest.TestCase):
                 "manifest_sha256": "a" * 64,
             }
             self.add_capture_evidence(result)
+        if recovery:
+            envelope = {
+                "schema": recovery_state.RECOVERY_SCHEMA,
+                "recovery_id": self.attempt,
+                "plan_ref": plan_ref,
+                **baseline["recovery_origin"],
+            }
+            result["recovery"] = {
+                "envelope": envelope,
+                "envelope_ref": {
+                    "path": worker.ATTEMPTS.rsplit("/", 1)[0]
+                    + "/state/recoveries/"
+                    + self.attempt
+                    + ".json",
+                    "sha256": io.sha(io.canonical(envelope)),
+                },
+                "evidence": recovery_documents,
+            }
+            evidence["native"].update(
+                {
+                    key: copy.deepcopy(baseline["native"][key])
+                    for key in (
+                        "schema",
+                        "warm_identity_semantics",
+                        "historical_warm_actors",
+                        "observed_warm_actors",
+                        "recovery_origin",
+                    )
+                }
+            )
+            self.rebind_document(result, "native")
         return result
+
+    def recovery_sample(self, sample):
+        sample["schema"] = sample["schema"].removesuffix("v1") + "v2"
+        sample.update(
+            retired_transports_absent=list(recovery_scope.RETIRED),
+            disposition=recovery_scope.DISPOSITION,
+            original_liveness=[
+                row for row in sample["freeze_actors"] if row["pid"] in recovery_scope.ORIGINAL
+            ],
+        )
+        if "frozen" in sample:
+            sample["phase"] = "closed"
+        else:
+            sample["retained_frozen"] = list(recovery_scope.ORPHANS)
+
+    def recovery_material(self, baseline, now):
+        """Synthetic immutable origin; no real server artifacts or production signing."""
+        old_id = recovery_scope.ORIGIN_ATTEMPT
+        old_prefix = worker.ATTEMPTS + "/" + old_id + "/"
+        base = worker.ATTEMPTS.rsplit("/", 1)[0]
+
+        def ref(path, value):
+            return {"path": path, "sha256": io.sha(io.canonical(value))}
+
+        old_baseline = copy.deepcopy(baseline)
+        old_baseline["attempt_id"] = old_id
+        old_plan = {
+            "schema": state.PLAN_SCHEMA,
+            "scope": state.SCOPE,
+            "host": worker.NATIVE_HOST,
+            "attempt_id": old_id,
+            "sequence": 1,
+            "predecessor_sha256": "1" * 64,
+            "base_sha256": "1" * 64,
+            "candidate": {
+                "revision": "a" * 40,
+                "tree": "b" * 40,
+                "image": "sha256:" + "c" * 64,
+                "consumer_sha256": io.sha(io.canonical(baseline["source_consumers"])),
+            },
+            "baseline_ref": ref(old_prefix + "baseline.json", old_baseline),
+            "created_at": (now - timedelta(hours=2)).isoformat(),
+            "deadline_utc": (now - timedelta(hours=1)).isoformat(),
+            "candidate_may_have_written": True,
+            "old_writer_allowed": False,
+        }
+        scope = self.scope(old_plan, old_baseline["native"])
+        scope.update(attempt_id=old_id, attempt_dir=old_prefix.rstrip("/"))
+        scope["observation"].update(
+            details={
+                str(pid): {"ppid": process_scope.PARENTS[pid]}
+                for pid in process_scope.FREEZE + process_scope.TRANSPORTS
+            },
+            programs={str(pid): {} for pid in process_scope.FREEZE + process_scope.TRANSPORTS},
+            stdio=[
+                {
+                    "pid": pid,
+                    "fd": fd,
+                    "parent": process_scope.PARENTS[pid],
+                    "parent_fd": fd,
+                    "pipe_inode": pid * 10 + fd,
+                }
+                for pid in process_scope.HELPERS + process_scope.PROXIES
+                for fd in (0, 1, 2)
+            ],
+        )
+        origin_scope_ref = ref(old_prefix + "process-scope.json", scope)
+        old_plan_ref = ref(old_prefix + "plan.json", old_plan)
+        old_closure = {
+            "attempt_id": old_id,
+            "attempt_dir": old_prefix.rstrip("/"),
+            "process_scope_ref": origin_scope_ref,
+            "consumer_sha256": old_plan["candidate"]["consumer_sha256"],
+            "baseline_sha256": scope["native_sha256"],
+            "freeze_actors": scope["freeze_actors"],
+            "warm_actors": old_baseline["native"]["warm_actors"],
+        }
+        failure = {
+            "plan_ref": old_plan_ref,
+            "error": "root_protected_directory_required",
+            "ok": False,
+            "production_restore_attempted": False,
+        }
+        origin_refs = {
+            "plan": old_plan_ref,
+            "closure": ref(old_prefix + "closure-owned.json", old_closure),
+            "failure": ref(old_prefix + "failure.json", failure),
+        }
+        for name, value in (("ORIGIN_SCOPE_REF", origin_scope_ref), ("ORIGIN_REFS", origin_refs)):
+            substitute = patch.object(recovery_scope, name, value)
+            substitute.start()
+            self.addCleanup(substitute.stop)
+        bundle_prefix = base + "/origins/" + old_id + "/"
+        bundle = {
+            "schema": "autostop.j1.crm-forward-origin-bundle.v2",
+            "origin_attempt_id": old_id,
+            "origin_plan_ref": old_plan_ref,
+            "origin_baseline_ref": old_plan["baseline_ref"],
+            "source_revision": old_plan["candidate"]["revision"],
+            "source_tree": old_plan["candidate"]["tree"],
+            "source_consumers": baseline["source_consumers"],
+            "consumer_sha256": old_plan["candidate"]["consumer_sha256"],
+            "files": {
+                name: {"path": bundle_prefix + "consumers/" + name, "sha256": digest}
+                for name, digest in baseline["source_consumers"].items()
+            },
+        }
+        code = {
+            "schema": "autostop.j1.crm-forward-recovery-code.v2",
+            "revision": "3" * 40,
+            "tree": "4" * 40,
+            "consumer_sha256": io.sha(io.canonical(baseline["source_consumers"])),
+            "source_consumers": baseline["source_consumers"],
+        }
+        hold_owner = {
+            "attempt_hash": io.sha(("release-attempt:" + old_id).encode()),
+            "reason": "release",
+            "enabled": True,
+        }
+        status = {
+            "ok": True,
+            "data": {
+                "global_hold": hold_owner,
+                "jobs": [{"lease_until": None}],
+                "readiness": {"execution_packet": {"outbox": {"by_status": {}, "total_count": 0}}},
+            },
+        }
+        hold = {
+            "schema": "autostop.j1.crm-forward-recovery-hold.v2",
+            "origin_attempt_id": old_id,
+            **hold_owner,
+            "scheduler_counts": {"active_leases": 0, "outbox_sending": 0, "outbox_total": 0},
+            "status_ref": ref(self.prefix + "scheduler-status.json", status),
+        }
+        context = {
+            "nonce": "9" * 64,
+            "origin_pending_ref": {
+                "path": base + "/state/pending.json",
+                "sha256": old_plan_ref["sha256"],
+            },
+            "origin_plan_ref": old_plan_ref,
+            "origin_closure_ref": origin_refs["closure"],
+            "origin_scope_ref": origin_scope_ref,
+            "origin_failure_ref": origin_refs["failure"],
+            "origin_bundle_ref": ref(bundle_prefix + "bundle.json", bundle),
+            "recovery_code_ref": ref(self.prefix + "recovery-code.json", code),
+            "ci_ref": ref(self.prefix + "ci.json", baseline["ci"]),
+            "hold_ref": ref(self.prefix + "recovery-hold.json", hold),
+            "deployment_lock_identity": baseline["deployment_lock_identity"],
+        }
+        baseline["recovery_origin"] = context
+        baseline["native"].update(
+            schema="autostop.j1.crm-forward-native-recovery.v2",
+            warm_identity_semantics="historical_origin_plus_observed_continuation",
+            historical_warm_actors=copy.deepcopy(old_baseline["native"]["warm_actors"]),
+            observed_warm_actors=[self.actor(pid) for pid in (538285, 538487)],
+            recovery_origin=context,
+        )
+        return {
+            "origin_pending": old_plan,
+            "origin_plan": old_plan,
+            "origin_scope": scope,
+            "origin_closure": old_closure,
+            "origin_baseline": old_baseline,
+            "origin_failure": failure,
+            "origin_bundle": bundle,
+            "recovery_code": code,
+            "ci": baseline["ci"],
+            "hold": hold,
+            "hold_status": status,
+        }
 
     def add_capture_evidence(self, response):
         plan, evidence, inspection = (response[key] for key in ("plan", "evidence", "inspection"))
@@ -980,6 +1216,162 @@ class WorkerTests(unittest.TestCase):
             response = self.response(stage)
             self.assertIs(self.validate(response), response)
 
+    def test_explicit_recovery_closed_and_activated_fixtures_validate(self):
+        for stage in ("closed", "activated"):
+            response = self.response(stage, recovery=True)
+            with self.subTest(stage=stage):
+                self.assertIs(self.validate(response), response)
+
+    def test_recovery_requires_explicit_envelope_and_all_origin_documents(self):
+        for key in ("envelope", "envelope_ref", "evidence"):
+            response = self.response(recovery=True)
+            response["recovery"].pop(key)
+            with self.subTest(key=key), self.assertRaises(io.Refusal):
+                self.validate(response)
+        response = self.response(recovery=True)
+        for key in response["recovery"]["evidence"]:
+            altered = copy.deepcopy(response)
+            altered["recovery"]["evidence"].pop(key)
+            with self.subTest(document=key), self.assertRaises(io.Refusal):
+                self.validate(altered)
+
+    def test_recovery_origin_documents_are_independently_hash_bound(self):
+        response = self.response(recovery=True)
+        for key in response["recovery"]["evidence"]:
+            altered = copy.deepcopy(response)
+            altered["recovery"]["evidence"][key]["injected"] = True
+            with (
+                self.subTest(document=key),
+                self.assertRaisesRegex(io.Refusal, "worker_document_hash_mismatch"),
+            ):
+                self.validate(altered)
+
+    def test_normal_scope_cannot_silently_retire_transports_or_claim_recovery(self):
+        response = self.response()
+        response["evidence"]["process_scope"]["transport_actors"].pop()
+        self.rebind_document(response, "process_scope")
+        with self.assertRaises(io.Refusal):
+            self.validate(response)
+        response = self.response()
+        response["evidence"]["process_scope"]["schema"] = recovery_scope.SCHEMA
+        self.rebind_document(response, "process_scope")
+        with self.assertRaisesRegex(io.Refusal, "worker_unbound_recovery_scope"):
+            self.validate(response)
+
+    def test_recovery_actual_native_observation_cannot_claim_historical_ssh_live(self):
+        for key in ("observed_warm_actors", "historical_warm_actors", "warm_identity_semantics"):
+            response = self.response(recovery=True)
+            native = response["evidence"]["native"]
+            if key == "observed_warm_actors":
+                native[key].append(self.actor(538314))
+            elif key == "historical_warm_actors":
+                native[key].pop(1)
+            else:
+                native[key] = "all_original_actors_live"
+            self.rebind_document(response, "native")
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(io.Refusal, "worker_recovery_native_evidence"),
+            ):
+                self.validate(response)
+
+    def test_recovery_scope_retirement_and_disposition_require_actual_projections(self):
+        mutations = (
+            lambda sample: sample.update(retired_transports_absent=[]),
+            lambda sample: sample.update(disposition="released"),
+            lambda sample: sample.update(original_liveness=[]),
+            lambda sample: sample["transport_actors"].append(
+                {**self.actor(538314), "stopped": False, "thread_states": ["S"]}
+            ),
+            lambda sample: sample["freeze_actors"][1].update(stopped=False, thread_states=["S"]),
+        )
+        for stage in ("closed", "activated"):
+            for mutate in mutations:
+                response = self.response(stage, recovery=True)
+                name = "closure" if stage == "closed" else "activation_cohort"
+                mutate(response["evidence"][name]["process_scope_observation"])
+                self.rebind_document(response, name)
+                with self.subTest(stage=stage, mutation=mutate), self.assertRaises(io.Refusal):
+                    self.validate(response)
+
+    def test_rehashed_recovery_hold_and_code_fail_semantic_checks(self):
+        mutations = (
+            ("hold", lambda doc: doc.update(enabled=False)),
+            ("hold", lambda doc: doc.update(attempt_hash="f" * 64)),
+            ("hold", lambda doc: doc["scheduler_counts"].update(active_leases=1)),
+            ("recovery_code", lambda doc: doc.update(revision="f" * 40)),
+            ("recovery_code", lambda doc: doc.update(consumer_sha256="f" * 64)),
+            ("ci", lambda doc: doc.update(conclusion="failure")),
+        )
+        for name, mutate in mutations:
+            response = self.response(recovery=True)
+            # Rehash the untrusted document and its declared bindings to exercise
+            # semantic validation rather than merely the outer hash mismatch.
+            documents = response["recovery"]["evidence"]
+            documents[name] = copy.deepcopy(documents[name])
+            mutate(documents[name])
+            reference = dict(response["recovery"]["envelope"][name + "_ref"])
+            reference["sha256"] = io.sha(io.canonical(documents[name]))
+            response["recovery"]["envelope"][name + "_ref"] = reference
+            response["baseline"]["recovery_origin"][name + "_ref"] = reference
+            response["recovery"]["envelope_ref"]["sha256"] = io.sha(
+                io.canonical(response["recovery"]["envelope"])
+            )
+            with self.subTest(name=name, mutation=mutate), self.assertRaises(io.Refusal):
+                recovery_worker.validate_response(response)
+
+    def test_rehashed_recovery_envelope_cannot_change_origin_nonce_or_lock(self):
+        mutations = (
+            lambda env: env.update(nonce="f" * 64),
+            lambda env: env.update(deployment_lock_identity=[1, 99]),
+            lambda env: env["origin_pending_ref"].update(path=worker.ATTEMPTS + "/pending.json"),
+            lambda env: env.update(recovery_id=recovery_scope.ORIGIN_ATTEMPT),
+            lambda env: env.update(origin_scope_ref={"path": "//var/other", "sha256": "f" * 64}),
+        )
+        for mutate in mutations:
+            response = self.response(recovery=True)
+            mutate(response["recovery"]["envelope"])
+            response["recovery"]["envelope_ref"]["sha256"] = io.sha(
+                io.canonical(response["recovery"]["envelope"])
+            )
+            with self.subTest(mutation=mutate), self.assertRaises(io.Refusal):
+                self.validate(response)
+
+    def test_recovery_new_context_cannot_jointly_substitute_original_lock_inode(self):
+        response = self.response(recovery=True)
+        replacement = [1, 99]
+        response["baseline"]["deployment_lock_identity"] = replacement
+        response["baseline"]["recovery_origin"]["deployment_lock_identity"] = replacement
+        response["recovery"]["envelope"]["deployment_lock_identity"] = replacement
+        response["recovery"]["envelope_ref"]["sha256"] = io.sha(
+            io.canonical(response["recovery"]["envelope"])
+        )
+        with self.assertRaisesRegex(io.Refusal, "worker_recovery_original_lock_identity"):
+            recovery_worker.validate_response(response)
+
+    def test_marker_parent_shape_is_mandatory_and_strict(self):
+        for value in (
+            None,
+            {},
+            {"uid": 0},
+            {"uid": True},
+            {"ino": 0},
+            {"mode": 0o777},
+            {"path": "/tmp/data"},
+        ):
+            response = self.response()
+            if value is None:
+                response["baseline"].pop("maintenance_parent")
+            else:
+                response["baseline"]["maintenance_parent"].update(value)
+                if value == {}:
+                    response["baseline"]["maintenance_parent"]["unexpected"] = True
+            reference = self.ref("baseline.json", response["baseline"])
+            response["baseline_ref"] = response["plan"]["baseline_ref"] = reference
+            response["plan_ref"] = self.ref("plan.json", response["plan"])
+            with self.subTest(value=value), self.assertRaises(io.Refusal):
+                self.validate(response)
+
     def test_plan_inspection_baseline_and_evidence_are_independently_hash_bound(self):
         for field in ("plan", "baseline", "inspection"):
             response = self.response()
@@ -1230,6 +1622,26 @@ class WorkerTests(unittest.TestCase):
 
     def test_restore_failure_never_signs_or_delivers(self):
         calls, delivered = self.fake_execution(self.response(), restore_fails=True)
+        with self.assertRaisesRegex(io.Refusal, "synthetic_restore_failed"):
+            self.instance.run(self.attempt, "closed")
+        self.assertNotIn("sign", calls)
+        self.assertEqual(delivered, {})
+
+    def test_recovery_restore_remains_mandatory_and_binds_fresh_plan(self):
+        response = self.response(recovery=True)
+        calls, delivered = self.fake_execution(response)
+        self.instance.run(self.attempt, "closed")
+        self.assertEqual(calls, ["inspect", "download", "assemble", "restore", "sign", "deliver"])
+        self.assertEqual(
+            delivered["offhost_restore"]["plan_sha256"], response["plan_ref"]["sha256"]
+        )
+        self.assertEqual(delivered["offhost_restore"]["attempt_id"], self.attempt)
+        self.assertNotEqual(
+            delivered["offhost_restore"]["attempt_id"], recovery_scope.ORIGIN_ATTEMPT
+        )
+
+    def test_recovery_restore_failure_never_signs_or_delivers(self):
+        calls, delivered = self.fake_execution(self.response(recovery=True), restore_fails=True)
         with self.assertRaisesRegex(io.Refusal, "synthetic_restore_failed"):
             self.instance.run(self.attempt, "closed")
         self.assertNotIn("sign", calls)

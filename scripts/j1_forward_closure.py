@@ -27,6 +27,7 @@ from pathlib import Path
 from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
+from scripts import j1_forward_recovery_scope as recovery_scope
 from scripts import j1_forward_state as forward_state
 
 SCHEMA = "autostop.j1.crm-forward-closure.v2"
@@ -266,13 +267,18 @@ def _empty_hooks_command(unit, hooks):
     ]
 
 
-def _show_fields(raw, expected, *, omitted=()):
+def _show_fields(raw, expected, *, omitted=(), repeated=()):
     rows = [line.split("=", 1) for line in raw.decode().splitlines()]
-    io.require(
-        all(len(row) == 2 for row in rows) and len({row[0] for row in rows}) == len(rows),
-        "unit_status_incomplete",
-    )
-    fields = dict(rows)
+    io.require(all(len(row) == 2 for row in rows), "unit_status_incomplete")
+    fields = {}
+    for key, value in rows:
+        if key in fields:
+            io.require(key in repeated, "unit_status_incomplete")
+            # systemctl emits a separate row for each command in an array.
+            # Preserve every condition in order, including the original guard.
+            fields[key] += "\n" + value
+        else:
+            fields[key] = value
     io.require(
         set(fields) <= set(expected) and set(expected) - set(fields) <= set(omitted),
         "unit_status_incomplete",
@@ -381,7 +387,9 @@ class LinuxRunner:
         return io.write_new(directory / "process-scope.json", value)
 
     def load_scope(self, reference):
-        return io.document(io.referenced(reference))
+        scope = io.document(io.referenced(reference))
+        _scope_module(scope).actor_sets(scope)
+        return scope
 
     def capture_scope(self, native, closure):
         return process_scope.capture(
@@ -392,20 +400,17 @@ class LinuxRunner:
         )
 
     def verify_scope(self, scope, *, frozen):
-        return process_scope.verify(scope, frozen=frozen)
+        return _scope_module(scope).verify(scope, frozen=frozen)
 
     def scope_actors(self, scope):
-        return process_scope.actor_sets(scope)
+        return _scope_module(scope).actor_sets(scope)
 
     def activation_scope(self, scope, *, released=False):
-        return (
-            process_scope.verify_released(scope)
-            if released
-            else process_scope.verify_activation(scope)
-        )
+        module = _scope_module(scope)
+        return module.verify_released(scope) if released else module.verify_activation(scope)
 
     def staging_scope(self, scope):
-        return process_scope.verify_staging(scope)
+        return _scope_module(scope).verify_staging(scope)
 
     def admission_window(self, closure):
         plan = io.document(io.read_protected(Path(closure["attempt_dir"]) / "plan.json"))
@@ -811,7 +816,7 @@ class LinuxRunner:
                 ],
                 deadline,
             )
-            fields = _show_fields(raw, properties, omitted=HOOKS)
+            fields = _show_fields(raw, properties, omitted=HOOKS, repeated=("ExecCondition",))
             missing = tuple(sorted(set(properties) - set(fields)))
             if missing:
                 # systemctl can omit empty command arrays even with --all.
@@ -1055,6 +1060,18 @@ def _paths():
     ]
 
 
+def _scope_module(scope):
+    io.require(type(scope) is dict, "closure_scope_schema")
+    if scope.get("schema") == process_scope.SCHEMA:
+        return process_scope
+    io.require(scope.get("schema") == recovery_scope.SCHEMA, "closure_scope_schema")
+    return recovery_scope
+
+
+def _retained_proxies(scope):
+    return set(recovery_scope.ORPHANS) if _scope_module(scope) is recovery_scope else set()
+
+
 def _validate(closure):
     io.require(type(closure) is dict and closure.get("schema") == SCHEMA, "closure_schema")
     io.require(
@@ -1089,6 +1106,7 @@ def _scope(closure):
 
 
 def _scope_binding(closure, scope):
+    _scope_module(scope)
     io.require(
         scope.get("attempt_id") == closure["attempt_id"]
         and scope.get("attempt_dir") == closure["attempt_dir"]
@@ -1143,6 +1161,12 @@ def _ingress_drain(closure, *, required=False):
     )
     scope = _scope(closure)
     staging = value.get("staging_observation", {})
+    recovery = _scope_module(scope) is recovery_scope
+    extra = (
+        {"retired_transports_absent", "disposition", "original_liveness", "retained_frozen"}
+        if recovery
+        else set()
+    )
     io.require(
         type(staging) is dict
         and set(staging)
@@ -1155,7 +1179,9 @@ def _ingress_drain(closure, *, required=False):
             "native_control_peer",
             "topology_sha256",
         }
-        and staging.get("schema") == "autostop.j1.crm-forward-process-scope-staging.v1"
+        | extra
+        and staging.get("schema")
+        == "autostop.j1.crm-forward-process-scope-staging.v" + ("2" if recovery else "1")
         and staging.get("scope_sha256") == closure["process_scope_ref"]["sha256"]
         and staging.get("auxiliary_released") is False
         and staging.get("native_control_peer", "missing") is None
@@ -1183,6 +1209,15 @@ def _ingress_drain(closure, *, required=False):
                 ),
                 "ingress_staging_actors",
             )
+    if recovery:
+        io.require(
+            staging["retired_transports_absent"] == list(recovery_scope.RETIRED)
+            and staging["disposition"] == recovery_scope.DISPOSITION
+            and staging["retained_frozen"] == list(recovery_scope.ORPHANS)
+            and staging["original_liveness"]
+            == [row for row in staging["freeze_actors"] if row["pid"] in recovery_scope.ORIGINAL],
+            "ingress_recovery_disposition",
+        )
     return reference
 
 
@@ -1381,13 +1416,16 @@ def observe_closed(closure: dict, *, force_full=False) -> dict:
 def _activation_actors(closure, *, released):
     scope = _scope(closure)
     writers, transports = RUNNER.scope_actors(scope)
+    retained = _retained_proxies(scope)
     observed_writers, observed_transports = [], []
     with _executable_hash_pass():
         for group, output in ((writers, observed_writers), (transports, observed_transports)):
             for expected in group:
                 actual = RUNNER.actor(expected, full=True)
                 _same_actor(expected, actual, full=True)
-                stopped = group is writers and expected["pid"] != 538285 and not released
+                stopped = group is writers and (
+                    expected["pid"] in retained or (expected["pid"] != 538285 and not released)
+                )
                 io.require(actual.get("stopped") is stopped, "activation_actor_stop_state")
                 output.append(
                     {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": stopped}
@@ -1535,6 +1573,80 @@ def close_writers(baseline: dict, attempt_dir: Path, *, deadline: float, idle_ob
             raise
 
 
+def _recovery_preclose(closure, deadline):
+    """Validate a fenced recovery without claiming drained ingress or caching it.
+
+    Recovery's preclose verifier admits only its independently bound pending
+    ingress provenance. This full writer/source scan cannot authorize backup,
+    reopen or activation; those still require the later immutable drain proof.
+    """
+    _validate(closure)
+    _barriers(closure)
+    scope, _writers, _actors_seen, _transports = _closed_actors(closure, deadline, full=True)
+    io.require(_scope_module(scope) is recovery_scope, "recovery_scope_required")
+    RUNNER.verify_scope(scope, frozen=False)
+    _unit_policy(RUNNER.units(deadline))
+    processes = RUNNER.processes()
+    frozen, own = _process_policy(closure, processes)
+    io.require(RUNNER.source_roots() == closure["source_roots"], "writer_roots_changed")
+    RUNNER.cache_views(deadline)
+    RUNNER.containers(deadline)
+    RUNNER.descriptor_scan(processes, frozen, own)
+    _remaining(deadline)
+    _barriers(closure)
+    _closed_actors(closure, deadline)
+    RUNNER.verify_scope(scope, frozen=False)
+    _remaining(deadline)
+
+
+def close_recovery(closure: dict, *, deadline: float, idle_observer) -> dict:
+    """Drain a stored recovery cohort while its orphan proxies remain frozen.
+
+    The caller owns the original deployment lock and has validated the new
+    pending transition. No historical actor is recaptured or adopted here.
+    """
+    with _LOCK:
+        _validate(closure)
+        io.require(_scope_module(_scope(closure)) is recovery_scope, "recovery_scope_required")
+        try:
+            io.require(callable(idle_observer), "ingress_idle_observer_required")
+            _remaining(deadline)
+            io.require(RUNNER.load_drain(closure) == (None, None), "recovery_drain_already_exists")
+            # Read the loaded fence before allowing any native stop hooks to run.
+            _barriers(closure)
+            _unit_policy(RUNNER.units(deadline), stopped=False)
+            RUNNER.stop(deadline)
+            _recovery_preclose(closure, min(deadline, time.monotonic() + 30))
+            _remaining(deadline)
+            daemon = closure["freeze_actors"][0]
+            RUNNER.signal_actor(daemon, False, deadline=deadline)
+            _activation_actors(closure, released=False)
+            _remaining(deadline)
+            idle_ref = idle_observer()
+            RUNNER.idle_receipt(closure, idle_ref)
+            _remaining(deadline)
+            staging = RUNNER.staging_scope(_scope(closure))
+            _remaining(deadline)
+            RUNNER.save_drain(
+                closure,
+                {
+                    "schema": "autostop.j1.crm-forward-ingress-drain.v1",
+                    "attempt_id": closure["attempt_id"],
+                    "process_scope_ref": closure["process_scope_ref"],
+                    "idle_observation_ref": idle_ref,
+                    "staging_observation": staging,
+                    "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                },
+            )
+            _remaining(deadline)
+            RUNNER.signal_actor(daemon, True, deadline=deadline)
+            _observe(closure, force_full=True, deadline=deadline, require_admission=True)
+            return closure
+        except BaseException:
+            fail_closed(closure)
+            raise
+
+
 def fail_closed(closure: dict) -> dict:
     """Best-effort restoration, preserving unknown files and PID incarnations."""
     with _LOCK:
@@ -1604,6 +1716,29 @@ def reopen_native(closure: dict, *, deadline=None) -> None:
             raise
 
 
+def observe_released(closure: dict) -> dict:
+    """Fresh readback of the committed release, including retained orphans."""
+    with _LOCK:
+        _validate(closure)
+        _open_barriers(closure)
+        scope = _scope(closure)
+        observed_scope = RUNNER.activation_scope(scope, released=True)
+        writers, transports = _activation_actors(closure, released=True)
+        result = {
+            "schema": "autostop.j1.crm-forward-released-observation.v2",
+            "attempt_id": closure["attempt_id"],
+            "process_scope_ref": closure["process_scope_ref"],
+            "freeze_actors": writers,
+            "transport_actors": transports,
+            "process_scope_observation": observed_scope,
+            "sampled_at": time.time(),
+        }
+        if scope.get("schema") == recovery_scope.SCHEMA:
+            result["disposition"] = recovery_scope.DISPOSITION
+            result["retained_frozen"] = list(recovery_scope.ORPHANS)
+        return result
+
+
 def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
     """Release only stored auxiliaries after exact durable HEAD, under caller's old lock."""
     with _LOCK:
@@ -1611,12 +1746,14 @@ def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
         RUNNER.committed(closure, commit_ref)
         observe_activation(closure)
         try:
+            retained = _retained_proxies(_scope(closure))
             # The daemon is already online; no signal targets a transport.
             for actor in reversed(closure["freeze_actors"][1:]):
                 actual = RUNNER.actor(actor, full=True)
                 _same_actor(actor, actual, full=True)
                 io.require(actual.get("stopped") is True, "auxiliary_not_owned_stopped")
-                RUNNER.signal_actor(actor, False)
+                if actor["pid"] not in retained:
+                    RUNNER.signal_actor(actor, False)
             scope_observation = RUNNER.activation_scope(_scope(closure), released=True)
             writers, transports = _activation_actors(closure, released=True)
             return {
@@ -1628,6 +1765,14 @@ def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
                 "transport_actors": transports,
                 "process_scope_observation": scope_observation,
                 "sampled_at": time.time(),
+                **(
+                    {
+                        "disposition": recovery_scope.DISPOSITION,
+                        "retained_frozen": list(recovery_scope.ORPHANS),
+                    }
+                    if retained
+                    else {}
+                ),
             }
         except BaseException:
             fail_closed(closure)

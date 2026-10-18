@@ -37,7 +37,11 @@ class ProcessScopeRecoveryIntegrationTests(unittest.TestCase):
         }
         self.original_native = copy.deepcopy(self.native)
         self.plan = {"attempt_id": self.attempt, "base_sha256": "a" * 64}
-        self.baseline = {"native": self.native, "deployment_lock_identity": [123, 456]}
+        self.baseline = {
+            "native": self.native,
+            "deployment_lock_identity": [123, 456],
+            "maintenance_parent": {"path": str(self.root)},
+        }
         self.store = Mock()
         self.store.pending.return_value = self.plan
         self.store.head.side_effect = AssertionError("Matching pending must precede HEAD reads")
@@ -56,6 +60,8 @@ class ProcessScopeRecoveryIntegrationTests(unittest.TestCase):
         # the exact immutable ownership for the real release loader as well.
         io.write_new(self.directory / "closure-owned.json", self.owned)
         self.install(release, "MARKER", self.marker)
+        self.install(release.marker, "ensure", self.ensure_marker)
+        self.install(release.marker, "require_owned", self.require_marker)
         self.install(release, "Store", Mock(return_value=self.store))
         self.install(release, "deployment_lock", self.lock)
         self.install(release, "cleanup_signals", nullcontext)
@@ -70,6 +76,30 @@ class ProcessScopeRecoveryIntegrationTests(unittest.TestCase):
         replacement = patch.object(owner, name, value)
         replacement.start()
         self.addCleanup(replacement.stop)
+
+    def require_marker(self, pin, payload, *, expected_identity=None):
+        io.require(pin == self.baseline["maintenance_parent"], "fixture_marker_parent_changed")
+        raw = io.read_protected(self.marker)
+        io.require(raw == io.canonical(payload), "owned_maintenance_marker_changed")
+        info = self.marker.stat()
+        identity = {
+            "path": str(self.marker),
+            "dev": info.st_dev,
+            "ino": info.st_ino,
+            "mtime_ns": info.st_mtime_ns,
+            "sha256": io.sha(raw),
+        }
+        if expected_identity is not None:
+            io.require(identity == expected_identity, "marker_owned_identity_changed")
+        return identity
+
+    def ensure_marker(self, pin, payload, *, authorize):
+        self.assertTrue(self.held, "Marker restoration must retain the original lock")
+        authorize()
+        if not self.marker.exists():
+            authorize()
+            io.write_new(self.marker, payload)
+        return self.require_marker(pin, payload)
 
     @contextmanager
     def lock(self, identity, **_kwargs):

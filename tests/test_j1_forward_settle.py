@@ -35,6 +35,7 @@ class SettleCrashTests(unittest.TestCase):
         self.plan_ref = self.reference(self.directory / "plan.json")
         self.baseline = {
             "deployment_lock_identity": [12, 34],
+            "maintenance_parent": {"path": str(self.root)},
             "native": {"desired_inbound": True},
             "previous_container": {"image": "previous"},
         }
@@ -68,6 +69,7 @@ class SettleCrashTests(unittest.TestCase):
         self.host.job_status.return_value = {"enabled": True}
         self.host.container.return_value = {"candidate": True}
         self.install(release, "MARKER", self.marker)
+        self.install(release.marker, "require_owned", self.require_owned_marker)
         self.install(release, "Store", Mock(return_value=self.store))
         self.load = self.install(
             release,
@@ -137,6 +139,31 @@ class SettleCrashTests(unittest.TestCase):
 
     def owned_marker(self):
         self.marker.write_bytes(io.canonical(release.marker_value(self.plan_ref, self.plan)))
+        record_name = "marker-identity-" + "a" * 32 + ".json"
+        self.publish(
+            record_name,
+            {
+                "plan_ref": self.plan_ref,
+                "parent": self.baseline["maintenance_parent"],
+                "identity": self.reference(self.marker),
+            },
+        )
+        self.publish(
+            "marker-owned.json",
+            {
+                "plan_ref": self.plan_ref,
+                "record": self.reference(self.directory / record_name),
+            },
+        )
+
+    def require_owned_marker(self, pin, payload, *, expected_identity=None):
+        io.require(pin == self.baseline["maintenance_parent"], "fixture_marker_parent_changed")
+        io.require(
+            self.marker.read_bytes() == io.canonical(payload), "owned_maintenance_marker_changed"
+        )
+        identity = self.reference(self.marker)
+        io.require(identity == expected_identity, "marker_owned_identity_changed")
+        return identity
 
     def assert_refenced(self):
         result = release.settle(self.attempt)

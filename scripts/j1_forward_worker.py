@@ -274,27 +274,17 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
     """Bind closure or staged activation to the exact prepared process births."""
     from scripts import j1_forward_process_scope as process_scope
 
+    recovery = type(scope) is dict and scope.get("schema") != process_scope.SCHEMA
+    policy = process_scope
+    if recovery:
+        from scripts import j1_forward_recovery_scope as policy
+
     fields = set(process_scope.ACTOR_FIELDS)
     require(
         type(scope) is dict
-        and set(scope)
-        == {
-            "schema",
-            "profile_sha256",
-            "attempt_id",
-            "attempt_dir",
-            "consumer_sha256",
-            "base_sha256",
-            "native_sha256",
-            "boot_id",
-            "original_actors",
-            "freeze_actors",
-            "transport_actors",
-            "observation",
-            "native_control_peer",
-        }
-        and scope["schema"] == "autostop.j1.crm-forward-process-scope.v1"
-        and scope["profile_sha256"] == process_scope.PROFILE_SHA256
+        and set(scope) == policy.SCOPE_FIELDS
+        and scope["schema"] == policy.SCHEMA
+        and scope["profile_sha256"] == policy.PROFILE_SHA256
         and scope["attempt_id"] == plan["attempt_id"]
         and scope["attempt_dir"] == ATTEMPTS + "/" + plan["attempt_id"]
         and reference["path"] == scope["attempt_dir"] + "/process-scope.json"
@@ -305,7 +295,7 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
         "worker_process_scope_binding",
     )
     _uuid(scope["boot_id"])
-    process_scope.validate_scope_shape(scope)
+    policy.validate_scope_shape(scope)
     require(
         type(native.get("warm_actors")) is list
         and len(native["warm_actors"]) == 3
@@ -317,6 +307,26 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
         ),
         "worker_original_actors_changed",
     )
+    if recovery:
+        require(
+            native.get("schema") == "autostop.j1.crm-forward-native-recovery.v2"
+            and native.get("warm_identity_semantics")
+            == "historical_origin_plus_observed_continuation"
+            and native.get("historical_warm_actors") == native["warm_actors"],
+            "worker_recovery_historical_native",
+        )
+        observed_native = native.get("observed_warm_actors")
+        require(
+            type(observed_native) is list
+            and len(observed_native) == 2
+            and all(type(row) is dict and fields <= set(row) for row in observed_native)
+            and sorted(
+                [{key: row[key] for key in fields} for row in observed_native],
+                key=lambda row: row["pid"],
+            )
+            == scope["original_liveness"],
+            "worker_recovery_native_liveness",
+        )
 
     def actors(rows, *, measured=False, stopped=False):
         require(type(rows) is list and 0 < len(rows) <= 128, "worker_actor_cohort_required")
@@ -367,15 +377,15 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
     originals = actors(scope["original_actors"])
     require(
         set(originals) == {538285, 538314, 538487}
-        and [row["pid"] for row in scope["freeze_actors"]] == list(process_scope.FREEZE)
-        and [row["pid"] for row in scope["transport_actors"]] == list(process_scope.TRANSPORTS)
+        and [row["pid"] for row in scope["freeze_actors"]] == list(policy.FREEZE)
+        and [row["pid"] for row in scope["transport_actors"]] == list(policy.TRANSPORTS)
         and all(
             row["start_ticks"] == process_scope.STARTS[pid]
             for pid, row in (frozen | transports).items()
         )
         and not set(frozen) & set(transports)
         and {538285, 538487} <= set(frozen)
-        and 538314 in transports
+        and ((538314 not in transports) if recovery else (538314 in transports))
         and scope["freeze_actors"][0]["pid"] == 538285
         and all(row["uid"] == 0 for row in frozen.values()),
         "worker_actor_partition_invalid",
@@ -385,7 +395,7 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
         type(roles) is dict
         and set(roles) == {str(pid) for pid in frozen | transports}
         and roles.get("538285") == "daemon"
-        and roles.get("538314") == "ssh_original"
+        and (("538314" not in roles) if recovery else roles.get("538314") == "ssh_original")
         and roles.get("538487") == "proxy"
         and all(
             roles[str(pid)] in {"daemon", "helper_mcp", "helper_code", "proxy"} for pid in frozen
@@ -422,11 +432,17 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
             "topology_sha256",
         }
         | ({"auxiliary_released"} if activated else {"frozen"})
+        | (
+            {"retired_transports_absent", "disposition", "original_liveness"}
+            | ({"retained_frozen"} if activated else {"phase"})
+            if recovery
+            else set()
+        )
         and sample["schema"]
         == (
-            "autostop.j1.crm-forward-process-scope-activation.v1"
+            "autostop.j1.crm-forward-process-scope-activation." + ("v2" if recovery else "v1")
             if activated
-            else "autostop.j1.crm-forward-process-scope-observation.v1"
+            else policy.OBSERVATION_SCHEMA
         )
         and sample["scope_sha256"] == reference["sha256"]
         and (sample["auxiliary_released"] is False if activated else sample["frozen"] is True)
@@ -440,6 +456,19 @@ def _process_scope_evidence(scope, reference, observed, plan, native, *, starts=
         and actors(sample["transport_actors"], measured=True, stopped=False) == transports,
         "worker_cohort_not_proven",
     )
+    if recovery:
+        require(
+            sample["retired_transports_absent"] == list(policy.RETIRED)
+            and sample["disposition"] == policy.DISPOSITION
+            and sample["original_liveness"]
+            == [row for row in sample["freeze_actors"] if row["pid"] in policy.ORIGINAL]
+            and (
+                sample["retained_frozen"] == list(policy.ORPHANS)
+                if activated
+                else sample["phase"] == "closed"
+            ),
+            "worker_recovery_observed_disposition",
+        )
     peer = sample["native_control_peer"]
     if activated:
         profile = process_scope.native_profile(native)
@@ -545,12 +574,24 @@ def _ingress_evidence(evidence, inspection, plan):
         "worker_ingress_closure_binding",
     )
     expected = {
-        "schema": "autostop.j1.crm-forward-process-scope-staging.v1",
+        "schema": "autostop.j1.crm-forward-process-scope-staging."
+        + ("v2" if "origin_scope_ref" in scope else "v1"),
         "scope_sha256": reference["sha256"],
         "auxiliary_released": False,
         "native_control_peer": None,
         "topology_sha256": io.sha(io.canonical(scope["observation"])),
     }
+    if "origin_scope_ref" in scope:
+        from scripts import j1_forward_recovery_scope as policy
+
+        expected.update(
+            retired_transports_absent=list(policy.RETIRED),
+            disposition=policy.DISPOSITION,
+            original_liveness=[
+                row for row in staged.get("freeze_actors", []) if row["pid"] in policy.ORIGINAL
+            ],
+            retained_frozen=list(policy.ORPHANS),
+        )
     require(
         set(staged) == set(expected) | {"freeze_actors", "transport_actors"}
         and all(staged[key] == value for key, value in expected.items()),
@@ -1052,9 +1093,17 @@ def validate_response(response, *, attempt, stage):
         "backup_context",
         "scope_profile_sha256",
     }
+    recovery = (
+        type(response) is dict
+        and type(response.get("baseline")) is dict
+        and "recovery_origin" in response["baseline"]
+    )
     require(
         type(response) is dict
-        and set(response) == common | ({"transport"} if stage == "closed" else set())
+        and set(response)
+        == common
+        | ({"transport"} if stage == "closed" else set())
+        | ({"recovery"} if recovery else set())
         and response["ok"] is True
         and response["stage"] == stage,
         "worker_inspect_response_invalid",
@@ -1087,12 +1136,17 @@ def validate_response(response, *, attempt, stage):
             "backup_profile_sha256",
             "deployment_lock_identity",
             "ci",
+            "maintenance_parent",
         }
+        | ({"recovery_origin"} if recovery else set())
         and baseline["schema"] == "autostop.j1.crm-forward-baseline.v1"
         and baseline["attempt_id"] == attempt
         and baseline["native"]["base_sha256"] == plan["base_sha256"],
         "worker_baseline_invalid",
     )
+    from scripts import j1_forward_marker as marker_policy
+
+    marker_policy.validate_parent(baseline["maintenance_parent"])
     ci = baseline["ci"]
     require(
         type(ci) is dict
@@ -1168,6 +1222,16 @@ def validate_response(response, *, attempt, stage):
         _bound(evidence[name], inspection[name + "_ref"])
         require(
             inspection[name + "_ref"]["path"].startswith(prefix), "worker_evidence_path_invalid"
+        )
+    if recovery:
+        from scripts import j1_forward_recovery_worker
+
+        j1_forward_recovery_worker.validate_response(response)
+    else:
+        require(
+            evidence["process_scope"].get("schema") == "autostop.j1.crm-forward-process-scope.v1"
+            and baseline["native"].get("schema") != "autostop.j1.crm-forward-native-recovery.v2",
+            "worker_unbound_recovery_scope",
         )
     native = evidence["native"]
     require(
