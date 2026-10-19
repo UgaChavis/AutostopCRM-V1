@@ -190,6 +190,12 @@ class LoadedLibraryIdentityTests(unittest.TestCase):
 
         with patch.object(Path, "read_text", text):
             lifecycle._loaded_libraries(987654321, context, provider)
+            original_policy = files["/policy.json"]
+            kernel_policy = io.document(original_policy)
+            kernel_policy["protocol_index_ref"] = kernel_policy.pop("source_index_ref")
+            files["/policy.json"] = io.canonical(kernel_policy)
+            lifecycle._loaded_libraries(987654321, context, provider)
+            files["/policy.json"] = original_policy
             raw_maps = mapping(fixture.root / "unlisted.so")
             with self.assertRaisesRegex(io.Refusal, "unaccepted_loaded_library"):
                 lifecycle._loaded_libraries(987654321, context, provider)

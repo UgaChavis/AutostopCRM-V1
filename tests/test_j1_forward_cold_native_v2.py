@@ -250,6 +250,7 @@ class KernelV2BoundaryTests(unittest.TestCase):
                 self.provider, "read_reference", side_effect=lambda ref: self.raw[ref["path"]]
             ),
             patch.object(self.provider, "_verify_kernel_cache"),
+            patch.object(self.provider, "_verify_kernel_libraries") as libraries,
             patch.object(
                 self.provider,
                 "_runtime_kernel_admitted",
@@ -259,12 +260,33 @@ class KernelV2BoundaryTests(unittest.TestCase):
             patch.object(kernel, "verify_runtime_identity") as running,
         ):
             self.provider.verify_kernel(self.validated)
+            libraries.assert_called_once_with(self.validated)
             self.assertEqual(prep.call_count, int(not opened))
             self.assertEqual(running.call_count, int(opened))
 
     def test_prestart_and_postcommit_observations_use_different_checked_boundaries(self):
         self.observe(False)
         self.observe(True)
+
+    def test_both_kernel_processes_use_the_existing_library_observer(self):
+        from scripts import j1_forward_cold_lifecycle as lifecycle
+
+        reference = {"path": "/isolated/kernel-policy.json", "sha256": "2" * 64}
+        self.kernel["policy_ref"] = reference
+        with patch.object(lifecycle, "_loaded_libraries") as loaded:
+            self.provider._verify_kernel_libraries(self.validated)
+            self.assertEqual(
+                [call.args for call in loaded.call_args_list],
+                [
+                    (11, {"policy_ref": reference}, self.provider),
+                    (12, {"policy_ref": reference}, self.provider),
+                ],
+            )
+        with patch.object(
+            lifecycle, "_loaded_libraries", side_effect=[None, io.Refusal("changed_child_library")]
+        ):
+            with self.assertRaisesRegex(io.Refusal, "changed_child_library"):
+                self.provider._verify_kernel_libraries(self.validated)
 
     def test_restart_timeout_wrong_pid_hook_and_stale_source_deny_before_delegate(self):
         for key, value in (

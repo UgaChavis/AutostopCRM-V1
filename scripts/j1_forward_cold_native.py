@@ -1088,8 +1088,17 @@ class NativeProvider:
                 kernel_source.verify_runtime_identity(validated, self)
             else:
                 kernel_source.verify_preparation(validated, self)
+            self._verify_kernel_libraries(validated)
         contract.need(self.systemd(kernel["unit"]) == actual, "native_kernel_unit_raced")
         self._verify_kernel_cache(validated)
+
+    def _verify_kernel_libraries(self, validated):
+        from scripts import j1_forward_cold_lifecycle
+
+        kernel = validated["kernel"]
+        context = {"policy_ref": kernel["policy_ref"]}
+        for key in ("supervisor_actor", "actor"):
+            j1_forward_cold_lifecycle._loaded_libraries(kernel[key]["pid"], context, self)
 
     def _verify_kernel_cache(self, validated):
         kernel, binding = validated["kernel"], validated["package"]["binding"]

@@ -441,7 +441,14 @@ def _index_references(provider, reference):
 def _loaded_libraries(pid, context, provider):
     policy = io.document(provider.read_reference(context["policy_ref"]))
     accepted = {}
-    for key in ("source_index_ref", "runtime_index_ref", "startup_index_ref"):
+    contract.need(
+        {"runtime_index_ref", "startup_index_ref"} <= set(policy)
+        and ("source_index_ref" in policy or "protocol_index_ref" in policy),
+        "slot_library_index_scope",
+    )
+    for key in ("source_index_ref", "protocol_index_ref", "runtime_index_ref", "startup_index_ref"):
+        if key not in policy:
+            continue
         for reference in _index_references(provider, policy[key]):
             contract.need(
                 reference["path"] not in accepted or accepted[reference["path"]] == reference,
