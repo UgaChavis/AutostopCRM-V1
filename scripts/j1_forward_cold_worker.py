@@ -13,6 +13,7 @@ import time
 from pathlib import PurePosixPath
 
 from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_backup as backup
 from scripts import j1_forward_cold_qualification as qualification
 from scripts import j1_forward_cold_runtime as readonly_runtime
 from scripts import j1_forward_cold_state as state
@@ -470,6 +471,11 @@ def validate_response(response, *, attempt, stage):
         contract.fields(transport, {"path", "sha256", "manifest_sha256"}, "worker_transport")
         worker._reference({key: transport[key] for key in ("path", "sha256")})
         captured, restored = evidence["backup_capture"], evidence["backup_restore"]
+        contract.reference(captured.get("capture_interval_ref"))
+        contract.need(
+            captured["capture_interval_ref"]["path"].startswith(prefix),
+            "worker_capture_interval_path",
+        )
         contract.need(
             worker._hash(transport["manifest_sha256"])
             and transport["path"].startswith(prefix)
@@ -536,6 +542,10 @@ def restored_capture_fences(response, data_manifest, package, restored):
     manifest = io.document(raw)
     entries = {row["logical_name"]: row for row in manifest["artifacts"]}
     contract.need(len(entries) == len(manifest["artifacts"]), "worker_restored_control_inventory")
+    if "capture_interval_ref" in response["evidence"]["backup_capture"]:
+        return backup.validate_restored_interval(
+            data_manifest, response, _restored_capture_reader(entries, restored, response)
+        )
     root = PurePosixPath(worker.ATTEMPTS).parent
     cache, previous = {}, 0
     for witness in data_manifest["external_closure_observations"]:
@@ -568,6 +578,37 @@ def restored_capture_fences(response, data_manifest, package, restored):
         native_observation(body, response, phase="closed")
         contract.need(body["observed_monotonic_ns"] >= previous, "worker_capture_fence_order")
         previous = body["observed_monotonic_ns"]
+
+
+def _restored_capture_reader(entries, restored, response):
+    """Resolve interval references only inside the independently restored graph."""
+    prefix = worker.ATTEMPTS + "/" + response["plan"]["attempt_id"] + "/"
+    root = PurePosixPath(worker.ATTEMPTS).parent
+
+    def read(reference):
+        contract.reference(reference)
+        contract.need(reference["path"].startswith(prefix), "worker_capture_reference_path")
+        name = "control/" + PurePosixPath(reference["path"]).relative_to(root).as_posix()
+        entry = entries.get(name)
+        contract.need(
+            type(entry) is dict
+            and entry.get("sha256") == reference["sha256"]
+            and type(entry.get("bytes")) is int
+            and 0 <= entry["bytes"] <= worker.MAX_JSON
+            and type(entry.get("payload")) is str
+            and re.fullmatch(r"[0-9]{6}\.bin", entry["payload"]),
+            "worker_capture_reference_not_restored",
+        )
+        raw = worker.control_archive._package_read(
+            restored / entry["payload"], worker._physical, worker.MAX_JSON
+        )
+        contract.need(
+            len(raw) == entry["bytes"] and io.sha(raw) == reference["sha256"],
+            "worker_capture_reference_changed",
+        )
+        return raw
+
+    return read
 
 
 def restored_kernel_cache(response, data_manifest, package, restored, data_restored):

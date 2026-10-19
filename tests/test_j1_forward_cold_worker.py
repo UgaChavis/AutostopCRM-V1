@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -16,6 +16,7 @@ from scripts import j1_forward_cold_telegram as telegram
 from scripts import j1_forward_cold_worker as cold
 from scripts import j1_forward_io as io
 from scripts import j1_forward_worker as worker
+from tests import test_j1_forward_cold_capture as capture_tests
 from tests import test_j1_forward_cold_qualification as qualification_tests
 from tests import test_j1_forward_cold_runtime as runtime_tests
 from tests import test_j1_forward_worker as warm_tests
@@ -183,6 +184,9 @@ class ColdWorkerTests(unittest.TestCase):
             "old_writer_allowed": False,
         }
         if stage == "closed":
+            old["backup_capture"]["capture_interval_ref"] = self.fixture.ref(
+                "cold-capture-completed.json", {"synthetic": "capture-interval"}
+            )
             evidence.update(
                 backup_capture=old["backup_capture"],
                 backup_restore={
@@ -371,6 +375,18 @@ class ColdWorkerTests(unittest.TestCase):
                 response,
                 worker.validate_response(response, attempt=self.fixture.attempt, stage=stage),
             )
+
+    def test_closed_production_response_requires_attempt_bound_completed_interval(self):
+        for failure in ("missing", "other_attempt"):
+            response = self.response()
+            captured = response["evidence"]["backup_capture"]
+            if failure == "missing":
+                captured.pop("capture_interval_ref")
+            else:
+                captured["capture_interval_ref"]["path"] = worker.ATTEMPTS + "/other/completed.json"
+            self.rebind(response)
+            with self.subTest(failure=failure), self.assertRaises(io.Refusal):
+                cold.validate_response(response, attempt=self.fixture.attempt, stage="closed")
 
     def test_false_fence_wrong_phase_and_native_fixture_scope_are_rejected(self):
         for field, value in (
@@ -568,6 +584,7 @@ class ColdWorkerTests(unittest.TestCase):
 
     def test_data_only_restore_cannot_skip_missing_or_changed_control_fence(self):
         response = self.response()
+        response["evidence"]["backup_capture"].pop("capture_interval_ref")
         body = response["evidence"]["native"]
         reference = self.fixture.ref("capture-native.json", body)
         manifest = {
@@ -600,6 +617,68 @@ class ColdWorkerTests(unittest.TestCase):
             cold.restored_capture_fences(response, manifest, package, restored)
             (restored / "000000.bin").write_bytes(b"changed")
             with self.assertRaisesRegex(io.Refusal, "fence_changed"):
+                cold.restored_capture_fences(response, manifest, package, restored)
+
+    def test_interval_chain_is_read_from_independent_restore_before_acceptance(self):
+        manifest, response, read = capture_tests.RestoredIntervalTests().fixture()
+        attempt = response["plan"]["attempt_id"]
+        raw = {}
+        original = response["evidence"]["backup_capture"]["capture_interval_ref"]
+
+        def relocate(reference):
+            path = worker.ATTEMPTS + "/" + attempt + "/" + Path(reference["path"]).name
+            body = io.document(read(reference))
+            for key in ("native_ref", "entry_ref"):
+                if key in body:
+                    body[key] = relocate(body[key])
+            raw[path] = io.canonical(body)
+            return {"path": path, "sha256": io.sha(raw[path])}
+
+        witnesses = manifest["external_closure_observations"]
+        for witness in witnesses:
+            witness.update(relocate({key: witness[key] for key in ("path", "sha256")}))
+        complete = io.document(read(original))
+        complete["witnesses_sha256"] = contract.digest(witnesses)
+        complete["entry_ref"] = relocate(complete["entry_ref"])
+        complete["native_ref"] = relocate(complete["native_ref"])
+        path = worker.ATTEMPTS + "/" + attempt + "/completion.json"
+        raw[path] = io.canonical(complete)
+        response["evidence"]["backup_capture"] = {
+            "capture_interval_ref": {"path": path, "sha256": io.sha(raw[path])},
+            "manifest": {"path": "/private/manifest.json", "sha256": contract.digest(manifest)},
+            "files": 0,
+            "bytes": 0,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            package, restored = Path(temporary) / "package", Path(temporary) / "restored"
+            package.mkdir()
+            restored.mkdir()
+            artifacts = []
+            for index, (name, body) in enumerate(sorted(raw.items())):
+                payload = f"{index:06d}.bin"
+                (restored / payload).write_bytes(body)
+                artifacts.append(
+                    {
+                        "logical_name": "control/"
+                        + PurePosixPath(name)
+                        .relative_to(PurePosixPath(worker.ATTEMPTS).parent)
+                        .as_posix(),
+                        "payload": payload,
+                        "bytes": len(body),
+                        "sha256": io.sha(body),
+                    }
+                )
+            control = io.canonical({"artifacts": artifacts})
+            (package / "manifest.json").write_bytes(control)
+            response["control_archive"] = {"manifest_sha256": io.sha(control)}
+            result = cold.restored_capture_fences(response, manifest, package, restored)
+            self.assertEqual(result["boundary_count"], 4)
+            self.assertFalse(result["native_acceptance"])
+            completed = next(
+                row for row in artifacts if row["logical_name"].endswith("/completion.json")
+            )
+            (restored / completed["payload"]).unlink()
+            with self.assertRaises(FileNotFoundError):
                 cold.restored_capture_fences(response, manifest, package, restored)
 
 

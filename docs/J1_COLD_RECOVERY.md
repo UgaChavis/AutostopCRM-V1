@@ -373,3 +373,8 @@ kernel or expired package leaves no completed interval. The existing 300-second
 capture cap includes entry and exit qualifications; no release lease is renewed.
 Production observation requires pending v2 and kernel v2. Earlier v1 fixture
 and forensic structural contracts remain available without production admission.
+The cold custodian refuses a production response without the attempt-bound
+completed interval. It resolves every interval document from the independently
+restored control payloads, verifies their sizes and hashes, and validates both
+full native ends and the complete ordered boundary list before signing. Reading
+the corresponding live controller paths cannot satisfy this restore check.
