@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 import unittest
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.runtime_skip_contract import unexpected_skips
 from tests.runtime_test_result import ImmediateTracebackResult
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,6 +90,41 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     return 0
 
 
+def record_result(result: unittest.TestResult) -> int:
+    unexplained = unexpected_skips(result.skipped, sys.platform)
+    strict = os.environ.get("AUTOSTOP_REHEARSAL_STRICT_SKIPS") == "1"
+    if directory := os.environ.get("AUTOSTOP_REHEARSAL_RECEIPT_DIR"):
+        output = Path(directory)
+        output.mkdir(parents=True, exist_ok=True)
+        (output / f"runtime-suite-{uuid.uuid4().hex}.json").write_text(
+            json.dumps(
+                {
+                    "platform": sys.platform,
+                    "run": result.testsRun,
+                    "successful": result.wasSuccessful() and not (strict and unexplained),
+                    "tests_successful": result.wasSuccessful(),
+                    "strict_skip_contract": strict,
+                    "skipped": [
+                        {"test": test.id(), "reason": reason} for test, reason in result.skipped
+                    ],
+                    "unexplained_skips": unexplained,
+                    "failures": [test.id() for test, _ in result.failures],
+                    "errors": [test.id() for test, _ in result.errors],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    if strict and unexplained:
+        print(
+            f"Unexpected rehearsal test skips: {json.dumps(unexplained)}",
+            file=sys.stderr,
+            flush=True,
+        )
+    return 0 if result.wasSuccessful() and not (strict and unexplained) else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group()
@@ -107,7 +145,7 @@ def main() -> int:
         result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTracebackResult).run(
             suite
         )
-        return 0 if result.wasSuccessful() else 1
+        return record_result(result)
     return run_plan(build_plan(suite))
 
 
