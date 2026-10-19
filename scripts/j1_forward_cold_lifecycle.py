@@ -483,9 +483,9 @@ def child_admission(controller, store, ticket):
     Only a Busy acquisition before any mutation can wait outside both locks.
     Once C can be published, errors are terminal/unknown and are never retried.
     """
-    until = min(time.monotonic() + 2, ticket["expires_at"])
     entered = False
     parent_store, parent_ticket, acceptance, check_current = _active_parent(controller)
+    until = min(time.monotonic() + 2, ticket["expires_at"])
     while True:
         try:
             with parent_store.active_parent(

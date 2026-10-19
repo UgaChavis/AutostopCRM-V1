@@ -9,6 +9,7 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import j1_forward_cold_authority as authority
@@ -20,6 +21,42 @@ from scripts import j1_forward_release_rehearsal as rehearsal
 
 
 class ColdBootstrapPins(unittest.TestCase):
+    def test_lock_wait_budget_starts_after_full_parent_qualification(self):
+        clock, attempts = [1.0], []
+        ticket = {"expires_at": 20.0}
+        acceptance = {
+            "pid": 1,
+            "start_ticks": 2,
+            "invocation_id": "synthetic",
+            "evidence_ref": {"path": "/fixture/parent.json", "sha256": "1" * 64},
+        }
+
+        @contextmanager
+        def paired(**_kwargs):
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                raise BlockingIOError
+            yield
+
+        def prepare(_controller):
+            clock[0] += 10  # Full source qualification precedes lock acquisition.
+            return SimpleNamespace(active_parent=paired), {}, acceptance, lambda: None
+
+        with (
+            patch.object(lifecycle, "_active_parent", side_effect=prepare),
+            patch.object(lifecycle.time, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(
+                lifecycle.time,
+                "sleep",
+                side_effect=lambda value: clock.__setitem__(0, clock[0] + value),
+            ),
+        ):
+            with lifecycle.child_admission(
+                None, SimpleNamespace(read=lambda: {"ticket": ticket}), ticket
+            ) as result:
+                self.assertEqual(result[0]["pid"], 1)
+        self.assertEqual(len(attempts), 2)
+
     def test_all_fixed_bootstrap_sources_are_exact(self):
         self.assertGreaterEqual(len(guard.BOOTSTRAP_HASHES), 10)
         for name, expected in guard.BOOTSTRAP_HASHES.items():
