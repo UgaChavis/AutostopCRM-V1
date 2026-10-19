@@ -16,6 +16,7 @@ from scripts import j1_forward_backup as backup_policy
 from scripts import j1_forward_closure as closure_policy
 from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
+from scripts import j1_forward_mixed_authority as mixed_policy
 from scripts import j1_forward_process_scope as process_scope
 from scripts import j1_forward_proofs as proofs
 from scripts import j1_forward_recovery_scope as recovery_scope
@@ -24,6 +25,7 @@ from scripts import j1_forward_recovery_worker as recovery_worker
 from scripts import j1_forward_state as state
 from scripts import j1_forward_transport as transport
 from scripts import j1_forward_worker as worker
+from scripts import j1_manager_successor_guard_v2 as mixed_guard
 from tests.test_j1_forward_proofs import _openssl
 
 
@@ -50,12 +52,27 @@ class WorkerTests(unittest.TestCase):
     def ref(self, name, value):
         return {"path": self.prefix + name, "sha256": io.sha(io.canonical(value))}
 
-    def response(self, stage="closed", *, recovery=False):
+    def response(self, stage="closed", *, recovery=False, mixed=False):
         now = datetime.now(UTC)
         consumers = {
             "scripts/" + path.name: io.sha(path.read_bytes())
             for path in Path(worker.__file__).parent.glob("j1_forward_*.py")
         }
+        if mixed:
+            assert not recovery
+            consumers.update(
+                {
+                    name: io.sha((Path(worker.__file__).parents[1] / name).read_bytes())
+                    for name in worker.variant.SUPPLEMENTAL
+                }
+            )
+        profile = (
+            worker.variant.backup_engine(
+                {"schema": mixed_policy.PLAN_SCHEMA, "candidate_manager_sha": mixed_guard.REVISION}
+            ).profile_sha256()
+            if mixed
+            else transport.PROFILE_SHA256
+        )
         review = {"path": proofs.REVIEW_KEY_PATH, "sha256": io.sha(self.public)}
         baseline = {
             "schema": "autostop.j1.crm-forward-baseline.v1",
@@ -79,7 +96,7 @@ class WorkerTests(unittest.TestCase):
             "previous_container": {},
             "source_consumers": consumers,
             "review_key_ref": review,
-            "backup_profile_sha256": transport.PROFILE_SHA256,
+            "backup_profile_sha256": profile,
             "deployment_lock_identity": [1, 2],
             "maintenance_parent": {
                 "schema": "autostop.j1.crm-forward-marker-parent.v1",
@@ -100,6 +117,14 @@ class WorkerTests(unittest.TestCase):
         }
         if recovery:
             recovery_documents = self.recovery_material(baseline, now)
+        transition_ref = self.ref("transition.json", {"fixture": "staged source; not admission"})
+        if mixed:
+            baseline["schema"] = worker.variant.MIXED_BASELINE
+            baseline["native"].update(
+                schema=mixed_policy.SCHEMA,
+                predecessor_sha256="a" * 64,
+                manager_transition_ref=transition_ref,
+            )
         baseline_ref = self.ref("baseline.json", baseline)
         plan = {
             "schema": state.PLAN_SCHEMA,
@@ -121,6 +146,13 @@ class WorkerTests(unittest.TestCase):
             "candidate_may_have_written": True,
             "old_writer_allowed": False,
         }
+        if mixed:
+            plan.update(
+                schema=mixed_policy.PLAN_SCHEMA,
+                scope=mixed_policy.SCOPE,
+                manager_transition_ref=transition_ref,
+                candidate_manager_sha=mixed_guard.REVISION,
+            )
         plan_ref = self.ref("plan.json", plan)
         evidence = {
             "native": {
@@ -130,8 +162,17 @@ class WorkerTests(unittest.TestCase):
                 "closed": stage == "closed",
             }
         }
+        if mixed and stage == "closed":
+            evidence["native"].update(
+                schema="autostop.j1.crm-manager-mcp-preinstall-observation.v1",
+                phase="staged",
+                candidate_installed=False,
+                native_acceptance=False,
+                manager_transition_ref=transition_ref,
+                predecessor_baseline_sha256=baseline["native"]["predecessor_sha256"],
+            )
         inspection = {
-            "schema": worker.INSPECTION_SCHEMA,
+            "schema": worker.variant.inspection_schema(plan),
             "stage": stage,
             "attempt_id": self.attempt,
             "plan_sha256": plan_ref["sha256"],
@@ -289,7 +330,8 @@ class WorkerTests(unittest.TestCase):
                 for name in ("runtime", "gateway", "oauth", "performance", "feed")
             }
             evidence["runtime"]["actual_crm_revision"] = plan["candidate"]["revision"]
-            inspection.update(original_guards_executed=True, runtime_checks_passed=True)
+            inspection.update(runtime_checks_passed=True)
+            inspection[worker.variant.guard_acceptance_field(plan)] = True
         for name, document in evidence.items():
             filename = {
                 "process_scope": "process-scope.json",
@@ -312,10 +354,10 @@ class WorkerTests(unittest.TestCase):
                 "attempt_id": self.attempt,
                 "predecessor_sha256": plan["predecessor_sha256"],
                 "candidate_crm_sha": plan["candidate"]["revision"],
-                "candidate_manager_sha": worker.MANAGER_REVISION,
-                "scope_profile_sha256": transport.PROFILE_SHA256,
+                "candidate_manager_sha": plan.get("candidate_manager_sha", worker.MANAGER_REVISION),
+                "scope_profile_sha256": profile,
             },
-            "scope_profile_sha256": transport.PROFILE_SHA256,
+            "scope_profile_sha256": profile,
         }
         if stage == "closed":
             result["transport"] = {
@@ -563,6 +605,15 @@ class WorkerTests(unittest.TestCase):
             "freeze_actors": copy.deepcopy(scope["freeze_actors"]),
             "process_scope_ref": inspection["process_scope_ref"],
         }
+        if worker.variant.is_mixed(plan):
+            owned.update(
+                schema=closure_policy.MIXED_SCHEMA,
+                manager_transition_ref=plan["manager_transition_ref"],
+                permanent_denied_units=sorted(set(closure_policy.UNITS) - worker.NATIVE_UNITS),
+            )
+            owned["source_roots"] = [
+                {"path": path, "present": False} for path in closure_policy.writer_roots(owned)
+            ]
         evidence["closure_ownership"] = owned
         inspection["closure_ownership_ref"] = self.ref("closure-owned.json", owned)
         now = datetime.now(UTC).timestamp()

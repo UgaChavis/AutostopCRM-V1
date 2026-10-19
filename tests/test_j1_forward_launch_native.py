@@ -136,6 +136,34 @@ class NativeLaunchTests(unittest.TestCase):
                 release.apply(self.attempt)
         load.assert_not_called()
 
+    def mixed_plan(self):
+        self.plan["schema"] = "autostop.j1.crm-manager-mcp-forward-plan.v1"
+        for name in native.SUPPLEMENTAL:
+            path = self.crm / name
+            journal._new(path, b"# immutable private successor controller fixture\n")
+            self.consumers[name] = journal.sha(path.read_bytes())
+        self.plan["candidate"]["consumer_sha256"] = journal.sha(journal.canonical(self.consumers))
+        path = Path(self.plan_ref["path"])
+        path.write_bytes(journal.canonical(self.plan))
+        self.plan_ref["sha256"] = journal.sha(path.read_bytes())
+
+    def test_mixed_bootstrap_binds_every_supplemental_successor_controller(self):
+        self.mixed_plan()
+        self.issue()
+        native.validate(self.attempt)
+        path = self.scripts / "j1_manager_successor_transition.py"
+        path.write_bytes(b"# changed before worker consumption\n")
+        with patch.object(release, "load_attempt") as load:
+            with self.assertRaisesRegex(journal.Refusal, "consumer_changed"):
+                release.apply(self.attempt)
+        load.assert_not_called()
+
+    def test_mixed_bootstrap_refuses_an_omitted_supplemental_controller(self):
+        self.mixed_plan()
+        self.consumers.pop("scripts/j1_manager_successor_guard_v2.py")
+        with self.assertRaisesRegex(journal.Refusal, "mixed_consumers_incomplete"):
+            self.issue()
+
     def test_missing_ticket_fails_before_git_store_or_state_lock_creation(self):
         before = sorted(path.relative_to(self.root) for path in self.root.rglob("*"))
         with patch.object(release, "load_attempt") as load:
@@ -341,6 +369,51 @@ class NativeLaunchTests(unittest.TestCase):
 
 
 class LaunchPortableValidationTests(unittest.TestCase):
+    def test_read_snapshot_serializes_with_publication_then_releases_short_lock(self):
+        held, calls = False, []
+
+        class Store:
+            @contextlib.contextmanager
+            def locked(inner):
+                nonlocal held
+                calls.append("try")
+                if calls.count("try") == 1:
+                    raise BlockingIOError()
+                held = True
+                try:
+                    yield
+                finally:
+                    held = False
+
+            def read(inner):
+                self.assertTrue(held)
+                return {"published": True}
+
+            def recover_publication(inner):
+                raise AssertionError("pure reader cannot recover or publish")
+
+        with patch.object(native.time, "sleep") as sleeper:
+            self.assertEqual(native.coherent_snapshot(Store()), {"published": True})
+        sleeper.assert_called_once()
+        self.assertFalse(held)
+
+    def test_busy_snapshot_has_a_finite_refusal_and_never_reads_partial_state(self):
+        class Store:
+            @contextlib.contextmanager
+            def locked(inner):
+                raise BlockingIOError()
+                yield
+
+            def read(inner):
+                raise AssertionError("busy publication is not a readable snapshot")
+
+        with (
+            patch.object(native.time, "monotonic", side_effect=[0.0, 0.1, 0.3]),
+            patch.object(native.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(journal.Refusal, "read_busy"):
+                native.coherent_snapshot(Store(), wait_seconds=0.2)
+
     def test_duplicate_and_nonfinite_json_are_rejected_on_every_platform(self):
         for raw in (b'{"a":1,"a":2}', b'{"a":NaN}', b'{"a":Infinity}'):
             with self.subTest(raw=raw), self.assertRaises(journal.Refusal):

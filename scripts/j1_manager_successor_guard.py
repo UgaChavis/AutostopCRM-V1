@@ -23,8 +23,8 @@ from pathlib import Path, PurePosixPath
 
 HOST = "vps26457.mnogoweb.in"
 UNIT = "autostop-manager-mcp.service"
-REVISION = "bfbe58823a11f84fef23fef291f690559d989af0"
-TREE = "703692676ca782948421154ec184b9cb2bc07a85"
+REVISION = "2b8ba701a7058aaf79478ef38cb21532d95f2a72"
+TREE = "32fc40d8a5ab4548219a99c11b242b06eaf042bf"
 OLD_REVISION = "89af29082e0a6f72c5d85ae448acb6d4deec5d94"
 CONTRACT = "manager_mcp_only_preserved_warm_v1"
 INSTALL = "/usr/local/libexec/autostop-manager-mcp-successor/v1"

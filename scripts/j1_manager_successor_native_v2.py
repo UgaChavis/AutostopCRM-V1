@@ -108,6 +108,64 @@ class NativeIO:
         base = load_native()
 
         class PermanentDeniedIO(base.NativeIO):
+            def verify_staged_source(self, profile, index):
+                root = base._absolute(profile["source_root"])
+                info = base._directory(root)
+                base.require(
+                    [info.st_dev, info.st_ino] == profile["source_identity"],
+                    "v2_staged_source_identity",
+                )
+                records = {base._relative(row["path"]): row for row in index["files"]}
+                base.require(
+                    len(records) == len(index["files"]) and records, "v2_staged_source_inventory"
+                )
+                revision = (index["revision"] + "\n").encode()
+                base.require(
+                    index["revision"] == profile["manager_revision"]
+                    and self.read(str(root / "REVISION")) == revision,
+                    "v2_staged_revision",
+                )
+                hashes = {name: row["sha256"] for name, row in records.items()}
+                base.require(
+                    not set(hashes) & {"REVISION", "MANIFEST.sha256", "MANIFEST.files0"},
+                    "v2_staged_reserved_path",
+                )
+                hashes["REVISION"] = base.sha(revision)
+                manifest = "".join(
+                    f"{hashes[name]}  ./{name}\n" for name in sorted(hashes)
+                ).encode()
+                inventory = b"".join(f"./{name}\0".encode() for name in sorted(hashes))
+                base.require(
+                    base.sha(manifest) == profile["manifest_sha256"]
+                    and self.read(str(root / "MANIFEST.sha256")) == manifest
+                    and self.read(str(root / "MANIFEST.files0")) == inventory,
+                    "v2_staged_manifest",
+                )
+                found = set()
+                for folder, directories, files in os.walk(root, followlinks=False):
+                    self._check()
+                    base._directory(folder)
+                    for name in directories:
+                        base._directory(Path(folder) / name)
+                    for name in files:
+                        found.add((Path(folder) / name).relative_to(root).as_posix())
+                    base.require(len(found) <= len(records) + 3, "v2_staged_extra_file")
+                base.require(
+                    found == set(records) | {"REVISION", "MANIFEST.sha256", "MANIFEST.files0"},
+                    "v2_staged_source_set",
+                )
+                for name, row in records.items():
+                    raw = self.read(str(root / name))
+                    base.require(
+                        len(raw) == row["size"]
+                        and base.sha(raw) == row["sha256"]
+                        and hashlib.sha1(f"blob {len(raw)}\0".encode() + raw).hexdigest()
+                        == row["git_oid"]
+                        and row["mode"] in {"100644", "100755"}
+                        and stat.S_IMODE((root / name).lstat().st_mode) == int(row["mode"][-3:], 8),
+                        "v2_staged_source_blob",
+                    )
+
             def verify_units(self, profile, **kwargs):
                 before = self._systemd()
                 super().verify_units(profile, **kwargs)

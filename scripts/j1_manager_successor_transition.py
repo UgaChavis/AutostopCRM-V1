@@ -400,6 +400,10 @@ def issue_locked(
         and drain.get("result", {}).get("ok") is True,
         "successor_store_receipt_binding",
     )
+    io.require(
+        state_time(plan["created_at"]) <= state_time(drain.get("observed_at")) <= now,
+        "successor_store_receipt_time",
+    )
     facts = {
         key: drain["result"].get(key)
         for key in (

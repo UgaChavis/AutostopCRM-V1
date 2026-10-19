@@ -316,6 +316,7 @@ class ProducerTests(unittest.TestCase):
         self.drain = self.fixture.add(
             "/synthetic/attempt/store-drain.json",
             {
+                "observed_at": now.isoformat(),
                 "attempt_id": self.plan["attempt_id"],
                 "baseline_ref": baseline_ref,
                 **{key: self.ownership[key] for key in ("consumer_sha256", "process_scope_ref")},

@@ -14,6 +14,13 @@ original guards, candidate runtime checks and independently signed evidence.
 An earlier accepted release is a predecessor, never acceptance of a later CRM
 image.
 
+The separate [mixed warm MCP transition](J1_MANAGER_AUTHORITY_TRANSITION.md#explicit-warm-transition-library-v2)
+has its own plan/baseline/closure/inspection discriminator and backup profile.
+Its explicit staging and paired prepare options do not change the meaning of
+the CRM-only schemas described here. It retains the five other native profiles,
+the full accepted warm cohort and both permanent denied roles. Historical
+recovery observations or unknown warm ingress cannot select that variant.
+
 ## Preserved authority and separate successor history
 
 The original Manager policy, armed state, guard package, installed forwarding

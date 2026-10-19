@@ -23,7 +23,7 @@ INDEX, BASELINE = CONFIG + "/source-index.json", CONFIG + "/predecessor-baseline
 RUNTIME = CONFIG + "/runtime-acceptance.json"
 STATE, ADMISSION = STATE_DIR + "/armed.json", STATE_DIR + "/admission.json"
 BASE = INSTALL + "/base-guard.py"
-BASE_SHA256 = "19ab9bb2e800fcde15aad7fadd2af73b96ba4a3a6f322d162c7d693ed415dc06"
+BASE_SHA256 = "288f9449f21ea5d47f8dc9d28a126f63aae356b89636b416acd8ad6381387290"
 _BASE_MODULE = None
 
 

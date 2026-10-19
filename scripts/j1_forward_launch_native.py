@@ -42,6 +42,18 @@ PROPERTIES = (
     "ControlGroup",
 )
 require = journal.require
+SUPPLEMENTAL = frozenset(
+    "scripts/" + name + ".py"
+    for name in (
+        "j1_manager_transition",
+        "j1_manager_transition_source",
+        "j1_manager_successor_guard",
+        "j1_manager_successor_native",
+        "j1_manager_successor_guard_v2",
+        "j1_manager_successor_native_v2",
+        "j1_manager_successor_transition",
+    )
+)
 
 
 def worker_command(attempt):
@@ -143,7 +155,7 @@ def owner():
     return {"pid": os.getpid(), "start_ticks": _proc_stat(os.getpid())}
 
 
-def _sources(consumers):
+def _sources(consumers, *, mixed=False):
     require(
         type(consumers) is dict
         and 8 <= len(consumers) <= 48
@@ -151,9 +163,16 @@ def _sources(consumers):
         and "scripts/j1_forward_launch_permission.py" in consumers,
         "launch_published_consumers_required",
     )
+    if mixed:
+        require(SUPPLEMENTAL <= set(consumers), "launch_mixed_consumers_incomplete")
     for relative, digest in consumers.items():
         require(
-            type(relative) is str and re.fullmatch(r"scripts/j1_forward_[a-z_]+\.py", relative),
+            type(relative) is str
+            and (
+                re.fullmatch(r"scripts/j1_forward_[a-z_]+\.py", relative)
+                or mixed
+                and relative in SUPPLEMENTAL
+            ),
             "launch_source_name",
         )
         journal._hash(digest)
@@ -175,7 +194,9 @@ def issue(plan_ref, consumers, baseline):
         and plan["host"] == socket.gethostname(),
         "launch_plan_scope",
     )
-    source_hash = _sources(consumers)
+    source_hash = _sources(
+        consumers, mixed=plan.get("schema") == "autostop.j1.crm-manager-mcp-forward-plan.v1"
+    )
     require(source_hash == plan["candidate"]["consumer_sha256"], "launch_plan_source")
     lock_identity = _lock_identity()
     require(lock_identity == baseline["deployment_lock_identity"], "launch_lock_changed")
@@ -228,11 +249,25 @@ def issue(plan_ref, consumers, baseline):
     }
 
 
+def coherent_snapshot(store, *, wait_seconds=2.0):
+    """Pure bounded snapshot under the existing short operation lock."""
+    require(type(wait_seconds) in {int, float} and 0 < wait_seconds <= 2.0, "launch_read_budget")
+    until = time.monotonic() + wait_seconds
+    while True:
+        try:
+            with store.locked():
+                return store.read()
+        except BlockingIOError:
+            remaining = until - time.monotonic()
+            require(remaining > 0, "launch_journal_read_busy")
+            time.sleep(min(0.02, remaining))
+
+
 def validate(attempt):
     """Pure bootstrap. A root caller cannot substitute a plan, code or executor."""
     _root()
     store = _store(attempt)
-    snapshot = store.read()
+    snapshot = coherent_snapshot(store)
     ticket = snapshot["ticket"]
     context_raw = journal._read(store.root / "context.json", ROOT_UID)
     require(journal.sha(context_raw) == ticket["context_sha256"], "launch_context_changed")
@@ -253,7 +288,17 @@ def validate(attempt):
         ticket["host"] == socket.gethostname() and ticket["boot_id"] == boot(),
         "launch_host_or_boot",
     )
-    require(_sources(context["consumers"]) == ticket["source_sha256"], "launch_source_binding")
+    plan_raw = journal._read(Path(context["plan_ref"]["path"]), ROOT_UID)
+    require(journal.sha(plan_raw) == context["plan_ref"]["sha256"], "launch_plan_changed")
+    plan_shape = journal.document(plan_raw)
+    require(
+        _sources(
+            context["consumers"],
+            mixed=plan_shape.get("schema") == "autostop.j1.crm-manager-mcp-forward-plan.v1",
+        )
+        == ticket["source_sha256"],
+        "launch_source_binding",
+    )
     require(
         _file_digest(Path("/usr/bin/python3").resolve(strict=True)) == context["interpreter"],
         "launch_interpreter_changed",
@@ -394,7 +439,7 @@ def submit_and_wait(attempt, *, timeout=1100):
         until = min(time.monotonic() + 12, time.monotonic() + timeout)
         while True:
             try:
-                publish_acceptance(store, store.read(), context)
+                publish_acceptance(store, coherent_snapshot(store), context)
                 break
             except (
                 FileNotFoundError,
@@ -429,6 +474,7 @@ class Admission:
         self.attempt, self.lock_factory = attempt, lock_factory
         self.lease = None
         self.context = None
+        self.deployment_fd = None
 
     def __enter__(self):
         store, snapshot, context = validate(self.attempt)
@@ -442,14 +488,16 @@ class Admission:
             store._fresh(ticket, boot_id=boot(), generation=ticket["owner_generation"])
             require(time.monotonic() < until, "launch_acceptance_missing_no_retry")
             time.sleep(0.05)
-            snapshot = store.read()
+            snapshot = coherent_snapshot(
+                store, wait_seconds=min(2.0, max(0.001, until - time.monotonic()))
+            )
         worker = observe_worker(ticket, context, self_only=True)
         receipt = snapshot["state"]["acceptance"]
         require(worker == {key: receipt[key] for key in worker}, "launch_worker_not_accepted")
         _transition(store, ticket, "claim", {"worker": receipt})
         self.context = context
         self.lease = self.lock_factory(context["deployment_lock_identity"])
-        self.lease.__enter__()
+        self.deployment_fd = self.lease.__enter__()
         try:
             store, snapshot, context = validate(self.attempt)
             require(
@@ -469,7 +517,7 @@ class Admission:
             "launch_deployment_lock_binding",
         )
         try:
-            yield
+            yield self.deployment_fd
         except BaseException:
             on_failure()
             raise

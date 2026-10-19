@@ -21,6 +21,7 @@ from scripts import j1_forward_launch_permission as launch
 from scripts import j1_forward_recovery as recovery
 from scripts import j1_forward_recovery_state as recovery_state
 from scripts import j1_forward_state as state
+from scripts import j1_forward_variant as variant
 
 SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
 RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
@@ -30,7 +31,9 @@ MAX_FILES = 8192
 MAX_FILE_BYTES = 8 * 1024**2
 MAX_TOTAL_BYTES = 128 * 1024**2
 MAX_NODES = 250_000
-CONSUMER = re.compile(r"scripts/j1_forward_[a-z_]+\.py\Z")
+CONSUMER = re.compile(
+    r"scripts/(?:j1_forward_[a-z_]+|j1_manager_(?:transition|transition_source|successor_guard|successor_native|successor_guard_v2|successor_native_v2|successor_transition))\.py\Z"
+)
 CLAIMS = {
     "production_restore_authorized": False,
     "native_acceptance_granted": False,
@@ -220,6 +223,17 @@ class _RestoredStore(state.Store):
     def _logical_path(self, value):
         return PurePosixPath(value)
 
+    def _validate_plan(self, plan):
+        return variant.validate_plan(plan, self.base_sha256)
+
+    def _records(self):
+        records, transitioned = super()._records(), False
+        for record, _reference in records:
+            mixed = variant.is_mixed(record["plan"])
+            io.require(not transitioned or mixed, "control_archive_manager_downgrade")
+            transitioned |= mixed
+        return records
+
     @contextmanager
     def _locked(self, *, create=False):
         io.require(not create, "control_archive_read_only")
@@ -274,7 +288,7 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
         "control_archive_plan_binding",
     )
     plan = io.document(raw_plan)
-    state.validate_plan(plan, plan["base_sha256"])
+    variant.validate_plan(plan, plan["base_sha256"])
     store = _RestoredStore(root / "state", plan["base_sha256"], files)
     directory = PurePosixPath(plan_ref["path"]).parent
     captured, _ = store._read(directory / "backup-evidence.json")

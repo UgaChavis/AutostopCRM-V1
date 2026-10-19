@@ -28,7 +28,7 @@ if __package__ in (None, ""):
 from scripts import j1_forward_archive as control_archive
 from scripts import j1_forward_io as io
 from scripts import j1_forward_proofs as proofs
-from scripts import j1_forward_state as state
+from scripts import j1_forward_variant as variant
 
 HOST = "root@crm.autostopcrm.ru"
 NATIVE_HOST = "vps26457.mnogoweb.in"
@@ -259,6 +259,8 @@ def _source_consumers(baseline, plan):
     require(type(expected) is dict and expected, "worker_consumers_missing")
     root = Path(__file__).absolute().parent.parent
     paths = sorted((root / "scripts").glob("j1_forward_*.py"))
+    if variant.is_mixed(plan):
+        paths += [root / name for name in sorted(variant.SUPPLEMENTAL)]
     actual = {}
     for path in paths:
         _physical(path)
@@ -660,7 +662,13 @@ def _capture_monitor_evidence(response):
             "freeze_actors",
             "process_scope_ref",
         }
-        and owned["schema"] == closure_policy.SCHEMA
+        | (
+            {"manager_transition_ref", "permanent_denied_units"}
+            if variant.is_mixed(plan)
+            else set()
+        )
+        and owned["schema"]
+        == (closure_policy.MIXED_SCHEMA if variant.is_mixed(plan) else closure_policy.SCHEMA)
         and owned["attempt_id"] == plan["attempt_id"]
         and owned["attempt_dir"] == prefix.rstrip("/")
         and owned["boot_id"] == scope["boot_id"]
@@ -682,12 +690,19 @@ def _capture_monitor_evidence(response):
         ],
         "worker_capture_ownership",
     )
+    if variant.is_mixed(plan):
+        require(
+            owned["manager_transition_ref"] == plan["manager_transition_ref"]
+            and owned["permanent_denied_units"] == sorted(set(closure_policy.UNITS) - NATIVE_UNITS),
+            "worker_mixed_closure_binding",
+        )
     roots = owned["source_roots"]
+    expected_roots = closure_policy.writer_roots(owned)
     require(
-        type(roots) is list and len(roots) == len(closure_policy.WRITER_ROOTS),
+        type(roots) is list and len(roots) == len(expected_roots),
         "worker_capture_roots",
     )
-    for row, path in zip(roots, closure_policy.WRITER_ROOTS, strict=True):
+    for row, path in zip(roots, expected_roots, strict=True):
         require(
             type(row) is dict
             and type(row.get("present")) is bool
@@ -1119,7 +1134,10 @@ def validate_response(response, *, attempt, stage):
     # checks platform-local path syntax, so supply a local path for that one test.
     shape = copy.deepcopy(plan)
     shape["baseline_ref"]["path"] = str(Path(__file__).absolute())
-    state.validate_plan(shape, plan["base_sha256"])
+    if variant.is_mixed(plan):
+        _reference(plan.get("manager_transition_ref"))
+        shape["manager_transition_ref"]["path"] = str(Path(__file__).absolute())
+    variant.validate_plan(shape, plan["base_sha256"])
     require(plan["attempt_id"] == attempt and plan["host"] == NATIVE_HOST, "worker_plan_binding")
     require(plan["baseline_ref"] == response["baseline_ref"], "worker_baseline_binding")
     _bound(response["baseline"], response["baseline_ref"])
@@ -1140,7 +1158,7 @@ def validate_response(response, *, attempt, stage):
             "maintenance_parent",
         }
         | ({"recovery_origin"} if recovery else set())
-        and baseline["schema"] == "autostop.j1.crm-forward-baseline.v1"
+        and baseline["schema"] == variant.baseline_schema(plan)
         and baseline["attempt_id"] == attempt
         and baseline["native"]["base_sha256"] == plan["base_sha256"],
         "worker_baseline_invalid",
@@ -1193,7 +1211,7 @@ def validate_response(response, *, attempt, stage):
         {"writer_closure_confirmed", "closure_ref"} | {name + "_ref" for name in CAPTURE_EVIDENCE}
         if stage == "closed"
         else {
-            "original_guards_executed",
+            variant.guard_acceptance_field(plan),
             "runtime_checks_passed",
             "runtime_ref",
             "container_ref",
@@ -1203,7 +1221,7 @@ def validate_response(response, *, attempt, stage):
     )
     require(
         set(inspection) == fields
-        and inspection["schema"] == INSPECTION_SCHEMA
+        and inspection["schema"] == variant.inspection_schema(plan)
         and inspection["stage"] == stage
         and inspection["attempt_id"] == attempt
         and inspection["plan_sha256"] == response["plan_ref"]["sha256"]
@@ -1235,6 +1253,17 @@ def validate_response(response, *, attempt, stage):
             "worker_unbound_recovery_scope",
         )
     native = evidence["native"]
+    if variant.is_mixed(plan) and stage == "closed":
+        require(
+            native.get("schema") == "autostop.j1.crm-manager-mcp-preinstall-observation.v1"
+            and native.get("phase") == "staged"
+            and native.get("candidate_installed") is False
+            and native.get("native_acceptance") is False
+            and native.get("manager_transition_ref") == plan["manager_transition_ref"]
+            and native.get("predecessor_baseline_sha256")
+            == baseline["native"]["predecessor_sha256"],
+            "worker_mixed_preinstall_evidence",
+        )
     require(
         native.get("ok") is True
         and native.get("baseline_sha256") == baseline["native"]["sha256"]
@@ -1261,7 +1290,7 @@ def validate_response(response, *, attempt, stage):
         require(transport["path"].startswith(prefix), "worker_transport_path_invalid")
     else:
         require(
-            inspection["original_guards_executed"] is True
+            inspection[variant.guard_acceptance_field(plan)] is True
             and inspection["runtime_checks_passed"] is True,
             "worker_activated_checks_missing",
         )
@@ -1336,13 +1365,15 @@ def validate_response(response, *, attempt, stage):
         "attempt_id": attempt,
         "predecessor_sha256": plan["predecessor_sha256"],
         "candidate_crm_sha": plan["candidate"]["revision"],
-        "candidate_manager_sha": MANAGER_REVISION,
+        "candidate_manager_sha": plan.get("candidate_manager_sha", MANAGER_REVISION),
         "scope_profile_sha256": response["scope_profile_sha256"],
     }
     require(
         _hash(response["scope_profile_sha256"])
         and context == expected_context
-        and baseline["backup_profile_sha256"] == response["scope_profile_sha256"],
+        and baseline["backup_profile_sha256"]
+        == response["scope_profile_sha256"]
+        == variant.backup_engine(plan).profile_sha256(),
         "worker_backup_context_invalid",
     )
     _remaining(plan)
@@ -1574,8 +1605,7 @@ class Worker:
             "baseline_sha256": response["baseline_ref"]["sha256"],
         }
         if stage == "closed":
-            from scripts import j1_forward_transport as transport
-
+            transport = variant.transport_engine(plan)
             backup = transport.core()
             require(
                 sqlite3.sqlite_version_info >= MIN_SQLITE
@@ -1682,7 +1712,7 @@ class Worker:
                     **binding,
                     "inspection_sha256": response["inspection_ref"]["sha256"],
                     "native_preserved": True,
-                    "original_guards_executed": True,
+                    variant.guard_acceptance_field(plan): True,
                 },
                 "runtime_acceptance": {
                     **binding,

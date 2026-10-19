@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
@@ -1883,17 +1883,9 @@ class LinuxBackendTests(unittest.TestCase):
     def test_current_release_launcher_matches_admitted_fixed_waiter(self):
         from scripts import j1_forward_release as release
 
-        host = Mock()
-        host.run.side_effect = RuntimeError("captured-before-effects")
-        with (
-            patch.object(release, "load_attempt", return_value=(None, None, {}, None, host)),
-            patch.object(release, "remaining", return_value=600),
-            patch.object(release, "CRM", PurePosixPath("/opt/autostopcrm")),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "captured-before-effects"):
-                release.launch(ATTEMPT)
         self.assertEqual(
-            tuple(host.run.call_args.args[0]), closure._systemd_launch_command(ATTEMPT)
+            tuple(release.launch_native.launch_command(ATTEMPT)),
+            closure._systemd_launch_command(ATTEMPT),
         )
 
     def test_current_worker_commands_match_admitted_control_forms(self):

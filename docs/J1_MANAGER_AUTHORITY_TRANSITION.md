@@ -3,8 +3,8 @@
 This is the separate source contract for replacing only
 `autostop-manager-mcp.service` with the Store-worker-capable Manager from
 [Manager PR 126](https://github.com/UgaChavis/AutostopManager/pull/126).
-The reviewed candidate is commit `bfbe58823a11f84fef23fef291f690559d989af0`,
-tree `703692676ca782948421154ec184b9cb2bc07a85`.
+The reviewed candidate is commit `2b8ba701a7058aaf79478ef38cb21532d95f2a72`,
+tree `32fc40d8a5ab4548219a99c11b242b06eaf042bf`.
 
 `j1_manager_transition_source.py` has only `prepare` and `verify`. It creates and
 checks source artifacts; it cannot install a guard, switch a selector, change
@@ -50,7 +50,7 @@ private configuration.
 The checkout must be byte-clean, including line endings. On Windows, a checkout
 normalized to CRLF can have a clean Git status and still be refused. Prepare a
 separate source worktree with `git -c core.autocrlf=false -c core.eol=lf worktree add --detach
-ABSOLUTE_NEW_SOURCE_PATH bfbe58823a11f84fef23fef291f690559d989af0` when needed;
+ABSOLUTE_NEW_SOURCE_PATH 2b8ba701a7058aaf79478ef38cb21532d95f2a72` when needed;
 do not rewrite an existing working checkout to satisfy this check.
 Both the Manager and CRM controller checkouts must be byte-clean. Execute the
 entrypoint from the matching LF CRM checkout bound in the inputs package.
@@ -165,7 +165,10 @@ writer. No production transition is established by source tests or CI alone.
 ## Explicit warm transition library v2
 
 `j1_manager_successor_transition.py` adds separate `stage_locked` and
-`issue_locked` library boundaries, without an operational CLI. The controller
+`issue_locked` library boundaries. The forward controller exposes the separate
+`stage-manager --mode inert-before-prepare` command and paired
+`prepare --manager-transition PATH --manager-transition-sha256 HASH` options.
+These are release operations, never ordinary inventory commands. The controller
 retains its exact deployment-lock descriptor; publication additionally takes
 the successor lifecycle lock exclusively. The consumer keeps its shared lock
 through check/exec. Existing installed artifacts are never overwritten with
@@ -221,7 +224,19 @@ observer validators continue to refuse mixed documents. The controller must
 freeze the supplemental `CONTROLLER_FILES` inventory in addition to ordinary
 forward consumers; installation also binds and rereads those exact bytes.
 
-This is a warm-only stand library. On the existing failed host attempt, exited
+The controller, native launch inventory, closure, Windows custodian and backup
+transport select this variant from its explicit plan schema. Closure v3 binds
+the installation reference, scans all four additional staged roots and retains
+both permanent denied barriers while reopening the six working roles. The
+native launch ticket freezes all seven supplemental Manager controller files.
+Closed inspection uses a separate preinstall observation with
+`candidate_installed=false` and `native_acceptance=false`; activated inspection
+requires `mixed_guards_executed=true`. A CRM-only guard claim cannot substitute.
+Issuance follows the independently signed data/control restore proof and the
+latest timestamped Store-stop receipt, under the existing deployment lock.
+Failure preserves the pending plan, hold and all eight barriers.
+
+This is a warm-only path. On the existing failed host attempt, exited
 accepted SSH transports are a concrete compatibility STOP before staging:
 `_predecessor_chain` requires the complete accepted warm actor inventory and
 `NativeIO.verify_warm` verifies each original PID incarnation. PR47's historical
@@ -229,5 +244,8 @@ recovery observation cannot replace that native guard authority. Unknown warm
 ingress, extra source/bytecode or a restarted/cold daemon remain refusals. There
 is no accepted all-profile cold package, authority rotation to a different
 attempt, or production release completion supplied by this implementation.
-Controller/worker integration, hosted checks, native timing and the actual
-host's independent admission are still required before release readiness.
+Focused tests exercise the typed orchestration and validators using private
+evidence and simulated native effects. A joined restore/transition rehearsal,
+the supplemental authority reference graph, hosted checks, native timing and
+the actual host's independent admission remain release readiness gates. Source
+tests do not prove that the current host can enter this warm path.
