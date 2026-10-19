@@ -17,17 +17,20 @@ jobs:
   rehearsal:
     name: ${{ matrix.scenario }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             scenario: linux-profile
+            timeout_minutes: 45
           - os: windows-latest
             scenario: windows-profile
+            timeout_minutes: 45
           - os: ubuntu-latest
             scenario: linux-systemd
+            timeout_minutes: 15
     defaults:
       run:
         shell: pwsh
