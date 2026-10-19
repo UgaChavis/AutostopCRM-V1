@@ -7,6 +7,7 @@ import os
 import shutil
 import tarfile
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -21,9 +22,56 @@ class RuntimeCapsuleTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.roots = {key: str(self.root / "input" / key) for key in ("python", "venv")}
+        self.logical = lambda path: str(path)
+        self.physical = Path
+        if os.name == "nt" or getattr(self, "use_logical_paths", False):
+            physical_root = self.root
+            prefix = "/private/runtime-capsule-fixture"
+
+            def logical(path):
+                normalized = str(path).replace("\\", "/")
+                if normalized == prefix or normalized.startswith(prefix + "/"):
+                    return normalized
+                relative = Path(path).relative_to(physical_root).as_posix()
+                return prefix if relative == "." else prefix + "/" + relative
+
+            def physical(path):
+                value = os.fspath(path)
+                normalized = value.replace("\\", "/")
+                return (
+                    physical_root.joinpath(*normalized.removeprefix(prefix + "/").split("/"))
+                    if normalized.startswith(prefix + "/")
+                    else physical_root
+                    if normalized == prefix
+                    else Path(value)
+                )
+
+            class FixturePath(type(self.root)):
+                def __new__(cls, value, *segments):
+                    return super().__new__(cls, physical(value), *segments)
+
+                def __init__(self, value, *segments):
+                    super().__init__(physical(value), *segments)
+
+                def __str__(self):
+                    return logical(super().__str__())
+
+                def __fspath__(self):
+                    return os.fspath(physical(super().__str__()))
+
+            self.logical, self.physical = logical, physical
+            mapped_paths = patch.object(capsule, "Path", FixturePath)
+            mapped_paths.start()
+            self.addCleanup(mapped_paths.stop)
+            if os.name == "nt":
+                # Windows fixture restore has no directory-fsync primitive;
+                # native production capture is Linux-only and stays unchanged.
+                directory_sync = patch.object(io, "fsync_directory")
+                directory_sync.start()
+                self.addCleanup(directory_sync.stop)
+        self.roots = {key: self.logical(self.root / "input" / key) for key in ("python", "venv")}
         for path in self.roots.values():
-            root = Path(path)
+            root = self.physical(path)
             (root / "bin").mkdir(parents=True)
             (root / "lib").mkdir()
             (root / "bin/python3.12").write_bytes(b"fixture runtime bytes; never executed\n")
@@ -38,6 +86,38 @@ class RuntimeCapsuleTests(unittest.TestCase):
         return capsule.produce(
             self.artifact, roots=self.roots, binding=self.binding, scope="native_fixture"
         )
+
+    def test_logical_posix_references_use_actual_private_files(self):
+        fixture = RuntimeCapsuleTests()
+        fixture.use_logical_paths = True
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        document = fixture.produce()
+        self.assertTrue(document["capsule_ref"]["path"].startswith("/private/"))
+        self.assertEqual(fixture.physical(document["capsule_ref"]["path"]), fixture.artifact)
+        target = fixture.root / "restored"
+        target.mkdir(mode=0o700)
+        with fixture.artifact.open("rb") as source:
+            receipt = capsule.verify_archive(document, source, destination=target)
+        self.assertEqual(receipt["files"], 4)
+
+    def test_windows_path_and_descriptor_times_are_stable_independent_branches(self):
+        fields = dict.fromkeys(
+            ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_birthtime_ns", "st_uid", "st_gid"), 1
+        )
+        fields.update(st_mode=0o100600, st_nlink=1)
+        before = types.SimpleNamespace(**fields, st_ctime_ns=2)
+        opened = types.SimpleNamespace(**fields, st_ctime_ns=3)
+        original = io.unchanged_read
+        with patch.object(
+            io, "unchanged_read", side_effect=lambda *rows: original(*rows, windows=True)
+        ):
+            self.assertTrue(capsule._same_file_read(before, opened, opened, before))
+            for row, key in ((before, "st_ctime_ns"), (opened, "st_ctime_ns"), (opened, "st_mode")):
+                changed = copy.copy(row)
+                setattr(changed, key, getattr(row, key) + 1)
+                after, final = (changed, before) if row is opened else (opened, changed)
+                self.assertFalse(capsule._same_file_read(before, opened, after, final))
 
     def test_actual_files_have_deterministic_capsule_and_independent_full_disk_restore(self):
         document = self.produce()
@@ -60,7 +140,7 @@ class RuntimeCapsuleTests(unittest.TestCase):
 
     def test_restored_bytes_and_current_installation_drift_are_independent_denials(self):
         document = self.produce()
-        (Path(self.roots["venv"]) / "lib/package.py").write_bytes(b"changed live source\n")
+        (self.physical(self.roots["venv"]) / "lib/package.py").write_bytes(b"changed live source\n")
         with self.assertRaisesRegex(io.Refusal, "installed_index_changed"):
             capsule.verify_installed(document)
         with self.artifact.open("rb") as source:
@@ -81,8 +161,11 @@ class RuntimeCapsuleTests(unittest.TestCase):
     def test_shared_index_semantics_are_local_and_all_source_bytes_are_rechecked(self):
         document = self.produce()
         encoded = io.canonical(document)
-        reference = {"path": str(self.root / "index.json"), "sha256": io.sha(encoded)}
-        files = {reference["path"]: encoded, str(self.artifact): self.artifact.read_bytes()}
+        reference = {"path": self.logical(self.root / "index.json"), "sha256": io.sha(encoded)}
+        files = {
+            reference["path"]: encoded,
+            self.logical(self.artifact): self.artifact.read_bytes(),
+        }
         reads = []
 
         def read(ref):
@@ -107,7 +190,7 @@ class RuntimeCapsuleTests(unittest.TestCase):
                     {"candidate_manager_sha": "2" * 40},
                     "native_fixture",
                 )
-            files[str(self.artifact)] += b"changed after captured validation"
+            files[self.logical(self.artifact)] += b"changed after captured validation"
             with self.assertRaisesRegex(io.Refusal, "reference_changed"):
                 reader.recheck()
             with self.assertRaisesRegex(io.Refusal, "reference_bytes"):
@@ -117,10 +200,10 @@ class RuntimeCapsuleTests(unittest.TestCase):
         document = self.produce()
         target = self.root / "target"
         target.mkdir(mode=0o700)
-        document["runtime_roots"] = {name: str(target / name) for name in self.roots}
+        document["runtime_roots"] = {name: self.logical(target / name) for name in self.roots}
 
         def read(ref):
-            return Path(ref["path"]).read_bytes()
+            return self.physical(ref["path"]).read_bytes()
 
         receipt = capsule.materialize(document, read_reference=read)
         self.assertFalse(receipt["activation_authorized"])
@@ -137,8 +220,8 @@ class RuntimeCapsuleTests(unittest.TestCase):
         document = self.produce()
         target = self.root / "target"
         target.mkdir(mode=0o700)
-        shutil.copytree(self.roots["python"], target / "python")
-        document["runtime_roots"] = {name: str(target / name) for name in self.roots}
+        shutil.copytree(self.physical(self.roots["python"]), target / "python")
+        document["runtime_roots"] = {name: self.logical(target / name) for name in self.roots}
         capsule.materialize(document, read_reference=lambda ref: self.artifact.read_bytes())
         capsule.verify_installed(document)
 
@@ -190,7 +273,7 @@ class RuntimeCapsuleTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix", "Requires real Linux flock, AF_UNIX and SO_PEERCRED")
     def test_internal_symlinks_are_indexed_and_escape_or_extra_file_is_denied(self):
-        root = Path(self.roots["venv"])
+        root = self.physical(self.roots["venv"])
         (root / "bin/python").symlink_to("python3.12")
         (root / "lib64").symlink_to("lib", target_is_directory=True)
         document = self.produce()

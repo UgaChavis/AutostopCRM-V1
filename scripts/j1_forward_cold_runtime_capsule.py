@@ -212,7 +212,8 @@ def _file_hash(path, *, copy=None):
     )
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
     try:
-        cold.need(_metadata(os.fstat(fd)) == _metadata(before), "runtime_file_changed")
+        opened = os.fstat(fd)
+        cold.need(_same_file_read(before, opened, opened, before), "runtime_file_changed")
         digest, count = hashlib.sha256(), 0
         with os.fdopen(fd, "rb", closefd=False) as stream:
             while raw := stream.read(CHUNK):
@@ -222,14 +223,19 @@ def _file_hash(path, *, copy=None):
                 if copy is not None:
                     copy.write(raw)
         cold.need(
-            count == before.st_size
-            and _metadata(os.fstat(fd)) == _metadata(before)
-            and _metadata(path.lstat()) == _metadata(before),
+            count == before.st_size and _same_file_read(before, opened, os.fstat(fd), path.lstat()),
             "runtime_file_changed",
         )
         return digest.hexdigest()
     finally:
         os.close(fd)
+
+
+def _same_file_read(before, opened, after, final):
+    return io.unchanged_read(before, opened, after, final) and all(
+        getattr(before, key) == getattr(opened, key) == getattr(after, key) == getattr(final, key)
+        for key in ("st_mode", "st_uid", "st_gid", "st_nlink")
+    )
 
 
 def installed_entries(roots, *, permission_index=None):
