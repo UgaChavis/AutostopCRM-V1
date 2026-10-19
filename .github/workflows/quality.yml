@@ -311,6 +311,17 @@ jobs:
           coverage report --data-file "$RUNNER_TEMP/manager-authority.coverage" --fail-under=90 | tee coverage-manager-authority.txt
           coverage json --data-file "$RUNNER_TEMP/manager-authority.coverage" -o coverage-manager-authority.json
 
+      - name: Manager successor guard branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label manager-successor -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/manager-successor.coverage" \
+            --source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native -m unittest \
+            tests.test_j1_manager_successor_guard tests.test_j1_manager_successor_native -v
+          coverage combine --data-file "$RUNNER_TEMP/manager-successor.coverage"
+          coverage report --data-file "$RUNNER_TEMP/manager-successor.coverage" --fail-under=90 | tee coverage-manager-successor.txt
+          coverage json --data-file "$RUNNER_TEMP/manager-successor.coverage" -o coverage-manager-successor.json
+
       - name: Upload coverage evidence
         if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
@@ -326,6 +337,8 @@ jobs:
             coverage-store-drain.json
             coverage-manager-authority.txt
             coverage-manager-authority.json
+            coverage-manager-successor.txt
+            coverage-manager-successor.json
             htmlcov/
           if-no-files-found: warn
 
