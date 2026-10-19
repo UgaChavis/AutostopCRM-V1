@@ -568,12 +568,14 @@ def prepare(image, ci_run_id, origin_attempt):
         store._envelope(envelope)
         release.remaining(plan)
         release.progress(directory, "prepared", plan_ref=plan_ref)
+        launch_ticket = release.launch_native.issue(plan_ref, consumers, baseline)
         return {
             "ok": True,
             "attempt_id": attempt,
             "plan_ref": plan_ref,
             "deadline_utc": plan["deadline_utc"],
             "origin_attempt_id": origin_attempt,
+            "launch_ticket": launch_ticket,
         }
 
 

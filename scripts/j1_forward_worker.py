@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).absolute().parent.parent))
 
+from scripts import j1_forward_archive as control_archive
 from scripts import j1_forward_io as io
 from scripts import j1_forward_proofs as proofs
 from scripts import j1_forward_state as state
@@ -1102,7 +1103,7 @@ def validate_response(response, *, attempt, stage):
         type(response) is dict
         and set(response)
         == common
-        | ({"transport"} if stage == "closed" else set())
+        | ({"transport", "control_archive"} if stage == "closed" else set())
         | ({"recovery"} if recovery else set())
         and response["ok"] is True
         and response["stage"] == stage,
@@ -1312,6 +1313,23 @@ def validate_response(response, *, attempt, stage):
         )
     _ingress_evidence(evidence, inspection, plan)
     if stage == "closed":
+        control = response["control_archive"]
+        require(
+            type(control) is dict
+            and set(control) == {"manifest", "manifest_sha256", "stage", "archive"}
+            and control["stage"] == "closed"
+            and _hash(control["manifest_sha256"]),
+            "worker_control_archive_required",
+        )
+        _reference(control["manifest"])
+        _reference(control["archive"])
+        control_prefix = "/var/lib/autostop-crm-forward-control-archives/" + attempt + "/closed"
+        require(
+            control["manifest"]
+            == {"path": control_prefix + "/manifest.json", "sha256": control["manifest_sha256"]}
+            and control["archive"]["path"] == control_prefix + ".tar.gz",
+            "worker_control_archive_binding",
+        )
         _capture_monitor_evidence(response)
     context = response["backup_context"]
     expected_context = {
@@ -1346,13 +1364,16 @@ class Worker:
 
     def _ssh(self, operation, attempt, *, stage=None, kind=None):
         require(
-            operation in {"inspect", "export-delta", "receive-proof"}, "worker_remote_operation"
+            operation in {"inspect", "export-delta", "export-control", "receive-proof"},
+            "worker_remote_operation",
         )
         _uuid(attempt)
         remote = ["/usr/bin/python3", "-B", REMOTE, operation, "--attempt", attempt]
         if stage is not None:
             require(
-                operation == "inspect" and stage in {"closed", "activated"}, "worker_remote_stage"
+                (operation == "inspect" and stage in {"closed", "activated"})
+                or (operation == "export-control" and stage in {"closed", "terminal"}),
+                "worker_remote_stage",
             )
             remote += ["--stage", stage]
         if kind is not None:
@@ -1607,6 +1628,41 @@ class Worker:
                 and restored["source_evidence_unchanged"] is True,
                 "worker_restore_receipt_invalid",
             )
+            control = response["control_archive"]
+            envelope = directory / "control.tar.gz"
+            envelope_ref = self._download(
+                self._ssh("export-control", attempt, stage="closed"),
+                envelope,
+                limit=control_archive.MAX_TOTAL_BYTES + control_archive.MAX_FILE_BYTES,
+                timeout=_remaining(plan),
+            )
+            require(
+                envelope_ref["sha256"] == control["archive"]["sha256"],
+                "worker_control_envelope_changed",
+            )
+            package = directory / "control-package"
+            control_archive.unbundle(
+                envelope, envelope_ref["sha256"], package, timeout=min(_remaining(plan), 60)
+            )
+            control_restored = control_archive.verify_and_restore(
+                package,
+                control["manifest_sha256"],
+                directory / "control-restored",
+                plan_ref=response["plan_ref"],
+                backup_manifest_ref=response["evidence"]["backup_capture"]["manifest"],
+                stage="closed",
+                timeout=min(_remaining(plan), 60),
+                custody=custody,
+            )
+            control_receipt = custody(directory / "control-restored/restore.json")
+            control_raw = control_receipt.read_bytes()
+            require(
+                io.document(control_raw) == control_restored
+                and control_restored["actual_disposable_restore"] is True
+                and control_restored["semantic_graph_verified"] is True
+                and all(control_restored[name] is False for name in control_archive.CLAIMS),
+                "worker_control_restore_receipt_invalid",
+            )
             payloads = {
                 "offhost_restore": {
                     **binding,
@@ -1615,6 +1671,9 @@ class Worker:
                     "closed_inspection_sha256": response["inspection_ref"]["sha256"],
                     "profile_sha256": response["scope_profile_sha256"],
                     "actual_restore": True,
+                    "control_archive_manifest_sha256": control["manifest_sha256"],
+                    "control_graph_restored": True,
+                    "control_restore_receipt_sha256": io.sha(control_raw),
                 }
             }
         else:

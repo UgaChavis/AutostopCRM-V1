@@ -365,6 +365,32 @@ class ForwardTransportTests(unittest.TestCase):
                 self.root / "assembled",
             )
 
+    def test_narrow_control_limits_reject_an_oversized_header_before_payload(self):
+        path, digest = self.malformed(self.header("000000.bin", size=33) + b"x" * 33)
+        destination = self.root / "bounded-control"
+        with self.assertRaisesRegex(t.TransportRefusal, "tar_member_limit"):
+            t.extract(
+                path,
+                digest,
+                destination,
+                time.monotonic() + 5,
+                max_file=32,
+                max_total=64,
+                max_members=2,
+                max_manifest=32,
+            )
+        self.assertFalse((destination / "000000.bin").exists())
+
+    def test_control_limits_cannot_expand_the_backup_transport_policy(self):
+        with self.assertRaisesRegex(t.TransportRefusal, "archive_limits_invalid"):
+            t.extract(
+                self.root / "unused",
+                "f" * 64,
+                self.root / "unused-output",
+                time.monotonic() + 5,
+                max_total=t.MAX_TOTAL + 1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

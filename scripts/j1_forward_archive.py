@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_io as io
+from scripts import j1_forward_launch_permission as launch
 from scripts import j1_forward_recovery as recovery
 from scripts import j1_forward_recovery_state as recovery_state
 from scripts import j1_forward_state as state
@@ -51,7 +52,7 @@ def _path(root, value):
         and ".." not in path.parts
         and path.is_relative_to(root)
         and len(path.relative_to(root).parts) >= 2
-        and path.relative_to(root).parts[0] in {"state", "attempts", "origins"},
+        and path.relative_to(root).parts[0] in {"state", "attempts", "origins", "launch-permits"},
         "control_archive_path",
     )
     return path
@@ -119,6 +120,89 @@ def _implicit_references(root, document):
             }
         ]
     return []
+
+
+def _launch_references(root, baseline):
+    """Capture a named attempt journal, never the whole changing permit tree."""
+    if (
+        type(baseline) is not dict
+        or "native" not in baseline
+        or "scripts/j1_forward_launch_native.py" not in baseline.get("source_consumers", {})
+    ):
+        return []
+    attempt = launch._uuid(baseline["attempt_id"])
+    directory = root / "launch-permits" / attempt
+    snapshot = launch.LaunchStore(directory, owner=io.ROOT_UID).read()
+    io.require(snapshot["ticket"]["attempt_id"] == attempt, "control_archive_launch_attempt")
+    fixed = {"ticket.json", "context.json", "state.json", "operation.lock", "events"}
+    if snapshot["state"]["acceptance"] is not None:
+        fixed.add("native-acceptance.json")
+    io.require(
+        {path.name for path in directory.iterdir()} == fixed, "control_archive_launch_inventory"
+    )
+    paths = [directory / name for name in sorted(fixed - {"events"})]
+    paths.extend(sorted((directory / "events").iterdir()))
+    return [io.reference(path) for path in paths]
+
+
+def _launch_semantic(root, documents, files):
+    count = 0
+    for baseline in documents.values():
+        if (
+            type(baseline) is not dict
+            or "native" not in baseline
+            or "scripts/j1_forward_launch_native.py" not in baseline.get("source_consumers", {})
+        ):
+            continue
+        attempt = launch._uuid(baseline["attempt_id"])
+        directory = root / "launch-permits" / attempt
+        raw = files.get(str(directory / "ticket.json"))
+        io.require(raw is not None, "control_archive_launch_missing")
+        ticket = launch.validate_ticket(io.document(raw))
+        context_raw = files.get(str(directory / "context.json"))
+        io.require(
+            context_raw is not None and io.sha(context_raw) == ticket["context_sha256"],
+            "control_archive_launch_context",
+        )
+        context = io.document(context_raw)
+        source_hash = io.sha(io.canonical(baseline["source_consumers"]))
+        io.require(
+            ticket["source_sha256"] == source_hash
+            and context["consumers"] == baseline["source_consumers"]
+            and ticket["attempt_id"] == attempt
+            and ticket["plan_ref"] == context["plan_ref"]
+            and context["plan_ref"]["path"] == str(root / "attempts" / attempt / "plan.json"),
+            "control_archive_launch_binding",
+        )
+        state_raw = files.get(str(directory / "state.json"))
+        io.require(state_raw is not None, "control_archive_launch_missing")
+        current = launch._state(io.document(state_raw), io.sha(raw))
+        previous = launch._initial(io.sha(raw))
+        for number in range(1, current["sequence"] + 1):
+            event_raw = files.get(str(directory / "events" / f"{number:020d}.json"))
+            io.require(event_raw is not None, "control_archive_launch_history_missing")
+            event = io.document(event_raw)
+            io.require(
+                set(event) == {"schema", "state"}
+                and event["schema"] == "autostop.j1.forward-launch-event.v1",
+                "control_archive_launch_event",
+            )
+            launch._successor(previous, event["state"], ticket=ticket)
+            previous = event["state"]
+        io.require(
+            previous == current and current["execution_possible"] is True,
+            "control_archive_launch_not_admitted",
+        )
+        if current["acceptance"] is not None:
+            launch._verify_acceptance(
+                ticket,
+                io.sha(raw),
+                current["acceptance"],
+                0,
+                reader=lambda path, _owner: files[str(path)],
+            )
+        count += 1
+    return count
 
 
 class _RestoredStore(state.Store):
@@ -263,6 +347,7 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
         "pending_present": store.pending() is not None,
         "active_recovery_present": store._active_recovery() is not None,
         "consumer_bundle_count": len(consumers),
+        "launch_journal_count": _launch_semantic(root, documents, files),
     }
 
 
@@ -355,6 +440,34 @@ def _write_bytes(path, raw, *, custody=None):
     io.require(_package_read(path, custody) == raw, "control_archive_copy_changed")
 
 
+def _witness_files(root, witnesses, existing, end):
+    pending, result = list(witnesses), {}
+    while pending:
+        _budget(end)
+        reference = pending.pop()
+        path = _path(root, reference["path"])
+        name = str(path)
+        if name in existing or name in result:
+            raw = existing.get(name, result.get(name))
+            io.require(io.sha(raw) == reference["sha256"], "control_archive_witness_changed")
+            continue
+        io.require(len(existing) + len(result) < MAX_FILES, "control_archive_file_limit")
+        raw = io.read_protected(Path(path), MAX_FILE_BYTES)
+        io.require(io.sha(raw) == reference["sha256"], "control_archive_witness_changed")
+        result[name] = raw
+        io.require(
+            sum(map(len, existing.values())) + sum(map(len, result.values())) <= MAX_TOTAL_BYTES,
+            "control_archive_total_limit",
+        )
+        io.require(path.suffix == ".json", "control_archive_witness_document")
+        doc = io.document(raw)
+        pending.extend(
+            ref for ref in _references(doc) if PurePosixPath(ref["path"]).is_relative_to(root)
+        )
+        pending.extend(_implicit_references(root, doc))
+    return result
+
+
 def capture(
     root,
     plan_ref,
@@ -405,7 +518,7 @@ def capture(
 
     fence()
     seeds = _seed(root, plan_ref, backup_manifest_ref, stage)
-    pending, files = list(seeds), {}
+    pending, files, launch_refs = list(seeds), {}, {}
     while pending:
         _budget(end)
         reference = pending.pop()
@@ -422,12 +535,23 @@ def capture(
         io.require(sum(map(len, files.values())) <= MAX_TOTAL_BYTES, "control_archive_total_limit")
         if path.suffix != ".json":
             io.require(
-                path.is_relative_to(root / "origins")
-                and CONSUMER.fullmatch("/".join(path.parts[-2:])),
+                (
+                    path.is_relative_to(root / "origins")
+                    and CONSUMER.fullmatch("/".join(path.parts[-2:]))
+                )
+                or (
+                    path.is_relative_to(root / "launch-permits")
+                    and path.name == "operation.lock"
+                    and raw == b""
+                ),
                 "control_archive_unexpected_binary",
             )
             continue
         doc = io.document(raw)
+        refs = _launch_references(root, doc)
+        if refs:
+            launch_refs[str(path)] = refs
+            pending.extend(refs)
         pending.extend(ref for ref in _references(doc) if Path(ref["path"]).is_relative_to(root))
         pending.extend(_implicit_references(root, doc))
     documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
@@ -474,12 +598,40 @@ def capture(
             {"logical_name": logical, "payload": payload, "bytes": len(raw), "sha256": io.sha(raw)}
         )
     fence()
+    # The terminal fence is itself part of the recoverable proof graph. Include
+    # those exact immutable documents, rather than leaving dangling native refs.
+    witnesses_raw = _witness_files(root, witnesses, files, end)
+    for path, raw in sorted(witnesses_raw.items()):
+        _budget(end)
+        payload = f"{len(artifacts):06d}.bin"
+        io.require(len(artifacts) < MAX_FILES, "control_archive_file_limit")
+        _write_bytes(output / payload, raw)
+        artifacts.append(
+            {
+                "logical_name": "control/" + str(Path(path).relative_to(root)),
+                "payload": payload,
+                "bytes": len(raw),
+                "sha256": io.sha(raw),
+            }
+        )
+    files.update(witnesses_raw)
+    io.require(
+        sum(entry["bytes"] for entry in artifacts) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
+    )
+    io.require(
+        _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage) == semantic,
+        "control_archive_witness_semantics_changed",
+    )
     io.require(
         _seed(root, plan_ref, backup_manifest_ref, stage) == seeds, "control_archive_state_changed"
     )
     for path, raw in files.items():
         _budget(end)
         io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
+    for path, refs in launch_refs.items():
+        io.require(
+            _launch_references(root, documents[path]) == refs, "control_archive_launch_changed"
+        )
     manifest = {
         "schema": SCHEMA,
         "stage": stage,
@@ -493,6 +645,55 @@ def capture(
     }
     reference = io.write_new(output / "manifest.json", manifest)
     return {"manifest": reference, "manifest_sha256": reference["sha256"], "stage": stage, **CLAIMS}
+
+
+def bundle(package, manifest_sha256, output, *, timeout=60):
+    """Bounded flat transport; the independent semantic restore remains mandatory."""
+    from scripts import j1_forward_transport as transport
+
+    package, output = Path(package), Path(output)
+    end = transport.deadline(timeout)
+    raw = io.read_protected(package / "manifest.json", MAX_FILE_BYTES)
+    io.require(io.sha(raw) == manifest_sha256, "control_archive_manifest_changed")
+    manifest = io.document(raw)
+    entries = manifest["artifacts"]
+    io.require(len(entries) <= MAX_FILES, "control_archive_file_limit")
+    names = {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))}
+    io.require(
+        {path.name for path in package.iterdir()} == names,
+        "control_archive_exact_inventory_required",
+    )
+    files = [("manifest.json", package / "manifest.json", len(raw), manifest_sha256)]
+    total = 0
+    for index, entry in enumerate(entries):
+        io.require(
+            entry["payload"] == f"{index:06d}.bin"
+            and type(entry["bytes"]) is int
+            and 0 <= entry["bytes"] <= MAX_FILE_BYTES,
+            "control_archive_entry",
+        )
+        total += entry["bytes"]
+        io.require(total <= MAX_TOTAL_BYTES, "control_archive_total_limit")
+        files.append(
+            (entry["payload"], package / entry["payload"], entry["bytes"], entry["sha256"])
+        )
+    return transport.pack(output, files, end)
+
+
+def unbundle(envelope, envelope_sha256, package, *, timeout=60):
+    """Reject decompression bombs before allocating a full backup-sized payload."""
+    from scripts import j1_forward_transport as transport
+
+    return transport.extract(
+        Path(envelope),
+        envelope_sha256,
+        Path(package),
+        transport.deadline(timeout),
+        max_members=MAX_FILES + 1,
+        max_file=MAX_FILE_BYTES,
+        max_total=MAX_TOTAL_BYTES,
+        max_manifest=MAX_FILE_BYTES,
+    )
 
 
 def verify_and_restore(

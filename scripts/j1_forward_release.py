@@ -25,10 +25,12 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import j1_forward_archive as control_archive
 from scripts import j1_forward_authority as authority
 from scripts import j1_forward_backup as backup
 from scripts import j1_forward_closure as closure
 from scripts import j1_forward_io as io
+from scripts import j1_forward_launch_native as launch_native
 from scripts import j1_forward_marker as marker
 from scripts import j1_forward_proofs as signatures
 from scripts import j1_forward_recovery as recovery
@@ -44,6 +46,7 @@ LOCK = CRM / ".autostop-deploy.lock"
 MARKER = CRM / "data/.agent-gateway-maintenance"
 KEY = Path(signatures.REVIEW_KEY_PATH)
 CACHE_INVENTORY = ROOT / "transport-cache-inventory.json"
+CONTROL_ARCHIVES = Path("/var/lib/autostop-crm-forward-control-archives")
 MAX_WINDOW = 600
 SCHEMA = "autostop.j1.crm-forward-baseline.v1"
 INSPECTION = "autostop.j1.crm-forward-inspection.v1"
@@ -302,11 +305,13 @@ def prepare(image, ci_run_id):
         validate_plan(plan, native["base_sha256"])
         ref = io.write_new(directory / "plan.json", plan)
         progress(directory, "prepared", plan_ref=ref)
+        launch_ticket = launch_native.issue(ref, consumers, baseline)
         return {
             "ok": True,
             "attempt_id": attempt,
             "plan_ref": ref,
             "deadline_utc": plan["deadline_utc"],
+            "launch_ticket": launch_ticket,
         }
 
 
@@ -503,6 +508,14 @@ def validate_payload(kind, payload, directory, plan_ref, plan, baseline):
             and payload.get("profile_sha256") == baseline["backup_profile_sha256"],
             "offhost_restore_required",
         )
+        archived = io.document(io.read_protected(directory / "control-closed.json"))
+        io.require(
+            payload.get("control_archive_manifest_sha256") == archived["manifest_sha256"]
+            and payload.get("control_graph_restored") is True
+            and type(payload.get("control_restore_receipt_sha256")) is str
+            and re.fullmatch(r"[0-9a-f]{64}", payload["control_restore_receipt_sha256"]),
+            "offhost_control_graph_restore_required",
+        )
         inspection_hash = payload.get("closed_inspection_sha256")
     else:
         io.require(payload.get("phase") == "activated", "activated_proof_required")
@@ -668,6 +681,9 @@ def inspect(attempt, stage):
     }
     if stage == "closed":
         result["transport"] = io.document(io.read_protected(directory / "transport.json"))
+        result["control_archive"] = io.document(
+            io.read_protected(directory / "control-closed.json")
+        )
     if "recovery_origin" in baseline:
         result["recovery"] = recovery.response_evidence(plan, baseline)
     remaining(plan)
@@ -739,6 +755,50 @@ def _record_failure(directory, plan_ref, plan, baseline, host, ownership, error)
 
 
 def apply(attempt):
+    # Pure native bootstrap takes C without D, then D -> short O for E. Keep D
+    # under one owner before load_attempt can invoke Host.source or Store IO.
+    with launch_native.Admission(attempt, deployment_lock) as admission:
+        return _apply_admitted(attempt, admission)
+
+
+def capture_control(directory, plan_ref, plan, *, stage, observer):
+    """Keep control history beside the fixed data profile, under a new root."""
+    if not CONTROL_ARCHIVES.exists():
+        io.protected_directory(CONTROL_ARCHIVES.parent)
+        CONTROL_ARCHIVES.mkdir(mode=0o700)
+        io.fsync_directory(CONTROL_ARCHIVES.parent)
+    io.protected_directory(CONTROL_ARCHIVES, private=True)
+    destination = CONTROL_ARCHIVES / plan["attempt_id"]
+    if not destination.exists():
+        destination.mkdir(mode=0o700)
+        io.fsync_directory(destination.parent)
+    io.protected_directory(destination, private=True)
+    captured = control_archive.capture(
+        ROOT,
+        plan_ref,
+        io.reference(directory / "backup/manifest.json"),
+        destination / stage,
+        stage=stage,
+        observer=observer,
+        timeout=min(remaining(plan), 60),
+    )
+    packed = control_archive.bundle(
+        destination / stage,
+        captured["manifest_sha256"],
+        destination / (stage + ".tar.gz"),
+        timeout=min(remaining(plan), 60),
+    )
+    value = {
+        "manifest": captured["manifest"],
+        "manifest_sha256": captured["manifest_sha256"],
+        "stage": stage,
+        "archive": packed["archive"],
+    }
+    io.write_new(directory / ("control-" + stage + ".json"), value)
+    return value
+
+
+def _apply_admitted(attempt, admission):
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     store = store_for(plan, baseline)
     io.require(store.pending() is None, "pending_forward_requires_recovery")
@@ -772,7 +832,7 @@ def apply(attempt):
             failure_recorded = True
 
     try:
-        with deployment_lock(baseline["deployment_lock_identity"], on_failure=locked_failure):
+        with admission.execution(baseline["deployment_lock_identity"], on_failure=locked_failure):
             host.deadline = time.monotonic() + remaining(plan)
             recovering = "recovery_origin" in baseline
             if recovering:
@@ -866,6 +926,7 @@ def apply(attempt):
             captured["terminal_full_ref"] = captured_monitor["terminal_full"]["reference"]
             witness()
             io.write_new(directory / "backup-evidence.json", captured)
+            capture_control(directory, plan_ref, plan, stage="closed", observer=witness)
             known = io.reference(CACHE_INVENTORY) if CACHE_INVENTORY.exists() else None
             packed = transport.bundle_delta(
                 directory / "backup",
@@ -982,6 +1043,26 @@ def apply(attempt):
         )
         store.finish(plan)
         progress(directory, "complete", completion=completed)
+        with deployment_lock(baseline["deployment_lock_identity"]):
+            store.confirm_finished(plan)
+
+            def terminal_observer():
+                io.require(
+                    not MARKER.exists() and not (directory / "failure.json").exists(),
+                    "terminal_archive_generation_failed",
+                )
+                return save(
+                    directory,
+                    "terminal-control-observation",
+                    {
+                        "plan_ref": plan_ref,
+                        "head": store.head()["sha256"],
+                        "native": authority.verify_preserved(baseline["native"], running=True),
+                        "production_restore_authorized": False,
+                    },
+                )
+
+            capture_control(directory, plan_ref, plan, stage="terminal", observer=terminal_observer)
         return {"ok": True, "completion": completed, "attempt_id": attempt}
     except BaseException as exc:
         if not mutation_owned:
@@ -1017,6 +1098,21 @@ def export_delta(attempt):
         while block := stream.read(1024**2):
             remaining(plan)
             sys.stdout.buffer.write(block)
+
+
+def export_control(attempt, stage):
+    """Read an immutable bounded evidence envelope; never replay a controller."""
+    io.require(stage in {"closed", "terminal"}, "control_export_stage")
+    directory = attempt_directory(attempt)
+    metadata = io.document(io.read_protected(directory / ("control-" + stage + ".json")))
+    path = CONTROL_ARCHIVES / attempt / (stage + ".tar.gz")
+    reference = metadata["archive"]
+    io.require(metadata["stage"] == stage and reference["path"] == str(path), "control_export_path")
+    # Hash verification precedes stdout. Native read_protected has a hard bound;
+    # no source modules, state writers, application or service is invoked.
+    raw = io.read_protected(path, control_archive.MAX_TOTAL_BYTES + control_archive.MAX_FILE_BYTES)
+    io.require(io.sha(raw) == reference["sha256"], "control_export_changed")
+    sys.stdout.buffer.write(raw)
 
 
 def build():
@@ -1085,6 +1181,9 @@ def build():
 
 def settle(attempt):
     """ExecStopPost safety net, including SIGKILL of the main consumer."""
+    denied = launch_native.settle_unentered(attempt, deployment_lock)
+    if denied is not None:
+        return denied
     directory, plan_ref, plan, baseline, host = load_attempt(attempt, verify_published=False)
     store = store_for(plan, baseline)
 
@@ -1230,32 +1329,10 @@ def settle(attempt):
 
 def launch(attempt):
     """Keep the transition alive across SSH loss and fence on service death."""
+    launch_native.validate(attempt)
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     remaining(plan)
-    unit = "autostop-crm-forward-" + attempt
-    command = [
-        "/usr/bin/systemd-run",
-        "--quiet",
-        "--wait",
-        "--collect",
-        "--unit=" + unit,
-        "--property=Type=exec",
-        "--property=RuntimeMaxSec=900",
-        "--property=TimeoutStopSec=120",
-        "--property=KillSignal=SIGTERM",
-        "--property=ExecStopPost=/usr/bin/python3 -I -S -B /opt/autostopcrm/scripts/j1_forward_release.py settle --attempt "
-        + attempt,
-        "--setenv=LD_LIBRARY_PATH=/opt/autostop-sqlite/3.51.3/lib",
-        "/usr/bin/python3",
-        "-I",
-        "-S",
-        "-B",
-        str(CRM / "scripts/j1_forward_release.py"),
-        "run",
-        "--attempt",
-        attempt,
-    ]
-    host.run(command, label="forward-service", timeout=1100)
+    launch_native.submit_and_wait(attempt)
     with deployment_lock(baseline["deployment_lock_identity"]):
         io.require(
             not (directory / "failure.json").exists() and not MARKER.exists(),
@@ -1300,13 +1377,24 @@ def main():
     origin_parser = sub.add_parser("seal-origin")
     origin_parser.add_argument("--attempt", required=True)
     sub.add_parser("build")
-    for operation in ("apply", "run", "settle", "inspect", "receive-proof", "export-delta"):
+    for operation in (
+        "apply",
+        "run",
+        "settle",
+        "inspect",
+        "receive-proof",
+        "export-delta",
+        "revoke-launch",
+        "export-control",
+    ):
         child = sub.add_parser(operation)
         child.add_argument("--attempt", required=True)
         if operation == "inspect":
             child.add_argument(
                 "--stage", choices=("closed", "activated", "barriers"), required=True
             )
+        if operation == "export-control":
+            child.add_argument("--stage", choices=("closed", "terminal"), required=True)
         if operation == "receive-proof":
             child.add_argument("--kind", choices=sorted(signatures.KINDS), required=True)
     args = parser.parse_args()
@@ -1322,6 +1410,8 @@ def main():
             result = build()
         elif args.command == "apply":
             result = launch(args.attempt)
+        elif args.command == "revoke-launch":
+            result = launch_native.revoke(args.attempt)
         elif args.command == "run":
             cgroup = Path("/proc/self/cgroup").read_text()
             io.require(
@@ -1337,13 +1427,20 @@ def main():
             result = inspect(args.attempt, args.stage)
         elif args.command == "receive-proof":
             result = receive_proof(args.attempt, args.kind, sys.stdin.buffer.read(2 * 1024**2 + 1))
+        elif args.command == "export-control":
+            export_control(args.attempt, args.stage)
+            return 0
         else:
             export_delta(args.attempt)
             return 0
         sys.stdout.buffer.write(io.canonical(result))
         return 0 if result.get("ok") is True else 2
     except Exception as exc:
-        error = str(exc) if isinstance(exc, io.Refusal) else type(exc).__name__
+        error = (
+            str(exc)
+            if isinstance(exc, (io.Refusal, launch_native.journal.Refusal))
+            else type(exc).__name__
+        )
         sys.stderr.buffer.write(io.canonical({"ok": False, "error": error}))
         return 2
 

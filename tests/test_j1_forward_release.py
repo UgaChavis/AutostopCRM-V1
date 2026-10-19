@@ -77,6 +77,22 @@ class FakeStore:
         self.pending_plan = None
 
 
+class SyntheticAdmission:
+    """Native boundary is covered separately by real private launch journals."""
+
+    def __init__(self, _attempt, lock_factory):
+        self.lock_factory = lock_factory
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execution(self, expected, *, on_failure):
+        return self.lock_factory(expected, on_failure=on_failure)
+
+
 class FakeHost:
     def __init__(self, fixture):
         self.f = fixture
@@ -287,6 +303,7 @@ class ForwardReleaseTests(unittest.TestCase):
             lambda _attempt: (self.directory, self.plan_ref, self.plan, self.baseline, self.host),
         )
         self.install(r, "deployment_lock", self.deployment_lock)
+        self.install(r.launch_native, "Admission", SyntheticAdmission)
         self.install(r, "cleanup_signals", nullcontext)
         self.install(r.authority, "verify_preserved", self.verify_authority)
         self.install(r.closure, "close_writers", self.close_writers)
@@ -298,6 +315,7 @@ class ForwardReleaseTests(unittest.TestCase):
         self.install(r.closure, "release_auxiliary", self.release_auxiliary)
         self.install(r.closure, "fail_closed", self.fail_closed)
         self.install(r.backup, "capture", self.capture)
+        self.install(r, "capture_control", self.capture_control)
         self.install(r.transport, "bundle_delta", self.bundle_delta)
         self.install(r, "guard_starts", lambda *_args: self.event("guards.fresh"))
         self.install(r, "check_container_preserved", self.check_candidate)
@@ -524,6 +542,14 @@ class ForwardReleaseTests(unittest.TestCase):
         self.event("transport.bundle")
         return {"archive": {"path": str(self.directory / "delta.tar.gz"), "sha256": "e" * 64}}
 
+    def capture_control(self, directory, _plan_ref, _plan, *, stage, observer):
+        self.assertTrue(self.locked)
+        observer()
+        self.event("control." + stage)
+        value = {"manifest_sha256": "b" * 64, "stage": stage}
+        io.write_new(directory / ("control-" + stage + ".json"), value)
+        return value
+
     def check_candidate(self, _previous, current, candidate):
         self.assertEqual(current["image"], candidate["image"])
         self.assertEqual(current["revision"], candidate["revision"])
@@ -566,6 +592,9 @@ class ForwardReleaseTests(unittest.TestCase):
                 manifest_sha256=self.manifest_sha,
                 profile_sha256=self.baseline["backup_profile_sha256"],
                 closed_inspection_sha256=inspection_ref["sha256"],
+                control_archive_manifest_sha256="b" * 64,
+                control_graph_restored=True,
+                control_restore_receipt_sha256="c" * 64,
             )
         else:
             payload.update(

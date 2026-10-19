@@ -635,6 +635,23 @@ control restore does not grant native admission, prove writer closure, restore
 external dependencies or authorize a production restore. Data-backup and
 independent native/closure proof gates remain required.
 
+The controller now creates a closed archive before requesting the off-host
+proof, and a terminal archive after the durable commit and terminal readback.
+Packages live separately under
+`/var/lib/autostop-crm-forward-control-archives/<attempt>/`. The fixed data profile
+is unchanged. `export-control --attempt <UUID> --stage closed|terminal` exports
+only the hash-verified bounded evidence envelope; it never executes archived
+code or replays a controller. Source consumer inventories using the launch
+protocol also require the complete admitted ticket/context/event/acceptance
+graph. Offline restore verifies its exact transitions and binding.
+
+The Windows custodian downloads and restores the closed control graph after
+the data restore and before signing. The signed proof binds its manifest hash
+and the actual independent restore receipt. A successful database restore
+cannot substitute for a missing or corrupt control graph. A terminal archive
+retains the five-proof HEAD and late completion/cohort graph; retain both
+envelopes independently when preparing the later release record.
+
 Recovery stop uses the same ownership-bound Store-worker drain as ordinary
 closure. The archived original pending, original writer ban and exact cohort
 bindings survive the new recovery; an unknown warm ingress is still a refusal.
@@ -643,6 +660,8 @@ bindings survive the new recovery; an unknown warm ingress is still a refusal.
 | --- | --- |
 | `j1_forward_release.py` | Published-image build, bounded preparation, service lifecycle, inspection, proof dispatch and release ordering |
 | `j1_forward_io.py` | Protected physical files, strict JSON and durable publication |
+| `j1_forward_launch_permission.py` | Durable one-attempt S/A/C/E/R journal and fail-closed publication reconciliation |
+| `j1_forward_launch_native.py` | Fixed Linux issuer, independent systemd/process acceptance and single-lock consumer entry |
 | `j1_forward_marker.py` | Pinned legacy app-owned marker directory and exact owned marker operations |
 | `j1_forward_authority.py` | Original native authority and actual runtime preservation |
 | `j1_forward_state.py` | Exact predecessor, pending attempt and append-only successor history |
@@ -666,3 +685,6 @@ checks on the exact reviewed source. Test shell dispatch separately: the
 effects, preserve argument boundaries and propagate failure. Synthetic tests
 exercise refusal and failure ordering; actual off-host restore and native
 release evidence are still required for deployment completion.
+
+The [launch-admission contract](J1_FORWARD_LAUNCH_ADMISSION.md) defines the
+separate launch/revoke boundary. Its acceptance is not native release acceptance.

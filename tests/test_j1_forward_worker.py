@@ -323,6 +323,15 @@ class WorkerTests(unittest.TestCase):
                 "sha256": io.sha(b"delta"),
                 "manifest_sha256": "a" * 64,
             }
+            control_prefix = (
+                "/var/lib/autostop-crm-forward-control-archives/" + self.attempt + "/closed"
+            )
+            result["control_archive"] = {
+                "manifest": {"path": control_prefix + "/manifest.json", "sha256": "b" * 64},
+                "manifest_sha256": "b" * 64,
+                "stage": "closed",
+                "archive": {"path": control_prefix + ".tar.gz", "sha256": io.sha(b"control")},
+            }
             self.add_capture_evidence(result)
         if recovery:
             envelope = {
@@ -1549,6 +1558,9 @@ class WorkerTests(unittest.TestCase):
             elif "export-delta" in argv:
                 calls.append("download")
                 raw = b"delta"
+            elif "export-control" in argv:
+                calls.append("control-download")
+                raw = b"control"
             else:
                 calls.append("deliver")
                 signed = io.document(kwargs["input_bytes"])
@@ -1592,6 +1604,29 @@ class WorkerTests(unittest.TestCase):
             reference = worker._new_file(output / "verification.json", io.canonical(receipt))
             return {**receipt, "receipt": reference}
 
+        def control_unbundle(envelope, digest, package, **_kwargs):
+            calls.append("control-unbundle")
+            self.assertEqual(envelope.read_bytes(), b"control")
+            self.assertEqual(digest, io.sha(b"control"))
+            package.mkdir()
+
+        def control_restore(package, digest, output, **kwargs):
+            calls.append("control-restore")
+            self.assertEqual(digest, response["control_archive"]["manifest_sha256"])
+            self.assertEqual(kwargs["plan_ref"], response["plan_ref"])
+            self.assertEqual(
+                kwargs["backup_manifest_ref"], response["evidence"]["backup_capture"]["manifest"]
+            )
+            self.assertIs(kwargs["custody"], worker.custody)
+            output.mkdir()
+            receipt = {
+                "actual_disposable_restore": True,
+                "semantic_graph_verified": True,
+                **worker.control_archive.CLAIMS,
+            }
+            worker._new_file(output / "restore.json", io.canonical(receipt))
+            return receipt
+
         backup = SimpleNamespace(
             sqlite3=SimpleNamespace(sqlite_version_info=worker.MIN_SQLITE),
             profile_sha256=lambda: transport.PROFILE_SHA256,
@@ -1603,6 +1638,8 @@ class WorkerTests(unittest.TestCase):
             patch.object(proofs, "_ed25519_public_key"),
             patch.object(transport, "core", return_value=backup),
             patch.object(transport, "assemble_delta", side_effect=assemble),
+            patch.object(worker.control_archive, "unbundle", side_effect=control_unbundle),
+            patch.object(worker.control_archive, "verify_and_restore", side_effect=control_restore),
             patch.object(worker.sqlite3, "sqlite_version_info", worker.MIN_SQLITE),
         ]
         for replacement in patches:
@@ -1614,7 +1651,20 @@ class WorkerTests(unittest.TestCase):
         response = self.response()
         calls, delivered = self.fake_execution(response)
         result = self.instance.run(self.attempt, "closed")
-        self.assertEqual(calls, ["inspect", "download", "assemble", "restore", "sign", "deliver"])
+        self.assertEqual(
+            calls,
+            [
+                "inspect",
+                "download",
+                "assemble",
+                "restore",
+                "control-download",
+                "control-unbundle",
+                "control-restore",
+                "sign",
+                "deliver",
+            ],
+        )
         payload = delivered["offhost_restore"]["payload"]
         self.assertTrue(payload["actual_restore"])
         self.assertEqual(payload["closed_inspection_sha256"], response["inspection_ref"]["sha256"])
@@ -1627,11 +1677,47 @@ class WorkerTests(unittest.TestCase):
         self.assertNotIn("sign", calls)
         self.assertEqual(delivered, {})
 
+    def test_control_restore_failure_never_signs_after_successful_data_restore(self):
+        calls, delivered = self.fake_execution(self.response())
+        with patch.object(
+            worker.control_archive,
+            "verify_and_restore",
+            side_effect=io.Refusal("damaged_control_graph"),
+        ):
+            with self.assertRaisesRegex(io.Refusal, "damaged_control_graph"):
+                self.instance.run(self.attempt, "closed")
+        self.assertIn("restore", calls)
+        self.assertNotIn("sign", calls)
+        self.assertFalse(delivered)
+
+    def test_control_transport_hash_is_required_even_after_data_restore(self):
+        response = self.response()
+        response["control_archive"]["archive"]["sha256"] = "f" * 64
+        calls, delivered = self.fake_execution(response)
+        with self.assertRaisesRegex(io.Refusal, "control_envelope_changed"):
+            self.instance.run(self.attempt, "closed")
+        self.assertIn("restore", calls)
+        self.assertNotIn("sign", calls)
+        self.assertFalse(delivered)
+
     def test_recovery_restore_remains_mandatory_and_binds_fresh_plan(self):
         response = self.response(recovery=True)
         calls, delivered = self.fake_execution(response)
         self.instance.run(self.attempt, "closed")
-        self.assertEqual(calls, ["inspect", "download", "assemble", "restore", "sign", "deliver"])
+        self.assertEqual(
+            calls,
+            [
+                "inspect",
+                "download",
+                "assemble",
+                "restore",
+                "control-download",
+                "control-unbundle",
+                "control-restore",
+                "sign",
+                "deliver",
+            ],
+        )
         self.assertEqual(
             delivered["offhost_restore"]["plan_sha256"], response["plan_ref"]["sha256"]
         )

@@ -211,6 +211,10 @@ def _forward_commands(attempt):
         for stage in ("closed", "activated"):
             commands[(*prefix, "inspect", "--attempt", attempt, "--stage", stage)] = "inspect"
         commands[(*prefix, "export-delta", "--attempt", attempt)] = "export-delta"
+        for stage in ("closed", "terminal"):
+            commands[(*prefix, "export-control", "--attempt", attempt, "--stage", stage)] = (
+                "export-control"
+            )
         for kind in ("offhost_restore", "native_acceptance", "runtime_acceptance"):
             commands[(*prefix, "receive-proof", "--attempt", attempt, "--kind", kind)] = (
                 "receive-proof"

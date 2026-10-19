@@ -338,6 +338,53 @@ class ControlArchiveTests(unittest.TestCase):
         with self.assertRaises((io.Refusal, FileNotFoundError)):
             self.capture(stage="terminal")
 
+    def test_flat_transport_roundtrip_restores_a_semantic_graph_independently(self):
+        from scripts import j1_forward_transport as transport
+
+        captured = self.capture()
+        engine = transport.core()
+        envelope = self.private / "control.tar.gz"
+        package = self.private / "transported"
+        with patch.object(
+            engine,
+            "protected_parent",
+            side_effect=lambda path: engine.physical(path, directory=True),
+        ):
+            packed = archive.bundle(self.package, captured["manifest_sha256"], envelope)
+            archive.unbundle(envelope, packed["archive"]["sha256"], package)
+        shutil.rmtree(self.root)
+        restored = archive.verify_and_restore(
+            package,
+            captured["manifest_sha256"],
+            self.restored,
+            plan_ref=self.plan_ref,
+            backup_manifest_ref=self.backup_ref,
+            stage="closed",
+            logical_root=self.root,
+        )
+        self.assertTrue(restored["semantic_graph_verified"])
+        self.assertFalse(self.root.exists())
+
+    def test_fresh_fence_documents_remain_in_the_independent_proof_graph(self):
+        references = []
+
+        def observe():
+            reference = io.write_new(
+                self.directory / f"fresh-fence-{len(references)}.json",
+                {"closure": self.closure_ref},
+            )
+            references.append(reference)
+            return reference
+
+        captured = self.capture(observer=observe)
+        manifest = io.document((self.package / "manifest.json").read_bytes())
+        names = {entry["logical_name"] for entry in manifest["artifacts"]}
+        self.assertGreaterEqual(len(references), 3)
+        for reference in references:
+            self.assertIn("control/" + str(Path(reference["path"]).relative_to(self.root)), names)
+        shutil.rmtree(self.root)
+        self.assertTrue(self.restore(captured)["semantic_graph_verified"])
+
 
 if __name__ == "__main__":
     unittest.main()
