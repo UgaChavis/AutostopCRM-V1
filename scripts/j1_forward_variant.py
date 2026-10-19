@@ -33,6 +33,10 @@ def is_mixed(plan):
 
 
 def validate_plan(plan, base):
+    from scripts import j1_forward_cold_state
+
+    if j1_forward_cold_state.is_cold(plan):
+        return j1_forward_cold_state.validate_plan(plan, base)
     if is_mixed(plan):
         from scripts.j1_forward_mixed_authority import validate_plan as validate
 
@@ -41,6 +45,10 @@ def validate_plan(plan, base):
 
 
 def baseline_schema(plan):
+    from scripts import j1_forward_cold_state
+
+    if j1_forward_cold_state.is_cold(plan):
+        return j1_forward_cold_state.BASELINE_SCHEMA
     return MIXED_BASELINE if is_mixed(plan) else "autostop.j1.crm-forward-baseline.v1"
 
 
@@ -53,6 +61,10 @@ def guard_acceptance_field(plan):
 
 
 def store(root, plan):
+    from scripts import j1_forward_cold_state
+
+    if j1_forward_cold_state.is_cold(plan):
+        return j1_forward_cold_state.ColdStore(root, plan["base_sha256"])
     if is_mixed(plan):
         from scripts.j1_forward_mixed_authority import MixedStore
 

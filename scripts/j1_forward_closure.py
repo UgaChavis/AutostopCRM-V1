@@ -761,7 +761,7 @@ class LinuxRunner:
         consumers = baseline["source_consumers"]
         io.require(
             type(consumers) is dict
-            and 8 <= len(consumers) <= (48 if variant.is_mixed(plan) else 32)
+            and 8 <= len(consumers) <= (80 if variant.is_mixed(plan) else 64)
             and "scripts/j1_forward_release.py" in consumers
             and io.sha(io.canonical(consumers)) == plan["candidate"]["consumer_sha256"],
             "control_consumer_binding",

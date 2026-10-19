@@ -438,7 +438,9 @@ class FixtureProvider(native.NativeProvider):
 class Fixture:
     """Own every effect handle before spawning. No outside PID can be signalled."""
 
-    def __init__(self, *, ttl_seconds=120):
+    def __init__(
+        self, *, ttl_seconds=120, candidate_crm_sha="1" * 40, candidate_manager_sha="2" * 40
+    ):
         contract.need(
             sys.platform.startswith("linux")
             and hasattr(os, "pidfd_open")
@@ -450,6 +452,17 @@ class Fixture:
         self.dispatch_fd = self.deployment_fd = None
         self.package_ref = None
         self.catalog = {}
+        contract.need(
+            all(
+                type(value) is str and contract.SHA1.fullmatch(value)
+                for value in (candidate_crm_sha, candidate_manager_sha)
+            ),
+            "fixture_candidate_revision",
+        )
+        self.candidate_crm_sha, self.candidate_manager_sha = (
+            candidate_crm_sha,
+            candidate_manager_sha,
+        )
         try:
             self._prepare(ttl_seconds)
         except BaseException:
@@ -512,8 +525,8 @@ class Fixture:
             "generation": str(uuid.uuid4()),
             "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
             "consumer_sha256": contract.digest(hashes),
-            "candidate_crm_sha": "1" * 40,
-            "candidate_manager_sha": "2" * 40,
+            "candidate_crm_sha": self.candidate_crm_sha,
+            "candidate_manager_sha": self.candidate_manager_sha,
             "deployment_lock_identity": [info.st_dev, info.st_ino],
             "not_before_ns": now,
             "deadline_ns": now + ttl * 10**9,

@@ -158,7 +158,7 @@ def owner():
 def _sources(consumers, *, mixed=False):
     require(
         type(consumers) is dict
-        and 8 <= len(consumers) <= 48
+        and 8 <= len(consumers) <= 80
         and "scripts/j1_forward_launch_native.py" in consumers
         and "scripts/j1_forward_launch_permission.py" in consumers,
         "launch_published_consumers_required",

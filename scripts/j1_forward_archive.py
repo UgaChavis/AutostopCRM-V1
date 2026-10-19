@@ -25,12 +25,15 @@ from scripts import j1_forward_variant as variant
 
 SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
 MIXED_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-archive.v2"
+COLD_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v3"
 RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
 MIXED_RESTORE_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-restore.v2"
+COLD_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v3"
 ROOT = Path("/var/lib/autostop-crm-forward")
 SOURCE = Path("/opt/autostopcrm")
 MAX_FILES = 8192
 MAX_FILE_BYTES = 8 * 1024**2
+COLD_MAX_FILE_BYTES = 32 * 1024**2
 MAX_TOTAL_BYTES = 128 * 1024**2
 MAX_NODES = 250_000
 CONSUMER = re.compile(
@@ -46,6 +49,20 @@ CLAIMS = {
 
 def _budget(deadline):
     io.require(time.monotonic() < deadline, "control_archive_deadline")
+
+
+def _cold(plan):
+    from scripts import j1_forward_cold_state
+
+    return j1_forward_cold_state.is_cold(plan)
+
+
+def _schema(plan, *, restore=False):
+    if _cold(plan):
+        return COLD_RESTORE_SCHEMA if restore else COLD_SCHEMA
+    if variant.is_mixed(plan):
+        return MIXED_RESTORE_SCHEMA if restore else MIXED_SCHEMA
+    return RESTORE_SCHEMA if restore else SCHEMA
 
 
 def _path(root, value):
@@ -115,7 +132,10 @@ def _implicit_references(root, document):
                 "sha256": document["origin_plan_ref"]["sha256"],
             }
         ]
-    if document.get("schema") == recovery_state.RECOVERY_SCHEMA:
+    if document.get("schema") in {
+        recovery_state.RECOVERY_SCHEMA,
+        "autostop.j1.crm-manager-cold-forward-recovery.v1",
+    }:
         return [
             {
                 "path": str(
@@ -132,6 +152,7 @@ def _launch_references(root, baseline):
     if (
         type(baseline) is not dict
         or "native" not in baseline
+        or baseline.get("schema") == "autostop.j1.crm-manager-cold-forward-baseline.v1"
         or "scripts/j1_forward_launch_native.py" not in baseline.get("source_consumers", {})
     ):
         return []
@@ -156,6 +177,7 @@ def _launch_semantic(root, documents, files):
         if (
             type(baseline) is not dict
             or "native" not in baseline
+            or baseline.get("schema") == "autostop.j1.crm-manager-cold-forward-baseline.v1"
             or "scripts/j1_forward_launch_native.py" not in baseline.get("source_consumers", {})
         ):
             continue
@@ -213,7 +235,7 @@ def _launch_semantic(root, documents, files):
 class _RestoredStore(state.Store):
     """Use the production state validators against explicit restored bytes only."""
 
-    def __init__(self, root, base_sha256, files):
+    def __init__(self, root, base_sha256, files, authorities=None):
         self.root, self.base_sha256 = PurePosixPath(root), base_sha256
         io.require(self.root.is_absolute() and ".." not in self.root.parts, "state_root_absolute")
         io.require(state._hash(base_sha256), "state_base_invalid")
@@ -221,6 +243,12 @@ class _RestoredStore(state.Store):
         self.head_path = self.root / "HEAD.json"
         self.pending_path = self.root / "pending.json"
         self.files = files
+        self.authorities = {} if authorities is None else authorities
+
+    def _envelope(self, document):
+        from scripts import j1_forward_cold_state
+
+        return j1_forward_cold_state.envelope(self, document)
 
     def _logical_path(self, value):
         return PurePosixPath(value)
@@ -229,11 +257,11 @@ class _RestoredStore(state.Store):
         return variant.validate_plan(plan, self.base_sha256)
 
     def _records(self):
-        records, transitioned = super()._records(), False
+        records, transitioned = super()._records(), 0
         for record, _reference in records:
-            mixed = variant.is_mixed(record["plan"])
-            io.require(not transitioned or mixed, "control_archive_manager_downgrade")
-            transitioned |= mixed
+            rank = 2 if _cold(record["plan"]) else int(variant.is_mixed(record["plan"]))
+            io.require(rank >= transitioned, "control_archive_manager_downgrade")
+            transitioned = rank
         return records
 
     @contextmanager
@@ -246,8 +274,11 @@ class _RestoredStore(state.Store):
         return path in self.files or any(name.startswith(path + "/") for name in self.files)
 
     def _raw(self, path):
-        io.require(str(path) in self.files, "control_archive_reference_missing")
-        return self.files[str(path)]
+        key = str(path)
+        io.require(
+            key in self.files or key in self.authorities, "control_archive_reference_missing"
+        )
+        return self.files[key] if key in self.files else self.authorities[key]
 
     def _read(self, path):
         raw = self._raw(path)
@@ -280,7 +311,9 @@ class _RestoredStore(state.Store):
     begin_recovery = commit_recovery = recover_recovery = finish_recovery = _mutation_denied
 
 
-def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=None):
+def _semantic(
+    root, files, consumers, plan_ref, backup_ref, stage, authorities=None, capture_clock=None
+):
     root = PurePosixPath(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
     _path(root, plan_ref["path"])
@@ -291,7 +324,7 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=N
     )
     plan = io.document(raw_plan)
     variant.validate_plan(plan, plan["base_sha256"])
-    store = _RestoredStore(root / "state", plan["base_sha256"], files)
+    store = _RestoredStore(root / "state", plan["base_sha256"], files, authorities)
     directory = PurePosixPath(plan_ref["path"]).parent
     captured, _ = store._read(directory / "backup-evidence.json")
     io.require(
@@ -323,14 +356,18 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=N
             "control_archive_terminal_receipt_binding",
         )
         for field in (
-            "auxiliary_release_ref",
-            *(("released_cohort_ref",) if "recovery_ref" in head["record"] else ()),
+            ("cold_completion_ref",)
+            if _cold(plan)
+            else (
+                "auxiliary_release_ref",
+                *(("released_cohort_ref",) if "recovery_ref" in head["record"] else ()),
+            )
         ):
             io.require(field in completed, "control_archive_terminal_evidence_missing")
             reference = completed[field]
             state._reference(reference)
             io.require(
-                PurePosixPath(reference["path"]).parent == directory,
+                _cold(plan) or PurePosixPath(reference["path"]).parent == directory,
                 "control_archive_terminal_evidence_path",
             )
             store._read_reference(reference)
@@ -342,12 +379,17 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=N
         for reference in _implicit_references(root, doc):
             store._read_reference(reference)
         if type(doc) is dict and "recovery_origin" in doc:
-            recovery.validate_origin(
-                doc["recovery_origin"],
-                root=root,
-                read_reference=store._read_reference,
-                read_file=store._raw,
-            )
+            if doc.get("schema") == "autostop.j1.crm-manager-cold-forward-baseline.v1":
+                from scripts import j1_forward_cold_state
+
+                j1_forward_cold_state.validate_origin(doc, read_reference=store._read_reference)
+            else:
+                recovery.validate_origin(
+                    doc["recovery_origin"],
+                    root=root,
+                    read_reference=store._read_reference,
+                    read_file=store._raw,
+                )
     required = _consumer_maps(documents)
     io.require(set(consumers) == set(required), "control_archive_consumer_bundle_missing")
     for digest, inventory in required.items():
@@ -365,7 +407,34 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=N
         "consumer_bundle_count": len(consumers),
         "launch_journal_count": _launch_semantic(root, documents, files),
     }
-    if variant.is_mixed(plan):
+    if _cold(plan):
+        from scripts import j1_forward_cold_archive
+
+        restored = {} if authorities is None else authorities
+        combined = {**files, **restored}
+
+        def listing(path):
+            parent = PurePosixPath(path)
+            return sorted(
+                {
+                    str(parent / PurePosixPath(name).relative_to(parent).parts[0])
+                    for name in combined
+                    if PurePosixPath(name).is_relative_to(parent) and PurePosixPath(name) != parent
+                }
+            )
+
+        expected = j1_forward_cold_archive.collect(
+            plan,
+            root=root,
+            stage=stage,
+            capture_clock=capture_clock,
+            read_reference=store._read_reference,
+            read_file=lambda path, _limit: store._raw(path),
+            list_directory=listing,
+        )
+        io.require(expected == restored, "cold_archive_exact_graph_required")
+        result["cold_authority_graph_files"] = len(expected)
+    elif variant.is_mixed(plan):
         from scripts import j1_forward_mixed_archive
 
         baseline = io.document(store._read_reference(plan["baseline_ref"]))
@@ -432,27 +501,27 @@ def _package_directory(path, custody):
         custody(path, directory=True)
 
 
-def _package_read(path, custody):
+def _package_read(path, custody, limit=MAX_FILE_BYTES):
     if custody is None:
-        return io.read_protected(path, MAX_FILE_BYTES)
+        return io.read_protected(path, limit)
     custody(path)
     before = path.lstat()
     io.require(
         stat.S_ISREG(before.st_mode)
         and before.st_nlink == 1
         and not getattr(before, "st_file_attributes", 0) & 0x400
-        and 0 <= before.st_size <= MAX_FILE_BYTES,
+        and 0 <= before.st_size <= limit,
         "control_archive_physical_payload_required",
     )
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
     try:
         opened = os.fstat(descriptor)
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            raw = stream.read(MAX_FILE_BYTES + 1)
+            raw = stream.read(limit + 1)
         after, final = os.fstat(descriptor), path.lstat()
         fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
         io.require(
-            len(raw) == before.st_size <= MAX_FILE_BYTES
+            len(raw) == before.st_size <= limit
             and all(
                 getattr(before, key)
                 == getattr(opened, key)
@@ -485,7 +554,11 @@ def _write_bytes(path, raw, *, custody=None):
         stream.flush()
         os.fsync(stream.fileno())
     _sync_directory(path.parent)
-    io.require(_package_read(path, custody) == raw, "control_archive_copy_changed")
+    io.require(len(raw) <= COLD_MAX_FILE_BYTES, "control_archive_file_limit")
+    io.require(
+        _package_read(path, custody, max(MAX_FILE_BYTES, len(raw))) == raw,
+        "control_archive_copy_changed",
+    )
 
 
 def _witness_files(root, witnesses, existing, end):
@@ -526,6 +599,8 @@ def capture(
     observer,
     consumer_roots=None,
     timeout=60,
+    authority_reader=None,
+    authority_file_reader=None,
 ):
     """Copy one fenced control graph; caller retains the deployment lock."""
     root, output = Path(root), Path(output)
@@ -618,7 +693,26 @@ def capture(
             consumers[digest][name] = raw
     authorities = {}
     plan = io.document(files[plan_ref["path"]])
-    if variant.is_mixed(plan):
+    capture_clock = None
+    if _cold(plan):
+        from scripts import j1_forward_cold_archive
+
+        package = io.document(
+            (authority_reader or io.referenced)(plan["cold_authority_package_ref"])
+        )
+        capture_clock = {
+            "boot_id": package["binding"]["boot_id"],
+            "monotonic_ns": time.monotonic_ns(),
+        }
+        authorities = j1_forward_cold_archive.collect(
+            plan,
+            root=root,
+            stage=stage,
+            capture_clock=capture_clock,
+            read_reference=authority_reader,
+            read_file=authority_file_reader,
+        )
+    elif variant.is_mixed(plan):
         from scripts import j1_forward_mixed_archive
 
         baseline = io.document(files[plan["baseline_ref"]["path"]])
@@ -629,7 +723,9 @@ def capture(
                 name: baseline["source_consumers"][name] for name in variant.SUPPLEMENTAL
             },
         )
-    semantic = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
+    semantic = _semantic(
+        root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities, capture_clock
+    )
     fence()
     io.require(
         _seed(root, plan_ref, backup_manifest_ref, stage) == seeds, "control_archive_state_changed"
@@ -681,7 +777,9 @@ def capture(
         sum(entry["bytes"] for entry in artifacts) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
     )
     io.require(
-        _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
+        _semantic(
+            root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities, capture_clock
+        )
         == semantic,
         "control_archive_witness_semantics_changed",
     )
@@ -693,13 +791,18 @@ def capture(
         io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
     for path, raw in authorities.items():
         _budget(end)
-        io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "mixed_archive_source_changed")
+        observed = (
+            authority_reader({"path": path, "sha256": io.sha(raw)})
+            if _cold(plan) and authority_reader is not None
+            else io.read_protected(path, COLD_MAX_FILE_BYTES if _cold(plan) else MAX_FILE_BYTES)
+        )
+        io.require(observed == raw, "mixed_archive_source_changed")
     for path, refs in launch_refs.items():
         io.require(
             _launch_references(root, documents[path]) == refs, "control_archive_launch_changed"
         )
     manifest = {
-        "schema": MIXED_SCHEMA if variant.is_mixed(plan) else SCHEMA,
+        "schema": _schema(plan),
         "stage": stage,
         "root": str(root),
         "plan_ref": plan_ref,
@@ -709,6 +812,8 @@ def capture(
         "witnesses": witnesses,
         **CLAIMS,
     }
+    if _cold(plan):
+        manifest["native_capture_clock"] = capture_clock
     reference = io.write_new(output / "manifest.json", manifest)
     return {"manifest": reference, "manifest_sha256": reference["sha256"], "stage": stage, **CLAIMS}
 
@@ -723,6 +828,7 @@ def bundle(package, manifest_sha256, output, *, timeout=60):
     io.require(io.sha(raw) == manifest_sha256, "control_archive_manifest_changed")
     manifest = io.document(raw)
     entries = manifest["artifacts"]
+    file_limit = COLD_MAX_FILE_BYTES if manifest.get("schema") == COLD_SCHEMA else MAX_FILE_BYTES
     io.require(len(entries) <= MAX_FILES, "control_archive_file_limit")
     names = {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))}
     io.require(
@@ -735,7 +841,7 @@ def bundle(package, manifest_sha256, output, *, timeout=60):
         io.require(
             entry["payload"] == f"{index:06d}.bin"
             and type(entry["bytes"]) is int
-            and 0 <= entry["bytes"] <= MAX_FILE_BYTES,
+            and 0 <= entry["bytes"] <= file_limit,
             "control_archive_entry",
         )
         total += entry["bytes"]
@@ -756,7 +862,7 @@ def unbundle(envelope, envelope_sha256, package, *, timeout=60):
         Path(package),
         transport.deadline(timeout),
         max_members=MAX_FILES + 1,
-        max_file=MAX_FILE_BYTES,
+        max_file=COLD_MAX_FILE_BYTES,
         max_total=MAX_TOTAL_BYTES,
         max_manifest=MAX_FILE_BYTES,
     )
@@ -804,8 +910,9 @@ def verify_and_restore(
             "semantic",
             "witnesses",
             *CLAIMS,
+            *(("native_capture_clock",) if manifest.get("schema") == COLD_SCHEMA else ()),
         }
-        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA}
+        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA, COLD_SCHEMA}
         and manifest["stage"] == stage
         and manifest["root"] == str(root)
         and manifest["plan_ref"] == plan_ref
@@ -814,6 +921,7 @@ def verify_and_restore(
         "control_archive_manifest_binding",
     )
     entries = manifest["artifacts"]
+    file_limit = COLD_MAX_FILE_BYTES if manifest["schema"] == COLD_SCHEMA else MAX_FILE_BYTES
     io.require(
         type(manifest["witnesses"]) is list and len(manifest["witnesses"]) == 3,
         "control_archive_witness_inventory",
@@ -855,11 +963,11 @@ def verify_and_restore(
         io.require(
             entry["payload"] == f"{index:06d}.bin"
             and type(entry["bytes"]) is int
-            and 0 <= entry["bytes"] <= MAX_FILE_BYTES
+            and 0 <= entry["bytes"] <= file_limit
             and state._hash(entry["sha256"]),
             "control_archive_entry",
         )
-        raw = _package_read(package / entry["payload"], custody)
+        raw = _package_read(package / entry["payload"], custody, file_limit)
         io.require(
             len(raw) == entry["bytes"] and io.sha(raw) == entry["sha256"],
             "control_archive_payload_changed",
@@ -867,14 +975,15 @@ def verify_and_restore(
         total += len(raw)
         io.require(total <= MAX_TOTAL_BYTES, "control_archive_total_limit")
         _write_bytes(output / entry["payload"], raw, custody=custody)
-        restored = _package_read(output / entry["payload"], custody)
+        restored = _package_read(output / entry["payload"], custody, file_limit)
         if parts[0] == "control":
             path = _path(root, str(root.joinpath(*parts[1:])))
             io.require(str(path) not in files, "control_archive_duplicate_path")
             files[str(path)] = restored
         elif parts[0] == "authority":
             io.require(
-                manifest["schema"] == MIXED_SCHEMA and len(parts) > 1, "mixed_archive_schema"
+                manifest["schema"] in {MIXED_SCHEMA, COLD_SCHEMA} and len(parts) > 1,
+                "mixed_archive_schema",
             )
             path = "/" + "/".join(parts[1:])
             state._reference({"path": path, "sha256": io.sha(restored)})
@@ -891,10 +1000,19 @@ def verify_and_restore(
             consumers.setdefault(parts[1], {})["/".join(parts[2:])] = restored
     plan = io.document(files[plan_ref["path"]])
     io.require(
-        manifest["schema"] == (MIXED_SCHEMA if variant.is_mixed(plan) else SCHEMA),
+        manifest["schema"] == _schema(plan),
         "mixed_archive_schema",
     )
-    actual = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
+    actual = _semantic(
+        root,
+        files,
+        consumers,
+        plan_ref,
+        backup_manifest_ref,
+        stage,
+        authorities,
+        manifest.get("native_capture_clock"),
+    )
     io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
     io.require(
         backup_manifest_ref["path"] in files
@@ -902,7 +1020,7 @@ def verify_and_restore(
         "control_archive_backup_binding",
     )
     receipt = {
-        "schema": MIXED_RESTORE_SCHEMA if variant.is_mixed(plan) else RESTORE_SCHEMA,
+        "schema": _schema(plan, restore=True),
         "stage": stage,
         "manifest_sha256": manifest_sha256,
         "plan_ref": plan_ref,

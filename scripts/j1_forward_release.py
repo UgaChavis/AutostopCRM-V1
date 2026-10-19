@@ -76,7 +76,7 @@ def source_consumers(*, mixed=False):
     )
     paths = result.stdout.decode().splitlines()
     io.require(
-        8 <= len(paths) <= 32 and "scripts/j1_forward_release.py" in paths,
+        8 <= len(paths) <= 64 and "scripts/j1_forward_release.py" in paths,
         "published_consumer_set_required",
     )
     io.require(
