@@ -124,6 +124,10 @@ def _resolve_api_bearer_token(settings) -> str | None:
 
 
 def _resolve_api_base_url(settings, api_bearer_token: str | None, logger) -> str | None:
+    from ..cold_http_ingress import load_http_ingress
+
+    if load_http_ingress() is not None:
+        return None  # The cold CRM must create its own embedded listener.
     if (
         os.environ.get("MINIMAL_KANBAN_BOARD_API_URL") is not None
         or os.environ.get("MINIMAL_KANBAN_API_BASE_URL") is not None

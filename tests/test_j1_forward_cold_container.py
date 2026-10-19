@@ -8,11 +8,40 @@ from unittest.mock import Mock, patch
 
 from scripts import j1_forward_cold_container as container
 from scripts import j1_forward_cold_host as host
+from scripts import j1_forward_cold_http as http_contract
 from scripts import j1_forward_io as io
 
 
 def reference(name):
     return {"path": "/sealed/" + name, "sha256": "f" * 64}
+
+
+def http_document(binding):
+    document = {
+        "schema": http_contract.SCHEMA,
+        "scope": "production_native",
+        **{
+            name: binding[name]
+            for name in (
+                "attempt_id",
+                "boot_id",
+                "generation",
+                "candidate_crm_sha",
+                "candidate_manager_sha",
+            )
+        },
+        "epoch_id": binding["generation"],
+        "public_origin": http_contract.PUBLIC_ORIGIN,
+    }
+    document.update(http_contract.expected_prefixes(document))
+    return document
+
+
+def http_ref(binding):
+    return {
+        "path": f"/etc/autostop-manager-cold/{binding['generation']}/crm-embedded/http-ingress.json",
+        "sha256": io.sha(io.canonical(http_document(binding))),
+    }
 
 
 def fixture():
@@ -21,6 +50,7 @@ def fixture():
     binding = {
         "attempt_id": "00000000-0000-4000-8000-000000000003",
         "generation": generation,
+        "boot_id": "00000000-0000-4000-8000-000000000004",
         "candidate_manager_sha": revision,
         "candidate_crm_sha": "2" * 40,
     }
@@ -97,6 +127,8 @@ def fixture():
         {"binding": binding},
         epoch_ref=epoch_ref,
         package_ref=package_ref,
+        http_ingress_ref=http_ref(binding),
+        http_ingress=http_document(binding),
     )
     return spec, model, image, previous, epoch, binding
 
@@ -146,6 +178,37 @@ def inspection(spec):
 
 
 class ColdContainerTests(unittest.TestCase):
+    def test_old_environment_cannot_inject_code_before_cold_source_validation(self):
+        spec, model, image, previous, epoch, binding = fixture()
+        for key in (
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "LD_AUDIT",
+            "PYTHONPATH",
+            "PYTHONHOME",
+            "PYTHONSTARTUP",
+            "PYTHONUSERBASE",
+            "PYTHONPLATLIBDIR",
+            "PATH",
+        ):
+            changed = copy.deepcopy(model)
+            changed["services"][container.SERVICE]["environment"][key] = "/mutable/old-code"
+            with (
+                self.subTest(key=key),
+                self.assertRaisesRegex(io.Refusal, "cold_crm_startup_environment_injection"),
+            ):
+                container.compile_spec(
+                    changed,
+                    image,
+                    previous,
+                    epoch,
+                    {"binding": binding},
+                    epoch_ref=spec["epoch_ref"],
+                    package_ref=spec["package_ref"],
+                    http_ingress_ref=http_ref(binding),
+                    http_ingress=http_document(binding),
+                )
+
     def test_compilation_replaces_old_manager_mounts_and_never_starts(self):
         spec, model, _image, _previous, _epoch, _binding = fixture()
         service = spec["compose"]["services"][container.SERVICE]
@@ -189,6 +252,8 @@ class ColdContainerTests(unittest.TestCase):
                     {"binding": binding},
                     epoch_ref=spec["epoch_ref"],
                     package_ref=spec["package_ref"],
+                    http_ingress_ref=http_ref(binding),
+                    http_ingress=http_document(binding),
                 )
 
     def test_actual_readback_rejects_drift_and_automatic_restart(self):

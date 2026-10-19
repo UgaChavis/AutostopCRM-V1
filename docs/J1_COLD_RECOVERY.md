@@ -306,3 +306,47 @@ and view, checks the bind identities and the intended mount/options in PID 1,
 supervisor and Codex namespaces. The cache checkpoint is also part of the real
 typed data backup; off-host acceptance must compare its index with the restored
 data. A read-only mount record alone grants neither dispatch nor acceptance.
+
+
+## HTTP ingress between CRM generations
+
+Stopping the old container does not drain requests buffered by a shared proxy.
+The cold candidate therefore uses an immutable `autostop.j1.cold-http-ingress.v1`
+configuration in its accepted `crm-embedded` directory. Board and MCP addresses
+have separate prefixes bound to attempt, boot, generation and both source SHAs.
+`expected_prefixes` derives each address with a separate transport domain; an old
+address cannot be reused with a different binding. Addresses are routing cuts,
+not credentials. Existing bearer, operator and OAuth checks remain mandatory.
+
+The fresh generation remains private before retirement. The producer must check
+custody of all generation-bearing inputs and publish the new address only after
+retirement. Prior nonpublication remains an explicit operator/source premise;
+syntax validation alone proves neither chronological freshness nor queue drain.
+A leaked or previously published future generation requires STOP and a new
+preparation. The attempt ID in a unit name is not a secret.
+
+The Board guard rejects old, missing and aliased prefixes before reading a body
+or calling authentication, services or the database, including Expect/continue.
+The MCP guard sits outside SDK authentication. Only exact read-only discovery
+metadata may remain at root; token, registration, consent and MCP requests must
+use the current prefix. There is no old-address redirect or proxy auto-prefix.
+New pages freeze their own prefix, including assets and lazy modules. Explicit
+stale URLs are preserved and denied. New OAuth forms retain their issuing prefix.
+
+Container spec v2 and CRM acceptance v2 bind the immutable HTTP config reference,
+actual process environment, read-only role mount, candidate image and seventh
+Manager binding. The cold CRM creates its own listener and refuses an occupied
+port instead of adopting another API. Health and readiness use that same prefix.
+
+Before opening dispatch, and again inside production marker-removal authorization,
+ColdHost independently checks both local and public transport status against the
+actual config hash, epoch and CRM source. Old and stale paths must return the
+application generation denial; maintenance must still be active. The same exact
+accepted container/process is checked before and after this bounded read-only
+probe. Probe receipts enter the terminal proof graph. Terminal readiness after
+marker removal does not require maintenance to remain active.
+
+The future window must explicitly configure browser/connector URLs for the new
+Board base and MCP issuer/resource. A new address does not authorize replay of
+an old request. These checks are implemented for the future isolated release;
+no production address, proxy, marker or container was changed during preparation.

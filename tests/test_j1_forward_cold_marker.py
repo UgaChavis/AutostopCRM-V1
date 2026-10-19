@@ -89,6 +89,23 @@ class ColdRetainedMarkerTests(unittest.TestCase):
             )
         self.assertIsNone(self.fs.entry)
 
+    def test_production_opening_requires_fresh_http_cut_and_retains_marker_on_failure(self):
+        node = self.fs.entry
+        reference = self.retain()
+        commit = {"path": "/control/state/history/commit.json", "sha256": "c" * 64}
+        self.store.head.return_value = {"sha256": commit["sha256"], "record": {"plan": self.plan}}
+        self.controller.ready.return_value = {"ok": True}
+        self.controller.provider.scope = "production_native"
+        with (
+            patch.object(Path, "exists", return_value=True),
+            self.assertRaisesRegex(io.Refusal, "cold_marker_http_cut_required"),
+        ):
+            cold.remove(
+                reference, self.plan_ref, commit, controller=self.controller, store=self.store
+            )
+        self.assertIs(self.fs.entry, node)
+        self.assertFalse(any(event[0] == "unlink" for event in self.fs.events))
+
     def test_replaced_old_inode_and_nonstrict_retention_flag_never_adopt(self):
         reference = self.retain()
         raw = self.documents[reference["path"]]

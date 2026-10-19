@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 import json
 import threading
 import time
@@ -21,6 +20,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
+from ..cold_http_ingress import load_http_ingress
 from ..config import (
     get_mcp_bearer_token,
     get_mcp_host,
@@ -59,11 +59,13 @@ from .card_attachment_reads import (
     register_card_attachment_reads,
 )
 from .client import BoardApiClient, BoardApiTransportError, _normalize_int
+from .cold_ingress import ColdAwareFastMCP, local_endpoint
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
     register_connector_diagnostics,
 )
 from .manager_registration import _try_register_autostop_manager_tools
+from .oauth_consent import consent_page_for
 from .oauth_provider import (
     DEFAULT_KANBAN_SCOPES,
     OAUTH_CONSENT_PATH,
@@ -296,54 +298,6 @@ def _oauth_consent_origin_allowed(origin: str, allowed_origins: list[str]) -> bo
     return False
 
 
-def _oauth_consent_page(
-    request_id: str,
-    *,
-    client_name: str,
-    scopes: list[str],
-    error: str = "",
-) -> str:
-    safe_request_id = html.escape(str(request_id or ""), quote=True)
-    safe_client_name = html.escape(str(client_name or "Codex / ChatGPT")[:120])
-    safe_scopes = html.escape(", ".join(scopes))
-    error_block = (
-        '<p class="error" role="alert">Не удалось подтвердить вход администратора.</p>'
-        if error
-        else ""
-    )
-    return f"""<!doctype html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Подключение AutoStop CRM</title>
-  <style>
-    body {{ font: 16px/1.45 system-ui, sans-serif; margin: 0; background: #f4f6f8; color: #17202a; }}
-    main {{ max-width: 440px; margin: 8vh auto; background: white; padding: 28px; border-radius: 14px; box-shadow: 0 12px 40px #18223022; }}
-    h1 {{ font-size: 24px; margin: 0 0 10px; }}
-    p {{ color: #52606d; }}
-    label {{ display: block; margin: 16px 0 6px; font-weight: 650; }}
-    input {{ box-sizing: border-box; width: 100%; padding: 11px 12px; border: 1px solid #b7c2cc; border-radius: 8px; font: inherit; }}
-    button {{ width: 100%; margin-top: 22px; padding: 12px; border: 0; border-radius: 8px; background: #1261a0; color: white; font: inherit; font-weight: 700; cursor: pointer; }}
-    .meta {{ font-size: 14px; }} .error {{ color: #b42318; font-weight: 650; }}
-  </style>
-</head>
-<body><main>
-  <h1>Подключить AutoStop CRM</h1>
-  <p>Клиент <strong>{safe_client_name}</strong> запрашивает доступ к текущей CRM.</p>
-  <p class="meta">Разрешения: {safe_scopes}</p>
-  {error_block}
-  <form method="post" action="{OAUTH_CONSENT_PATH}" autocomplete="on">
-    <input type="hidden" name="request_id" value="{safe_request_id}">
-    <label for="username">Логин администратора CRM</label>
-    <input id="username" name="username" type="text" autocomplete="username" required maxlength="120">
-    <label for="password">Пароль</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="512">
-    <button type="submit">Подтвердить подключение</button>
-  </form>
-</main></body></html>"""
-
-
 def _nested_oauth_value(value: object, key: str, *, depth: int = 0) -> object:
     if depth > 5:
         return None
@@ -410,6 +364,9 @@ def create_mcp_server(
     allowed_origins: list[str] | tuple[str, ...] | None = None,
     oauth_state_file: Path | None = None,
 ) -> FastMCP:
+    cold_ingress = load_http_ingress()
+    if cold_ingress is not None:
+        public_base_url, public_endpoint_url, path = cold_ingress.mcp_urls()
     resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
     resolved_host = host or get_mcp_host()
     resolved_port = port or get_mcp_port()
@@ -441,7 +398,7 @@ def create_mcp_server(
         "resource_url": effective_resource_url,
         "server_base_url": server_base_url,
         "streamable_http_path": resolved_path,
-        "local_bind": f"http://{resolved_host}:{resolved_port}{resolved_path}",
+        "local_bind": local_endpoint(cold_ingress, resolved_host, resolved_port, resolved_path),
         "board_api_base_url": board_api.base_url,
         "auth_mode": (
             "oauth_2_1_pkce"
@@ -500,7 +457,8 @@ def create_mcp_server(
                 client_id=gateway_policy.service_identity,
             )
 
-    server = FastMCP(
+    server = ColdAwareFastMCP(
+        cold_http_ingress=cold_ingress,
         name=connector_name,
         instructions=(
             _external_product_text(
@@ -533,6 +491,7 @@ def create_mcp_server(
         log_level="WARNING",
     )
     if isinstance(auth_server_provider, ProductionOAuthAuthorizationServerProvider):
+        consent_page = consent_page_for(cold_ingress)
         failed_attempts_by_request: dict[str, list[float]] = {}
         failed_attempts_by_host: dict[str, list[float]] = {}
         failed_attempts_lock = threading.Lock()
@@ -575,7 +534,7 @@ def create_mcp_server(
             scopes = [str(item) for item in pending.get("scopes") or []]
             if request.method == "GET":
                 return HTMLResponse(
-                    _oauth_consent_page(request_id, client_name=client_name, scopes=scopes),
+                    consent_page(request_id, client_name=client_name, scopes=scopes),
                     headers=_OAUTH_CONSENT_HEADERS,
                 )
 
@@ -631,7 +590,7 @@ def create_mcp_server(
                         while len(attempts_by_key) > _OAUTH_CONSENT_RATE_LIMIT_MAX_KEYS:
                             attempts_by_key.pop(next(iter(attempts_by_key)), None)
                 return HTMLResponse(
-                    _oauth_consent_page(
+                    consent_page(
                         request_id,
                         client_name=client_name,
                         scopes=scopes,

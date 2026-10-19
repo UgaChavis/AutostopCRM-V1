@@ -44,6 +44,8 @@ def _process(instance, spec):
     for key in (
         containers.BINDING_ENV,
         containers.HASH_ENV,
+        containers.HTTP_ENV,
+        containers.HTTP_HASH_ENV,
         "AUTOSTOP_MANAGER_PATH",
         "AUTOSTOP_MANAGER_ENV_FILE",
         "AUTOSTOP_MANAGER_DB",
@@ -60,6 +62,10 @@ def _process(instance, spec):
         source_revision == (spec["manager_source_revision"] + "\n").encode()
         and io.sha(manifest) == spec["binding_ref"]["sha256"],
         "cold_crm_actual_source_binding",
+    )
+    http_config = _read(process / "root" / expected[containers.HTTP_ENV].lstrip("/"), 8192)
+    io.require(
+        io.sha(http_config) == spec["http_ingress_ref"]["sha256"], "cold_crm_actual_http_binding"
     )
     executable = process / "exe"
     executable_sha256 = io.sha(_read(executable, 64 * 1024**2))
@@ -88,6 +94,7 @@ def observe(adapter, spec):
 
 def _validated_inputs(spec_ref, epoch_ref, package_ref):
     from scripts import j1_forward_cold_epoch as epochs
+    from scripts.j1_forward_cold_http import parse_document
 
     spec = containers.validate_spec(io.document(io.referenced(spec_ref)))
     provider = native.NativeProvider()
@@ -97,6 +104,15 @@ def _validated_inputs(spec_ref, epoch_ref, package_ref):
     epoch = epochs.read_epoch(epoch_ref, provider)
     epochs.verify(epoch, verified["package"], provider)
     binding = verified["package"]["binding"]
+    ingress = parse_document(
+        io.document(provider.read_reference(spec["http_ingress_ref"])),
+        {
+            **binding,
+            "role": "crm-embedded",
+            "epoch_id": epoch["epoch_id"],
+            "source_revision": binding["candidate_manager_sha"],
+        },
+    )
     io.require(
         spec["epoch_ref"] == epoch_ref
         and spec["package_ref"] == package_ref
@@ -105,6 +121,11 @@ def _validated_inputs(spec_ref, epoch_ref, package_ref):
         and spec["manager_source_revision"] == binding["candidate_manager_sha"]
         and spec["binding_ref"] == epoch["runtime_bindings"]["crm-embedded"],
         "cold_crm_spec_context",
+    )
+    io.require(
+        ingress.sha256 == spec["http_ingress_ref"]["sha256"]
+        and ingress.document["candidate_crm_sha"] == spec["candidate"]["revision"],
+        "cold_crm_http_spec_context",
     )
     return spec
 
@@ -136,7 +157,7 @@ def acceptance(adapter, spec, spec_ref):
     first, second = observe(adapter, spec), observe(adapter, spec)
     io.require(first == second, "cold_crm_independent_observations_disagree")
     return {
-        "schema": "autostop.j1.cold-crm-runtime-acceptance.v1",
+        "schema": "autostop.j1.cold-crm-runtime-acceptance.v2",
         "role": "crm-embedded",
         "epoch_ref": spec["epoch_ref"],
         "package_ref": spec["package_ref"],
@@ -147,6 +168,7 @@ def acceptance(adapter, spec, spec_ref):
         "independent_observations": 2,
         "manager_source_revision": spec["manager_source_revision"],
         "binding_ref": spec["binding_ref"],
+        "http_ingress_ref": spec["http_ingress_ref"],
         "business_acceptance": False,
     }
 
@@ -214,6 +236,52 @@ class ColdHost(MixedHost):
         )
         return report
 
+    def http_cut(self, candidate, attempt_id):
+        """Fresh application cut with the same exact accepted CRM process."""
+        from scripts import j1_forward_cold_runtime as runtime
+
+        io.require(hasattr(self, "cold_spec"), "cold_crm_configuration_required")
+        selected = {key: candidate[key] for key in ("image", "revision", "tree")}
+        io.require(selected == self.cold_spec["candidate"], "cold_crm_probe_candidate")
+        expected = io.document(io.read_protected(self.directory / "cold-crm-started.json"))
+        adapter = containers.Adapter(self.run)
+        io.require(
+            acceptance(adapter, self.cold_spec, self.cold_spec_ref) == expected,
+            "cold_crm_cut_instance_changed",
+        )
+        report = io.document(
+            self.run(
+                DOCKER
+                + [
+                    "exec",
+                    "autostopcrm",
+                    "/usr/local/bin/python",
+                    "-B",
+                    "scripts/j1_forward_cold_runtime.py",
+                    "--candidate",
+                    io.canonical(selected).decode(),
+                    "--attempt-id",
+                    attempt_id,
+                    "--phase",
+                    "closed",
+                    "--http-cut-only",
+                ],
+                label="cold-crm-http-cut",
+                timeout=35,
+            )
+        )
+        runtime.validate_http_cut(
+            report,
+            candidate=selected,
+            attempt=attempt_id,
+            config_ref=self.cold_spec["http_ingress_ref"],
+        )
+        io.require(
+            acceptance(adapter, self.cold_spec, self.cold_spec_ref) == expected,
+            "cold_crm_cut_instance_changed",
+        )
+        return report
+
     def prepare_spec(self, candidate, *, epoch_ref, package_ref):
         package = io.document(io.referenced(package_ref))
         epoch = io.document(io.referenced(epoch_ref))
@@ -233,6 +301,10 @@ class ColdHost(MixedHost):
         model = io.document(
             self.run(DOCKER + ["compose", "config", "--format", "json"], label="cold-crm-model")
         )
+        config_path = Path(epoch["runtime_bindings"]["crm-embedded"]["path"]).with_name(
+            "http-ingress.json"
+        )
+        raw_ingress = io.read_protected(config_path)
         spec = containers.compile_spec(
             model,
             image[0],
@@ -241,6 +313,8 @@ class ColdHost(MixedHost):
             package,
             epoch_ref=epoch_ref,
             package_ref=package_ref,
+            http_ingress_ref={"path": str(config_path), "sha256": io.sha(raw_ingress)},
+            http_ingress=io.document(raw_ingress),
         )
         io.require(
             spec["candidate"] == {key: candidate[key] for key in ("image", "revision", "tree")},

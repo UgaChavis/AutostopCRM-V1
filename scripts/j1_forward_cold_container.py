@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import copy
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_io as io
 
-SCHEMA = "autostop.j1.cold-crm-container-spec.v1"
+SCHEMA = "autostop.j1.cold-crm-container-spec.v2"
 ROLE = "crm-embedded"
 BINDING_ENV = "AUTOSTOP_COLD_RUNTIME_BINDING"
 HASH_ENV = "AUTOSTOP_COLD_RUNTIME_BINDING_SHA256"
+HTTP_ENV = "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG"
+HTTP_HASH_ENV = HTTP_ENV + "_SHA256"
 DATA = "/home/autostop/.minimal-kanban"
 SERVICE = "autostopcrm"
 
@@ -61,10 +63,41 @@ def _tmpfs(rows):
     return result
 
 
-def compile_spec(model, image, previous, epoch, package, *, epoch_ref, package_ref):
+def compile_spec(
+    model,
+    image,
+    previous,
+    epoch,
+    package,
+    *,
+    epoch_ref,
+    package_ref,
+    http_ingress_ref=None,
+    http_ingress=None,
+):
     """Bind a resolved model and exact image to immutable epoch/package inputs."""
     binding = package["binding"]
     generation, revision = epoch["epoch_id"], binding["candidate_manager_sha"]
+    from scripts.j1_forward_cold_http import parse_document
+
+    ingress = parse_document(
+        http_ingress,
+        {
+            **binding,
+            "role": ROLE,
+            "epoch_id": generation,
+            "source_revision": revision,
+        },
+    )
+    io.require(
+        http_ingress_ref
+        == {
+            "path": f"/etc/autostop-manager-cold/{generation}/crm-embedded/http-ingress.json",
+            "sha256": ingress.sha256,
+        }
+        and ingress.document["candidate_crm_sha"] == binding["candidate_crm_sha"],
+        "cold_crm_http_binding",
+    )
     io.require(
         epoch["package_ref"] == package_ref
         and epoch["attempt_id"] == binding["attempt_id"]
@@ -146,12 +179,29 @@ def compile_spec(model, image, previous, epoch, package, *, epoch_ref, package_r
     expected_mounts.sort(key=lambda row: row["destination"])
     binding_ref = epoch["runtime_bindings"][ROLE]
     io.require(binding_ref["path"] == etc + "/crm-embedded/binding.json", "cold_crm_binding_path")
-    values = {**environment(config["Env"]), **service["environment"]}
+    image_environment = environment(config["Env"])
+    values = {**image_environment, **service["environment"]}
+    io.require(
+        not {"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONPLATLIBDIR"}
+        & values.keys()
+        and not any(key.startswith("LD_") for key in values)
+        and values.get("PATH") == image_environment.get("PATH"),
+        "cold_crm_startup_environment_injection",
+    )
     values.update(
         {
             "AUTOSTOP_MANAGER_PATH": source,
             BINDING_ENV: binding_ref["path"],
             HASH_ENV: binding_ref["sha256"],
+            HTTP_ENV: http_ingress_ref["path"],
+            HTTP_HASH_ENV: http_ingress_ref["sha256"],
+            "MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL": ingress.base_url("mcp"),
+            "MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL": ingress.base_url("mcp") + "/mcp",
+            "MINIMAL_KANBAN_MCP_PATH": "/mcp",
+            "MINIMAL_KANBAN_BOARD_API_URL": "http://127.0.0.1:41731" + ingress.prefix("board"),
+            "MINIMAL_KANBAN_API_BASE_URL": "http://127.0.0.1:41731" + ingress.prefix("board"),
+            "MINIMAL_KANBAN_AGENT_BOARD_API_URL": "http://127.0.0.1:41731"
+            + ingress.prefix("board"),
             "AUTOSTOP_MANAGER_ENV_FILE": etc + "/crm-embedded/runtime.env",
             "AUTOSTOP_MANAGER_DB": state + "/crm-embedded/autostop_manager.sqlite3",
             "AUTOSTOP_AUTOMATION_CONTROL_SOCKET": run + "/scheduler/control.sock",
@@ -211,6 +261,7 @@ def compile_spec(model, image, previous, epoch, package, *, epoch_ref, package_r
         "epoch_ref": epoch_ref,
         "package_ref": package_ref,
         "binding_ref": binding_ref,
+        "http_ingress_ref": http_ingress_ref,
         "manager_source_revision": revision,
         "candidate": {
             "image": image["Id"],
@@ -241,6 +292,7 @@ def validate_spec(spec):
             "epoch_ref",
             "package_ref",
             "binding_ref",
+            "http_ingress_ref",
             "manager_source_revision",
             "candidate",
             "previous_container_id",
@@ -264,6 +316,13 @@ def validate_spec(spec):
         and service["environment"][BINDING_ENV] == spec["binding_ref"]["path"]
         and service["environment"][HASH_ENV] == spec["binding_ref"]["sha256"],
         "cold_crm_spec_inconsistent",
+    )
+    io.require(
+        service["environment"][HTTP_ENV] == spec["http_ingress_ref"]["path"]
+        and service["environment"][HTTP_HASH_ENV] == spec["http_ingress_ref"]["sha256"]
+        and spec["http_ingress_ref"]["path"]
+        == str(PurePosixPath(spec["binding_ref"]["path"]).with_name("http-ingress.json")),
+        "cold_crm_http_spec_inconsistent",
     )
     return spec
 

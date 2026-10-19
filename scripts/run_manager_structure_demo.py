@@ -12,22 +12,21 @@ from contextlib import nullcontext
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
-
-from manager_structure_template import (  # noqa: E402
-    DEFAULT_TEMPLATE,
-    Client,
-    build_reference,
-    export,
-    restore,
-)
 
 from minimal_kanban.api.server import ApiServer  # noqa: E402
 from minimal_kanban.operator_activity import OperatorActivityService  # noqa: E402
 from minimal_kanban.operator_auth import OperatorAuthService  # noqa: E402
 from minimal_kanban.services.card_service import CardService  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
+from scripts.manager_structure_template import (  # noqa: E402
+    DEFAULT_TEMPLATE,
+    Client,
+    build_reference,
+    export,
+    restore,
+)
 
 
 def main() -> int:

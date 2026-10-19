@@ -23,7 +23,7 @@
         let settled = false;
         const timeoutId = window.setTimeout?.(() => script.onerror(), 15000);
         const cleanup = () => { window.clearTimeout?.(timeoutId); script.remove(); };
-        script.src = path;
+        script.src = autostopBoardUrl(path);
         script.async = true;
         script.onload = () => {
           if (settled) return;

@@ -235,7 +235,7 @@ def _accepted(document, response):
     )
     crm = evidence["crm"]
     contract.need(
-        crm["schema"] == "autostop.j1.cold-crm-runtime-acceptance.v1"
+        crm["schema"] == "autostop.j1.cold-crm-runtime-acceptance.v2"
         and crm["role"] == "crm-embedded"
         and crm["epoch_ref"] == plan["dispatch_epoch_ref"]
         and crm["package_ref"] == plan["cold_authority_package_ref"]
@@ -262,6 +262,12 @@ def _accepted(document, response):
         )
         and crm["instance"]["main_pid"] not in pids,
         "worker_embedded_runtime",
+    )
+    worker._reference(crm["http_ingress_ref"])
+    contract.need(
+        crm["http_ingress_ref"]["path"]
+        == "/etc/autostop-manager-cold/" + epoch["epoch_id"] + "/crm-embedded/http-ingress.json",
+        "worker_http_ingress_binding",
     )
     readonly_runtime.validate_report(
         evidence["runtime"],

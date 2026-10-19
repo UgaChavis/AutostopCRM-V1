@@ -197,13 +197,19 @@ class ColdWorkerTests(unittest.TestCase):
             for unit, body in observations.items()
         }
         crm = {
-            "schema": "autostop.j1.cold-crm-runtime-acceptance.v1",
+            "schema": "autostop.j1.cold-crm-runtime-acceptance.v2",
             "role": "crm-embedded",
             "epoch_ref": plan["dispatch_epoch_ref"],
             "package_ref": plan["cold_authority_package_ref"],
             "spec_ref": plan["cold_crm_spec_ref"],
             "manager_source_revision": plan["candidate_manager_sha"],
             "binding_ref": epoch["runtime_bindings"]["crm-embedded"],
+            "http_ingress_ref": {
+                "path": "/etc/autostop-manager-cold/"
+                + epoch["epoch_id"]
+                + "/crm-embedded/http-ingress.json",
+                "sha256": "e" * 64,
+            },
             "independent_observations": 2,
             "business_acceptance": False,
             "instance": {

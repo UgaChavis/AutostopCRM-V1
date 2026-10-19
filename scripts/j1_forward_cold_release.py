@@ -400,6 +400,14 @@ class Coordinator:
         _verify_payload(self.directory, self.plan_ref, self.plan, self.baseline, reference, kind)
         return reference
 
+    def _fresh_http_cut(self):
+        forward.remaining(self.plan)
+        markers.require(self.marker_ref, self.plan_ref)
+        report = self.host.http_cut(self.plan["candidate"], self.plan["attempt_id"])
+        markers.require(self.marker_ref, self.plan_ref)
+        forward.save(self.directory, "cold-http-ingress-cut", report)
+        return report
+
     def run(self):
         self.prepare()
         backup_ref = self.capture()
@@ -429,13 +437,20 @@ class Coordinator:
         }
         commit = self.store.commit_recovery(self.envelope, proofs)
         self.controller.commit(commit, store=self.store)
+        if self.provider.scope == "production_native":
+            self._fresh_http_cut()
         self.controller.open_ingress(commit, store=self.store)
         post_open = self.host.readonly_probes(
             self.plan["candidate"], self.plan["attempt_id"], phase="open"
         )
         post_open_ref = _write_once(self.directory / "post-open-readonly.json", post_open)
         markers.remove(
-            self.marker_ref, self.plan_ref, commit, controller=self.controller, store=self.store
+            self.marker_ref,
+            self.plan_ref,
+            commit,
+            controller=self.controller,
+            store=self.store,
+            http_cut=self._fresh_http_cut,
         )
         complete = self.controller.finish(store=self.store)
         custody_ref = self.producer.adopt_runtime(commit, complete)

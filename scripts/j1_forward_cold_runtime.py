@@ -38,6 +38,174 @@ FIELDS = {
     "store_effects_exercised",
     "elapsed_ms",
 }
+CUT_SCHEMA = "autostop.j1.cold-http-ingress-cut.v1"
+
+
+def active_http_ingress():
+    keys = (
+        "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG",
+        "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG_SHA256",
+        "AUTOSTOP_COLD_RUNTIME_BINDING",
+        "AUTOSTOP_COLD_RUNTIME_BINDING_SHA256",
+    )
+    if not any(key in os.environ for key in keys):
+        return None
+    source = str(Path(__file__).resolve().parents[1] / "src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    from minimal_kanban.cold_http_ingress import load_http_ingress
+    from minimal_kanban.cold_manager import prepare_cold_manager
+
+    prepare_cold_manager()
+    config = load_http_ingress()
+    io.require(config is not None, "cold_runtime_http_configuration_required")
+    return config
+
+
+def validate_http_cut(report, *, candidate, attempt, config_ref):
+    io.require(
+        type(report) is dict
+        and set(report)
+        == {
+            "schema",
+            "ok",
+            "attempt_id",
+            "candidate",
+            "config_ref",
+            "epoch_id",
+            "transports",
+            "old_paths",
+            "maintenance_mode",
+            "elapsed_ms",
+        },
+        "cold_http_cut_fields",
+    )
+    io.require(
+        report["schema"] == CUT_SCHEMA
+        and report["ok"] is True
+        and report["attempt_id"] == attempt
+        and report["candidate"] == candidate
+        and report["config_ref"] == config_ref
+        and report["maintenance_mode"] is True
+        and type(report["elapsed_ms"]) is int
+        and 0 <= report["elapsed_ms"] <= 30000,
+        "cold_http_cut_context",
+    )
+    import uuid
+
+    io.require(str(uuid.UUID(report["epoch_id"])) == report["epoch_id"], "cold_http_cut_epoch")
+    io.require(
+        type(report["transports"]) is dict
+        and set(report["transports"]) == {"board", "mcp"}
+        and all(
+            type(row) is dict
+            and set(row) == {"local", "public"}
+            and all(re.fullmatch(r"[0-9a-f]{64}", digest or "") for digest in row.values())
+            for row in report["transports"].values()
+        ),
+        "cold_http_cut_transports",
+    )
+    from scripts.j1_forward_cold_http import STATUS_SCHEMA
+
+    for role, rows in report["transports"].items():
+        expected = io.sha(
+            io.canonical(
+                {
+                    "schema": STATUS_SCHEMA,
+                    "config_sha256": config_ref["sha256"],
+                    "transport": role,
+                    "candidate_crm_sha": candidate["revision"],
+                    "epoch_id": report["epoch_id"],
+                }
+            )
+        )
+        io.require(rows == {"local": expected, "public": expected}, "cold_http_cut_status_binding")
+    expected = {
+        "board_local",
+        "board_public",
+        "board_stale_local",
+        "board_stale_public",
+        "mcp_local",
+        "mcp_public",
+        "mcp_stale_local",
+        "mcp_stale_public",
+        "token_public",
+        "register_public",
+        "revoke_public",
+        "authorize_public",
+    }
+    io.require(
+        type(report["old_paths"]) is dict
+        and set(report["old_paths"]) == expected
+        and all(type(code) is int and code == 409 for code in report["old_paths"].values()),
+        "cold_http_cut_old_paths",
+    )
+    return report
+
+
+def http_cut(candidate, attempt, *, client_factory=http.Client):
+    config = active_http_ingress()
+    io.require(
+        config is not None
+        and config.document["attempt_id"] == attempt
+        and config.document["candidate_crm_sha"] == candidate["revision"],
+        "cold_http_cut_configuration",
+    )
+    from scripts.j1_forward_cold_http import CONFIG_ENV, STATUS_PATH
+
+    started = time.monotonic()
+    client = client_factory(started + 30)
+    transports = {}
+    for role, local in (("board", API), ("mcp", "http://127.0.0.1:41831")):
+        expected = config.status(role)
+        transports[role] = {}
+        for label, base in (
+            ("local", local + config.prefix(role)),
+            ("public", config.base_url(role)),
+        ):
+            result = client.request(base + STATUS_PATH)
+            io.require(
+                result.status == 200
+                and result.content_type == "application/json"
+                and io.document(result.body) == expected,
+                "cold_http_cut_status",
+            )
+            transports[role][label] = io.sha(io.canonical(expected))
+    stale_board = "/__cold/" + ("0" if config.prefix("board").endswith("f" * 64) else "f") * 64
+    stale_mcp = "/mcp/__cold/" + ("0" if config.prefix("mcp").endswith("f" * 64) else "f") * 64
+    paths = {
+        "board_local": API + "/api/health",
+        "board_public": PUBLIC + "/api/health",
+        "board_stale_local": API + stale_board + "/api/health",
+        "board_stale_public": PUBLIC + stale_board + "/api/health",
+        "mcp_local": "http://127.0.0.1:41831/mcp",
+        "mcp_public": PUBLIC + "/mcp",
+        "mcp_stale_local": "http://127.0.0.1:41831" + stale_mcp + "/mcp",
+        "mcp_stale_public": PUBLIC + stale_mcp + "/mcp",
+        **{
+            name + "_public": PUBLIC + "/" + name
+            for name in ("token", "register", "revoke", "authorize")
+        },
+    }
+    old_paths = {name: client.request(url).status for name, url in paths.items()}
+    health = http.envelope(
+        client.request(config.base_url("board") + "/api/health"), "cold_http_cut_health"
+    )
+    report = {
+        "schema": CUT_SCHEMA,
+        "ok": True,
+        "attempt_id": attempt,
+        "candidate": candidate,
+        "config_ref": {"path": os.environ[CONFIG_ENV], "sha256": config.sha256},
+        "epoch_id": config.document["epoch_id"],
+        "transports": transports,
+        "old_paths": old_paths,
+        "maintenance_mode": health.get("maintenance_mode"),
+        "elapsed_ms": round((time.monotonic() - started) * 1000),
+    }
+    return validate_http_cut(
+        report, candidate=candidate, attempt=attempt, config_ref=report["config_ref"]
+    )
 
 
 def validate_report(value, *, candidate, attempt, phase):
@@ -147,7 +315,7 @@ async def inspect_session(session, *, phase):
     return result
 
 
-async def inspect_mcp(token, *, phase, deadline):
+async def inspect_mcp(token, *, phase, deadline, endpoint_url=None):
     import httpx
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
@@ -161,7 +329,9 @@ async def inspect_mcp(token, *, phase, deadline):
             follow_redirects=False,
             trust_env=False,
         ) as client:
-            async with streamable_http_client(PUBLIC + "/mcp", http_client=client) as (
+            async with streamable_http_client(
+                endpoint_url or PUBLIC + "/mcp", http_client=client
+            ) as (
                 reader,
                 writer,
                 _,
@@ -198,16 +368,22 @@ def probe(
     started = time.monotonic()
     deadline = started + 80
     client = client_factory(deadline)
-    public = http.public_checks(client, PUBLIC, API)
+    config = active_http_ingress()
+    public_url = config.base_url("board") if config else PUBLIC
+    api_url = API + config.prefix("board") if config else API
+    mcp_url = config.base_url("mcp") + "/mcp" if config else PUBLIC + "/mcp"
+    public = http.public_checks(client, public_url, api_url, mcp_url=mcp_url)
     response = client.request(
-        API + REVISION_ROUTE, headers={"Authorization": "Bearer " + http.header_value(api_token)}
+        api_url + REVISION_ROUTE,
+        headers={"Authorization": "Bearer " + http.header_value(api_token)},
     )
     data = http.envelope(response, "cold_runtime_authorized_read_failed")
     io.require(
         type(data.get("revision")) is str and 0 < len(data["revision"]) <= 256,
         "cold_runtime_revision_missing",
     )
-    mcp = asyncio.run(mcp_inspector(mcp_token, phase=phase, deadline=deadline))
+    options = {"endpoint_url": mcp_url} if config else {}
+    mcp = asyncio.run(mcp_inspector(mcp_token, phase=phase, deadline=deadline, **options))
     report = {
         "schema": SCHEMA,
         "ok": True,
@@ -233,10 +409,14 @@ def main(argv=None):
     parser.add_argument("--candidate", required=True)
     parser.add_argument("--attempt-id", required=True)
     parser.add_argument("--phase", required=True, choices=("closed", "open"))
+    parser.add_argument("--http-cut-only", action="store_true")
     arguments = parser.parse_args(argv)
     try:
-        result = probe(
-            io.document(arguments.candidate.encode()), arguments.attempt_id, arguments.phase
+        candidate = io.document(arguments.candidate.encode())
+        result = (
+            http_cut(candidate, arguments.attempt_id)
+            if arguments.http_cut_only
+            else probe(candidate, arguments.attempt_id, arguments.phase)
         )
     except Exception:
         result = {"ok": False, "error": "cold_readonly_runtime_refused"}

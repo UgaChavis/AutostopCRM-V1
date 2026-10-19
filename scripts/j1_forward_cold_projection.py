@@ -114,10 +114,11 @@ def publish(plan_ref, commit_ref, epoch_ref, *, store, provider, dispatch_fd):
     contract.need(plan["dispatch_epoch_ref"] == epoch_ref, "projection_plan_epoch")
     fence = _fence(epoch, provider.read_reference)
     _exclusive(fence, dispatch_fd)
-    verified = native.verify_package(
-        plan["cold_authority_package_ref"], provider=provider, required_scope=provider.scope
-    )
-    epochs.verify(epoch, verified["package"], provider)
+    with native.borrow_dispatch(provider, dispatch_fd):
+        verified = native.verify_package(
+            plan["cold_authority_package_ref"], provider=provider, required_scope=provider.scope
+        )
+        epochs.verify(epoch, verified["package"], provider)
     commit_raw = _bytes(store._read_reference, commit_ref)
     commit = io.document(commit_raw)
     head = store.head()

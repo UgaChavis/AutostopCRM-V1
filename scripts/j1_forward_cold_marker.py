@@ -116,7 +116,7 @@ def require(reference, plan_ref):
     return record
 
 
-def remove(reference, plan_ref, commit_ref, *, controller, store):
+def remove(reference, plan_ref, commit_ref, *, controller, store, http_cut=None):
     record = require(reference, plan_ref)
 
     def authorize():
@@ -125,6 +125,19 @@ def remove(reference, plan_ref, commit_ref, *, controller, store):
         controller.verify()
         controller.admitted()
         ready = controller.ready()
+        if getattr(getattr(controller, "provider", None), "scope", None) == "production_native":
+            from scripts import j1_forward_cold_runtime as runtime
+
+            io.require(callable(http_cut), "cold_marker_http_cut_required")
+            plan = io.document(io.referenced(plan_ref))
+            spec = io.document(io.referenced(plan["cold_crm_spec_ref"]))
+            candidate = {key: plan["candidate"][key] for key in ("image", "revision", "tree")}
+            runtime.validate_http_cut(
+                http_cut(),
+                candidate=candidate,
+                attempt=plan["attempt_id"],
+                config_ref=spec["http_ingress_ref"],
+            )
         head = store.head()
         io.require(
             head["sha256"] == commit_ref["sha256"]
