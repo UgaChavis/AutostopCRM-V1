@@ -97,6 +97,41 @@ class ProducerTests(unittest.TestCase):
             with self.assertRaises(io.Refusal):
                 inputs.environment(raw)
 
+    def test_fresh_crm_uses_image_runtime_while_manager_uses_pinned_python_library(self):
+        documents = {}
+
+        def publish(path, payload, **_kwargs):
+            documents[str(path)] = payload
+            return {"path": str(path), "sha256": io.sha(payload)}
+
+        backend = SimpleNamespace(
+            directory=Path("/private"),
+            provider=SimpleNamespace(
+                read_reference=lambda _ref: b"PATH=/usr/bin:/bin\nLD_LIBRARY_PATH=/legacy/runtime\n"
+            ),
+            publish=publish,
+        )
+        document = {"runtime_env": {role: {} for role in producer.epochs.CONSUMERS}}
+        config_ref = {"path": "/private/http.json", "sha256": "3" * 64}
+        result = producer.configure_fresh_http(
+            document,
+            self.binding,
+            producer.http_configuration(self.binding),
+            config_ref,
+            backend=backend,
+        )
+        for role, ref in result["runtime_env"].items():
+            values = inputs.environment(documents[ref["path"]])
+            if role == "crm-embedded":
+                self.assertFalse(any(key.startswith("LD_") for key in values))
+            else:
+                self.assertEqual(
+                    "/opt/autostop-manager-cold-releases/"
+                    + self.binding["candidate_manager_sha"]
+                    + "/python/lib",
+                    values["LD_LIBRARY_PATH"],
+                )
+
     def test_crm_push_gate_rejects_other_branches_and_dispatch(self):
         request = {
             **self.request,

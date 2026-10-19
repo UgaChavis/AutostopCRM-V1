@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from scripts import j1_forward_cold_producer_native as effectors
+from scripts import j1_forward_cold_runtime_origin as origin
 from scripts import j1_forward_io as io
 
 
@@ -48,20 +49,20 @@ class NativeRuntimeArtifactTests(unittest.TestCase):
             },
         }
         self.builder_files = {
-            effectors.BUILDER_WORKFLOW: b"workflow",
+            origin.BUILDER_WORKFLOW: b"workflow",
             "scripts/builder.py": b"builder",
         }
         self.builder_sources = {name: io.sha(raw) for name, raw in self.builder_files.items()}
         self.manifest = {
             "schema": "autostop.manager.installed-runtime-artifact.v1",
-            "controller_revision": effectors.BUILDER_REVISION,
-            "workflow_revision": effectors.BUILDER_REVISION,
+            "controller_revision": origin.BUILDER_REVISION,
+            "workflow_revision": origin.BUILDER_REVISION,
             "run_id": "11",
             "run_attempt": "1",
             "dependency_run_id": "12",
             "source_revision": "1" * 40,
             "source_tree": "2" * 40,
-            "helper_revision": effectors.CAPSULE_HELPER_REVISION,
+            "helper_revision": origin.CAPSULE_HELPER_REVISION,
             "runtime_roots": self.runtime["runtime_roots"],
             "entries": 2,
             "files": 2,
@@ -105,10 +106,10 @@ class NativeRuntimeArtifactTests(unittest.TestCase):
             "repository": "UgaChavis/AutostopManager",
             "source_revision": "1" * 40,
             "source_tree": "2" * 40,
-            "builder_revision": effectors.BUILDER_REVISION,
-            "builder_tree": effectors.BUILDER_TREE,
+            "builder_revision": origin.BUILDER_REVISION,
+            "builder_tree": origin.BUILDER_TREE,
             "builder_sources": self.builder_sources,
-            "workflow_path": effectors.BUILDER_WORKFLOW,
+            "workflow_path": origin.BUILDER_WORKFLOW,
             "event": "workflow_dispatch",
             "run_id": 11,
             "run_attempt": 1,
@@ -136,25 +137,25 @@ class NativeRuntimeArtifactTests(unittest.TestCase):
             "id": 11,
             "repository": repository,
             "head_repository": repository,
-            "head_sha": effectors.BUILDER_REVISION,
-            "path": effectors.BUILDER_WORKFLOW,
+            "head_sha": origin.BUILDER_REVISION,
+            "path": origin.BUILDER_WORKFLOW,
             "event": "workflow_dispatch",
-            "head_branch": effectors.BUILDER_BRANCH,
+            "head_branch": origin.BUILDER_BRANCH,
             "run_attempt": 1,
             "status": "completed",
             "conclusion": "success",
         }
         self.responses = {
             "/actions/runs/11": run,
-            "/git/commits/" + effectors.BUILDER_REVISION: {
-                "sha": effectors.BUILDER_REVISION,
-                "tree": {"sha": effectors.BUILDER_TREE},
+            "/git/commits/" + origin.BUILDER_REVISION: {
+                "sha": origin.BUILDER_REVISION,
+                "tree": {"sha": origin.BUILDER_TREE},
             },
             "/actions/artifacts/21": {
                 "id": 21,
                 "name": "manager-installed-runtime-" + "1" * 40 + "-11",
                 "expired": False,
-                "workflow_run": {"id": 11, "head_sha": effectors.BUILDER_REVISION},
+                "workflow_run": {"id": 11, "head_sha": origin.BUILDER_REVISION},
                 "digest": "sha256:" + self.provenance["archive_sha256"],
                 "size_in_bytes": self.provenance["archive_bytes"],
             },
@@ -166,7 +167,7 @@ class NativeRuntimeArtifactTests(unittest.TestCase):
             },
         }
         for name, body in self.builder_files.items():
-            self.responses["/contents/" + name + "?ref=" + effectors.BUILDER_REVISION] = {
+            self.responses["/contents/" + name + "?ref=" + origin.BUILDER_REVISION] = {
                 "type": "file",
                 "encoding": "base64",
                 "content": base64.b64encode(body).decode(),
@@ -178,7 +179,7 @@ class NativeRuntimeArtifactTests(unittest.TestCase):
             ("BUILDER_SOURCES", self.builder_sources),
             ("PHYSICAL_PYTHON_SHA256", executable_sha),
         ):
-            context = patch.object(effectors, name, value)
+            context = patch.object(origin, name, value)
             context.start()
             self.addCleanup(context.stop)
         for target, attribute, value in (

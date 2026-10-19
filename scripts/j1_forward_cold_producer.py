@@ -102,11 +102,16 @@ def configure_fresh_http(document, binding, config, config_ref, *, backend):
         values = inputs.environment(backend.provider.read_reference(reference))
         values["AUTOSTOP_CRM_MCP_URL"] = "http://127.0.0.1:8001" + config["mcp_prefix"] + "/mcp"
         values["AUTOSTOP_AUTOMATION_CRM_API_URL"] = "http://127.0.0.1:8000" + config["board_prefix"]
-        values["LD_LIBRARY_PATH"] = (
-            "/opt/autostop-manager-cold-releases/"
-            + binding["candidate_manager_sha"]
-            + "/python/lib"
-        )
+        if role == "crm-embedded":
+            # The CRM image supplies its own runtime and rejects loader
+            # overrides before application import, including a legacy value.
+            values.pop("LD_LIBRARY_PATH", None)
+        else:
+            values["LD_LIBRARY_PATH"] = (
+                "/opt/autostop-manager-cold-releases/"
+                + binding["candidate_manager_sha"]
+                + "/python/lib"
+            )
         if role == "crm-embedded":
             values["AUTOSTOP_COLD_HTTP_INGRESS_CONFIG"] = config_ref["path"]
             values["AUTOSTOP_COLD_HTTP_INGRESS_CONFIG_SHA256"] = config_ref["sha256"]
