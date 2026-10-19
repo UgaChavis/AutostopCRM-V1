@@ -244,8 +244,20 @@ recovery observation cannot replace that native guard authority. Unknown warm
 ingress, extra source/bytecode or a restarted/cold daemon remain refusals. There
 is no accepted all-profile cold package, authority rotation to a different
 attempt, or production release completion supplied by this implementation.
+The mixed control archive/restore has separate v2 schemas. It copies the exact
+installation/binding/source/runtime/CI graph and reconstructs the complete
+predecessor warm-input/cache/lifecycle chain through the source validators.
+Terminal restore additionally checks the seven issued wrappers, admission and
+armed state against the predecessor's bound boot, using only copied bytes.
+The two sealed base modules remain opaque payloads. Collection is bounded to
+2,048 authority files, 8 MiB per file and 64 MiB for that graph, inside the
+control archive's shared 128 MiB cap. Missing, extra or rehashed inconsistent
+documents fail; a state-only or data-only restore cannot satisfy this gate.
+The archived graph supplies no new native acceptance or production restore
+permission, and does not restore external runtime dependencies.
+
 Focused tests exercise the typed orchestration and validators using private
 evidence and simulated native effects. A joined restore/transition rehearsal,
-the supplemental authority reference graph, hosted checks, native timing and
-the actual host's independent admission remain release readiness gates. Source
-tests do not prove that the current host can enter this warm path.
+hosted checks, native timing and the actual host's independent admission remain
+release readiness gates. Source tests do not prove that the current host can
+enter this warm path.

@@ -24,7 +24,9 @@ from scripts import j1_forward_state as state
 from scripts import j1_forward_variant as variant
 
 SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
+MIXED_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-archive.v2"
 RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
+MIXED_RESTORE_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-restore.v2"
 ROOT = Path("/var/lib/autostop-crm-forward")
 SOURCE = Path("/opt/autostopcrm")
 MAX_FILES = 8192
@@ -278,7 +280,7 @@ class _RestoredStore(state.Store):
     begin_recovery = commit_recovery = recover_recovery = finish_recovery = _mutation_denied
 
 
-def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
+def _semantic(root, files, consumers, plan_ref, backup_ref, stage, authorities=None):
     root = PurePosixPath(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
     _path(root, plan_ref["path"])
@@ -354,7 +356,7 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
             all(io.sha(consumers[digest][name]) == value for name, value in inventory.items()),
             "control_archive_consumer_bytes_changed",
         )
-    return {
+    result = {
         "attempt_id": plan["attempt_id"],
         "head_sequence": head["sequence"],
         "head_sha256": head["sha256"],
@@ -363,6 +365,38 @@ def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
         "consumer_bundle_count": len(consumers),
         "launch_journal_count": _launch_semantic(root, documents, files),
     }
+    if variant.is_mixed(plan):
+        from scripts import j1_forward_mixed_archive
+
+        baseline = io.document(store._read_reference(plan["baseline_ref"]))
+        expected_inventory = {
+            name: baseline["source_consumers"][name] for name in variant.SUPPLEMENTAL
+        }
+        restored = {} if authorities is None else authorities
+
+        def reference(ref):
+            state._reference(ref)
+            io.require(ref["path"] in restored, "mixed_archive_reference_missing")
+            raw = restored[ref["path"]]
+            io.require(io.sha(raw) == ref["sha256"], "mixed_archive_reference_changed")
+            return raw
+
+        def restored_file(path, _limit):
+            io.require(path in restored, "mixed_archive_reference_missing")
+            return restored[path]
+
+        expected = j1_forward_mixed_archive.collect(
+            plan,
+            stage=stage,
+            controller_inventory=expected_inventory,
+            read_reference=reference,
+            read_file=restored_file,
+        )
+        io.require(expected == restored, "mixed_archive_exact_graph_required")
+        result["mixed_authority_graph_files"] = len(expected)
+    else:
+        io.require(not authorities, "control_archive_unexpected_authority")
+    return result
 
 
 def _seed(root, plan_ref, backup_ref, stage):
@@ -582,7 +616,20 @@ def capture(
             raw = retained[0] if retained else io.read_protected(roots[0] / name, MAX_FILE_BYTES)
             io.require(io.sha(raw) == expected, "control_archive_consumer_bytes_unavailable")
             consumers[digest][name] = raw
-    semantic = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage)
+    authorities = {}
+    plan = io.document(files[plan_ref["path"]])
+    if variant.is_mixed(plan):
+        from scripts import j1_forward_mixed_archive
+
+        baseline = io.document(files[plan["baseline_ref"]["path"]])
+        authorities = j1_forward_mixed_archive.collect(
+            plan,
+            stage=stage,
+            controller_inventory={
+                name: baseline["source_consumers"][name] for name in variant.SUPPLEMENTAL
+            },
+        )
+    semantic = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
     fence()
     io.require(
         _seed(root, plan_ref, backup_manifest_ref, stage) == seeds, "control_archive_state_changed"
@@ -600,6 +647,7 @@ def capture(
         for digest, inventory in sorted(consumers.items())
         for name, raw in sorted(inventory.items())
     ]
+    payloads += [("authority" + path, raw) for path, raw in sorted(authorities.items())]
     io.require(len(payloads) <= MAX_FILES, "control_archive_file_limit")
     io.require(
         sum(len(raw) for _, raw in payloads) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
@@ -633,7 +681,8 @@ def capture(
         sum(entry["bytes"] for entry in artifacts) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
     )
     io.require(
-        _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage) == semantic,
+        _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
+        == semantic,
         "control_archive_witness_semantics_changed",
     )
     io.require(
@@ -642,12 +691,15 @@ def capture(
     for path, raw in files.items():
         _budget(end)
         io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
+    for path, raw in authorities.items():
+        _budget(end)
+        io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "mixed_archive_source_changed")
     for path, refs in launch_refs.items():
         io.require(
             _launch_references(root, documents[path]) == refs, "control_archive_launch_changed"
         )
     manifest = {
-        "schema": SCHEMA,
+        "schema": MIXED_SCHEMA if variant.is_mixed(plan) else SCHEMA,
         "stage": stage,
         "root": str(root),
         "plan_ref": plan_ref,
@@ -753,7 +805,7 @@ def verify_and_restore(
             "witnesses",
             *CLAIMS,
         }
-        and manifest["schema"] == SCHEMA
+        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA}
         and manifest["stage"] == stage
         and manifest["root"] == str(root)
         and manifest["plan_ref"] == plan_ref
@@ -776,7 +828,7 @@ def verify_and_restore(
         == {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))},
         "control_archive_exact_inventory_required",
     )
-    files, consumers, names, total = {}, {}, set(), 0
+    files, consumers, authorities, names, total = {}, {}, {}, set(), 0
     output.mkdir(mode=0o700)
     _package_directory(output, custody)
     _sync_directory(output.parent)
@@ -820,6 +872,14 @@ def verify_and_restore(
             path = _path(root, str(root.joinpath(*parts[1:])))
             io.require(str(path) not in files, "control_archive_duplicate_path")
             files[str(path)] = restored
+        elif parts[0] == "authority":
+            io.require(
+                manifest["schema"] == MIXED_SCHEMA and len(parts) > 1, "mixed_archive_schema"
+            )
+            path = "/" + "/".join(parts[1:])
+            state._reference({"path": path, "sha256": io.sha(restored)})
+            io.require(path not in authorities, "mixed_archive_duplicate_path")
+            authorities[path] = restored
         else:
             io.require(
                 len(parts) == 4
@@ -829,7 +889,12 @@ def verify_and_restore(
                 "control_archive_consumer_path",
             )
             consumers.setdefault(parts[1], {})["/".join(parts[2:])] = restored
-    actual = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage)
+    plan = io.document(files[plan_ref["path"]])
+    io.require(
+        manifest["schema"] == (MIXED_SCHEMA if variant.is_mixed(plan) else SCHEMA),
+        "mixed_archive_schema",
+    )
+    actual = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities)
     io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
     io.require(
         backup_manifest_ref["path"] in files
@@ -837,7 +902,7 @@ def verify_and_restore(
         "control_archive_backup_binding",
     )
     receipt = {
-        "schema": RESTORE_SCHEMA,
+        "schema": MIXED_RESTORE_SCHEMA if variant.is_mixed(plan) else RESTORE_SCHEMA,
         "stage": stage,
         "manifest_sha256": manifest_sha256,
         "plan_ref": plan_ref,

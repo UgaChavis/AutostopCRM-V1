@@ -95,7 +95,7 @@ class MixedStore(state.Store):
         return super().commit(plan, proofs)
 
 
-def load_transition(reference, *, read_reference=None):
+def load_transition(reference, *, read_reference=None, controller_inventory=None):
     read_reference = io.referenced if read_reference is None else read_reference
     state._reference(reference)
     receipt = io.document(read_reference(reference))
@@ -115,9 +115,8 @@ def load_transition(reference, *, read_reference=None):
     for field in ("binding_ref", "source_inputs_ref", "predecessor_ref"):
         state._reference(receipt[field])
         read_reference(receipt[field])
-    io.require(
-        receipt["controller_files"] == consumer_inventory(), "mixed_controller_bytes_changed"
-    )
+    expected = consumer_inventory() if controller_inventory is None else controller_inventory
+    io.require(receipt["controller_files"] == expected, "mixed_controller_bytes_changed")
     io.require(receipt["binding_ref"]["path"] == successor.BINDING, "mixed_binding_path")
     binding = io.document(read_reference(receipt["binding_ref"]))
     successor._binding_shape(binding)
