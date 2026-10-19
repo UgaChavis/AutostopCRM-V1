@@ -1095,6 +1095,12 @@ def _capture_manifest_evidence(manifest, response):
 
 
 def validate_response(response, *, attempt, stage):
+    from scripts import j1_forward_cold_state
+
+    if type(response) is dict and j1_forward_cold_state.is_cold(response.get("plan")):
+        from scripts import j1_forward_cold_worker
+
+        return j1_forward_cold_worker.validate_response(response, attempt=attempt, stage=stage)
     common = {
         "ok",
         "stage",
@@ -1382,6 +1388,32 @@ def validate_response(response, *, attempt, stage):
 
 
 class Worker:
+    CONTRACT = "warm"
+
+    def _after_control_restore(self, response, data_manifest, package, restored):
+        return None
+
+    def _capture_manifest(self, manifest, response):
+        return _capture_manifest_evidence(manifest, response)
+
+    def _activation_payloads(self, response, binding):
+        plan = response["plan"]
+        return {
+            "native_acceptance": {
+                **binding,
+                "inspection_sha256": response["inspection_ref"]["sha256"],
+                "native_preserved": True,
+                variant.guard_acceptance_field(plan): True,
+            },
+            "runtime_acceptance": {
+                **binding,
+                "inspection_sha256": response["inspection_ref"]["sha256"],
+                "candidate_image": plan["candidate"]["image"],
+                "candidate_revision": plan["candidate"]["revision"],
+                "runtime_checks_passed": True,
+            },
+        }
+
     def __init__(self, *, ssh_key, reviewer_key, openssl, cache):
         require(os.name == "nt", "worker_windows_custody_required")
         program(Path(sys.executable))
@@ -1583,9 +1615,14 @@ class Worker:
         self._download(
             self._ssh("inspect", attempt, stage=stage), inspect_path, limit=MAX_JSON, timeout=120
         )
-        response = validate_response(
-            io.document(inspect_path.read_bytes()), attempt=attempt, stage=stage
+        response = io.document(inspect_path.read_bytes())
+        from scripts import j1_forward_cold_state
+
+        require(
+            j1_forward_cold_state.is_cold(response.get("plan")) is (self.CONTRACT == "cold"),
+            "worker_explicit_contract_required",
         )
+        response = validate_response(response, attempt=attempt, stage=stage)
         plan = response["plan"]
         public = directory / "reviewer-public.pem"
         self._crypto(
@@ -1641,7 +1678,7 @@ class Worker:
             )
             manifest_path = _physical(assembled / "manifest.json")
             require(manifest_path.stat().st_size <= 64 * 1024**2, "worker_manifest_size")
-            _capture_manifest_evidence(io.document(manifest_path.read_bytes()), response)
+            self._capture_manifest(io.document(manifest_path.read_bytes()), response)
             restored = backup.verify_and_restore(
                 assembled,
                 manifest_sha,
@@ -1693,6 +1730,12 @@ class Worker:
                 and all(control_restored[name] is False for name in control_archive.CLAIMS),
                 "worker_control_restore_receipt_invalid",
             )
+            self._after_control_restore(
+                response,
+                io.document(manifest_path.read_bytes()),
+                package,
+                directory / "control-restored",
+            )
             payloads = {
                 "offhost_restore": {
                     **binding,
@@ -1707,21 +1750,7 @@ class Worker:
                 }
             }
         else:
-            payloads = {
-                "native_acceptance": {
-                    **binding,
-                    "inspection_sha256": response["inspection_ref"]["sha256"],
-                    "native_preserved": True,
-                    variant.guard_acceptance_field(plan): True,
-                },
-                "runtime_acceptance": {
-                    **binding,
-                    "inspection_sha256": response["inspection_ref"]["sha256"],
-                    "candidate_image": plan["candidate"]["image"],
-                    "candidate_revision": plan["candidate"]["revision"],
-                    "runtime_checks_passed": True,
-                },
-            }
+            payloads = self._activation_payloads(response, binding)
         delivered = {}
         for kind, payload in payloads.items():
             raw = self._sign(response, kind, payload, directory)
@@ -1763,6 +1792,7 @@ def main(argv=None):
     for name in ("ssh-key", "reviewer-key", "openssl", "cache"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--restore-python", type=Path)
+    parser.add_argument("--cold", action="store_true")
     args = parser.parse_args(argv)
     try:
         require(os.name == "nt", "worker_windows_custody_required")
@@ -1778,7 +1808,12 @@ def main(argv=None):
                 check=False,
             )
             return result.returncode
-        worker = Worker(
+        worker_type = Worker
+        if args.cold:
+            from scripts.j1_forward_cold_worker import ColdWorker
+
+            worker_type = ColdWorker
+        worker = worker_type(
             ssh_key=args.ssh_key,
             reviewer_key=args.reviewer_key,
             openssl=args.openssl,
