@@ -704,6 +704,10 @@ class Controller:
 
     def closed(self):
         self.verify()
+        return self._closed_slots()
+
+    def _closed_slots(self):
+        """Read every closed slot; caller separately establishes native authority."""
         for unit in contract.ALLOWED:
             _store, snapshot, context = self.context(unit)
             contract.need(

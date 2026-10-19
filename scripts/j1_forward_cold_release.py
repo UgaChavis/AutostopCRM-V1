@@ -315,13 +315,16 @@ class Coordinator:
         return plan_ref
 
     def observe(self):
-        forward.remaining(self.plan)
-        markers.require(self.marker_ref, self.plan_ref)
+        self._capture_gate()
         return forward.save(
             self.directory,
             "cold-native",
             _native_observation(self.plan, self.controller, self.phase),
         )
+
+    def _capture_gate(self):
+        forward.remaining(self.plan)
+        markers.require(self.marker_ref, self.plan_ref)
 
     def capture(self):
         context = {
@@ -331,12 +334,22 @@ class Coordinator:
             "candidate_manager_sha": self.plan["candidate_manager_sha"],
             "scope_profile_sha256": self.profile.profile_sha256(),
         }
-        captured = self.profile.capture(
-            self.directory / "backup",
-            context,
-            self.observe,
-            timeout=min(300, forward.remaining(self.plan)),
-        )
+        capture_deadline = time.monotonic() + min(300, forward.remaining(self.plan))
+
+        def capture_gate():
+            self._capture_gate()
+            io.require(time.monotonic() < capture_deadline, "cold_capture_deadline")
+
+        with j1_forward_cold_backup.CaptureInterval(
+            self.controller, self.plan_ref, self.directory, gate=capture_gate
+        ) as interval:
+            captured = self.profile.capture(
+                self.directory / "backup",
+                context,
+                interval.observe,
+                timeout=min(capture_deadline - time.monotonic(), forward.remaining(self.plan)),
+            )
+        captured = {**captured, "capture_interval_ref": interval.completion_ref}
         backup_ref = _write_once(self.directory / "backup-evidence.json", captured)
         restored = self.profile.verify_and_restore(
             self.directory / "backup",

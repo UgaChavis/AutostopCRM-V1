@@ -98,6 +98,11 @@ def _environment(raw):
 
 def actor(pid):
     """Only a caller-selected owned/accepted actor is read; never adopt a PID."""
+    return _actor(pid, _executable_snapshot)
+
+
+def _actor(pid, measure_executable):
+    """Fresh process facts, with an explicitly supplied executable measurement."""
     root = Path("/proc") / str(pid)
     before = birth(pid)
     status = dict(line.split(":", 1) for line in (root / "status").read_text().splitlines())
@@ -107,7 +112,7 @@ def actor(pid):
     )
     contract.need(len(set(uid)) == len(set(gid)) == 1, "native_actor_credentials")
     executable = Path(os.readlink(root / "exe"))
-    executable_sha, executable_version = _executable_snapshot(executable)
+    executable_sha, executable_version = measure_executable(executable)
     value = {
         "pid": pid,
         "start_ticks": before,
@@ -464,6 +469,7 @@ class NativeProvider:
                 "native_old_unit_active",
             )
         trees.finish()
+        return trees
 
     def _source_tree_root(self, policy):
         root = Path(policy["source_root"])
@@ -659,6 +665,11 @@ class NativeProvider:
         Positive outcomes require native terminal records, not missing files.
         """
         pending = validated["pending"]
+        contract.need(
+            self.scope != "production_native"
+            or pending["schema"] == "autostop.j1.cold-pending-disposition.v2",
+            "native_production_pending_v2_required",
+        )
         if pending["schema"] == "autostop.j1.cold-pending-disposition.v2":
             return self._verify_pending_v2(validated)
         inventory = io.document(self.read_reference(pending["inventory_ref"]))
@@ -846,6 +857,11 @@ class NativeProvider:
         return policy
 
     def verify_kernel(self, validated):
+        contract.need(
+            self.scope != "production_native"
+            or validated["kernel"]["schema"] == "autostop.j1.cold-kernel.v2",
+            "native_production_kernel_v2_required",
+        )
         if validated["kernel"]["schema"] == "autostop.j1.cold-kernel.v2":
             return self._verify_kernel_v2(validated)
         kernel, binding = validated["kernel"], validated["package"]["binding"]
@@ -1100,7 +1116,7 @@ class NativeProvider:
         for key in ("supervisor_actor", "actor"):
             j1_forward_cold_lifecycle._loaded_libraries(kernel[key]["pid"], context, self)
 
-    def _verify_kernel_cache(self, validated):
+    def _verify_kernel_cache(self, validated, *, check_tree=None):
         kernel, binding = validated["kernel"], validated["package"]["binding"]
         view = io.document(self.read_reference(kernel["cache_view_ref"]))
         contract.fields(
@@ -1145,8 +1161,9 @@ class NativeProvider:
             == [target_info.st_dev, target_info.st_ino],
             "cache_bind_identity",
         )
-        self._cache_checkpoint_tree(checkpoint, source)
-        self._cache_checkpoint_tree(checkpoint, target)
+        tree = self._cache_checkpoint_tree if check_tree is None else check_tree
+        tree(checkpoint, source)
+        tree(checkpoint, target)
         for pid in (1, kernel["actor"]["pid"], kernel["supervisor_actor"]["pid"]):
             rows = (Path("/proc") / str(pid) / "mountinfo").read_text().splitlines()
             matches = [row.split() for row in rows if row.split()[4] == view["path"]]
@@ -1216,18 +1233,36 @@ class NativeProvider:
 
 def _tree_versions(roots):
     versions = {}
-
-    def fail(error):
-        raise error
-
     for root in roots:
         root = io.protected_directory(root)
-        versions[str(root)] = _executable_version(root.lstat())
-        for directory, folders, files in os.walk(root, followlinks=False, onerror=fail):
-            for name in (*folders, *files):
-                path = Path(directory) / name
-                contract.need(len(versions) < 32768, "native_tree_inventory_limit")
-                versions[str(path)] = _executable_version(path.lstat())
+        version = _executable_version(root.lstat())
+        versions[str(root)] = version
+        pending = [(str(root), version)]
+        while pending:
+            directory, expected = pending.pop()
+            descriptor = os.open(
+                directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+            )
+            try:
+                contract.need(
+                    _executable_version(os.fstat(descriptor)) == expected,
+                    "native_tree_directory_changed",
+                )
+                with os.scandir(descriptor) as entries:
+                    for entry in entries:
+                        info = entry.stat(follow_symlinks=False)
+                        path = directory + "/" + entry.name
+                        contract.need(len(versions) < 32768, "native_tree_inventory_limit")
+                        versions[path] = _executable_version(info)
+                        if stat.S_ISDIR(info.st_mode):
+                            pending.append((path, versions[path]))
+                contract.need(
+                    _executable_version(os.fstat(descriptor)) == expected
+                    and _executable_version(os.stat(directory, follow_symlinks=False)) == expected,
+                    "native_tree_directory_changed",
+                )
+            finally:
+                os.close(descriptor)
     return versions
 
 
@@ -1255,11 +1290,16 @@ class _ObservationSources:
     """Pin source versions for one observation without caching native facts."""
 
     def __init__(self, provider):
-        self.provider, self.versions = provider, {}
+        self.provider, self.versions, self.trees = provider, {}, None
+        self.references = {}
 
     def _read(self, reference, method):
         contract.reference(reference)
         path = reference["path"]
+        contract.need(
+            path not in self.references or self.references[path] == reference,
+            "native_source_reference_alias",
+        )
         before = _executable_version(Path(path).lstat())
         contract.need(
             path not in self.versions or self.versions[path] == before,
@@ -1271,6 +1311,7 @@ class _ObservationSources:
             "native_source_version_changed",
         )
         self.versions[path] = before
+        self.references[path] = dict(reference)
         return raw
 
     def read_reference(self, reference):
@@ -1282,21 +1323,35 @@ class _ObservationSources:
     def read_runtime_capsule(self, reference):
         return self._read(reference, "read_runtime_capsule")
 
+    def check_versions(self):
+        for path, version in self.versions.items():
+            contract.need(
+                _executable_version(Path(path).lstat()) == version,
+                "native_source_version_changed",
+            )
+        if self.trees is not None:
+            self.trees.finish()
+
 
 def verify_package(reference, *, provider=None, required_scope="production_native"):
+    return _observe_package(reference, provider=provider, required_scope=required_scope)[0]
+
+
+def _observe_package(reference, *, provider=None, required_scope="production_native"):
     provider = NativeProvider() if provider is None else provider
     provider.boundary(reference)
     # Captured semantic results belong to this observation only. Every typed
     # source is physically reread after the independent native measurements.
-    reader = contract.Reader(_ObservationSources(provider).read_reference)
+    sources = _ObservationSources(provider)
+    reader = contract.Reader(sources.read_reference)
     validated = contract._decode_package(reference, reader, required_scope=required_scope)
     contract.need(
         provider.scope == required_scope
         and provider.boot() == validated["package"]["binding"]["boot_id"],
         "native_scope_or_boot",
     )
+    sources.trees = provider.verify_files(validated)
     for operation in (
-        provider.verify_files,
         provider.verify_closure,
         provider.verify_retirement,
         provider.verify_ingress,
@@ -1307,9 +1362,10 @@ def verify_package(reference, *, provider=None, required_scope="production_nativ
         operation(validated)
     # Establish the same interval at exit, including source and proof rereads.
     reader.recheck()
+    sources.check_versions()
     provider.verify_closure(validated)
     contract._binding(validated["package"]["binding"], now_ns=time.monotonic_ns())
-    return validated
+    return validated, sources
 
 
 class CheckedDispatcher:
@@ -1332,3 +1388,204 @@ class CheckedDispatcher:
             "argv": policy["argv"],
             "cwd": policy["cwd"],
         }
+
+
+class CaptureKernelCut:
+    def __init__(self, value, provider, sources):
+        from scripts import j1_forward_cold_kernel, j1_forward_cold_lifecycle
+
+        self.kernel_source, self.lifecycle = j1_forward_cold_kernel, j1_forward_cold_lifecycle
+        self.value, self.provider, self.sources = value, provider, sources
+        self.kernel, self.policy = value["kernel"], value["kernel_policy"]
+        self.actors = [self.kernel["actor"]]
+        if "supervisor_actor" in self.kernel:
+            self.actors.append(self.kernel["supervisor_actor"])
+        self.descriptors, self.cache, self.maps = [], {}, {}
+        self._pin_graph(self.kernel)
+        self.cwds = {expected["pid"]: self.policy["cwd"] for expected in self.actors}
+        self.view = io.document(provider.read_reference(self.kernel["cache_view_ref"]))
+        try:
+            for actor in self.actors:
+                self.descriptors.append(os.pidfd_open(actor["pid"], 0))
+            if self.kernel["schema"] == "autostop.j1.cold-kernel.v2":
+                checkpoint = io.document(provider.read_reference(self.view["checkpoint_ref"]))
+                self.cache = {
+                    root: _tree_versions((root,))
+                    for root in (checkpoint["root"], self.view["path"])
+                }
+                self.preparation = io.document(
+                    provider.read_reference(self.kernel["preparation_ref"])
+                )
+                home = io.document(provider.read_reference(self.preparation["home_ref"]))
+                self.cwds[self.kernel["actor"]["pid"]] = home["cwd"]
+                self.maps = {actor["pid"]: self._maps(actor["pid"]) for actor in self.actors}
+            else:
+                self.cache = {
+                    self.view["path"]: {self.view["path"]: self._version(self.view["path"])}
+                }
+            # The physical cache cut precedes this full content verification.
+            provider.verify_kernel(value)
+            self.verify()
+        except BaseException:
+            self.close()
+            raise
+
+    @staticmethod
+    def _version(path):
+        return _executable_version(Path(path).lstat())
+
+    def _pin_graph(self, document):
+        pending, seen = [document], {}
+        while pending:
+            value = pending.pop()
+            if type(value) is list:
+                pending.extend(value)
+            elif type(value) is dict:
+                if set(value) != {"path", "sha256"}:
+                    pending.extend(value.values())
+                    continue
+                contract.reference(value)
+                path = value["path"]
+                if path in seen:
+                    contract.need(seen[path] == value, "capture_kernel_reference_alias")
+                    continue
+                seen[path] = dict(value)
+                contract.need(len(seen) <= 32768, "capture_kernel_graph_limit")
+                contract.need(
+                    path not in self.sources.references or self.sources.references[path] == value,
+                    "capture_kernel_reference_alias",
+                )
+                if path not in self.sources.versions:
+                    method = "read_reference"
+                    if Path(path).stat().st_size > contract.MAX_SOURCE_BYTES:
+                        method = (
+                            "read_runtime_capsule"
+                            if path.endswith((".gz", ".tgz"))
+                            else "read_opaque_reference"
+                        )
+                    self.sources._read(value, method)
+                if path.endswith(".json"):
+                    pending.append(io.document(self.sources.read_reference(value)))
+
+    def _executable(self, path):
+        expected = [
+            actor["exe_ref"] for actor in self.actors if actor["exe_ref"]["path"] == str(path)
+        ]
+        contract.need(
+            expected and all(row == expected[0] for row in expected), "capture_kernel_executable"
+        )
+        version = self.sources.versions.get(str(path))
+        contract.need(
+            version is not None and self._version(path) == version, "capture_kernel_source_changed"
+        )
+        return expected[0]["sha256"], version
+
+    def _maps(self, pid):
+        return self.lifecycle._library_mappings((Path("/proc") / str(pid) / "maps").read_text())
+
+    def _mappings(self, pid):
+        rows = self._maps(pid)
+        contract.need(rows == self.maps[pid], "capture_kernel_mappings_changed")
+        for row in rows:
+            version = self.sources.versions.get(row[5])
+            if version is None and self.sources.trees is not None:
+                for _roots, versions in self.sources.trees.measured.values():
+                    version = versions.get(row[5], version)
+            info = Path(row[5]).lstat()
+            contract.need(
+                version == _executable_version(info)
+                and stat.S_ISREG(info.st_mode)
+                and [int(part, 16) for part in row[3].split(":")]
+                == [os.major(info.st_dev), os.minor(info.st_dev)]
+                and int(row[4]) == info.st_ino,
+                "capture_kernel_mapped_library_changed",
+            )
+        contract.need(self._maps(pid) == rows, "capture_kernel_mappings_changed")
+
+    def _cache_tree(self, _checkpoint, root):
+        key = str(root)
+        contract.need(
+            key in self.cache and _tree_versions((root,)) == self.cache[key],
+            "capture_cache_changed",
+        )
+
+    def verify(self):
+        contract.need(not select.select(self.descriptors, [], [], 0)[0], "capture_kernel_exited")
+        for expected in self.actors:
+            contract.need(
+                _actor(expected["pid"], self._executable) == expected
+                and os.readlink(Path("/proc") / str(expected["pid"]) / "cwd")
+                == self.cwds[expected["pid"]],
+                "capture_kernel_actor_changed",
+            )
+        self.provider.read_reference(self.kernel["ready_ref"])
+        if self.kernel["schema"] == "autostop.j1.cold-kernel.v2":
+            unit = io.document(self.provider.read_reference(self.policy["unit_ref"]))
+            contract.need(
+                self.provider.systemd(self.kernel["unit"]) == unit["properties"],
+                "capture_kernel_unit_changed",
+            )
+            fields = (
+                (Path("/proc") / str(self.kernel["actor"]["pid"]) / "stat")
+                .read_text()
+                .rsplit(")", 1)[1]
+                .split()
+            )
+            contract.need(
+                int(fields[1]) == self.kernel["supervisor_actor"]["pid"],
+                "capture_kernel_parent_changed",
+            )
+            expected = self.preparation["socket"]
+            contract.need(
+                self.kernel_source.socket_identity(expected["logical_path"])
+                == {key: value for key, value in expected.items() if key != "peer"},
+                "capture_kernel_socket_changed",
+            )
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+                peer.settimeout(1)
+                peer.connect(expected["logical_path"])
+                import struct
+
+                contract.need(
+                    list(
+                        struct.unpack(
+                            "3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+                        )
+                    )
+                    == expected["peer"],
+                    "capture_kernel_peer_changed",
+                )
+            self.provider._verify_kernel_cache(self.value, check_tree=self._cache_tree)
+            for actor in self.actors:
+                self._mappings(actor["pid"])
+        elif self.provider.scope == "native_fixture":
+            path = self.view["path"]
+            contract.need(
+                self._version(path) == self.cache[path][path]
+                and stat.S_IMODE(Path(path).stat().st_mode) == 0o400,
+                "capture_cache_changed",
+            )
+        else:
+            unit = io.document(self.provider.read_reference(self.policy["unit_ref"]))
+            contract.need(
+                self.provider.systemd(self.kernel["unit"]) == unit["properties"],
+                "capture_kernel_unit_changed",
+            )
+            for pid in (1, self.kernel["actor"]["pid"]):
+                rows = [
+                    row.split()
+                    for row in (Path("/proc") / str(pid) / "mountinfo").read_text().splitlines()
+                ]
+                rows = [row for row in rows if row[4] == self.view["path"]]
+                contract.need(
+                    len(rows) == 1
+                    and "ro" in rows[0][5].split(",")
+                    and (pid != 1 or int(rows[0][0]) == self.view["mount_id"]),
+                    "capture_cache_mount_changed",
+                )
+        contract.need(not select.select(self.descriptors, [], [], 0)[0], "capture_kernel_exited")
+
+    def close(self):
+        for descriptor in self.descriptors:
+            os.close(descriptor)
+        self.descriptors = []

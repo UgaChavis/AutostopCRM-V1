@@ -20,6 +20,23 @@ from scripts import j1_forward_io as io
 from tests import test_j1_forward_state as state_fixture
 
 
+class ProductionVersionBoundaryTests(unittest.TestCase):
+    def test_legacy_pending_and_kernel_deny_before_native_observation(self):
+        provider = native.NativeProvider()
+        with (
+            patch.object(native.subprocess, "run") as command,
+            patch.object(native.os, "pidfd_open", create=True) as pidfd,
+        ):
+            with self.assertRaisesRegex(io.Refusal, "production_pending_v2_required"):
+                provider.verify_pending(
+                    {"pending": {"schema": "autostop.j1.cold-pending-disposition.v1"}}
+                )
+            with self.assertRaisesRegex(io.Refusal, "production_kernel_v2_required"):
+                provider.verify_kernel({"kernel": {"schema": "autostop.j1.cold-kernel.v1"}})
+            command.assert_not_called()
+            pidfd.assert_not_called()
+
+
 @unittest.skipUnless(
     sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
 )

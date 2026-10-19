@@ -350,3 +350,26 @@ The future window must explicitly configure browser/connector URLs for the new
 Board base and MCP issuer/resource. A new address does not authorize replay of
 an old request. These checks are implemented for the future isolated release;
 no production address, proxy, marker or container was changed during preparation.
+
+## Closed capture interval
+
+Cold data capture is enclosed by two complete native qualifications. Its
+`cold-capture-entry.json` and `cold-capture-completed.json` bind the same plan,
+package, epoch and complete source-version cut. Every artifact boundary gets a
+separate `autostop.j1.cold-capture-boundary.v1` receipt. It freshly checks all
+original barriers, deployment/quarantine ownership, retirement, original SQL
+hold, stopped original CRM, new kernel identity and the closed seven-consumer
+epoch. A full metadata cut also covers every installed runtime entry; native
+facts are never reused between boundaries. Kernel pidfds remain held through
+the interval. Executable bytes, the complete installed tree, mapped-library
+identities and all native premises are fully rechecked before completion.
+
+`backup-evidence.json` carries `capture_interval_ref`. Before signing, the
+off-host worker reads the independently restored entry, exit, both full native
+proofs and every ordered boundary, checking exact hashes, count, time, scope and
+bindings. Boundary receipts have their own schema and grant no native
+acceptance or dispatch authority. Any source drift, lost lock/hold, exited
+kernel or expired package leaves no completed interval. The existing 300-second
+capture cap includes entry and exit qualifications; no release lease is renewed.
+Production observation requires pending v2 and kernel v2. Earlier v1 fixture
+and forensic structural contracts remain available without production admission.

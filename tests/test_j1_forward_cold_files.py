@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -17,6 +18,35 @@ from scripts import j1_forward_cold_runtime_capsule as capsule
 from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 from tests import test_j1_forward_cold_runtime_capsule as capsule_fixture
+
+
+@unittest.skipUnless(
+    sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
+)
+class DirectoryVersionCutTests(unittest.TestCase):
+    def test_a_directory_replaced_by_a_symlink_before_open_is_never_followed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root, outside = Path(temporary) / "tree", Path(temporary) / "outside"
+            child = root / "child"
+            child.mkdir(parents=True)
+            outside.mkdir()
+            (outside / "not-an-accepted-source").write_bytes(b"private fixture sentinel")
+            original_open, changed = os.open, []
+
+            def opening(path, flags, *args, **kwargs):
+                if str(path) == str(child):
+                    child.rmdir()
+                    child.symlink_to(outside, target_is_directory=True)
+                    changed.append(True)
+                return original_open(path, flags, *args, **kwargs)
+
+            with (
+                patch.object(io, "protected_directory", return_value=root),
+                patch.object(native.os, "open", side_effect=opening),
+                self.assertRaises(OSError),
+            ):
+                native._tree_versions((root,))
+            self.assertEqual(changed, [True])
 
 
 @unittest.skipUnless(
