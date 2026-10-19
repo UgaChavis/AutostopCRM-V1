@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from scripts import j1_forward_cold_catalog_native as catalog_native
+from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_kernel_supervisor as supervisor
 from scripts import j1_forward_cold_producer as producer
 from scripts import j1_forward_cold_producer_inputs as inputs
@@ -98,6 +99,48 @@ class ProducerTests(unittest.TestCase):
         for raw in (b"HOME=/root\n", b"PYTHONPATH=/tmp\n", b"LD_PRELOAD=x\n", b"KEY=a\nKEY=b\n"):
             with self.assertRaises(io.Refusal):
                 inputs.environment(raw)
+
+    def test_production_inputs_require_root_wake_but_preserve_its_qualified_group(self):
+        ref = {"path": "/private/source-bound-input.json", "sha256": "3" * 64}
+        document = {
+            "schema": inputs.SCHEMA,
+            "scope": "production_native",
+            "binding": self.binding,
+            **{
+                name: ref
+                for name in inputs.FIELDS
+                - {
+                    "schema",
+                    "scope",
+                    "binding",
+                    "manager",
+                    "runtime_env",
+                    "credentials",
+                    "kernel",
+                }
+            },
+            "manager": {
+                "checkout": "/private/qualified-manager",
+                "revision": "2" * 40,
+                "tree": "4" * 40,
+                "ci_ref": ref,
+            },
+            "runtime_env": {role: ref for role in epochs.CONSUMERS},
+            "credentials": {
+                role: {"uid": 10001, "gid": 10001, "groups": [10001]} for role in epochs.CONSUMERS
+            },
+            "kernel": {name: ref for name in inputs.KERNEL_FIELDS},
+        }
+        with self.assertRaisesRegex(io.Refusal, "producer_wake_root_required"):
+            inputs.validate(document, self.request)
+        document["credentials"]["wake"]["uid"] = 0
+        self.assertIs(inputs.validate(document, self.request), document)
+        self.assertEqual(
+            document["credentials"]["wake"], {"uid": 0, "gid": 10001, "groups": [10001]}
+        )
+        document["binding"]["candidate_manager_sha"] = "5" * 40
+        with self.assertRaisesRegex(io.Refusal, "producer_declared_binding"):
+            inputs.validate(document, self.request)
 
     def test_production_v1_telegram_policy_refuses_before_material_installation(self):
         from scripts import j1_forward_cold_telegram as telegram
@@ -482,6 +525,48 @@ class NativeRoleModelTests(unittest.TestCase):
             installer, other, mode=0o700, uid=os.geteuid(), gid=self.gid
         )
         self.assertEqual(other.stat().st_mode & 0o777, 0o700)
+
+    def test_first_evidence_initializes_exact_private_control_hierarchy(self):
+        # Only ownership maps to this fixture's OS uid. The actual producer
+        # directory/publish implementation performs all file and mode checks.
+        root, uid, gid = self.root, os.geteuid(), os.getegid()
+        actual_fchown = os.fchown
+
+        class PrivateBackend(effectors.NativeBackend):
+            def directory_at(self, path, *, mode=0o700, uid=0, gid=0):
+                io.require(Path(path).is_relative_to(root), "fixture_evidence_path")
+                return super().directory_at(path, mode=mode, uid=os.geteuid(), gid=os.getegid())
+
+        backend = object.__new__(PrivateBackend)
+        state = self.root / "state"
+        backend.directory = state / "packages" / str(uuid.uuid4())
+
+        def chown(fd, requested_uid, requested_gid):
+            self.assertEqual((requested_uid, requested_gid), (0, 0))
+            actual_fchown(fd, uid, gid)
+
+        with patch.object(effectors.native, "STATE", state), patch.object(os, "fchown", chown):
+            ref = backend.evidence("generation-custody", {"scope": "native_fixture"})
+            before = Path(ref["path"]).read_bytes()
+            for path in (
+                state,
+                state / "packages",
+                backend.directory,
+                backend.directory / "evidence",
+            ):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(path.stat().st_uid, uid)
+            # This is the next native ingress step's exact mode predicate.
+            backend.directory_at(state)
+            self.assertEqual(
+                backend.evidence("generation-custody", {"scope": "native_fixture"}), ref
+            )
+            state.chmod(0o755)
+            with self.assertRaisesRegex(io.Refusal, "producer_directory_conflict"):
+                backend.evidence("later", {"scope": "native_fixture"})
+            self.assertEqual(state.stat().st_mode & 0o777, 0o755)
+            self.assertFalse((backend.directory / "evidence/later.json").exists())
+            self.assertEqual(Path(ref["path"]).read_bytes(), before)
 
     def test_role_symlink_and_foreign_model_directory_are_refused(self):
         foreign = self.root / "foreign"

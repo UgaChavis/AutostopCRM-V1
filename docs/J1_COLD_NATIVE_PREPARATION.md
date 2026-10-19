@@ -118,6 +118,12 @@ models remain role-owned 0700/0600. Partial or corrupt copies retain closed
 dispatch and cannot satisfy preparation. Credentials and old sessions are not
 included in the public model asset.
 
+Production wake uses UID 0, matching the qualified Manager service and the
+root-owned kernel socket directory. Its configured group is retained. The
+producer rejects a nonroot wake UID during input validation, before effects;
+the private runtime state and root-owned wake configuration stay mode 0700
+and 0600. This does not change any installed service.
+
 Every new role entry and the final CRM entry serialize with parent revoke in
 the order D, parent journal O, child journal O. The original parent E remains a
 historical fact after R; it cannot authorize a later child. Final-plan source,

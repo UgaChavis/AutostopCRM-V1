@@ -337,6 +337,10 @@ class NativeBackend:
             type(name) is str and name.replace("-", "").replace("_", "").isalnum(),
             "producer_evidence_name",
         )
+        # Evidence is the first write in prepare. Give each control namespace
+        # its intended mode before recursive publication can create ancestors.
+        for directory in (native.STATE, native.STATE / "packages", self.directory):
+            self.directory_at(directory)
         return self.publish(self.directory / "evidence" / (name + ".json"), body)
 
     def run(self, argv, *, timeout=10, environment=None):

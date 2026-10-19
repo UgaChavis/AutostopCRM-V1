@@ -101,6 +101,9 @@ def validate(document, request):
             and all(type(group) is int and group >= 0 for group in credentials["groups"]),
             "producer_credentials_values",
         )
+    # The qualified Manager wake service runs as root and connects to the
+    # root-owned kernel listener. Its separately selected group is retained.
+    cold.need(document["credentials"]["wake"]["uid"] == 0, "producer_wake_root_required")
     return document
 
 
