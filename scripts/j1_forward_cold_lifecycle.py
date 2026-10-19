@@ -15,6 +15,7 @@ import subprocess
 import time
 import types
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from scripts import j1_forward_cold_authority as contract
@@ -26,6 +27,9 @@ from scripts import j1_forward_launch_permission as journal
 STATE = native.STATE / "epochs"
 NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 BOOTSTRAP_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
+PARENT_REQUESTS = Path("/var/lib/autostop-crm-forward/cold-requests")
+PARENT_JOURNALS = Path("/var/lib/autostop-crm-forward/cold-controller-launch")
+PARENT_SOURCE = Path("/opt/autostopcrm")
 
 
 def slot_id(binding, unit):
@@ -154,6 +158,353 @@ def _transition(store, ticket, event, payload):
             # NB acquisition failed before reading/publishing any intent. Keep
             # identical operation identity; pending/corrupt journals never retry.
             contract.need(time.monotonic() < until, "slot_transition_busy")
+            time.sleep(0.02)
+
+
+def _transition_once(store, ticket, event, payload):
+    # Called while parent O is held. Busy is a closed outcome, never an excuse
+    # to wait under O or replay a child with a different operation identity.
+    return store.transition(
+        event,
+        request_id=str(uuid.uuid5(uuid.UUID(ticket["nonce"]), event)),
+        payload=payload,
+        boot_id=ticket["boot_id"],
+        generation=ticket["owner_generation"],
+    )
+
+
+def _transition_child(store, ticket, event, payload):
+    return store._transition_locked(
+        event,
+        request_id=str(uuid.uuid5(uuid.UUID(ticket["nonce"]), event)),
+        payload=payload,
+        boot_id=ticket["boot_id"],
+        generation=ticket["owner_generation"],
+    )
+
+
+def _parent_material(controller, admission):
+    provider = controller.provider
+    read = provider.read_reference
+    plan = io.document(read(admission["plan_ref"]))
+    baseline = io.document(read(plan["baseline_ref"]))
+    request_ref, capsule_ref = (
+        baseline["controller_request_ref"],
+        baseline["controller_launch_ref"],
+    )
+    request, capsule = io.document(read(request_ref)), io.document(read(capsule_ref))
+    binding = io.document(read(controller.package_ref))["binding"]
+    fixture = provider.scope == "native_fixture"
+    root = (
+        provider.root / "parent-executor/journal"
+        if fixture
+        else PARENT_JOURNALS / binding["attempt_id"]
+    )
+    if fixture:
+        contract.fields(
+            capsule,
+            {
+                "schema",
+                "scope",
+                "request_ref",
+                "context_ref",
+                "acceptance_ref",
+                "journal_files",
+                "systemd_admission_claimed",
+            },
+            "fixture_parent_capsule_fields",
+        )
+        contract.need(
+            capsule["schema"] == "autostop.j1.private-parent-execution.v1"
+            and capsule["scope"] == "native_fixture"
+            and capsule["systemd_admission_claimed"] is False
+            and capsule["request_ref"] == request_ref
+            and request["schema"] == "autostop.j1.private-parent-request.v1"
+            and request["scope"] == "native_fixture"
+            and request["binding"] == binding
+            and request["consumer_sha256"] == plan["candidate"]["consumer_sha256"],
+            "fixture_parent_binding",
+        )
+        names = {
+            Path(ref["path"]).relative_to(root).as_posix(): ref for ref in capsule["journal_files"]
+        }
+        contract.need(len(names) == len(capsule["journal_files"]), "fixture_parent_duplicate_file")
+        ticket = journal.validate_ticket(io.document(read(names["ticket.json"])))
+        context_ref = capsule["context_ref"]
+        evidence = io.document(read(capsule["acceptance_ref"]))
+        acceptance = {key: evidence[key] for key in ("pid", "start_ticks", "invocation_id")}
+        acceptance["evidence_ref"] = capsule["acceptance_ref"]
+        clock = time.monotonic
+    else:
+        contract.fields(
+            capsule,
+            {
+                "schema",
+                "attempt_id",
+                "request_ref",
+                "captured_sequence",
+                "files",
+                "current_authority_asserted",
+            },
+            "parent_capsule_fields",
+        )
+        contract.need(
+            capsule["schema"] == "autostop.j1.cold-controller-history-cut.v1"
+            and capsule["current_authority_asserted"] is False
+            and capsule["request_ref"] == request_ref
+            and capsule["attempt_id"] == binding["attempt_id"]
+            and request_ref["path"] == str(PARENT_REQUESTS / binding["attempt_id"] / "request.json")
+            and request["schema"] == "autostop.j1.cold-controller-request.v1"
+            and request["scope"] == "bounded_cold_prepare"
+            and request["candidate"] == plan["candidate"]
+            and request["candidate_manager_sha"] == plan["candidate_manager_sha"]
+            and request["attempt_id"] == binding["attempt_id"]
+            and request["boot_id"] == binding["boot_id"]
+            and request["owner_generation"] == binding["generation"],
+            "parent_request_binding",
+        )
+        names = capsule["files"]
+        ticket = journal.validate_ticket(io.document(read(names["ticket.json"])))
+        context_ref = names["context.json"]
+        captured = journal._state(
+            io.document(read(names["state.json"])), io.sha(io.canonical(ticket))
+        )
+        contract.need(
+            type(capsule["captured_sequence"]) is int
+            and 1 <= capsule["captured_sequence"] <= 128
+            and captured["sequence"] == capsule["captured_sequence"]
+            and captured["execution_possible"] is True,
+            "parent_capsule_not_entered",
+        )
+        acceptance = captured["acceptance"]
+        contract.need(
+            set(names)
+            == {
+                "ticket.json",
+                "context.json",
+                "state.json",
+                "native-acceptance.json",
+                *(
+                    "events/" + f"{number:020d}.json"
+                    for number in range(1, captured["sequence"] + 1)
+                ),
+            },
+            "parent_capsule_inventory",
+        )
+        tip = io.document(read(names["events/" + f"{captured['sequence']:020d}.json"]))
+        contract.need(tip.get("state") == captured, "parent_capsule_tip_changed")
+        clock = time.time
+    context = io.document(read(context_ref))
+    contract.fields(
+        context,
+        {"schema", "request_ref", "actor", "identity", "deployment_lock_identity"}
+        if fixture
+        else {
+            "schema",
+            "plan_ref",
+            "consumers",
+            "deployment_lock_identity",
+            "interpreter",
+            "worker_argv",
+            "launch_argv",
+            "worker_cwd",
+            "launcher_cwd",
+            "launcher_environment",
+            "worker_environment",
+            "issuer",
+        },
+        "parent_context_fields",
+    )
+    contract.need(
+        ticket["attempt_id"] == binding["attempt_id"]
+        and ticket["boot_id"] == binding["boot_id"]
+        and ticket["owner_generation"] == binding["generation"]
+        and ticket["plan_ref"] == request_ref
+        and ticket["context_sha256"] == context_ref["sha256"]
+        and ticket["source_sha256"] == plan["candidate"]["consumer_sha256"],
+        "parent_ticket_binding",
+    )
+    store = controller.kernel.LaunchStore(root, owner=os.geteuid(), clock=clock)
+    return store, ticket, context, acceptance, request, names
+
+
+def _parent_native_actor(ticket, context):
+    properties = ("Id", "LoadState", "ActiveState", "InvocationID", "MainPID", "ControlGroup")
+    result = subprocess.run(
+        [
+            "/usr/bin/systemctl",
+            "show",
+            ticket["unit"],
+            "--no-pager",
+            "--property=" + ",".join(properties),
+        ],
+        env=BOOTSTRAP_ENVIRONMENT,
+        capture_output=True,
+        check=False,
+        timeout=3,
+    )
+    contract.need(result.returncode == 0 and len(result.stdout) <= 16384, "parent_unit_unavailable")
+    rows = [line.partition("=") for line in result.stdout.decode("utf-8", "strict").splitlines()]
+    values = {key: value for key, separator, value in rows if separator}
+    contract.need(
+        len(rows) == len(properties)
+        and set(values) == set(properties)
+        and values["Id"] == ticket["unit"]
+        and values["LoadState"] == "loaded"
+        and values["ActiveState"] in {"active", "activating"}
+        and re.fullmatch(r"[0-9a-f]{32}", values["InvocationID"])
+        and values["MainPID"].isdecimal(),
+        "parent_unit_changed",
+    )
+    observed = native.actor(int(values["MainPID"]))
+    proc = Path("/proc") / str(observed["pid"])
+    environment = native._environment((proc / "environ").read_bytes())
+    contract.need(
+        observed["uid"] == 0
+        and observed["exe_ref"] == context["interpreter"]
+        and observed["argv_sha256"]
+        == io.sha(b"\0".join(os.fsencode(arg) for arg in context["worker_argv"]) + b"\0")
+        and os.readlink(proc / "cwd") == "/"
+        and environment.get("LD_LIBRARY_PATH") == "/opt/autostop-sqlite/3.51.3/lib"
+        and not any(key in environment for key in ("LD_PRELOAD", "PYTHONHOME", "PYTHONPATH"))
+        and values["ControlGroup"].endswith("/" + ticket["unit"])
+        and any(
+            line.split(":", 2)[-1] == values["ControlGroup"]
+            for line in observed["cgroup"].splitlines()
+        ),
+        "parent_native_incarnation",
+    )
+    return {
+        "pid": observed["pid"],
+        "start_ticks": observed["start_ticks"],
+        "invocation_id": values["InvocationID"],
+    }
+
+
+def _active_parent(controller):
+    """Prepare immutable bindings; native checks run after ordered O acquisition."""
+    admission = controller.admitted()
+    store, ticket, context, acceptance, request, names = _parent_material(controller, admission)
+    value, _fence = controller.verify()
+    binding, hold = value["package"]["binding"], value["hold"]
+    marker = io.document(controller.provider.read_reference(hold["marker_ref"]))
+    fixture = controller.provider.scope == "native_fixture"
+
+    def check_current(_snapshot):
+        contract.need(controller.admitted() == admission, "parent_final_plan_changed")
+        contract.need(
+            not (controller.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
+        )
+        contract._binding(binding, now_ns=time.monotonic_ns())
+        contract.need(
+            io.document(controller.provider.read_reference(hold["marker_ref"])) == marker,
+            "parent_hold_marker_changed",
+        )
+        actual_context = _read(
+            store.root.parent / "context.json" if fixture else store.root / "context.json",
+            controller.provider.root if fixture else PARENT_JOURNALS,
+        )
+        contract.need(io.sha(actual_context) == ticket["context_sha256"], "parent_context_changed")
+        if fixture:
+            contract.need(
+                native.actor(acceptance["pid"]) == context["actor"]
+                and context["request_ref"] == ticket["plan_ref"],
+                "fixture_parent_incarnation_changed",
+            )
+            observed = context["identity"]
+        else:
+            expected_argv = [
+                "/usr/bin/python3",
+                "-I",
+                "-S",
+                "-B",
+                str(PARENT_SOURCE / "scripts/j1_forward_cold_release.py"),
+                "controller",
+                "--attempt",
+                binding["attempt_id"],
+            ]
+            contract.need(
+                context["schema"] == "autostop.j1.cold-controller-launch-context.v1"
+                and context["plan_ref"] == ticket["plan_ref"]
+                and context["worker_argv"] == expected_argv
+                and context["worker_cwd"] == "/"
+                and context["consumers"] == request["source"]["consumers"]
+                and contract.digest(context["consumers"]) == ticket["source_sha256"]
+                and context["deployment_lock_identity"] == binding["deployment_lock_identity"]
+                and ticket["host"] == request["host"] == socket.gethostname(),
+                "parent_context_scope",
+            )
+            for name, digest in context["consumers"].items():
+                contract.need(
+                    re.fullmatch(
+                        r"scripts/(?:j1_forward_[a-z_]+|j1_manager_[a-z_]+(?:_v2)?)\.py", name
+                    ),
+                    "parent_source_name",
+                )
+                contract.need(
+                    io.sha(journal._read(PARENT_SOURCE / name, 0)) == digest,
+                    "parent_source_changed",
+                )
+            for name, reference in names.items():
+                if name != "state.json":
+                    contract.need(
+                        io.sha(journal._read(store.root / name, 0)) == reference["sha256"],
+                        "parent_capsule_changed",
+                    )
+            observed = _parent_native_actor(ticket, context)
+        contract.need(
+            observed == {key: acceptance[key] for key in observed}
+            and hold["controller"] == {key: acceptance[key] for key in ("pid", "start_ticks")}
+            and marker["binding"] == binding,
+            "parent_acceptance_changed",
+        )
+        native.held_descriptor(
+            hold["controller"], marker["deployment_descriptor"], binding["deployment_lock_identity"]
+        )
+
+    return store, ticket, acceptance, check_current
+
+
+@contextmanager
+def active_parent(controller):
+    """D is held already; borrow parent O across only a new child admission."""
+    store, ticket, acceptance, check_current = _active_parent(controller)
+    with store.active_parent(ticket=ticket, acceptance=acceptance, check_current=check_current):
+        yield (
+            {key: acceptance[key] for key in ("pid", "start_ticks", "invocation_id")},
+            acceptance["evidence_ref"],
+        )
+
+
+@contextmanager
+def child_admission(controller, store, ticket):
+    """Acquire D -> parent O -> child O without waiting under either O.
+
+    Only a Busy acquisition before any mutation can wait outside both locks.
+    Once C can be published, errors are terminal/unknown and are never retried.
+    """
+    until = min(time.monotonic() + 2, ticket["expires_at"])
+    entered = False
+    parent_store, parent_ticket, acceptance, check_current = _active_parent(controller)
+    while True:
+        try:
+            with parent_store.active_parent(
+                ticket=parent_ticket,
+                acceptance=acceptance,
+                check_current=check_current,
+                child=store,
+            ):
+                contract.need(store.read()["ticket"] == ticket, "slot_child_ticket_changed")
+                entered = True
+                yield (
+                    {key: acceptance[key] for key in ("pid", "start_ticks", "invocation_id")},
+                    acceptance["evidence_ref"],
+                )
+            return
+        except BlockingIOError:
+            if entered:
+                raise
+            contract.need(time.monotonic() < until, "slot_parent_child_acquisition_busy")
             time.sleep(0.02)
 
 
@@ -375,7 +726,11 @@ class NativeBackend:
             request["attempt_id"]
         )
         contract.need(
-            context["plan_ref"] == request_ref and snapshot["state"]["execution_possible"] is True,
+            context["plan_ref"] == request_ref
+            and snapshot["state"]["execution_possible"] is True
+            and snapshot["state"]["revoked"] is False
+            and snapshot["state"]["admission_closed"] is False
+            and snapshot["ticket"]["not_before"] <= time.time() < snapshot["ticket"]["expires_at"],
             "crm_parent_not_entered",
         )
         accepted = snapshot["state"]["acceptance"]
@@ -1164,16 +1519,14 @@ class Controller:
         )
         worker = {**observed, "evidence_ref": evidence_ref}
         _transition(store, ticket, "accept", {"receipt": worker})
-        claim = _transition(store, ticket, "claim", {"worker": worker})
-        contract.need(not claim["historical"], "crm_entry_already_claimed")
         self.verify()
         self.admitted()
-        contract.need(
-            self.backend.parent_executor(parent_request_ref) == (observed, parent_acceptance_ref),
-            "crm_parent_raced",
-        )
-        entered = _transition(store, ticket, "enter", {"worker": worker})
-        contract.need(entered["action_authorized"], "crm_replacement_already_consumed_no_retry")
+        with child_admission(self, store, ticket) as current_parent:
+            contract.need(current_parent == (observed, parent_acceptance_ref), "crm_parent_raced")
+            claim = _transition_child(store, ticket, "claim", {"worker": worker})
+            contract.need(not claim["historical"], "crm_entry_already_claimed")
+            entered = _transition_child(store, ticket, "enter", {"worker": worker})
+            contract.need(entered["action_authorized"], "crm_replacement_already_consumed_no_retry")
         return {
             "ok": True,
             "entry_consumed": True,
@@ -1351,9 +1704,10 @@ def consume(controller, unit):
         worker["pid"] == os.getpid() and worker["start_ticks"] == native.birth(os.getpid()),
         "slot_unaccepted_worker",
     )
-    result = _transition(store, ticket, "claim", {"worker": worker})
-    contract.need(not result["historical"], "slot_claim_already_consumed")
     controller.verify()
-    result = _transition(store, ticket, "enter", {"worker": worker})
-    contract.need(result["action_authorized"], "slot_execution_already_consumed")
+    with child_admission(controller, store, ticket):
+        result = _transition_child(store, ticket, "claim", {"worker": worker})
+        contract.need(not result["historical"], "slot_claim_already_consumed")
+        result = _transition_child(store, ticket, "enter", {"worker": worker})
+        contract.need(result["action_authorized"], "slot_execution_already_consumed")
     return context

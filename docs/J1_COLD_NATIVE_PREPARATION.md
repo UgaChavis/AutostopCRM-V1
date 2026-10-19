@@ -118,6 +118,15 @@ models remain role-owned 0700/0600. Partial or corrupt copies retain closed
 dispatch and cannot satisfy preparation. Credentials and old sessions are not
 included in the public model asset.
 
+Every new role entry and the final CRM entry serialize with parent revoke in
+the order D, parent journal O, child journal O. The original parent E remains a
+historical fact after R; it cannot authorize a later child. Final-plan source,
+ticket, accepted parent PID/birth/invocation, held D and expiry are checked
+again while parent O is held. Child C and E use one child O. A busy acquisition
+before C releases both locks before bounded waiting. After any child mutation,
+failure or lost reply never retries admission or erases an already consumed E.
+The native guard imports only the narrow lifecycle/journal implementation.
+
 Production Telegram policy v2 requires both expected account-self hashes from
 separately qualified staged authorization. The shared parser rejects v1 before
 any fresh credential installation. A cut's observed account hash is compared

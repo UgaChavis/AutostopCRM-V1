@@ -17,6 +17,7 @@ import os
 import re
 import stat
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -465,6 +466,7 @@ class LaunchStore:
         path = self.root / "operation.lock"
         require(_read(path, self.owner) == b"", "launch_lock_contents")
         fd = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        registered = False
         try:
             before = path.lstat()
             require(_metadata(before) == _metadata(os.fstat(fd)), "launch_lock_replaced")
@@ -477,8 +479,15 @@ class LaunchStore:
 
                 msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             require(_metadata(before) == _metadata(path.lstat()), "launch_lock_replaced")
+            require(getattr(self, "_operation_descriptor", None) is None, "launch_nested_lock")
+            self._operation_descriptor = fd
+            self._operation_thread = threading.get_ident()
+            registered = True
             yield
         finally:
+            if registered:
+                self._operation_descriptor = None
+                self._operation_thread = None
             os.close(fd)
 
     def _load(self, *, allow_pending=False):
@@ -515,6 +524,37 @@ class LaunchStore:
         """Pure read: neither create a lock nor reconcile a pending publication."""
         ticket, state, _ = self._load()
         return {"ticket": ticket, "state": state}
+
+    @contextlib.contextmanager
+    def active_parent(self, *, ticket, acceptance, check_current, child=None):
+        """Serialize a new child admission with this parent's revoke.
+
+        The caller already holds D and supplies its fixed native observer.
+        Keep this O only around bounded reads and the child's C/E transitions:
+        no launch, waiting, retry, reconciliation, or existing-effect undo.
+        """
+        with self.locked(), contextlib.ExitStack() as locks:
+            if child is not None:
+                locks.enter_context(child.locked())
+            snapshot = self.read()
+            require(snapshot["ticket"] == ticket, "launch_parent_ticket_changed")
+            self._fresh(ticket, boot_id=ticket["boot_id"], generation=ticket["owner_generation"])
+            state = snapshot["state"]
+            require(
+                state["execution_possible"] is True
+                and state["revoked"] is False
+                and state["admission_closed"] is False
+                and state["acceptance"] == state["claim"] == acceptance
+                and acceptance is not None,
+                "launch_parent_not_active",
+            )
+            check_current(snapshot)
+            yield snapshot
+            # A failed exit never erases a child's already consumed E. Its
+            # outcome remains possible and cannot authorize another attempt.
+            self._fresh(ticket, boot_id=ticket["boot_id"], generation=ticket["owner_generation"])
+            require(self.read() == snapshot, "launch_parent_changed_under_lock")
+            check_current(snapshot)
 
     def _fresh(self, ticket, *, boot_id, generation):
         require(
@@ -590,6 +630,17 @@ class LaunchStore:
             return {"recovered": True, "action_authorized": False}
 
     def transition(self, event, *, request_id, payload, boot_id, generation):
+        """Acquire O once; the internal primitive also supports ordered parent O."""
+        with self.locked():
+            return self._transition_locked(
+                event,
+                request_id=request_id,
+                payload=payload,
+                boot_id=boot_id,
+                generation=generation,
+            )
+
+    def _transition_locked(self, event, *, request_id, payload, boot_id, generation):
         """Commit a fact/admission. Only this uninterrupted call may return authority.
 
         Replayed requests return historical receipts with action_authorized=false.
@@ -605,114 +656,121 @@ class LaunchStore:
                 {"event": event, "payload": payload, "boot_id": boot_id, "generation": generation}
             )
         )
-        with self.locked():
-            ticket, state, old_raw = self._load()
-            old_request = state["requests"].get(request_id)
-            if old_request is not None:
-                require(old_request["digest"] == digest, "launch_request_reused")
-                return {**old_request["result"], "historical": True, "action_authorized": False}
-            require(len(state["requests"]) < 128, "launch_request_limit")
+        descriptor = getattr(self, "_operation_descriptor", None)
+        require(
+            descriptor is not None
+            and getattr(self, "_operation_thread", None) == threading.get_ident(),
+            "launch_transition_lock_required",
+        )
+        require(
+            _metadata(os.fstat(descriptor)) == _metadata((self.root / "operation.lock").lstat()),
+            "launch_transition_lock_changed",
+        )
+        ticket, state, old_raw = self._load()
+        old_request = state["requests"].get(request_id)
+        if old_request is not None:
+            require(old_request["digest"] == digest, "launch_request_reused")
+            return {**old_request["result"], "historical": True, "action_authorized": False}
+        require(len(state["requests"]) < 128, "launch_request_limit")
+        require(
+            ticket["boot_id"] == boot_id and ticket["owner_generation"] == generation,
+            "launch_owner_or_boot_changed",
+        )
+        result = {"event": event, "sequence": state["sequence"] + 1}
+        if event in {"submit", "claim", "enter"}:
+            self._fresh(ticket, boot_id=boot_id, generation=generation)
+            require(not state["admission_closed"] and not state["revoked"], "launch_revoked")
+        if event == "submit":
             require(
-                ticket["boot_id"] == boot_id and ticket["owner_generation"] == generation,
-                "launch_owner_or_boot_changed",
+                set(payload) == {"owner"}
+                and type(payload["owner"]) is dict
+                and not state["dispatch_possible"],
+                "launch_submit_already_reserved",
             )
-            result = {"event": event, "sequence": state["sequence"] + 1}
-            if event in {"submit", "claim", "enter"}:
-                self._fresh(ticket, boot_id=boot_id, generation=generation)
-                require(not state["admission_closed"] and not state["revoked"], "launch_revoked")
-            if event == "submit":
-                require(
-                    set(payload) == {"owner"}
-                    and type(payload["owner"]) is dict
-                    and not state["dispatch_possible"],
-                    "launch_submit_already_reserved",
-                )
-                require(
-                    set(payload["owner"]) == {"pid", "start_ticks"}
-                    and all(
-                        type(value) is int and value > 0 for value in payload["owner"].values()
-                    ),
-                    "launch_submit_owner",
-                )
-                state["dispatch_possible"], state["submit_owner"] = True, payload["owner"]
-            elif event == "accept":
-                require(
-                    set(payload) == {"receipt"} and type(payload["receipt"]) is dict,
-                    "launch_acceptance_receipt",
-                )
-                receipt = payload["receipt"]
-                require(
-                    set(receipt) == {"invocation_id", "pid", "start_ticks", "evidence_ref"}
-                    and re.fullmatch(r"[0-9a-f]{32}", receipt["invocation_id"])
-                    and type(receipt["pid"]) is int
-                    and receipt["pid"] > 0
-                    and type(receipt["start_ticks"]) is int
-                    and receipt["start_ticks"] > 0,
-                    "launch_acceptance_identity",
-                )
-                ref = receipt["evidence_ref"]
-                require(
-                    type(ref) is dict and set(ref) == {"path", "sha256"}, "launch_receipt_reference"
-                )
-                _hash(ref["sha256"])
-                evidence_raw = _read(Path(ref["path"]), self.owner)
-                require(sha(evidence_raw) == ref["sha256"], "launch_receipt_changed")
-                evidence = document(evidence_raw)
-                expected = {
-                    "schema": "autostop.j1.forward-launch-native-acceptance.v1",
-                    "ticket_sha256": state["ticket_sha256"],
-                    "attempt_id": ticket["attempt_id"],
-                    "nonce": ticket["nonce"],
-                    "boot_id": ticket["boot_id"],
-                    "unit": ticket["unit"],
-                    "context_sha256": ticket["context_sha256"],
-                    "source_sha256": ticket["source_sha256"],
-                    "invocation_id": receipt["invocation_id"],
-                    "pid": receipt["pid"],
-                    "start_ticks": receipt["start_ticks"],
-                }
-                require(evidence == expected, "launch_receipt_binding")
-                require(
-                    state["dispatch_possible"] and state["acceptance"] in (None, receipt),
-                    "launch_acceptance_replaced",
-                )
-                state["acceptance"] = receipt
-            elif event == "claim":
-                require(
-                    set(payload) == {"worker"}
-                    and payload["worker"] == state["acceptance"]
-                    and state["acceptance"] is not None
-                    and state["claim"] is None,
-                    "launch_worker_not_accepted",
-                )
-                state["claim"] = payload["worker"]
-            elif event == "enter":
-                require(
-                    set(payload) == {"worker"}
-                    and state["claim"] is not None
-                    and payload["worker"] == state["claim"]
-                    and not state["execution_possible"],
-                    "launch_admission_already_consumed",
-                )
-                state["execution_possible"] = True
-            elif event == "revoke":
-                require(not payload, "launch_revoke_scope")
-                state["revoked"], state["admission_closed"] = True, True
-                result["current_admission"] = (
-                    "too_late_for_current_admission" if state["execution_possible"] else "closed"
-                )
-            else:
-                require(
-                    not payload and not state["execution_possible"], "launch_denial_after_admission"
-                )
-                state["admission_closed"] = True
-            result["dispatch_possible"] = state["dispatch_possible"]
-            result["execution_possible"] = state["execution_possible"]
-            self._publish(old_raw, state, request_id, digest, result)
-            if event in {"submit", "claim", "enter"}:
-                self._fresh(ticket, boot_id=boot_id, generation=generation)
-            return {
-                **result,
-                "historical": False,
-                "action_authorized": event in {"submit", "enter"},
+            require(
+                set(payload["owner"]) == {"pid", "start_ticks"}
+                and all(type(value) is int and value > 0 for value in payload["owner"].values()),
+                "launch_submit_owner",
+            )
+            state["dispatch_possible"], state["submit_owner"] = True, payload["owner"]
+        elif event == "accept":
+            require(
+                set(payload) == {"receipt"} and type(payload["receipt"]) is dict,
+                "launch_acceptance_receipt",
+            )
+            receipt = payload["receipt"]
+            require(
+                set(receipt) == {"invocation_id", "pid", "start_ticks", "evidence_ref"}
+                and re.fullmatch(r"[0-9a-f]{32}", receipt["invocation_id"])
+                and type(receipt["pid"]) is int
+                and receipt["pid"] > 0
+                and type(receipt["start_ticks"]) is int
+                and receipt["start_ticks"] > 0,
+                "launch_acceptance_identity",
+            )
+            ref = receipt["evidence_ref"]
+            require(
+                type(ref) is dict and set(ref) == {"path", "sha256"}, "launch_receipt_reference"
+            )
+            _hash(ref["sha256"])
+            evidence_raw = _read(Path(ref["path"]), self.owner)
+            require(sha(evidence_raw) == ref["sha256"], "launch_receipt_changed")
+            evidence = document(evidence_raw)
+            expected = {
+                "schema": "autostop.j1.forward-launch-native-acceptance.v1",
+                "ticket_sha256": state["ticket_sha256"],
+                "attempt_id": ticket["attempt_id"],
+                "nonce": ticket["nonce"],
+                "boot_id": ticket["boot_id"],
+                "unit": ticket["unit"],
+                "context_sha256": ticket["context_sha256"],
+                "source_sha256": ticket["source_sha256"],
+                "invocation_id": receipt["invocation_id"],
+                "pid": receipt["pid"],
+                "start_ticks": receipt["start_ticks"],
             }
+            require(evidence == expected, "launch_receipt_binding")
+            require(
+                state["dispatch_possible"] and state["acceptance"] in (None, receipt),
+                "launch_acceptance_replaced",
+            )
+            state["acceptance"] = receipt
+        elif event == "claim":
+            require(
+                set(payload) == {"worker"}
+                and payload["worker"] == state["acceptance"]
+                and state["acceptance"] is not None
+                and state["claim"] is None,
+                "launch_worker_not_accepted",
+            )
+            state["claim"] = payload["worker"]
+        elif event == "enter":
+            require(
+                set(payload) == {"worker"}
+                and state["claim"] is not None
+                and payload["worker"] == state["claim"]
+                and not state["execution_possible"],
+                "launch_admission_already_consumed",
+            )
+            state["execution_possible"] = True
+        elif event == "revoke":
+            require(not payload, "launch_revoke_scope")
+            state["revoked"], state["admission_closed"] = True, True
+            result["current_admission"] = (
+                "too_late_for_current_admission" if state["execution_possible"] else "closed"
+            )
+        else:
+            require(
+                not payload and not state["execution_possible"], "launch_denial_after_admission"
+            )
+            state["admission_closed"] = True
+        result["dispatch_possible"] = state["dispatch_possible"]
+        result["execution_possible"] = state["execution_possible"]
+        self._publish(old_raw, state, request_id, digest, result)
+        if event in {"submit", "claim", "enter"}:
+            self._fresh(ticket, boot_id=boot_id, generation=generation)
+        return {
+            **result,
+            "historical": False,
+            "action_authorized": event in {"submit", "enter"},
+        }

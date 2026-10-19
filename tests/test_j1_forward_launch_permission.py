@@ -133,6 +133,179 @@ class LaunchPermissionTests(unittest.TestCase):
         self.assertTrue(state["execution_possible"])
         self.assertEqual(state["sequence"], 4)
 
+    def active_parent(self, check=None, **overrides):
+        arguments = {
+            "ticket": self.ticket,
+            "acceptance": self.worker,
+            "check_current": (lambda _snapshot: None) if check is None else check,
+        }
+        return self.store.active_parent(**{**arguments, **overrides})
+
+    def entered_parent(self):
+        self.claimed()
+        self.event("enter", {"worker": self.worker})
+
+    def test_child_admission_serializes_with_revoke_without_erasing_parent_e(self):
+        self.entered_parent()
+        checks = []
+        with self.active_parent(lambda snapshot: checks.append(snapshot["state"]["sequence"])):
+            with self.assertRaises(BlockingIOError):
+                self.event("revoke")
+            self.assertFalse(self.store.read()["state"]["revoked"])
+        self.assertEqual(checks, [4, 4])
+        self.event("revoke")
+        self.assertTrue(self.store.read()["state"]["execution_possible"])
+        with self.assertRaisesRegex(launch.Refusal, "parent_not_active"):
+            with self.active_parent():
+                self.fail("A later separate child cannot inherit the historical E")
+
+    def test_real_child_c_and_e_are_inside_the_parent_revoke_cut(self):
+        self.entered_parent()
+        child_attempt = str(uuid.uuid4())
+        child_ticket = {
+            **self.ticket,
+            "attempt_id": child_attempt,
+            "nonce": str(uuid.uuid4()),
+            "unit": "autostop-crm-forward-" + child_attempt + ".service",
+        }
+        child = launch.LaunchStore(
+            self.base / child_attempt, owner=self.owner, clock=lambda: self.now
+        )
+        child.create(child_ticket)
+
+        def child_event(event, payload):
+            return child.transition(
+                event,
+                request_id=str(uuid.uuid4()),
+                payload=payload,
+                boot_id=self.boot,
+                generation=self.generation,
+            )
+
+        child_event("submit", {"owner": {"pid": 201, "start_ticks": 30}})
+        evidence = {
+            **launch.document(Path(self.worker["evidence_ref"]["path"]).read_bytes()),
+            "ticket_sha256": launch.sha(launch.canonical(child_ticket)),
+            "attempt_id": child_attempt,
+            "nonce": child_ticket["nonce"],
+            "unit": child_ticket["unit"],
+            "pid": 202,
+            "start_ticks": 31,
+        }
+        path = self.base / "child-acceptance.json"
+        launch._new(path, launch.canonical(evidence))
+        worker = {
+            "pid": 202,
+            "start_ticks": 31,
+            "invocation_id": evidence["invocation_id"],
+            "evidence_ref": {"path": str(path), "sha256": launch.sha(path.read_bytes())},
+        }
+        child_event("accept", {"receipt": worker})
+        with self.active_parent():
+            child_event("claim", {"worker": worker})
+            with self.assertRaises(BlockingIOError):
+                self.event("revoke")
+            self.assertTrue(child_event("enter", {"worker": worker})["action_authorized"])
+        self.event("revoke")
+        self.assertTrue(child.read()["state"]["execution_possible"])
+        with self.assertRaisesRegex(launch.Refusal, "parent_not_active"):
+            with self.active_parent():
+                self.fail("Accepted R must precede any subsequent child's E")
+
+    def test_busy_child_releases_parent_before_native_measurement_or_any_mutation(self):
+        self.entered_parent()
+        child_attempt = str(uuid.uuid4())
+        child_ticket = {
+            **self.ticket,
+            "attempt_id": child_attempt,
+            "nonce": str(uuid.uuid4()),
+            "unit": "autostop-crm-forward-" + child_attempt + ".service",
+        }
+        child = launch.LaunchStore(
+            self.base / child_attempt, owner=self.owner, clock=lambda: self.now
+        )
+        child.create(child_ticket)
+        before, checks = child.read(), []
+        with child.locked():
+            with self.assertRaises(BlockingIOError):
+                with self.store.active_parent(
+                    ticket=self.ticket,
+                    acceptance=self.worker,
+                    check_current=lambda snapshot: checks.append(snapshot),
+                    child=child,
+                ):
+                    self.fail("Busy child must not admit or wait under parent O")
+            # Parent O is already released despite the child still being busy.
+            self.event("revoke")
+        self.assertEqual(checks, [])
+        self.assertEqual(child.read(), before)
+
+    def test_private_transition_requires_the_same_instance_and_thread_owned_o(self):
+        arguments = {
+            "request_id": str(uuid.uuid4()),
+            "payload": {"owner": {"pid": 101, "start_ticks": 20}},
+            "boot_id": self.boot,
+            "generation": self.generation,
+        }
+        before = self.store.read()
+        with self.assertRaisesRegex(launch.Refusal, "transition_lock_required"):
+            self.store._transition_locked("submit", **arguments)
+        self.assertEqual(self.store.read(), before)
+        with self.store.locked():
+            other = launch.LaunchStore(self.store.root, owner=self.owner, clock=lambda: self.now)
+            with self.assertRaisesRegex(launch.Refusal, "transition_lock_required"):
+                other._transition_locked("submit", **arguments)
+            self.assertTrue(
+                self.store._transition_locked("submit", **arguments)["action_authorized"]
+            )
+            self.assertFalse(
+                self.store._transition_locked("submit", **arguments)["action_authorized"]
+            )
+
+    def test_parent_not_entered_ticket_or_acceptance_drift_cannot_authorize_child(self):
+        self.claimed()
+        with self.assertRaisesRegex(launch.Refusal, "parent_not_active"):
+            with self.active_parent():
+                self.fail("Claim is not entry")
+        self.event("enter", {"worker": self.worker})
+        with self.assertRaisesRegex(launch.Refusal, "ticket_changed"):
+            with self.active_parent(ticket={**self.ticket, "nonce": str(uuid.uuid4())}):
+                self.fail("Another parent ticket is not interchangeable")
+        with self.assertRaisesRegex(launch.Refusal, "parent_not_active"):
+            with self.active_parent(acceptance={**self.worker, "start_ticks": 999}):
+                self.fail("PID reuse is not the accepted executor")
+
+    def test_parent_expiry_or_native_observer_failure_denies_before_child(self):
+        self.entered_parent()
+        self.now = self.ticket["expires_at"]
+        with self.assertRaisesRegex(launch.Refusal, "expired"):
+            with self.active_parent():
+                self.fail("Expired parent cannot start another child")
+        self.now -= 1
+
+        def deny(_snapshot):
+            raise launch.Refusal("native_parent_D_lost")
+
+        with self.assertRaisesRegex(launch.Refusal, "D_lost"):
+            with self.active_parent(deny):
+                self.fail("Missing held D is not authority")
+
+    def test_parent_expiry_after_child_cut_preserves_unknown_and_sticky_e(self):
+        self.entered_parent()
+        with self.assertRaisesRegex(launch.Refusal, "expired"):
+            with self.active_parent():
+                self.now = self.ticket["expires_at"]
+        self.assertTrue(self.store.read()["state"]["execution_possible"])
+        self.assertFalse(self.store.read()["state"]["revoked"])
+
+    def test_parent_pending_publication_never_recovers_or_authorizes_child(self):
+        self.entered_parent()
+        launch._new(self.store.root / "publication-pending.json", b"{}\n")
+        with self.assertRaisesRegex(launch.Refusal, "requires_reconciliation"):
+            with self.active_parent():
+                self.fail("Pending publication must remain closed")
+        self.assertTrue((self.store.root / "publication-pending.json").exists())
+
     def test_revoke_wins_before_submit(self):
         receipt = self.event("revoke")
         self.assertFalse(receipt["dispatch_possible"])

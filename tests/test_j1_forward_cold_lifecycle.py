@@ -7,6 +7,7 @@ import subprocess
 import sys
 import unittest
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,7 +15,6 @@ from scripts import j1_forward_cold_authority as authority
 from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_guard as guard
 from scripts import j1_forward_cold_lifecycle as lifecycle
-from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 
@@ -36,6 +36,90 @@ class ColdBootstrapPins(unittest.TestCase):
     sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
 )
 class ColdNativeLifecycleTests(unittest.TestCase):
+    @contextmanager
+    def parent_controller(self):
+        # Observer/serialization tests publish a fixture admission directly.
+        # They make no independent-restore or production authority assertion.
+        with rehearsal.TraceFixture(candidates=True) as fixture, fixture.custody:
+            package_ref = fixture.produce()
+            epoch_ref = lifecycle.provision_epoch(
+                package_ref, fixture.runtime_bindings, provider=fixture.provider
+            )
+            controller = lifecycle.Controller(
+                package_ref, epoch_ref, provider=fixture.provider, backend=object()
+            )
+            directory = fixture.control / "attempts" / fixture.binding["attempt_id"]
+            baseline = fixture._write(
+                directory / "parent-baseline.json",
+                {
+                    "controller_request_ref": fixture.parent.request_ref,
+                    "controller_launch_ref": fixture.parent.manifest_ref,
+                },
+            )
+            plan = fixture._plan(fixture.binding["attempt_id"])
+            plan.update(
+                schema=authority.PLAN_SCHEMA,
+                scope=authority.PLAN_SCOPE,
+                baseline_ref=baseline,
+                candidate_manager_sha=fixture.binding["candidate_manager_sha"],
+                cold_authority_package_ref=package_ref,
+                dispatch_epoch_ref=epoch_ref,
+                cold_crm_spec_ref=baseline,
+            )
+            plan["candidate"]["revision"] = fixture.binding["candidate_crm_sha"]
+            plan_ref = fixture._write(directory / "parent-plan.json", plan)
+            lifecycle._publish(
+                controller.root / "release-admission.json",
+                {
+                    "schema": "autostop.j1.cold-slot-release-admission.v1",
+                    "package_ref": package_ref,
+                    "epoch_ref": epoch_ref,
+                    "plan_ref": plan_ref,
+                    "backup_ref": baseline,
+                    "offhost_ref": baseline,
+                    "candidate_may_have_written": True,
+                    "old_writer_allowed": False,
+                },
+                controller.root,
+            )
+            yield fixture, controller
+
+    def test_actual_parent_o_blocks_revoke_until_child_cut_finishes(self):
+        with self.parent_controller() as (fixture, controller):
+            with lifecycle.active_parent(controller) as (identity, acceptance_ref):
+                self.assertEqual(identity, fixture.parent.identity)
+                self.assertEqual(acceptance_ref, fixture.parent.acceptance_ref)
+                with self.assertRaises(BlockingIOError):
+                    lifecycle._transition_once(
+                        fixture.parent.store, fixture.parent.store.read()["ticket"], "revoke", {}
+                    )
+            self.assertFalse(fixture.parent.store.read()["state"]["revoked"])
+
+    def test_parent_revoke_denies_a_later_child_without_erasing_old_e(self):
+        with self.parent_controller() as (fixture, controller):
+            snapshot = lifecycle.coherent(fixture.parent.store)
+            lifecycle._transition_once(fixture.parent.store, snapshot["ticket"], "revoke", {})
+            with self.assertRaisesRegex(ValueError, "launch_parent_not_active"):
+                with lifecycle.active_parent(controller):
+                    self.fail("Historical parent E cannot admit another child")
+            self.assertTrue(fixture.parent.store.read()["state"]["execution_possible"])
+            self.assertFalse(list((controller.root / "journals").glob("*/state.json")))
+
+    def test_current_parent_incarnation_is_remeasured_under_o(self):
+        with self.parent_controller() as (fixture, controller):
+            original = lifecycle.native.actor
+
+            def replaced(pid):
+                value = original(pid)
+                if pid == fixture.parent.identity["pid"]:
+                    return {**value, "start_ticks": value["start_ticks"] + 1}
+                return value
+
+            with patch.object(lifecycle.native, "actor", side_effect=replaced):
+                with self.assertRaisesRegex(io.Refusal, "fixture_parent_incarnation_changed"):
+                    with lifecycle.active_parent(controller):
+                        self.fail("A stale accepted PID cannot admit a child")
+
     def test_actual_cli_six_one_shot_entries_keep_original_eight_and_ingress_closed(self):
         # This isolates native entry/dispatch, with independent restore-signature
         # acceptance replaced at its explicit boundary. The joined rehearsal
@@ -55,15 +139,14 @@ class ColdNativeLifecycleTests(unittest.TestCase):
                 self.assertEqual(len(controller.epoch["runtime_bindings"]), 7)
                 directory = fixture.control / "attempts" / fixture.binding["attempt_id"]
                 spec = fixture._write(directory / "crm-spec.json", {"scope": "native_fixture"})
-                parent_request = fixture._write(
-                    directory / "parent-request.json", {"scope": "native_fixture"}
-                )
+                parent_request = fixture.parent.request_ref
                 baseline = fixture._write(
                     directory / "baseline.json",
                     {
                         "review_key_ref": spec,
                         "backup_profile_sha256": "3" * 64,
                         "controller_request_ref": parent_request,
+                        "controller_launch_ref": fixture.parent.manifest_ref,
                     },
                 )
                 plan = fixture._plan(fixture.binding["attempt_id"])
@@ -135,16 +218,10 @@ class ColdNativeLifecycleTests(unittest.TestCase):
                     self.assertNotEqual(duplicate.returncode, 0)
                     self.assertEqual(slot.read(), before)
                 # The seventh entry consumes its own final-plan permission.
-                # This external native-boundary fixture supplies parent A;
-                # neither Controller nor the request ticket invents it.
-                parent_actor = {
-                    "pid": os.getpid(),
-                    "start_ticks": native.birth(os.getpid()),
-                    "invocation_id": uuid.uuid4().hex,
-                }
-                parent_a = fixture._write(directory / "parent-acceptance.json", parent_actor)
+                # This private observer repeats a real parent's incarnation,
+                # held D and real S/A/C/E; it claims no systemd admission.
                 with patch.object(
-                    backend, "parent_executor", create=True, return_value=(parent_actor, parent_a)
+                    backend, "parent_executor", create=True, side_effect=fixture.parent.observe
                 ):
                     entered = controller.consume_crm_start(parent_request)
                     self.assertTrue(entered["entry_consumed"])
