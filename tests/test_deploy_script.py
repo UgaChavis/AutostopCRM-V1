@@ -1434,8 +1434,8 @@ printf 'status=%s\n' "$status"
         self.assertIn("ruff format --check .", workflow)
         self.assertIn("ruff check .", workflow)
         self.assertIn("python scripts/docs_audit.py --format text", workflow)
-        self.assertIn("coverage run -m unittest discover -s tests -v", workflow)
-        self.assertEqual(1, workflow.count("unittest discover -s tests -v"))
+        self.assertIn("python -m tests.runtime_suite_runner", workflow)
+        self.assertEqual(1, workflow.count("python -m tests.runtime_suite_runner"))
         self.assertIn("python scripts/coverage_audit.py --format text", workflow)
         self.assertIn("coverage-runtime.xml", workflow)
         self.assertIn("htmlcov/", workflow)
@@ -1510,9 +1510,9 @@ printf 'status=%s\n' "$status"
                 "coverage erase",
             ),
             (
-                "Runtime branch coverage",
-                ("-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"),
-                "coverage run -m unittest discover -s tests -v",
+                "Isolated runtime branch coverage",
+                ("-m", "tests.runtime_suite_runner"),
+                "python -m tests.runtime_suite_runner",
             ),
             (
                 "Combine runtime coverage",

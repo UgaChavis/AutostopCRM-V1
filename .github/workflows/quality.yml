@@ -268,7 +268,7 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
-          python -m tests.runtime_process --timeout-seconds 1800 --label core -- python -m coverage run -m unittest discover -s tests -v
+          python -m tests.runtime_suite_runner
           coverage combine
           coverage report --show-missing | tee coverage-runtime.txt
           coverage json -o coverage-runtime.json

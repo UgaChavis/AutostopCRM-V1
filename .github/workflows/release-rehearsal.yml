@@ -137,9 +137,11 @@ jobs:
               --enable-rtree --enable-session --enable-update-limit
           make -j2 libsqlite3.so
           install -D -m 755 libsqlite3.so "$RUNNER_TEMP/rehearsal-sqlite/libsqlite3.so.0"
-          printf 'LD_LIBRARY_PATH=%s\n' "$RUNNER_TEMP/rehearsal-sqlite${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-          printf 'CRM_REHEARSAL_SQLITE_LIBRARY=%s\n' "$RUNNER_TEMP/rehearsal-sqlite/libsqlite3.so.0" >> "$GITHUB_ENV"
-          printf 'AUTOSTOPCRM_DOCKER_CONTEXT_TESTS=1\n' >> "$GITHUB_ENV"
+          {
+            printf 'LD_LIBRARY_PATH=%s\n' "$RUNNER_TEMP/rehearsal-sqlite${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            printf 'CRM_REHEARSAL_SQLITE_LIBRARY=%s\n' "$RUNNER_TEMP/rehearsal-sqlite/libsqlite3.so.0"
+            printf 'AUTOSTOPCRM_DOCKER_CONTEXT_TESTS=1\n'
+          } >> "$GITHUB_ENV"
 
       - name: Prepare only a private Windows SQLite DLL
         if: runner.os == 'Windows'

@@ -107,8 +107,9 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             r'"-m", "tests.runtime_suite_runner"\s*\)',
         )
         self.assertNotIn("Isolated Windows runtime coverage", profile)
+        self.assertIn("python -m tests.runtime_suite_runner", workflow)
+        self.assertNotIn("--label core -- python -m coverage run -m unittest discover", workflow)
         for name, seconds in (
-            ("Unit tests with runtime branch coverage", "1800"),
             ("Release backup and restore branch coverage", "1800"),
             ("Manager infrastructure map browser regression", "300"),
             ("Manager structure constructor browser regression", "300"),

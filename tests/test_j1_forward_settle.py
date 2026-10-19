@@ -68,6 +68,15 @@ class SettleCrashTests(unittest.TestCase):
         self.host = Mock()
         self.host.job_status.return_value = {"enabled": True}
         self.host.container.return_value = {"candidate": True}
+        # These tests own synthetic terminal-state/ExecStopPost fixtures. Real
+        # one-shot admission is covered by the native journal and systemd stand.
+        self.install(release.launch_native, "validate", Mock())
+        self.install(release.launch_native, "settle_unentered", Mock(return_value=None))
+        self.install(
+            release.launch_native,
+            "submit_and_wait",
+            lambda attempt: self.host.run(release.launch_native.launch_command(attempt)),
+        )
         self.install(release, "MARKER", self.marker)
         self.install(release.marker, "require_owned", self.require_owned_marker)
         self.install(release, "Store", Mock(return_value=self.store))

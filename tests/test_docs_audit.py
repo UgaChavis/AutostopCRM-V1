@@ -350,6 +350,7 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
                 "Docker image excludes canonical documentation: !docs/J1_RELEASE_BOUNDARY.md",
                 "Docker image excludes canonical documentation: !docs/J1_CRM_FORWARD_RELEASE.md",
+                "Docker image excludes canonical documentation: !docs/J1_FORWARD_LAUNCH_ADMISSION.md",
                 "Docker image excludes canonical documentation: !docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
             },
             {issue.detail for issue in issues},

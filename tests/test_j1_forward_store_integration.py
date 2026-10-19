@@ -57,6 +57,7 @@ class StoreStopIntegrationTests(unittest.TestCase):
         self.directory = self.root / self.attempt
         self.directory.mkdir()
         self.marker = self.root / "maintenance.json"
+        self.marker_parent = {"path": str(self.root)}
         self.crm = self.root / "crm"
         (self.crm / "scripts").mkdir(parents=True)
         self.commands, self.requests, self.observations = [], [], []
@@ -117,6 +118,7 @@ class StoreStopIntegrationTests(unittest.TestCase):
             "host": {},
             "deployment_lock_identity": [123, 456],
             "source_consumers": consumers,
+            "maintenance_parent": self.marker_parent,
             "previous_container": {"synthetic": "old-container"},
         }
         self.plan = {
@@ -139,8 +141,20 @@ class StoreStopIntegrationTests(unittest.TestCase):
         self.install(store_drain, "_identity", self.current_identity)
         self.install(store_drain, "_request", self.request)
         self.install(release, "MARKER", self.marker)
+        self.install(release.marker, "prepare", lambda: dict(self.marker_parent))
+        self.install(release.marker, "ensure", self.ensure_marker)
+        self.install(release.marker, "require_owned", self.require_owned_marker)
+        self.install(
+            release.marker,
+            "remove_owned",
+            Mock(side_effect=AssertionError("Marker removal forbidden before complete closure")),
+        )
         self.install(release, "Store", Mock(return_value=self.store))
         self.install(release, "deployment_lock", self.lock)
+        # The Store stop tests retain real closure/drain behavior; their launch
+        # boundary is synthetic and must not inspect the host's root journal.
+        self.install(release.launch_native, "Admission", release_fixtures.SyntheticAdmission)
+        self.install(release.launch_native, "settle_unentered", Mock(return_value=None))
         self.install(release, "cleanup_signals", nullcontext)
         self.install(
             release,
@@ -162,6 +176,30 @@ class StoreStopIntegrationTests(unittest.TestCase):
 
     def advance(self, seconds):
         self.now += max(1.0, seconds)
+
+    def require_owned_marker(self, pin, payload, *, expected_identity=None):
+        self.assertEqual(pin, self.marker_parent)
+        raw = self.marker.read_bytes()
+        self.assertEqual(raw, io.canonical(payload))
+        info = self.marker.stat()
+        identity = {
+            "path": str(self.marker),
+            "dev": info.st_dev,
+            "ino": info.st_ino,
+            "mtime_ns": info.st_mtime_ns,
+            "sha256": io.sha(raw),
+        }
+        if expected_identity is not None:
+            self.assertEqual(identity, expected_identity)
+        return identity
+
+    def ensure_marker(self, pin, payload, *, authorize):
+        self.assertTrue(self.held)
+        authorize()
+        if not self.marker.exists():
+            authorize()
+            io.write_new(self.marker, payload)
+        return self.require_owned_marker(pin, payload)
 
     def begin(self, plan):
         self.assertEqual(plan, self.plan)
