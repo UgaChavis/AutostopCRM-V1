@@ -100,14 +100,14 @@ class ColdArchiveLogicalPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "source.bin"
             path.write_bytes(b"immutable private source")
-            reference = {"path": str(path), "sha256": io.sha(path.read_bytes())}
+            reference = {"path": "/synthetic/source.bin", "sha256": io.sha(path.read_bytes())}
             calls = []
 
             def reader(ref):
                 calls.append(ref)
-                return Path(ref["path"]).read_bytes()
+                return path.read_bytes()
 
-            snapshot = archive._ReadSnapshot(reader, archive._version)
+            snapshot = archive._ReadSnapshot(reader, lambda _logical: archive._version(path))
             original = snapshot.read(reference)
             for _ in range(20):
                 self.assertIs(snapshot.read(dict(reference)), original)

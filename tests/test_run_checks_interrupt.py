@@ -194,6 +194,14 @@ class CiCompletionProcessExitTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
 
+    def test_cancellation_cannot_be_cleared_by_the_pipeline_failure_flag(self) -> None:
+        result = self.run_probe(
+            "[AutoStop.Ci.CompletionGuard]::Interrupt(); "
+            "Assert-CiProfileCompletion -Completed $false -Failed $true; exit 0"
+        )
+        self.assertEqual(result.returncode, 130, result.stdout + result.stderr)
+        self.assertIn("Local CI profile interrupted before completion.", result.stderr)
+
     def test_timeout_preserves_partial_output_in_the_failure_report(self) -> None:
         with self.assertRaises(subprocess.TimeoutExpired) as caught:
             self.run_probe(

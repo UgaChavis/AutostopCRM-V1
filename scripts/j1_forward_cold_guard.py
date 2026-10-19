@@ -27,7 +27,7 @@ BOOTSTRAP_HASHES = {
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
     "j1_forward_cold_state": "57e8bc1c28a7cdb67e5aa3b932910ee52d08531c744e31a59ad52e5ba8f8d7bc",
-    "j1_forward_cold_lifecycle": "1fbe00c3aa718600ebae0266e8f589888d2416b36c8286cf1605b1132df7e62b",
+    "j1_forward_cold_lifecycle": "5ba74ef9e9a71b092348ca670d388df1aae009db36ded2fe42d3c951df636157",
     "j1_forward_cold_fixture": "59cec062568a99e5bc3b79ac5826ecb2c579e552c56c829b390b4c0b098ae512",
 }
 

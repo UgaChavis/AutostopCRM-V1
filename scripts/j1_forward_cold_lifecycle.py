@@ -593,7 +593,14 @@ class Controller:
                 "interpreter": bootstrap,
                 "bootstrap_interpreter_ref": refs[0],
                 "application_interpreter_ref": policy["interpreter_ref"],
-                "bootstrap_environment": BOOTSTRAP_ENVIRONMENT,
+                "bootstrap_environment": {
+                    **BOOTSTRAP_ENVIRONMENT,
+                    **(
+                        dict.fromkeys(("TMPDIR", "TEMP", "TMP"), str(self.provider.root.parent))
+                        if self.provider.scope == "native_fixture"
+                        else {}
+                    ),
+                },
                 "bootstrap_credentials": (
                     {"uid": 0, "gid": 0, "groups": [0]}
                     if self.provider.scope == "production_native"

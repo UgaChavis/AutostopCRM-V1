@@ -20,7 +20,7 @@ from tests import test_j1_forward_cold_qualification as qualified
 from tests import test_j1_forward_launch_native as base
 
 
-@unittest.skipUnless(os.name == "posix", "Linux root-owned launch journal and systemd admission")
+@unittest.skipUnless(os.name == "posix", "Requires real Linux flock, AF_UNIX and SO_PEERCRED")
 class ColdControllerAdmissionTests(unittest.TestCase):
     def setUp(self):
         base.NativeLaunchTests.setUp(self)

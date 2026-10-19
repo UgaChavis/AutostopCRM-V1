@@ -844,7 +844,7 @@ def main():
                 )
                 reference = metadata["archive"]
                 path = forward.CONTROL_ARCHIVES / args.attempt / (args.stage + ".tar.gz")
-                limit = archive.MAX_TOTAL_BYTES + archive.COLD_MAX_FILE_BYTES
+                limit = archive.transport_total_limit(4) + archive.MAX_FILE_BYTES
             _export(path, reference, limit)
             return 0
         sys.stdout.buffer.write(io.canonical(result))

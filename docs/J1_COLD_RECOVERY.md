@@ -245,5 +245,13 @@ separately versioned runtime codec and measured resource acceptance are required
 before a production package can qualify. Private Python workers do not prove
 this runtime boundary. No current production grant is created by this source.
 
+Cold control archives use explicit codec v4; existing v3 archives remain
+readable with their original limits. Ordinary source and JSON leaves retain
+their bounds. Only independently derived typed runtime leaves can use the
+384 MiB opaque-file allowance within the 512 MiB total payload budget. The
+manifest declares every large leaf's exact path, size and SHA256; independent
+semantic restore must derive that same inventory. A declaration alone grants
+no native runtime or startup authority. Warm transport budgets are unchanged.
+
 Closure preparation, a fixture probe, a package hash or a passing source test
 is not production acceptance or proof that an external request may be replayed.

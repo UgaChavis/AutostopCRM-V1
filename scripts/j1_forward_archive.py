@@ -25,16 +25,20 @@ from scripts import j1_forward_variant as variant
 
 SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
 MIXED_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-archive.v2"
-COLD_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v3"
+COLD_V3_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v3"
+COLD_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v4"
 RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
 MIXED_RESTORE_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-restore.v2"
-COLD_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v3"
+COLD_V3_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v3"
+COLD_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v4"
 ROOT = Path("/var/lib/autostop-crm-forward")
 SOURCE = Path("/opt/autostopcrm")
 MAX_FILES = 8192
 MAX_FILE_BYTES = 8 * 1024**2
 COLD_MAX_FILE_BYTES = 32 * 1024**2
 MAX_TOTAL_BYTES = 128 * 1024**2
+COLD_RUNTIME_MAX_FILE_BYTES = 384 * 1024**2
+COLD_RUNTIME_MAX_TOTAL_BYTES = 512 * 1024**2
 MAX_NODES = 250_000
 CONSUMER = re.compile(
     r"scripts/(?:j1_forward_[a-z_]+|j1_manager_(?:transition|transition_source|successor_guard|successor_native|successor_guard_v2|successor_native_v2|successor_transition))\.py\Z"
@@ -58,12 +62,86 @@ def _cold(plan):
     return j1_forward_cold_state.is_cold(plan)
 
 
-def _schema(plan, *, restore=False):
+def _schema(plan, *, restore=False, codec=4):
     if _cold(plan):
+        if codec == 3:
+            return COLD_V3_RESTORE_SCHEMA if restore else COLD_V3_SCHEMA
         return COLD_RESTORE_SCHEMA if restore else COLD_SCHEMA
     if variant.is_mixed(plan):
         return MIXED_RESTORE_SCHEMA if restore else MIXED_SCHEMA
     return RESTORE_SCHEMA if restore else SCHEMA
+
+
+def transport_total_limit(codec=3):
+    io.require(type(codec) is int and codec in {3, 4}, "control_archive_codec")
+    return COLD_RUNTIME_MAX_TOTAL_BYTES if codec == 4 else MAX_TOTAL_BYTES
+
+
+def _runtime_blobs(manifest):
+    """Bound declared large leaves before loading their opaque payloads.
+
+    These declarations cannot authenticate a runtime. The restored typed cold
+    graph must independently derive the exact same map before acceptance.
+    """
+    if manifest.get("schema") != COLD_SCHEMA:
+        io.require("runtime_blobs" not in manifest, "control_archive_unexpected_runtime_blobs")
+        return {}
+    blobs = manifest.get("runtime_blobs")
+    io.require(type(blobs) is dict and len(blobs) <= 16, "control_archive_runtime_blobs")
+    entries = manifest["artifacts"]
+    io.require(
+        type(entries) is list
+        and len(entries) <= MAX_FILES
+        and all(
+            type(entry) is dict
+            and {"logical_name", "sha256", "bytes"} <= set(entry)
+            and type(entry["logical_name"]) is str
+            for entry in entries
+        ),
+        "control_archive_runtime_blob_entries",
+    )
+    io.require(
+        len({entry["logical_name"] for entry in entries}) == len(entries),
+        "control_archive_duplicate_path",
+    )
+    for path, value in blobs.items():
+        io.require(
+            type(path) is str
+            and str(PurePosixPath(path)) == path
+            and PurePosixPath(path).is_absolute()
+            and ".." not in PurePosixPath(path).parts
+            and not path.endswith(
+                (".json", ".jsonl", ".py", ".toml", ".md", ".txt", ".conf", ".env")
+            )
+            and type(value) is dict
+            and set(value) == {"sha256", "bytes"}
+            and state._hash(value["sha256"])
+            and type(value["bytes"]) is int
+            and COLD_MAX_FILE_BYTES < value["bytes"] <= COLD_RUNTIME_MAX_FILE_BYTES,
+            "control_archive_runtime_blob",
+        )
+    declared = {"authority" + path: value for path, value in blobs.items()}
+    large = {
+        entry["logical_name"]: {key: entry[key] for key in ("sha256", "bytes")}
+        for entry in entries
+        if type(entry.get("bytes")) is int and entry["bytes"] > COLD_MAX_FILE_BYTES
+    }
+    io.require(declared == large, "control_archive_runtime_blob_inventory")
+    return blobs
+
+
+def _entry_limit(schema, entry, blobs):
+    if schema == COLD_SCHEMA:
+        name = entry["logical_name"]
+        if name.startswith("authority/") and name.removeprefix("authority") in blobs:
+            value = blobs[name.removeprefix("authority")]
+            io.require(
+                {key: entry[key] for key in ("sha256", "bytes")} == value,
+                "control_archive_runtime_blob_binding",
+            )
+            return COLD_RUNTIME_MAX_FILE_BYTES
+        return COLD_MAX_FILE_BYTES if name.startswith("authority/") else MAX_FILE_BYTES
+    return COLD_MAX_FILE_BYTES if schema == COLD_V3_SCHEMA else MAX_FILE_BYTES
 
 
 def _path(root, value):
@@ -310,6 +388,10 @@ class _RestoredStore(state.Store):
         io.require(io.sha(raw) == reference["sha256"], "control_archive_reference_changed")
         return raw
 
+    def read_opaque_reference(self, reference):
+        # The payload map is restored bytes, never a native filesystem reader.
+        return self._read_reference(reference)
+
     def _history_paths(self):
         return sorted(
             io.logical_path(name)
@@ -331,7 +413,17 @@ class _RestoredStore(state.Store):
 
 
 def _semantic(
-    root, files, consumers, plan_ref, backup_ref, stage, authorities=None, capture_clock=None
+    root,
+    files,
+    consumers,
+    plan_ref,
+    backup_ref,
+    stage,
+    authorities=None,
+    capture_clock=None,
+    *,
+    codec=3,
+    runtime_blobs=None,
 ):
     root = io.logical_path(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
@@ -443,8 +535,13 @@ def _semantic(
             read_reference=store._read_reference,
             read_file=lambda path, _limit: store._raw(path),
             list_directory=listing,
+            codec=codec,
         )
         io.require(expected == restored, "cold_archive_exact_graph_required")
+        if codec == 4:
+            io.require(
+                expected.runtime_blob_paths == runtime_blobs, "cold_archive_exact_runtime_blobs"
+            )
         result["cold_authority_graph_files"] = len(expected)
     elif variant.is_mixed(plan):
         from scripts import j1_forward_mixed_archive
@@ -548,7 +645,8 @@ def _sync_directory(path):
         io.fsync_directory(path)
 
 
-def _write_bytes(path, raw, *, custody=None):
+def _write_bytes(path, raw, *, custody=None, limit=COLD_MAX_FILE_BYTES):
+    io.require(len(raw) <= limit, "control_archive_file_limit")
     _package_directory(path.parent, custody)
     descriptor = os.open(
         path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
@@ -558,9 +656,8 @@ def _write_bytes(path, raw, *, custody=None):
         stream.flush()
         os.fsync(stream.fileno())
     _sync_directory(path.parent)
-    io.require(len(raw) <= COLD_MAX_FILE_BYTES, "control_archive_file_limit")
     io.require(
-        _package_read(path, custody, max(MAX_FILE_BYTES, len(raw))) == raw,
+        _package_read(path, custody, limit) == raw,
         "control_archive_copy_changed",
     )
 
@@ -715,6 +812,7 @@ def capture(
     authorities = {}
     plan = io.document(files[plan_ref["path"]])
     capture_clock = None
+    runtime_blobs = {}
     if _cold(plan):
         from scripts import j1_forward_cold_archive
 
@@ -732,7 +830,9 @@ def capture(
             capture_clock=capture_clock,
             read_reference=authority_reader,
             read_file=authority_file_reader,
+            codec=4,
         )
+        runtime_blobs = authorities.runtime_blob_paths
         _capture_graph(
             root, _inward_references(root, authorities), files, launch_refs, end, cold=True
         )
@@ -750,7 +850,16 @@ def capture(
     documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
     consumers = _consumer_bytes(documents, files, consumer_roots)
     semantic = _semantic(
-        root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities, capture_clock
+        root,
+        files,
+        consumers,
+        plan_ref,
+        backup_manifest_ref,
+        stage,
+        authorities,
+        capture_clock,
+        codec=4 if cold else 3,
+        runtime_blobs=runtime_blobs,
     )
     fence()
     io.require(
@@ -773,15 +882,24 @@ def capture(
     payloads += [("authority" + path, raw) for path, raw in sorted(authorities.items())]
     io.require(len(payloads) <= MAX_FILES, "control_archive_file_limit")
     io.require(
-        sum(len(raw) for _, raw in payloads) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
+        sum(len(raw) for _, raw in payloads) <= transport_total_limit(4 if cold else 3),
+        "control_archive_total_limit",
     )
     for index, (logical, raw) in enumerate(payloads):
         _budget(end)
         payload = f"{index:06d}.bin"
-        _write_bytes(output / payload, raw)
-        artifacts.append(
-            {"logical_name": logical, "payload": payload, "bytes": len(raw), "sha256": io.sha(raw)}
+        entry = {
+            "logical_name": logical,
+            "payload": payload,
+            "bytes": len(raw),
+            "sha256": io.sha(raw),
+        }
+        io.require(
+            len(raw) <= _entry_limit(_schema(plan), entry, runtime_blobs),
+            "control_archive_entry_size",
         )
+        _write_bytes(output / payload, raw, limit=_entry_limit(_schema(plan), entry, runtime_blobs))
+        artifacts.append(entry)
     fence()
     # The terminal fence is itself part of the recoverable proof graph. Include
     # those exact immutable documents, rather than leaving dangling native refs.
@@ -801,11 +919,21 @@ def capture(
         )
     files.update(witnesses_raw)
     io.require(
-        sum(entry["bytes"] for entry in artifacts) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
+        sum(entry["bytes"] for entry in artifacts) <= transport_total_limit(4 if cold else 3),
+        "control_archive_total_limit",
     )
     io.require(
         _semantic(
-            root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities, capture_clock
+            root,
+            files,
+            consumers,
+            plan_ref,
+            backup_manifest_ref,
+            stage,
+            authorities,
+            capture_clock,
+            codec=4 if cold else 3,
+            runtime_blobs=runtime_blobs,
         )
         == semantic,
         "control_archive_witness_semantics_changed",
@@ -819,9 +947,24 @@ def capture(
     for path, raw in authorities.items():
         _budget(end)
         observed = (
-            authority_reader({"path": path, "sha256": io.sha(raw)})
+            (
+                getattr(
+                    getattr(authority_reader, "__self__", None),
+                    "read_opaque_reference",
+                    authority_reader,
+                )
+                if path in runtime_blobs
+                else authority_reader
+            )({"path": path, "sha256": io.sha(raw)})
             if _cold(plan) and authority_reader is not None
-            else io.read_protected(path, COLD_MAX_FILE_BYTES if _cold(plan) else MAX_FILE_BYTES)
+            else io.read_protected(
+                path,
+                COLD_RUNTIME_MAX_FILE_BYTES
+                if path in runtime_blobs
+                else COLD_MAX_FILE_BYTES
+                if _cold(plan)
+                else MAX_FILE_BYTES,
+            )
         )
         io.require(observed == raw, "mixed_archive_source_changed")
     for path, refs in launch_refs.items():
@@ -841,6 +984,8 @@ def capture(
     }
     if _cold(plan):
         manifest["native_capture_clock"] = capture_clock
+        manifest["runtime_blobs"] = runtime_blobs
+        _runtime_blobs(manifest)
     reference = io.write_new(output / "manifest.json", manifest)
     return {"manifest": reference, "manifest_sha256": reference["sha256"], "stage": stage, **CLAIMS}
 
@@ -855,7 +1000,8 @@ def bundle(package, manifest_sha256, output, *, timeout=60):
     io.require(io.sha(raw) == manifest_sha256, "control_archive_manifest_changed")
     manifest = io.document(raw)
     entries = manifest["artifacts"]
-    file_limit = COLD_MAX_FILE_BYTES if manifest.get("schema") == COLD_SCHEMA else MAX_FILE_BYTES
+    blobs = _runtime_blobs(manifest)
+    codec = 4 if manifest.get("schema") == COLD_SCHEMA else 3
     io.require(len(entries) <= MAX_FILES, "control_archive_file_limit")
     names = {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))}
     io.require(
@@ -868,18 +1014,18 @@ def bundle(package, manifest_sha256, output, *, timeout=60):
         io.require(
             entry["payload"] == f"{index:06d}.bin"
             and type(entry["bytes"]) is int
-            and 0 <= entry["bytes"] <= file_limit,
+            and 0 <= entry["bytes"] <= _entry_limit(manifest["schema"], entry, blobs),
             "control_archive_entry",
         )
         total += entry["bytes"]
-        io.require(total <= MAX_TOTAL_BYTES, "control_archive_total_limit")
+        io.require(total <= transport_total_limit(codec), "control_archive_total_limit")
         files.append(
             (entry["payload"], package / entry["payload"], entry["bytes"], entry["sha256"])
         )
     return transport.pack(output, files, end)
 
 
-def unbundle(envelope, envelope_sha256, package, *, timeout=60):
+def unbundle(envelope, envelope_sha256, package, *, timeout=60, codec=3):
     """Reject decompression bombs before allocating a full backup-sized payload."""
     from scripts import j1_forward_transport as transport
 
@@ -889,8 +1035,8 @@ def unbundle(envelope, envelope_sha256, package, *, timeout=60):
         Path(package),
         transport.deadline(timeout),
         max_members=MAX_FILES + 1,
-        max_file=COLD_MAX_FILE_BYTES,
-        max_total=MAX_TOTAL_BYTES,
+        max_file=COLD_RUNTIME_MAX_FILE_BYTES if codec == 4 else COLD_MAX_FILE_BYTES,
+        max_total=transport_total_limit(codec),
         max_manifest=MAX_FILE_BYTES,
     )
 
@@ -937,9 +1083,14 @@ def verify_and_restore(
             "semantic",
             "witnesses",
             *CLAIMS,
-            *(("native_capture_clock",) if manifest.get("schema") == COLD_SCHEMA else ()),
+            *(
+                ("native_capture_clock",)
+                if manifest.get("schema") in {COLD_V3_SCHEMA, COLD_SCHEMA}
+                else ()
+            ),
+            *(("runtime_blobs",) if manifest.get("schema") == COLD_SCHEMA else ()),
         }
-        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA, COLD_SCHEMA}
+        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA}
         and manifest["stage"] == stage
         and manifest["root"] == str(root)
         and manifest["plan_ref"] == plan_ref
@@ -948,7 +1099,8 @@ def verify_and_restore(
         "control_archive_manifest_binding",
     )
     entries = manifest["artifacts"]
-    file_limit = COLD_MAX_FILE_BYTES if manifest["schema"] == COLD_SCHEMA else MAX_FILE_BYTES
+    codec = 4 if manifest["schema"] == COLD_SCHEMA else 3
+    blobs = _runtime_blobs(manifest)
     io.require(
         type(manifest["witnesses"]) is list and len(manifest["witnesses"]) == 3,
         "control_archive_witness_inventory",
@@ -990,18 +1142,19 @@ def verify_and_restore(
         io.require(
             entry["payload"] == f"{index:06d}.bin"
             and type(entry["bytes"]) is int
-            and 0 <= entry["bytes"] <= file_limit
+            and 0 <= entry["bytes"] <= _entry_limit(manifest["schema"], entry, blobs)
             and state._hash(entry["sha256"]),
             "control_archive_entry",
         )
+        file_limit = _entry_limit(manifest["schema"], entry, blobs)
         raw = _package_read(package / entry["payload"], custody, file_limit)
         io.require(
             len(raw) == entry["bytes"] and io.sha(raw) == entry["sha256"],
             "control_archive_payload_changed",
         )
         total += len(raw)
-        io.require(total <= MAX_TOTAL_BYTES, "control_archive_total_limit")
-        _write_bytes(output / entry["payload"], raw, custody=custody)
+        io.require(total <= transport_total_limit(codec), "control_archive_total_limit")
+        _write_bytes(output / entry["payload"], raw, custody=custody, limit=file_limit)
         restored = _package_read(output / entry["payload"], custody, file_limit)
         if parts[0] == "control":
             path = _path(root, str(root.joinpath(*parts[1:])))
@@ -1009,7 +1162,8 @@ def verify_and_restore(
             files[str(path)] = restored
         elif parts[0] == "authority":
             io.require(
-                manifest["schema"] in {MIXED_SCHEMA, COLD_SCHEMA} and len(parts) > 1,
+                manifest["schema"] in {MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA}
+                and len(parts) > 1,
                 "mixed_archive_schema",
             )
             path = "/" + "/".join(parts[1:])
@@ -1027,7 +1181,7 @@ def verify_and_restore(
             consumers.setdefault(parts[1], {})["/".join(parts[2:])] = restored
     plan = io.document(files[plan_ref["path"]])
     io.require(
-        manifest["schema"] == _schema(plan),
+        manifest["schema"] == _schema(plan, codec=codec),
         "mixed_archive_schema",
     )
     actual = _semantic(
@@ -1039,6 +1193,8 @@ def verify_and_restore(
         stage,
         authorities,
         manifest.get("native_capture_clock"),
+        codec=codec,
+        runtime_blobs=blobs,
     )
     io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
     io.require(
@@ -1047,7 +1203,7 @@ def verify_and_restore(
         "control_archive_backup_binding",
     )
     receipt = {
-        "schema": _schema(plan, restore=True),
+        "schema": _schema(plan, restore=True, codec=codec),
         "stage": stage,
         "manifest_sha256": manifest_sha256,
         "plan_ref": plan_ref,

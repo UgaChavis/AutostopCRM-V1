@@ -1697,10 +1697,12 @@ class Worker:
             )
             control = response["control_archive"]
             envelope = directory / "control.tar.gz"
+            control_codec = 4 if self.CONTRACT == "cold" else 3
             envelope_ref = self._download(
                 self._ssh("export-control", attempt, stage="closed"),
                 envelope,
-                limit=control_archive.MAX_TOTAL_BYTES + control_archive.MAX_FILE_BYTES,
+                limit=control_archive.transport_total_limit(control_codec)
+                + control_archive.MAX_FILE_BYTES,
                 timeout=_remaining(plan),
             )
             require(
@@ -1709,7 +1711,11 @@ class Worker:
             )
             package = directory / "control-package"
             control_archive.unbundle(
-                envelope, envelope_ref["sha256"], package, timeout=min(_remaining(plan), 60)
+                envelope,
+                envelope_ref["sha256"],
+                package,
+                timeout=min(_remaining(plan), 60),
+                codec=control_codec,
             )
             control_restored = control_archive.verify_and_restore(
                 package,

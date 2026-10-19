@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 import tempfile
 import time
@@ -46,6 +47,7 @@ class FakeRPC:
         self.closed = True
 
 
+@unittest.skipUnless(os.name == "posix", "Release checks require POSIX ownership and permissions")
 class KernelPreparationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="cold-kernel-ledger-")
@@ -276,7 +278,7 @@ class KernelBootstrapTests(unittest.TestCase):
                 bootstrap.install(
                     Path("/tmp/private-not-production.py"), ["--attempt", str(uuid.uuid4())]
                 )
-        actual = kernel.file_digest(bootstrap.__file__)["sha256"]
+        actual = hashlib.sha256(Path(bootstrap.__file__).read_bytes()).hexdigest()
         self.assertEqual(actual, supervisor.BOOTSTRAP_SHA256)
 
     def test_loader_rejects_unqualified_module_and_changed_source(self):

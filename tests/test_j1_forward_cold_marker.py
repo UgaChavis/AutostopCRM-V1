@@ -19,6 +19,7 @@ class ColdRetainedMarkerTests(unittest.TestCase):
         self.documents = {}
 
         def write(path, value):
+            path = Path(path)
             raw = io.canonical(value)
             self.documents[str(path)] = raw
             return {"path": str(path), "sha256": io.sha(raw)}
