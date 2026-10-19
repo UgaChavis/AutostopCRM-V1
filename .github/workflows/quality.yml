@@ -41,6 +41,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Bind the runtime image to the selected source tree
+        id: source_identity
+        run: echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
       - name: Build unpublishable runtime candidate
         uses: docker/build-push-action@v7
         with:
@@ -48,7 +52,9 @@ jobs:
           load: true
           push: false
           tags: autostopcrm-ci:${{ github.sha }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.autostop.crm.tree=${{ steps.source_identity.outputs.tree }}
           cache-from: type=gha,scope=crm-runtime
           cache-to: type=gha,scope=crm-runtime,mode=max
 
@@ -164,6 +170,7 @@ jobs:
           image="autostopcrm-ci:${GITHUB_SHA}"
           test "$(docker image inspect --format '{{ .Architecture }}' "$image")" = amd64
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.autostop.crm.tree" }}' "$image")" = "$(git rev-parse 'HEAD^{tree}')"
           mkdir -p release-image
           docker image inspect --format '{{ json .Id }} {{ json .Architecture }} {{ json .Os }} {{ json .RootFS.Layers }}' "$image" > release-image/image-identity.txt
           docker run --rm --network none --entrypoint python "$image" -m pip freeze > release-image/runtime-requirements.txt
