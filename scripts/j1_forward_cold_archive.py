@@ -136,6 +136,72 @@ def restored_children(files, path):
     return sorted(children)
 
 
+def _crm_entry(directory, plan, binding, *, read, file_reader, listing, seen):
+    journal = directory / "crm-start" / plan["attempt_id"]
+    paths = {
+        "ticket.json",
+        "context.json",
+        "state.json",
+        "operation.lock",
+        "native-acceptance.json",
+        "events",
+    }
+    io.require(
+        {PurePosixPath(path).name for path in listing(str(journal))} == paths,
+        "cold_archive_crm_journal_inventory",
+    )
+    events = listing(str(journal / "events"))
+    io.require(len(events) <= 8192, "cold_archive_crm_journal_limit")
+    for path in [*(str(journal / name) for name in sorted(paths - {"events"})), *events]:
+        raw = file_reader(path, MAX_FILE_BYTES)
+        read({"path": path, "sha256": io.sha(raw)})
+    ticket_raw = seen[str(journal / "ticket.json")]
+    ticket = launch.validate_ticket(io.document(ticket_raw))
+    context_raw = seen[str(journal / "context.json")]
+    context = io.document(context_raw)
+    state = launch._state(io.document(seen[str(journal / "state.json")]), io.sha(ticket_raw))
+    io.require(
+        ticket["attempt_id"] == plan["attempt_id"]
+        and ticket["boot_id"] == binding["boot_id"]
+        and ticket["owner_generation"] == binding["generation"]
+        and ticket["source_sha256"] == plan["candidate"]["consumer_sha256"]
+        and ticket["plan_ref"]["sha256"] == io.sha(io.canonical(plan))
+        and ticket["context_sha256"] == io.sha(context_raw)
+        and context["schema"] == "autostop.j1.cold-crm-entry-context.v1"
+        and context["role"] == "crm-embedded"
+        and context["plan_ref"] == ticket["plan_ref"]
+        and context["spec_ref"] == plan["cold_crm_spec_ref"]
+        and context["package_ref"] == plan["cold_authority_package_ref"]
+        and context["epoch_ref"] == plan["dispatch_epoch_ref"]
+        and state["execution_possible"] is True,
+        "cold_archive_crm_entry_binding",
+    )
+    io.require(
+        events
+        == [str(journal / "events" / f"{n:020d}.json") for n in range(1, state["sequence"] + 1)],
+        "cold_archive_crm_sequence",
+    )
+    previous = launch._initial(io.sha(ticket_raw))
+    for path in events:
+        event = io.document(seen[path])
+        io.require(
+            set(event) == {"schema", "state"}
+            and event["schema"] == "autostop.j1.forward-launch-event.v1",
+            "cold_archive_crm_event",
+        )
+        launch._successor(previous, event["state"], ticket=ticket)
+        previous = event["state"]
+    io.require(previous == state, "cold_archive_crm_history")
+    launch._verify_acceptance(
+        ticket,
+        io.sha(ticket_raw),
+        state["acceptance"],
+        0,
+        reader=lambda path, _owner: seen[str(path)],
+    )
+    return context, state
+
+
 def _references(document):
     pending = [document]
     count = 0
@@ -202,12 +268,29 @@ def collect(
                 pending.extend(_references(io.document(raw)))
 
     walk()
+    baseline = io.document(read(plan["baseline_ref"]))
+    if baseline.get("controller_launch_ref") is not None:
+        from scripts import j1_forward_cold_controller_native
+
+        capsule = j1_forward_cold_controller_native.validate_capsule(
+            baseline["controller_launch_ref"], read_reference=read
+        )
+        io.require(
+            capsule["request_ref"] == baseline["controller_request_ref"],
+            "cold_archive_controller_request",
+        )
     value = cold.validate_package(
         plan["cold_authority_package_ref"],
         read_reference=read,
         now_ns=capture_clock["monotonic_ns"],
     )
     package, binding = value["package"], value["package"]["binding"]
+    if package["scope"] == "production_native":
+        io.require(
+            baseline.get("controller_launch_ref") is not None
+            and baseline.get("qualification_ref") is not None,
+            "cold_archive_production_controller_evidence",
+        )
     io.require(capture_clock["boot_id"] == binding["boot_id"], "cold_archive_capture_boot")
     epoch = io.document(read(plan["dispatch_epoch_ref"]))
     io.require(
@@ -281,6 +364,8 @@ def collect(
         io.require(previous == current, "cold_archive_journal_state")
         if stage == "terminal":
             io.require(current["execution_possible"] is True, "cold_archive_unaccepted_slot")
+        else:
+            io.require(current["dispatch_possible"] is False, "cold_archive_closed_slot_dispatched")
         if current["acceptance"] is not None:
             launch._verify_acceptance(
                 ticket,
@@ -296,10 +381,51 @@ def collect(
             "commit.json",
             "opened.json",
             "complete.json",
+            *("accepted/" + unit + ".json" for unit in cold.ALLOWED),
         ):
             path = str(directory / name)
             raw = file_reader(path, MAX_FILE_BYTES)
             pending.append({"path": path, "sha256": io.sha(raw)})
+        walk()
+        context, crm_state = _crm_entry(
+            directory, plan, binding, read=read, file_reader=file_reader, listing=listing, seen=seen
+        )
+        pending.extend(_references(context))
+        if baseline.get("controller_launch_ref") is not None:
+            parent_a = capsule["files"]["native-acceptance.json"]
+            io.require(
+                context["request_ref"] == baseline["controller_request_ref"]
+                and context["parent_acceptance_ref"]["sha256"] == parent_a["sha256"],
+                "cold_archive_crm_parent_acceptance",
+            )
+            accepted_parent = io.document(read(parent_a))
+            io.require(
+                all(
+                    crm_state["acceptance"][key] == accepted_parent[key]
+                    for key in ("pid", "start_ticks", "invocation_id")
+                ),
+                "cold_archive_crm_parent_incarnation",
+            )
+        first = io.document(read(next(iter(epoch["runtime_bindings"].values()))))
+        fence = io.document(read(first["ingress_fence_ref"]))
+        raw = file_reader(fence["state_path"], MAX_FILE_BYTES)
+        dispatch_ref = {"path": fence["state_path"], "sha256": io.sha(raw)}
+        dispatch = io.document(read(dispatch_ref))
+        io.require(
+            dispatch["state"] == "open"
+            and dispatch["admission_ref"] is not None
+            and all(dispatch[key] == epoch[key] for key in epochs.COMMON),
+            "cold_archive_terminal_dispatch",
+        )
+        pending.extend(_references(dispatch))
+        # Independent signatures bind inspection hashes, not their paths. Keep
+        # the controller's exact local inspection links and full evidence graph.
+        if package["scope"] == "production_native":
+            attempt = PurePosixPath(plan["baseline_ref"]["path"]).parent
+            for kind in ("offhost_restore", "native_acceptance", "runtime_acceptance"):
+                path = str(attempt / ("proof-binding-" + kind + ".json"))
+                raw = file_reader(path, MAX_FILE_BYTES)
+                pending.append({"path": path, "sha256": io.sha(raw)})
         walk()
         completed = io.document(seen[str(directory / "complete.json")])
         io.require(

@@ -82,6 +82,21 @@ def _uuid(value):
         return False
 
 
+def operation_id(value):
+    """Preserve Manager's actual stable identity; never use it as a path."""
+    if type(value) is not str or not 1 <= len(value) <= 200:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= 800 and not any(ord(char) < 32 for char in value)
+    except UnicodeEncodeError:
+        return False
+
+
+def operation_key(value):
+    need(operation_id(value), "operation_identity")
+    return io.sha(value.encode("utf-8"))
+
+
 def reference(value):
     fields(value, {"path", "sha256"}, "reference_fields")
     path = value["path"]
@@ -148,11 +163,11 @@ class Reader:
     def doc(self, ref):
         return io.document(self.raw(ref))
 
-    def bound(self, ref, name, binding, scope, extra):
+    def bound(self, ref, name, binding, scope, extra, *, version=1):
         value = self.doc(ref)
         fields(value, {"schema", "scope", "binding", *extra}, name + "_fields")
         need(
-            value["schema"] == "autostop.j1.cold-" + name + ".v1"
+            value["schema"] == "autostop.j1.cold-" + name + ".v" + str(version)
             and value["scope"] == scope
             and value["binding"] == binding,
             name + "_binding",
@@ -507,11 +522,12 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
         binding,
         scope,
         {"quarantine_ref", "inventory_ref", "scope", "requests"},
+        version=2 if scope == "production_native" else 1,
     )
     need(pending["quarantine_ref"] == package["quarantine_ref"], "pending_quarantine")
     reader.raw(pending["inventory_ref"])
     need(pending["scope"] == scope, "pending_scope")
-    need(type(pending["requests"]) is list, "pending_requests")
+    need(type(pending["requests"]) is list and len(pending["requests"]) <= 8192, "pending_requests")
     ids = []
     for row in pending["requests"]:
         fields(
@@ -520,7 +536,7 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
             "pending_request_fields",
         )
         need(
-            _uuid(row["op_id"])
+            operation_id(row["op_id"])
             and type(row["payload_sha256"]) is str
             and HEX.fullmatch(row["payload_sha256"]),
             "pending_request_identity",

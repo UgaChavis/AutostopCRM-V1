@@ -16,8 +16,9 @@ from pathlib import Path
 # to this allowlist. The guard's own digest is bound by the cold package.
 BOOTSTRAP_HASHES = {
     "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
-    "j1_forward_cold_authority": "762de70cde3f8b002c6c3fb31528f62c347cdcb685c3517fd397bfff631eb3ed",
-    "j1_forward_cold_native": "e56f39afc37401a956cb72763b7f8f63b22ea00aef7c91b17028969b2b8b5a2c",
+    "j1_forward_authority": "98bf737d3a3cca4482ee8ae6158fde3b85034fba4587321e818b9c84eea32e08",
+    "j1_forward_cold_authority": "ed22ec64cf8dd3ebabe1afbd1d84aad25b9c446bc7d2e118ccc9760ede9f2399",
+    "j1_forward_cold_native": "a897d4f80d57831e18b72b07977b395ed6918281be6ba203733f0f3037b43359",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
     "j1_forward_cold_history": "8786ee7b8f4688763eb68a1bc4d9910d181bef566dfad7eea8a509d82409b509",
     "j1_forward_cold_hold": "2f158f5a2158e2f8ed178ad7f9c0bfd56ddc70028ba6f3e968320ef723926d60",
@@ -25,7 +26,8 @@ BOOTSTRAP_HASHES = {
     "j1_forward_launch_permission": "bc02591b3c8e3eee37b58d8b440c2c041968ba8bd34d8597c13e6bc7431be8a9",
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
-    "j1_forward_cold_lifecycle": "9f32fe6d1114e3f5db2ada460c4a7a1c09ea486443f5206590d10e7658f54d69",
+    "j1_forward_cold_state": "965f34275faf8e4b979672fa97dafee9878ae6a57547200a7fa32879f48225ca",
+    "j1_forward_cold_lifecycle": "1fbe00c3aa718600ebae0266e8f589888d2416b36c8286cf1605b1132df7e62b",
     "j1_forward_cold_fixture": "e6396b2b3e5403a85707efac301582cd5f9bfa3d932e084363fcbf2c3e811d77",
 }
 
@@ -195,10 +197,12 @@ def main(argv=None):
         backend = object()  # Worker has no publisher, launch or acceptance capability.
     else:
         provider = native.NativeProvider()
-        package_ref = native.io.reference(native.PACKAGE)
-        package = native.io.document(provider.read_reference(package_ref))
-        generation = package["binding"]["generation"]
+        contract.need(args.epoch is not None and contract._uuid(args.epoch), "cli_epoch_required")
+        generation = args.epoch
         epoch_path = native.STATE / "epochs" / generation / "epoch.json"
+        epoch = native.io.document(native.io.read_protected(epoch_path))
+        package_ref = epoch["package_ref"]
+        provider.boundary(package_ref)
         backend = None
     package = native.io.document(provider.read_reference(package_ref))
     generation = package["binding"]["generation"]

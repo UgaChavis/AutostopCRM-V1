@@ -25,6 +25,7 @@ from scripts import j1_forward_launch_permission as journal
 
 STATE = native.STATE / "epochs"
 NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
+BOOTSTRAP_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
 
 
 def slot_id(binding, unit):
@@ -204,7 +205,7 @@ class NativeBackend:
         contract.need(
             interpreter == str(Path("/usr/bin/python3").resolve()), "slot_bootstrap_interpreter"
         )
-        environment = context["environment"]
+        environment = context["bootstrap_environment"]
         contract.need(
             not any(key in environment for key in ("LD_PRELOAD", "PYTHONHOME")),
             "slot_unsafe_bootstrap_environment",
@@ -250,6 +251,7 @@ class NativeBackend:
 
     def launch(self, ticket, context):
         # S is already durable. Timeout/crash never implies never-dispatched.
+        self._verify_unit(ticket, context, inactive=True)
         subprocess.run(
             ["/usr/bin/systemctl", "start", "--no-block", ticket["unit"]],
             check=True,
@@ -259,9 +261,13 @@ class NativeBackend:
             env={"PATH": "/usr/bin:/bin", "LANG": "C"},
         )
 
+    def closed(self, ticket, context):
+        self._verify_unit(ticket, context, inactive=True)
+
     def observe(self, ticket, context, *, started=False):
         from scripts import j1_forward_launch_native
 
+        self._verify_unit(ticket, context, inactive=False)
         before = j1_forward_launch_native._unit(ticket["unit"])
         contract.need(
             before["Id"] == ticket["unit"]
@@ -282,6 +288,78 @@ class NativeBackend:
         )
         return {**result, "invocation_id": before["InvocationID"]}
 
+    def _verify_unit(self, ticket, context, *, inactive):
+        from scripts import j1_forward_authority
+
+        contract.need(
+            re.fullmatch(r"autostop-crm-forward-[0-9a-f-]{36}\.service", ticket["unit"]),
+            "slot_unit_name",
+        )
+        properties = (*native.UNIT_PROPERTIES, "Restart", "FragmentPath", "Job")
+        raw = subprocess.run(
+            [
+                "/usr/bin/systemctl",
+                "show",
+                ticket["unit"],
+                "--no-pager",
+                "--property=" + ",".join(properties),
+            ],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=5,
+            check=False,
+            env=BOOTSTRAP_ENVIRONMENT,
+        )
+        contract.need(raw.returncode == 0, "slot_loaded_unit_unavailable")
+        fields = j1_forward_authority._systemd_fields(raw.stdout)
+        contract.need(set(fields) == set(properties), "slot_loaded_unit_fields")
+        command = " ".join(context["worker_argv"])
+        check = command.replace(" launch ", " check ", 1)
+        contract.need(
+            fields["Id"] == ticket["unit"]
+            and fields["LoadState"] == "loaded"
+            and fields["NeedDaemonReload"] == "no"
+            and fields["Type"] == "exec"
+            and fields["Restart"] == "no"
+            and fields["FragmentPath"] == "/etc/systemd/system/" + ticket["unit"]
+            and native.commands(fields["ExecStart"]) == [command]
+            and native.commands(fields["ExecCondition"]) == [check]
+            and all(
+                not fields[key]
+                for key in (
+                    "ExecStartPre",
+                    "ExecStartPost",
+                    "ExecStop",
+                    "ExecStopPost",
+                    "ExecReload",
+                    "DropInPaths",
+                    "EnvironmentFiles",
+                )
+            )
+            and fields["User"] == "root"
+            and fields["Group"] in {"", "root"}
+            and not fields["SupplementaryGroups"]
+            and fields["WorkingDirectory"] == "/",
+            "slot_loaded_unit_changed",
+        )
+        import shlex
+
+        rows = [entry.split("=", 1) for entry in shlex.split(fields["Environment"])]
+        contract.need(
+            all(len(row) == 2 for row in rows)
+            and len({row[0] for row in rows}) == len(rows)
+            and dict(rows) == context["bootstrap_environment"],
+            "slot_loaded_environment_changed",
+        )
+        if inactive:
+            contract.need(
+                fields["ActiveState"] == "inactive" and fields["MainPID"] == "0",
+                "slot_already_active_no_retry",
+            )
+            contract.need(fields["Job"] == "0", "slot_pending_job_no_retry")
+        else:
+            contract.need(fields["ActiveState"] in {"active", "activating"}, "slot_not_active")
+
     def observe_crm(self, reference, epoch_ref, package_ref):
         from scripts import j1_forward_cold_host
 
@@ -289,19 +367,40 @@ class NativeBackend:
             reference, epoch_ref=epoch_ref, package_ref=package_ref
         )
 
+    def parent_executor(self, request_ref):
+        from scripts import j1_forward_cold_controller_native, j1_forward_launch_native
+
+        request = io.document(io.referenced(request_ref))
+        _store, snapshot, context = j1_forward_cold_controller_native.validate(
+            request["attempt_id"]
+        )
+        contract.need(
+            context["plan_ref"] == request_ref and snapshot["state"]["execution_possible"] is True,
+            "crm_parent_not_entered",
+        )
+        accepted = snapshot["state"]["acceptance"]
+        observed = j1_forward_launch_native.observe_worker(
+            snapshot["ticket"], context, self_only=True
+        )
+        contract.need(
+            observed == {key: accepted[key] for key in observed}, "crm_parent_incarnation_changed"
+        )
+        return observed, accepted["evidence_ref"]
+
 
 def _observe_process(pid, context, provider, *, started):
     before = native.actor(pid)
     expected = context["application_argv"] if started else context["worker_argv"]
     cwd = context["application_cwd"] if started else context["worker_cwd"]
-    credentials = (
-        context["credentials"]
-        if started
-        else {"uid": os.geteuid(), "gid": os.getegid(), "groups": sorted(os.getgroups())}
-    )
+    credentials = context["credentials"] if started else context["bootstrap_credentials"]
     contract.need(
         before["argv_sha256"] == io.sha(b"\0".join(os.fsencode(arg) for arg in expected) + b"\0")
-        and before["exe_ref"]["path"] == context["interpreter"]
+        and before["exe_ref"]
+        == (
+            context["application_interpreter_ref"]
+            if started
+            else context["bootstrap_interpreter_ref"]
+        )
         and os.readlink(Path("/proc") / str(pid) / "cwd") == cwd
         and all(before[key] == credentials[key] for key in credentials),
         "slot_native_process",
@@ -317,7 +416,10 @@ def _observe_process(pid, context, provider, *, started):
             contract.need(
                 re.fullmatch(pattern, environment.pop(key)), "slot_native_environment_volatile"
             )
-    contract.need(environment == context["environment"], "slot_native_environment")
+    contract.need(
+        environment == (context["environment"] if started else context["bootstrap_environment"]),
+        "slot_native_environment",
+    )
     if started and provider.scope == "production_native":
         _loaded_libraries(pid, context, provider)
     contract.need(native.actor(pid) == before, "slot_native_process_raced")
@@ -352,6 +454,9 @@ class FixtureBackend:
     def stage(self, _unit, _context, _ticket, _root):
         return None
 
+    def closed(self, ticket, _context):
+        contract.need(ticket["unit"] not in self.started, "fixture_slot_already_submitted")
+
     def launch(self, ticket, context):
         root = self.fixture.root
         contract.need(
@@ -366,7 +471,7 @@ class FixtureBackend:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=root,
-            env=context["environment"],
+            env=context["bootstrap_environment"],
             close_fds=True,
         )
         self.fixture.children.append(child)
@@ -414,6 +519,9 @@ class Controller:
         )
 
     def verify(self):
+        contract.need(
+            not (self.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
+        )
         value = native.verify_package(
             self.package_ref, provider=self.provider, required_scope=self.provider.scope
         )
@@ -439,13 +547,29 @@ class Controller:
         binding = value["package"]["binding"]
         for unit, policy in value["policies"].items():
             store = self.store(unit)
+            bootstrap = (
+                str(Path("/usr/bin/python3").resolve(strict=True))
+                if self.provider.scope == "production_native"
+                else policy["interpreter_ref"]["path"]
+            )
+            accepted_runtime = []
+            for key in ("runtime_index_ref", "startup_index_ref"):
+                accepted_runtime.extend(
+                    io.document(self.provider.read_reference(policy[key]))["files"]
+                )
+            refs = [reference for reference in accepted_runtime if reference["path"] == bootstrap]
+            contract.need(
+                refs and all(reference == refs[0] for reference in refs),
+                "slot_bootstrap_runtime_unaccepted",
+            )
+            self.provider.read_reference(refs[0])
             guard = (
                 str(native.INSTALL / "guard.py")
                 if self.provider.scope == "production_native"
                 else str(self.provider.root / "source/scripts/j1_forward_cold_guard.py")
             )
             argv = [
-                policy["interpreter_ref"]["path"],
+                bootstrap,
                 "-I",
                 "-S",
                 "-B",
@@ -466,7 +590,19 @@ class Controller:
                 "package_ref": self.package_ref,
                 "epoch_ref": self.epoch_ref,
                 "policy_ref": value["package"]["policies"][unit],
-                "interpreter": policy["interpreter_ref"]["path"],
+                "interpreter": bootstrap,
+                "bootstrap_interpreter_ref": refs[0],
+                "application_interpreter_ref": policy["interpreter_ref"],
+                "bootstrap_environment": BOOTSTRAP_ENVIRONMENT,
+                "bootstrap_credentials": (
+                    {"uid": 0, "gid": 0, "groups": [0]}
+                    if self.provider.scope == "production_native"
+                    else {
+                        "uid": os.geteuid(),
+                        "gid": os.getegid(),
+                        "groups": sorted(os.getgroups()),
+                    }
+                ),
                 "worker_argv": argv,
                 "worker_cwd": "/"
                 if self.provider.scope == "production_native"
@@ -512,6 +648,18 @@ class Controller:
 
     prepare = stage
 
+    def closed(self):
+        self.verify()
+        for unit in contract.ALLOWED:
+            _store, snapshot, context = self.context(unit)
+            contract.need(
+                snapshot["state"]["dispatch_possible"] is False
+                and snapshot["state"]["execution_possible"] is False,
+                "slot_closed_stage_already_submitted",
+            )
+            self.backend.closed(snapshot["ticket"], context)
+        return {"ok": True, "candidate_running": False}
+
     def issue(self, plan_ref, backup_ref, offhost_ref):
         from scripts import j1_forward_proofs as proofs
         from scripts import j1_forward_variant
@@ -533,6 +681,9 @@ class Controller:
             plan_validator=j1_forward_variant.validate_plan,
         )
         captured = io.document(io.referenced(backup_ref))
+        archived = io.document(
+            io.referenced(io.reference(Path(plan_ref["path"]).parent / "control-closed.json"))
+        )
         contract.need(
             payload.get("actual_restore") is True
             and payload.get("control_graph_restored") is True
@@ -542,6 +693,12 @@ class Controller:
             and payload.get("baseline_sha256") == plan["baseline_ref"]["sha256"]
             and payload.get("profile_sha256") == baseline["backup_profile_sha256"],
             "slot_independent_restore_required",
+        )
+        contract.need(
+            payload.get("control_archive_manifest_sha256") == archived["manifest_sha256"]
+            and type(payload.get("control_restore_receipt_sha256")) is str
+            and contract.HEX.fullmatch(payload["control_restore_receipt_sha256"]),
+            "slot_independent_control_restore_required",
         )
         return _publish(
             self.root / "release-admission.json",
@@ -573,19 +730,46 @@ class Controller:
         return store, snapshot, context
 
     def admitted(self, *, fresh=True):
+        from scripts import j1_forward_cold_state
+
         admission = io.document(_read(self.root / "release-admission.json", self.root))
+        contract.fields(
+            admission,
+            {
+                "schema",
+                "package_ref",
+                "epoch_ref",
+                "plan_ref",
+                "backup_ref",
+                "offhost_ref",
+                "candidate_may_have_written",
+                "old_writer_allowed",
+            },
+            "slot_admission_fields",
+        )
         contract.need(
-            admission["package_ref"] == self.package_ref
+            admission["schema"] == "autostop.j1.cold-slot-release-admission.v1"
+            and admission["candidate_may_have_written"] is True
+            and admission["package_ref"] == self.package_ref
             and admission["epoch_ref"] == self.epoch_ref
             and admission["old_writer_allowed"] is False,
             "slot_admission_binding",
+        )
+        plan = io.document(self.provider.read_reference(admission["plan_ref"]))
+        j1_forward_cold_state.validate_plan(plan, plan["base_sha256"])
+        package = io.document(self.provider.read_reference(self.package_ref))
+        contract.need(
+            plan["cold_authority_package_ref"] == self.package_ref
+            and plan["dispatch_epoch_ref"] == self.epoch_ref
+            and plan["candidate"]["revision"] == package["binding"]["candidate_crm_sha"]
+            and plan["candidate_manager_sha"] == package["binding"]["candidate_manager_sha"],
+            "slot_final_plan_binding",
         )
         if fresh:
             from datetime import UTC, datetime
 
             from scripts import j1_forward_state
 
-            plan = io.document(self.provider.read_reference(admission["plan_ref"]))
             now = datetime.now(UTC)
             contract.need(
                 j1_forward_state._timestamp(plan["created_at"])
@@ -693,7 +877,10 @@ class Controller:
     def ready(self):
         self.verify()
         accepted = {unit: self.accept(unit) for unit in contract.ALLOWED}
-        crm = io.document(_read(self.root / "crm-accepted.json", self.root))
+        crm_raw = _read(self.root / "crm-accepted.json", self.root)
+        crm_ref = {"path": str(self.root / "crm-accepted.json"), "sha256": io.sha(crm_raw)}
+        crm = self.backend.observe_crm(crm_ref, self.epoch_ref, self.package_ref)
+        contract.need(io.canonical(crm) == crm_raw, "slot_crm_acceptance_changed")
         contract.need(
             crm["epoch_ref"] == self.epoch_ref and crm["package_ref"] == self.package_ref,
             "slot_crm_acceptance_required",
@@ -710,6 +897,19 @@ class Controller:
         # The native container observer is deliberately a separate boundary from
         # the six role tickets. Its fixed implementation is supplied by ColdHost.
         self.verify()
+        entry = self.kernel.LaunchStore(
+            self.root / "crm-start" / self.epoch["attempt_id"],
+            owner=os.geteuid(),
+            clock=time.monotonic,
+        )
+        entered = coherent(entry)
+        contract.need(entered["state"]["execution_possible"] is True, "slot_crm_entry_not_consumed")
+        entry_context = io.document(_read(entry.root / "context.json", self.root))
+        contract.need(
+            entry_context["plan_ref"] == self.admitted()["plan_ref"]
+            and io.sha(io.canonical(entry_context)) == entered["ticket"]["context_sha256"],
+            "slot_crm_entry_plan_changed",
+        )
         evidence = self.backend.observe_crm(evidence_ref, self.epoch_ref, self.package_ref)
         plan = io.document(self.provider.read_reference(self.admitted()["plan_ref"]))
         contract.need(
@@ -722,6 +922,127 @@ class Controller:
             evidence.get("spec_ref") == plan["cold_crm_spec_ref"], "slot_crm_spec_changed"
         )
         return _publish(self.root / "crm-accepted.json", evidence, self.root)
+
+    def consume_crm_start(self, parent_request_ref):
+        """Consume one final-plan CRM entry using the external parent A.
+
+        Request E alone cannot reach this method's effect boundary. Lost reply
+        after this E never permits a second replacement or a new operation ID.
+        """
+        self.verify()
+        admission = self.admitted()
+        plan = io.document(self.provider.read_reference(admission["plan_ref"]))
+        baseline = io.document(self.provider.read_reference(plan["baseline_ref"]))
+        contract.need(
+            baseline["controller_request_ref"] == parent_request_ref, "crm_parent_request_binding"
+        )
+        observed, parent_acceptance_ref = self.backend.parent_executor(parent_request_ref)
+        contract.need(
+            observed["pid"] == os.getpid() and observed["start_ticks"] == native.birth(os.getpid()),
+            "crm_not_parent_executor",
+        )
+        context = {
+            "schema": "autostop.j1.cold-crm-entry-context.v1",
+            "role": "crm-embedded",
+            "request_ref": parent_request_ref,
+            "parent_acceptance_ref": parent_acceptance_ref,
+            "plan_ref": admission["plan_ref"],
+            "spec_ref": plan["cold_crm_spec_ref"],
+            "package_ref": self.package_ref,
+            "epoch_ref": self.epoch_ref,
+            "candidate": plan["candidate"],
+        }
+        folder = self.root / "crm-start"
+        _mkdir(folder, self.root)
+        store = self.kernel.LaunchStore(
+            folder / self.epoch["attempt_id"], owner=os.geteuid(), clock=time.monotonic
+        )
+        if store.root.exists():
+            snapshot = coherent(store)
+            contract.need(
+                _read(store.root / "context.json", self.root) == io.canonical(context),
+                "crm_entry_context_changed",
+            )
+            contract.need(
+                snapshot["state"]["execution_possible"] is False,
+                "crm_replacement_already_consumed_no_retry",
+            )
+            ticket = snapshot["ticket"]
+        else:
+            from datetime import UTC, datetime
+
+            from scripts import j1_forward_state
+
+            now = time.monotonic()
+            remaining = (
+                j1_forward_state._timestamp(plan["deadline_utc"]) - datetime.now(UTC)
+            ).total_seconds()
+            ticket = {
+                "schema": journal.SCHEMA,
+                "attempt_id": self.epoch["attempt_id"],
+                "nonce": str(uuid.uuid4()),
+                "plan_ref": admission["plan_ref"],
+                "source_sha256": plan["candidate"]["consumer_sha256"],
+                "context_sha256": io.sha(io.canonical(context)),
+                "host": socket.gethostname(),
+                "boot_id": self.epoch["boot_id"],
+                "owner_generation": self.epoch["generation"],
+                "unit": "autostop-crm-forward-" + self.epoch["attempt_id"] + ".service",
+                "not_before": now,
+                "expires_at": min(
+                    now + remaining,
+                    io.document(self.provider.read_reference(self.package_ref))["binding"][
+                        "deadline_ns"
+                    ]
+                    / 10**9,
+                ),
+            }
+            store.create(ticket)
+            _publish(store.root / "context.json", context, self.root)
+        _transition(store, ticket, "submit", {"owner": native.controller(os.getpid())})
+        evidence = {
+            "schema": "autostop.j1.forward-launch-native-acceptance.v1",
+            "ticket_sha256": coherent(store)["state"]["ticket_sha256"],
+            **{
+                key: ticket[key]
+                for key in (
+                    "attempt_id",
+                    "nonce",
+                    "boot_id",
+                    "unit",
+                    "context_sha256",
+                    "source_sha256",
+                )
+            },
+            **observed,
+        }
+        evidence_ref = _publish(store.root / "native-acceptance.json", evidence, self.root)
+        contract.need(
+            self.backend.parent_executor(parent_request_ref) == (observed, parent_acceptance_ref),
+            "crm_parent_raced",
+        )
+        worker = {**observed, "evidence_ref": evidence_ref}
+        _transition(store, ticket, "accept", {"receipt": worker})
+        claim = _transition(store, ticket, "claim", {"worker": worker})
+        contract.need(not claim["historical"], "crm_entry_already_claimed")
+        self.verify()
+        self.admitted()
+        contract.need(
+            self.backend.parent_executor(parent_request_ref) == (observed, parent_acceptance_ref),
+            "crm_parent_raced",
+        )
+        entered = _transition(store, ticket, "enter", {"worker": worker})
+        contract.need(entered["action_authorized"], "crm_replacement_already_consumed_no_retry")
+        return {
+            "ok": True,
+            "entry_consumed": True,
+            "plan_ref": admission["plan_ref"],
+            "spec_ref": plan["cold_crm_spec_ref"],
+            "ticket_ref": {
+                "path": str(store.root / "ticket.json"),
+                "sha256": coherent(store)["state"]["ticket_sha256"],
+            },
+        }
 
     def commit(self, commit_ref, *, store=None):
         from scripts import j1_forward_cold_state, j1_forward_variant
@@ -795,6 +1116,9 @@ class Controller:
         _value, fence = self.verify()
         descriptor = epochs.locked_fence(fence, exclusive=True)
         try:
+            contract.need(
+                not (self.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
+            )
             admission_ref = j1_forward_cold_projection.publish(
                 commit["plan_ref"],
                 commit_ref,

@@ -6,11 +6,19 @@ process scope, or an exited SSH transport as a current native permit. The two
 permanently denied roles remain denied. No production operation is performed
 by importing these modules or running the private fixture tests.
 
-The implemented boundary is deliberately precise: compile all six new profile
-policies from one exact source package, publish an immutable cold package,
-independently measure native closure/quarantine, and enter six guarded private
-probe processes. This is not the complete forward-release controller, a start
-grant issuer, application acceptance, or permission to remove a fence.
+The bounded controller uses a distinct preparation request and final sealed
+cold plan. Request S/A/C/E retains one deployment-lock owner through preparation,
+backup, independent restore, final admission, six new execution slots and a
+separate one-shot CRM replacement. Neither a source installation nor a request
+entry grants application admission. Production execution remains unauthorized
+until the exact release tuple, producer evidence, qualified GitHub jobs and
+future-window native and business acceptance have all passed.
+
+The original eight units and scheduler hold remain closed. The six execution
+slots have new attempt-derived unit identities; the seventh writer is the CRM
+embedded Manager library. No original unit/drop-in or historical pending bytes
+are rewritten or adopted. A terminal safety close permanently refuses reopening
+the same epoch. An unknown submitted outcome never permits another submission.
 
 ## Public interfaces and versioned documents
 
@@ -26,12 +34,26 @@ grant issuer, application acceptance, or permission to remove a fence.
   and rereads their entire reference graph. It does not infer native truth.
 * `j1_forward_cold_native.verify_package(...)` repeats the fresh native checks.
   The default provider has fixed production paths and commands. It never calls
-  an existing ready/RPC/guard command, opens a database, signals a production
+  an existing ready/RPC/guard command, queries business data, signals a production
   process, starts/stops a unit, installs a policy, or changes a barrier.
 * `CheckedDispatcher.inspect(unit)` and `j1_forward_cold_guard.inspect(...)`
   enforce the exact unit, package, generation, interval and source bindings.
   `current_process=True` additionally compares the actual interpreter, argv,
   environment, credentials and cwd before a private probe effect.
+* `j1_forward_cold_install.inert_stage(...)` copies exact protected source and
+  configuration into fresh namespaces under the original lock. Seven binding
+  manifests and empty state/run roots are required; no service starts here.
+* `j1_forward_cold_release.py issue-request` replays the exact-source GitHub
+  qualification before publishing a request ticket. `launch` reserves one
+  transient controller submission; `controller` is its fixed native consumer.
+  `settle` only closes the new dispatch epoch and records a terminal refusal.
+  `inspect` and the Windows custodian use the separate typed cold contract.
+
+The qualification binds the full CRM source inventory and exact Git revision
+and tree to quality, full Linux, full Windows and native systemd jobs. It is
+distinct from the package's smaller observer-consumer digest. The worker reads
+the immutable qualification; the issuer independently rechecks GitHub before
+issuing. A five-job legacy quality receipt alone is insufficient.
 
 Package schema: `autostop.j1.crm-manager-cold-authority-package.v1`.
 Its contract is `all_six_profiles_cold_quarantined_v1`. A future controller must
@@ -70,11 +92,35 @@ Permanent DENY:
 
 ## Actual native evidence, not flags
 
-Production configuration is fixed under `/etc/autostop-crm-forward/cold/v1`;
+Production packages are immutable at
+`/etc/autostop-crm-forward/cold/v1/packages/<attempt-UUID>/authority.json`.
+The guarded slot derives its exact package reference from the fixed epoch;
+there is no replaceable global authority selector. Configuration is fixed under
+`/etc/autostop-crm-forward/cold/v1`;
 consumer files are under `/usr/local/libexec/autostop-crm-forward-cold/v1` and
 state under `/var/lib/autostop-crm-forward/cold/v1`. There is no environment
 override. Missing fresh inputs refuse normally rather than inheriting warm
 permission. The implementation is not a permanent `unimplemented` refusal.
+
+Production pending-disposition documents use the explicit v2 schema. Original
+Manager operation IDs are retained as bounded strings in both disposition and
+tombstones; only filesystem keys are SHA-256 encoded. Unknown outcomes require
+review and remain forbidden for replay. Existing private v1 fixture documents
+cannot satisfy the production scope.
+
+Capture snapshots authenticate each reference once, reuse only identical
+captured bytes during pure semantic validation, and re-read every physical
+source with the same inode/version before accepting the capture. This retains
+no descriptor per graph entry. Off-host restoration uses captured bytes only;
+it never stats a logical production path or grants native authority. The native
+closure checks before and after capture remain mandatory.
+
+Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
+and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
+checks CRM-to-Store compatibility. Both explicitly report business acceptance
+as false. Customer-facing business acceptance remains a separate release-window
+gate, alongside the Store candidate's quiet backup, independent restore and
+schema/principal readback. The cold controller does not deploy Store.
 
 The provider rechecks physical protected source/runtime/startup files, the
 complete source tree, exact effective unit records and non-ignored dispatch
@@ -183,19 +229,21 @@ Linux uses actual pidfd, flock, AF_UNIX and SO_PEERCRED. Those native cases have
 the documented Windows exclusion `Requires real Linux flock, AF_UNIX and
 SO_PEERCRED`; portable compiler/record tests remain mandatory on both platforms.
 
-## Wiring still required for a full cold release
+## Integration and release acceptance
 
-The core controller must explicitly dispatch the new cold plan and durable
-store chain, freeze the additional consumer inventory, stage/install the exact
-published all-profile source in an immutable isolated slot, and collect new
-native kernel/lifecycle and complete ingress/pending inputs. It must issue
-separate one-shot start permissions bound to attempt/boot/generation/unit and
-the cold package, use the native launch journal for each of six executors,
-obtain actual per-role runtime acceptance, and remove only that role's owned
-fence after its acceptance. Both permanent denies stay in place.
+The controller explicitly uses the cold plan and durable recovery-store chain,
+typed data/control backup, independent off-host signature and final COMMIT.
+All six new role entries and the separate CRM entry are one-shot permissions
+bound to the final plan. Only the new shared dispatch epoch opens after all
+seven native acceptances and durable HEAD. The original eight barriers and
+original scheduler hold remain installed; no old duty helper is started.
 
-Full cold recovery also needs the existing archive/data/control restore,
-independent off-host proof, Store stop and final success/commit protocol wired
-to this variant. Closure preparation, a native-fixture probe, a package hash or
-a passing source test is not production acceptance, deployment readiness, or
-proof that an external request can safely be replayed.
+The effectful native producer, actual new kernel bootstrap and complete old
+ingress/pending inventory must be independently exercised with this controller.
+The real Codex executable exceeds the legacy control-archive leaf budget; its
+separately versioned runtime codec and measured resource acceptance are required
+before a production package can qualify. Private Python workers do not prove
+this runtime boundary. No current production grant is created by this source.
+
+Closure preparation, a fixture probe, a package hash or a passing source test
+is not production acceptance or proof that an external request may be replayed.

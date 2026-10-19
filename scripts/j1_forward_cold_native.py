@@ -24,11 +24,9 @@ HOST = "vps26457.mnogoweb.in"
 CONFIG = Path("/etc/autostop-crm-forward/cold/v1")
 INSTALL = Path("/usr/local/libexec/autostop-crm-forward-cold/v1")
 STATE = Path("/var/lib/autostop-crm-forward/cold/v1")
-PACKAGE = CONFIG / "authority.json"
 DEPLOY_LOCK = Path("/opt/autostopcrm/.autostop-deploy.lock")
 HOLD = STATE / "ingress-held.json"
 DISPATCH_LOCK = STATE / "dispatch.lock"
-KERNEL_UNIT = "autostop-j1-cold-kernel.service"
 UNIT_PROPERTIES = (
     "Id",
     "Type",
@@ -57,6 +55,16 @@ ACTOR_FIELDS = set(
     "pid start_ticks uid gid groups cgroup mount_namespace exe_ref argv_sha256 "
     "environment_sha256".split()
 )
+
+
+def package_path(attempt):
+    contract.need(contract._uuid(attempt), "native_package_attempt")
+    return CONFIG / "packages" / attempt / "authority.json"
+
+
+def kernel_unit(generation):
+    contract.need(contract._uuid(generation), "native_kernel_generation")
+    return "autostop-j1-cold-kernel-" + generation + ".service"
 
 
 def birth(pid):
@@ -206,16 +214,36 @@ class NativeProvider:
             os.name == "posix"
             and hasattr(os, "pidfd_open")
             and os.geteuid() == 0
-            and socket.gethostname() == HOST
-            and reference["path"] == str(PACKAGE),
+            and socket.gethostname() == HOST,
             "native_fixed_boundary",
+        )
+        contract.reference(reference)
+        path = Path(reference["path"])
+        contract.need(
+            path.parent.parent == CONFIG / "packages"
+            and path.name == "authority.json"
+            and contract._uuid(path.parent.name),
+            "native_package_location",
+        )
+        document = io.document(self.read_reference(reference))
+        contract.need(
+            path == package_path(document["binding"]["attempt_id"]),
+            "native_package_attempt_binding",
         )
 
     def boot(self):
         return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
 
     def systemd(self, unit):
-        contract.need(unit in (*contract.UNITS, KERNEL_UNIT), "native_unit_scope")
+        allowed_kernel = (
+            type(unit) is str
+            and unit.startswith("autostop-j1-cold-kernel-")
+            and unit.endswith(".service")
+            and contract._uuid(
+                unit.removeprefix("autostop-j1-cold-kernel-").removesuffix(".service")
+            )
+        )
+        contract.need(unit in contract.UNITS or allowed_kernel, "native_unit_scope")
         result = subprocess.run(
             [
                 "/usr/bin/systemctl",
@@ -233,13 +261,9 @@ class NativeProvider:
         contract.need(
             result.returncode == 0 and len(result.stdout) <= 256 * 1024, "native_unit_observation"
         )
-        rows = [line.partition("=") for line in result.stdout.decode().splitlines()]
-        contract.need(
-            all(separator for _key, separator, _value in rows)
-            and len({row[0] for row in rows}) == len(rows),
-            "native_unit_fields",
-        )
-        values = {key: value for key, _separator, value in rows}
+        from scripts import j1_forward_authority
+
+        values = j1_forward_authority._systemd_fields(result.stdout)
         contract.need(
             set(values) == set(UNIT_PROPERTIES)
             and values["Id"] == unit
@@ -280,14 +304,13 @@ class NativeProvider:
                 set(expected) == set(UNIT_PROPERTIES) and actual == expected,
                 "native_profile_unit_changed",
             )
-            guard = str(INSTALL / "guard.py")
-            suffix = " --binding-sha256 " + contract.digest(package["binding"]) + " --unit " + unit
+            # This is the preserved original unit, not the new execution slot.
+            # Its exact old policy remains pinned and an effective final FALSE
+            # prevents any old application entry. New-slot CLI/A/C/E is checked
+            # separately by the lifecycle; no old unit/drop-in is rewritten.
             contract.need(
-                commands(actual["ExecCondition"])
-                == ["/usr/bin/python3 -I -S -B " + guard + " check" + suffix, "/usr/bin/false"]
-                and commands(actual["ExecStart"])
-                == ["/usr/bin/python3 -I -S -B " + guard + " launch" + suffix],
-                "native_cold_dispatch_not_loaded",
+                commands(actual["ExecCondition"])[-1:] == ["/usr/bin/false"],
+                "native_original_deny_not_loaded",
             )
             contract.need(
                 all(
@@ -312,7 +335,11 @@ class NativeProvider:
     def _exact_source_tree(self, policy):
         root = Path(policy["source_root"])
         contract.need(
-            root.is_absolute() and root.is_relative_to(INSTALL / "source"), "native_source_location"
+            root
+            == Path("/opt/autostop-manager-cold-releases")
+            / policy["binding"]["candidate_manager_sha"]
+            / "source",
+            "native_source_location",
         )
         index = io.document(self.read_reference(policy["source_index_ref"]))
         expected = {row["path"] for row in index["files"]}
@@ -328,6 +355,8 @@ class NativeProvider:
         contract.need(actual == expected, "native_source_inventory_changed")
 
     def verify_closure(self, validated):
+        from scripts import j1_forward_authority as historical_authority
+
         package, closure, hold = (validated[key] for key in ("package", "closure", "hold"))
         info = DEPLOY_LOCK.lstat()
         contract.need(
@@ -353,15 +382,44 @@ class NativeProvider:
             marker["deployment_descriptor"],
             package["binding"]["deployment_lock_identity"],
         )
+        original = io.document(self.read_reference(validated["history"]["anchor"]["closure_ref"]))
+        expected = {
+            row["unit"]: {key: row[key] for key in ("path", "sha256")}
+            for row in original["dropins"]
+        }
+        contract.need(
+            closure["barriers"] == expected and set(expected) == set(contract.UNITS),
+            "native_historical_barrier_binding",
+        )
+        for pinned in (historical_authority.GUARD, historical_authority.CAPSULE):
+            self.read_reference({"path": str(pinned), "sha256": historical_authority.PINS[pinned]})
+        capsule = io.document(
+            self.read_reference(
+                {
+                    "path": str(historical_authority.CAPSULE),
+                    "sha256": historical_authority.PINS[historical_authority.CAPSULE],
+                }
+            )
+        )
+        self.read_reference(capsule["policy"])
         for unit, reference in closure["barriers"].items():
             contract.need(
-                reference["path"] == "/etc/systemd/system/" + unit + ".d/zz-j1-cold-closed.conf"
+                reference["path"] == "/etc/systemd/system/" + unit + ".d/zz-j1-forward-closed.conf"
                 and self.read_reference(reference) == contract.DENY_BYTES,
                 "native_owned_barrier_path",
             )
             fields = self.systemd(unit)
             contract.need(
-                commands(fields["ExecCondition"])[-1:] == ["/usr/bin/false"]
+                commands(fields["ExecCondition"])
+                == [
+                    "/usr/bin/python3 -I -S "
+                    + str(historical_authority.GUARD)
+                    + " check --policy-sha256 "
+                    + capsule["policy"]["sha256"]
+                    + " --unit "
+                    + unit,
+                    "/usr/bin/false",
+                ]
                 and fields["MainPID"] == "0"
                 and fields["ActiveState"] == "inactive"
                 and all(
@@ -498,7 +556,9 @@ class NativeProvider:
             # to repeat the operation. No effect is deduced from an empty log.
             if row["outcome"] == "unknown":
                 continue
-            terminal_path = STATE / "requests" / row["op_id"] / "terminal.json"
+            terminal_path = (
+                STATE / "requests" / contract.operation_key(row["op_id"]) / "terminal.json"
+            )
             terminals = [ref for ref in row["evidence_refs"] if ref["path"] == str(terminal_path)]
             contract.need(len(terminals) == 1, "native_positive_terminal_missing")
             terminal = io.document(self.read_reference(terminals[0]))
@@ -566,7 +626,8 @@ class NativeProvider:
 
     def verify_kernel(self, validated):
         kernel, binding = validated["kernel"], validated["package"]["binding"]
-        contract.need(kernel["unit"] == KERNEL_UNIT, "native_new_kernel_unit")
+        unit = kernel_unit(binding["generation"])
+        contract.need(kernel["unit"] == unit, "native_new_kernel_unit")
         policy = self.kernel_profile(validated)
         expected = kernel["actor"]
         actor_shape(expected)
@@ -577,7 +638,7 @@ class NativeProvider:
                 and actor(expected["pid"]) == expected,
                 "native_new_kernel_changed",
             )
-            fields = self.systemd(KERNEL_UNIT)
+            fields = self.systemd(unit)
             expected_unit = io.document(self.read_reference(policy["unit_ref"]))
             contract.need(
                 fields == expected_unit["properties"]
