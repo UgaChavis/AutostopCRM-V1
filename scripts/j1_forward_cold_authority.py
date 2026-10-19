@@ -54,6 +54,21 @@ HEX = re.compile(r"[0-9a-f]{64}\Z")
 SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 MAX_SOURCE_BYTES = 32 * 1024**2
 MAX_RUNTIME_BYTES = 384 * 1024**2
+PRODUCER_INPUT_FIELDS = set(
+    "predecessor_ref origin_ref manager runtime_artifact_ref runtime_artifact_provenance_ref "
+    "runtime_env credentials kernel catalog_policy_ref review_key_ref fresh_role_material_ref "
+    "telegram_frontier_policy_ref".split()
+)
+PRODUCER_RECEIPT_REFS = set(
+    "request_ref generation_custody_ref http_address_publication_ref "
+    "runtime_artifact_verification_ref fresh_role_material_ref cache_checkpoint_source_ref "
+    "old_crm_ingress_ref inert_installation_ref runtime_installation_ref source_checkpoint_ref".split()
+)
+PRODUCER_REQUEST_FIELDS = set(
+    "schema scope attempt_id host boot_id owner_generation source candidate "
+    "candidate_manager_sha inputs_ref ci_ref qualification_ref created_at deadline_utc "
+    "runtime_seconds old_writer_allowed".split()
+)
 
 
 def need(condition, code):
@@ -274,13 +289,7 @@ def compile_policy(binding, scope, unit, inputs, source_package, *, read_referen
         inputs, POLICY_FIELDS - {"schema", "scope", "contract", "binding", "unit"}, "compile_inputs"
     )
     reader = Reader(read_reference)
-    package = reader.bound(
-        source_package,
-        "source-package",
-        binding,
-        scope,
-        {"revision", "source_index_ref", "guard_ref", "native_ref"},
-    )
+    package = _source_package(reader, source_package, binding, scope)
     need(package["revision"] == binding["candidate_manager_sha"], "compile_revision")
     for key in ("source_index_ref", "guard_ref", "native_ref"):
         need(inputs[key] == package[key], "compile_package_" + key)
@@ -378,18 +387,111 @@ def profile_input_template():
     }
 
 
+def _source_package(reader, source_ref, binding, scope, *, predecessor_ref=None):
+    production = scope == "production_native"
+    source = reader.bound(
+        source_ref,
+        "source-package",
+        binding,
+        scope,
+        {"revision", "source_index_ref", "guard_ref", "native_ref"}
+        | ({"producer_inputs_ref", "producer_receipt_ref"} if production else set()),
+        version=2 if production else 1,
+    )
+    need(source["revision"] == binding["candidate_manager_sha"], "source_revision")
+    for key in ("source_index_ref", "guard_ref", "native_ref"):
+        reference(source[key])
+    if production:
+        inputs = reader.bound(
+            source["producer_inputs_ref"], "producer-inputs", binding, scope, PRODUCER_INPUT_FIELDS
+        )
+        receipt = reader.bound(
+            source["producer_receipt_ref"],
+            "producer-receipt",
+            binding,
+            scope,
+            PRODUCER_RECEIPT_REFS,
+        )
+        if predecessor_ref is not None:
+            need(inputs["predecessor_ref"] == predecessor_ref, "producer_predecessor")
+        for ref in (
+            inputs["origin_ref"],
+            inputs["predecessor_ref"],
+            *(receipt[key] for key in sorted(PRODUCER_RECEIPT_REFS)),
+        ):
+            reader.raw(ref)
+        request = reader.doc(receipt["request_ref"])
+        fields(request, PRODUCER_REQUEST_FIELDS, "producer_request_fields")
+        need(
+            type(request) is dict
+            and request.get("schema") == "autostop.j1.cold-controller-request.v1"
+            and request.get("scope") == "bounded_cold_prepare"
+            and request.get("old_writer_allowed") is False
+            and request.get("inputs_ref") == source["producer_inputs_ref"]
+            and request.get("attempt_id") == binding["attempt_id"]
+            and request.get("boot_id") == binding["boot_id"]
+            and request.get("owner_generation") == binding["generation"]
+            and request.get("candidate_manager_sha") == binding["candidate_manager_sha"],
+            "producer_request_binding",
+        )
+        _producer_source(request, source, binding)
+    return source
+
+
+def _producer_source(request, source, binding):
+    selected, candidate = request.get("source"), request.get("candidate")
+    fields(selected, {"revision", "tree", "consumers"}, "producer_request_source")
+    fields(
+        candidate,
+        {"revision", "tree", "image", "consumer_sha256"},
+        "producer_request_candidate",
+    )
+    need(
+        selected["revision"] == candidate["revision"] == binding["candidate_crm_sha"]
+        and selected["tree"] == candidate["tree"]
+        and type(selected["tree"]) is str
+        and SHA1.fullmatch(selected["tree"])
+        and type(selected["consumers"]) is dict
+        and 8 <= len(selected["consumers"]) <= 80
+        and all(
+            type(path) is str
+            and re.fullmatch(r"scripts/j1_(?:forward|manager)_[a-z0-9_]+\.py", path)
+            and type(sha) is str
+            and HEX.fullmatch(sha)
+            for path, sha in selected["consumers"].items()
+        )
+        and candidate["consumer_sha256"] == digest(selected["consumers"]),
+        "producer_source_identity",
+    )
+    consumers = selected["consumers"]
+    names = ("authority", "native", "guard", "history", "hold")
+    need(
+        all("scripts/j1_forward_cold_" + name + ".py" in consumers for name in names),
+        "producer_controller_closure",
+    )
+    need(
+        binding["consumer_sha256"]
+        == digest({name: consumers["scripts/j1_forward_cold_" + name + ".py"] for name in names})
+        and all(
+            source[name + "_ref"]["sha256"] == consumers["scripts/j1_forward_cold_" + name + ".py"]
+            for name in ("guard", "native")
+        ),
+        "producer_controller_binding",
+    )
+
+
 def _policies(package, reader):
     binding, scope = package["binding"], package["scope"]
     need(
         type(package["policies"]) is dict and set(package["policies"]) == set(ALLOWED),
         "six_policy_scope",
     )
-    source = reader.bound(
+    source = _source_package(
+        reader,
         package["source_package_ref"],
-        "source-package",
         binding,
         scope,
-        {"revision", "source_index_ref", "guard_ref", "native_ref"},
+        predecessor_ref=package["predecessor_ref"],
     )
     need(source["revision"] == binding["candidate_manager_sha"], "source_revision")
     reader.index(source["source_index_ref"], "source-index", binding, scope)
