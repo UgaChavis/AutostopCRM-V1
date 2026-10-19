@@ -206,12 +206,16 @@ ownership; a previous drain receipt is never permission to stop another process.
 For a worker-capable Manager, the gate binds fresh MainPID, boot, start ticks,
 invocation, interpreter, source revision and the accepted TCP connection's kernel
 owner. Direct numeric loopback HTTP uses no proxy or redirect. GET obtains the
-instance; at most one empty POST closes admission; bounded GET polling requires
-that same instance/PID, `accepting=false`, `drained=true` and zero read, stateful
-and transport counts. An uncertain POST is resolved only by reading the same
+instance; at most one empty POST per gate invocation closes admission. Bounded
+GET polling requires that same instance/PID, `accepting=false`, `drained=true`
+and zero read, stateful and transport counts. An uncertain POST is resolved only
+by reading the same
 instance. The total drain budget is at most 120 seconds and never exceeds the
-remaining release window. Incarnation is rechecked after each request and after
-the receipt is durable, immediately before stop effects.
+current stop invocation's remaining time. Normal closure is bounded by the
+release window; failure recovery and cold settle use the existing separate
+90-second closure budget, including after that window expires. Incarnation is
+rechecked after each request and after the receipt is durable, immediately before
+stop effects.
 
 Each observation creates a separate append-only `store-drain-UUID.json` receipt
 under the attempt directory, binding attempt, consumer, native baseline and
