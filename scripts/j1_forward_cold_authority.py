@@ -596,15 +596,21 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
     need(type(pending["requests"]) is list and len(pending["requests"]) <= 8192, "pending_requests")
     ids = []
     for row in pending["requests"]:
+        identity_key = "fingerprint" if scope == "production_native" else "payload_sha256"
         fields(
             row,
-            {"op_id", "payload_sha256", "outcome", "evidence_refs", "retry"},
+            {"op_id", identity_key, "outcome", "evidence_refs", "retry"},
             "pending_request_fields",
         )
+        if scope == "production_native":
+            fingerprint(row["fingerprint"], outcome=row["outcome"])
+        else:
+            need(
+                type(row["payload_sha256"]) is str and HEX.fullmatch(row["payload_sha256"]),
+                "pending_request_payload",
+            )
         need(
-            operation_id(row["op_id"])
-            and type(row["payload_sha256"]) is str
-            and HEX.fullmatch(row["payload_sha256"]),
+            operation_id(row["op_id"]),
             "pending_request_identity",
         )
         need(
@@ -746,3 +752,19 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
         "hold_checkpoint": hold_checkpoint,
         "lifecycle": lifecycle,
     }
+
+
+def fingerprint(value, *, outcome):
+    fields(value, {"kind", "sha256"}, "pending_fingerprint_fields")
+    need(
+        type(value["kind"]) is str
+        and value["kind"] in {"payload_sha256", "observed_record_sha256"}
+        and type(value["sha256"]) is str
+        and HEX.fullmatch(value["sha256"]),
+        "pending_fingerprint",
+    )
+    need(
+        value["kind"] != "observed_record_sha256" or outcome == "unknown",
+        "record_fingerprint_is_not_positive_outcome",
+    )
+    return value

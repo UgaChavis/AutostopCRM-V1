@@ -17,19 +17,25 @@ from pathlib import Path
 BOOTSTRAP_HASHES = {
     "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
     "j1_forward_authority": "98bf737d3a3cca4482ee8ae6158fde3b85034fba4587321e818b9c84eea32e08",
-    "j1_forward_cold_authority": "b66c2b2fef2b94ce20020d824e89f0cc7126b91e0ecbc5ef6c39a8d6e1491776",
+    "j1_forward_cold_authority": "f83ed7da16fcf655d2527e020b9d2ea49c7af40574b0143e38ae528e99ce403d",
     "j1_forward_cold_runtime_capsule": "8d44da7cab98b51ad4ba5aca9748907c3300b728de24d41f4792eb9de92ed54f",
-    "j1_forward_cold_native": "ab332a9db4027d3dddba210ec5fb5853fe37e2028da215d15466f6ac9ba5b932",
+    "j1_forward_cold_native": "a8daf4c8da7c25b66a0e98d67cf5daff7b68982c820d20a769558de3e3819ddd",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
     "j1_forward_cold_history": "8786ee7b8f4688763eb68a1bc4d9910d181bef566dfad7eea8a509d82409b509",
     "j1_forward_cold_hold": "2f158f5a2158e2f8ed178ad7f9c0bfd56ddc70028ba6f3e968320ef723926d60",
-    "j1_forward_cold_epoch": "00b13d8f8493bdec476ea9d504d5de77662fca7c108324a919c4fe7599ca66b0",
+    "j1_forward_cold_epoch": "9d978e59c2d0c07d919b54950223de6c1ee8bfc99497cb400926f34199dbdab6",
     "j1_forward_launch_permission": "8b6c3ae925cbf97b8fb047949ab4f86f19af7cd035d9026b0cdbc4dd16d00544",
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
     "j1_forward_cold_state": "9c3a1c18de5c90e4cd56a0a2c4f443ef328ce013ed295a3b0dd54c47126c7541",
     "j1_forward_cold_lifecycle": "931a65d172106a1f79904cf88cadd6ed2f6077add447517736c97447dfdc16d1",
     "j1_forward_cold_fixture": "191ca86745ef706abee6e8b1143a04688df54feb53c447a229ca76852c014113",
+    "j1_forward_backup": "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157",
+    "j1_forward_variant": "4a9282d2b39e19a262d1e0abf19f47c05fc6747b5fd5fb32caea2f70ac8a565d",
+    "j1_forward_cold_kernel_rpc": "db9c5069c635976d399bcbb82ac5894492f66ef0f3b3a7ee464b6fb62b969b4c",
+    "j1_forward_cold_kernel": "79849d7af5cb036869b5160a5d7db8a4f7ef72188297d37d69b5f064e07aa4bb",
+    "j1_forward_cold_kernel_bootstrap": "dff9c7f34d4945cc64dfa5dd2d6297f0ce96b743b870c0fdb6407f4c061fbeda",
+    "j1_forward_cold_kernel_supervisor": "a89da39ecc2f46a2c6756fc4a20dd02e10abb6fff50963b1dc7e7451c9b90004",
 }
 
 

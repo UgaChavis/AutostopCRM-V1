@@ -280,3 +280,29 @@ one root rename permits only reconciliation against the identical full index.
 Publication, materialization and restore receipts grant no activation or
 business permission. Actual artifact size, process-tree RSS, off-host restore
 and six-role startup remain measured release qualifications.
+
+Production pending-disposition v2 and tombstones v2 retain each original raw
+operation ID and an explicit fingerprint kind. A hash of an observed old row
+is `observed_record_sha256`, never an original payload hash. It permits only
+the `unknown` disposition and forbids retry. The fixed catalog reader must
+independently remeasure the accepted source-defined durable tables/files and
+the separate stopped original CRM incarnation. Retired, unenumerated RAM is
+reported explicitly; it is not called an empty request population. Historical
+fixture v1 keeps its original payload-hash shape and meaning.
+
+Kernel v2 binds the Python supervisor and actual Codex child separately. Before
+OPEN, fresh preparation verifies the owned initial thread and account/source/
+process/socket bindings. After OPEN the read-only native observer may use
+runtime-identity checks only while the actual durable private HEAD, COMMIT,
+sealed plan, epoch and public admission cut agree under the new dispatch SH
+lock. That lock remains held throughout the observation and final reread.
+An existing controller EX may be borrowed only as its actual linked descriptor
+with matching device, inode, ctime and current-owner lock proof. The original
+quarantine EX is a different lock and cannot substitute for this descriptor.
+
+The fixed kernel cache view is a read-only bind of this attempt's separately
+indexed `kernel/cache-source`. Native verification hashes the complete source
+and view, checks the bind identities and the intended mount/options in PID 1,
+supervisor and Codex namespaces. The cache checkpoint is also part of the real
+typed data backup; off-host acceptance must compare its index with the restored
+data. A read-only mount record alone grants neither dispatch nor acceptance.

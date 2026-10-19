@@ -74,19 +74,25 @@ def tombstones(binding, pending, origin_attempt_id):
         "unknown": "unknown",
     }
     result, ids = [], set()
+    version = 2 if pending.get("schema") == "autostop.j1.cold-pending-disposition.v2" else 1
     for row in rows:
         contract.need(row["op_id"] not in ids and row["retry"] == "forbidden", "epoch_old_identity")
         ids.add(row["op_id"])
+        identity = (
+            {"fingerprint": contract.fingerprint(row["fingerprint"], outcome=row["outcome"])}
+            if version == 2
+            else {"payload_sha256": row["payload_sha256"]}
+        )
         result.append(
             {
                 "op_id": row["op_id"],
-                "payload_sha256": row["payload_sha256"],
+                **identity,
                 "outcome": mapping[row["outcome"]],
                 "retry": "forbidden",
             }
         )
     return {
-        "schema": "autostop.j1.cold-dispatch-tombstones.v1",
+        "schema": "autostop.j1.cold-dispatch-tombstones.v" + str(version),
         **common(binding),
         "origin_attempt_id": origin_attempt_id,
         "rows": sorted(result, key=lambda row: row["op_id"]),

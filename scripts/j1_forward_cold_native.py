@@ -16,7 +16,8 @@ import select
 import socket
 import stat
 import subprocess
-from pathlib import Path
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_cold_authority as contract
 from scripts import j1_forward_io as io
@@ -50,6 +51,10 @@ UNIT_PROPERTIES = (
     "Environment",
     "EnvironmentFiles",
     "WorkingDirectory",
+    "Restart",
+    "RuntimeMaxUSec",
+    "KillMode",
+    "NotifyAccess",
 )
 ACTOR_FIELDS = set(
     "pid start_ticks uid gid groups cgroup mount_namespace exe_ref argv_sha256 "
@@ -246,6 +251,31 @@ def commands(raw):
         )
         result.append(values["argv[]"])
     return result
+
+
+@contextmanager
+def borrow_dispatch(provider, descriptor):
+    """Borrow an existing real EX for observation; do not acquire or extend it."""
+    contract.need(type(descriptor) is int and descriptor >= 0, "native_borrowed_dispatch")
+    info = os.fstat(descriptor)
+    linked = Path(os.readlink(Path("/proc") / str(os.getpid()) / "fd" / str(descriptor))).lstat()
+    contract.need(
+        stat.S_ISREG(info.st_mode)
+        and info.st_nlink == linked.st_nlink == 1
+        and info.st_uid in {0, os.geteuid()}
+        and not info.st_mode & 0o022
+        and (info.st_dev, info.st_ino, info.st_ctime_ns)
+        == (linked.st_dev, linked.st_ino, linked.st_ctime_ns),
+        "native_borrowed_dispatch_replaced",
+    )
+    held_descriptor(controller(os.getpid()), descriptor, [info.st_dev, info.st_ino])
+    previous = getattr(provider, "_borrowed_dispatch_fd", None)
+    contract.need(previous is None or previous == descriptor, "native_dispatch_borrow_conflict")
+    provider._borrowed_dispatch_fd = descriptor
+    try:
+        yield
+    finally:
+        provider._borrowed_dispatch_fd = previous
 
 
 class NativeProvider:
@@ -594,6 +624,8 @@ class NativeProvider:
         Positive outcomes require native terminal records, not missing files.
         """
         pending = validated["pending"]
+        if pending["schema"] == "autostop.j1.cold-pending-disposition.v2":
+            return self._verify_pending_v2(validated)
         inventory = io.document(self.read_reference(pending["inventory_ref"]))
         contract.fields(
             inventory,
@@ -667,6 +699,83 @@ class NativeProvider:
                 "native_terminal_producer_not_accepted",
             )
 
+    def _verify_pending_v2(self, validated):
+        from scripts import j1_forward_cold_catalog as catalog
+
+        pending, binding = validated["pending"], validated["package"]["binding"]
+        inventory = io.document(self.read_reference(pending["inventory_ref"]))
+        contract.fields(
+            inventory,
+            {
+                "schema",
+                "scope",
+                "binding",
+                "coverage",
+                "rows",
+                "source_checkpoint_ref",
+                "old_crm_ingress_ref",
+                "payload_semantics",
+            },
+            "native_pending_inventory_v2_fields",
+        )
+        contract.need(
+            inventory["schema"] == "autostop.j1.cold-pending-inventory.v2"
+            and inventory["scope"] == self.scope
+            and inventory["binding"] == binding
+            and inventory["coverage"]
+            == "source_defined_durable_catalogs_with_retired_unenumerated_ram"
+            and inventory["payload_semantics"] == "observed_record_fingerprint_unknown_only",
+            "native_pending_inventory_v2_scope",
+        )
+        measured = catalog.verify_checkpoint(
+            inventory["source_checkpoint_ref"], provider=self, binding=binding
+        )
+        contract.need(
+            measured["old_crm_ingress_ref"] == inventory["old_crm_ingress_ref"]
+            and measured["payload_semantics"] == inventory["payload_semantics"]
+            and measured["ram_disposition"] == "unenumerated_retired_without_replay",
+            "native_pending_measurement_scope",
+        )
+        actual = {}
+        for row in measured["rows"]:
+            contract.need(
+                row["op_id"] not in actual
+                and row["outcome"] == "unknown"
+                and row["retry"] == "forbidden",
+                "native_pending_measured_identity",
+            )
+            contract.fingerprint(row["fingerprint"], outcome="unknown")
+            actual[row["op_id"]] = {key: row[key] for key in ("op_id", "fingerprint")}
+        requests = {}
+        contract.need(
+            type(inventory["rows"]) is list and len(inventory["rows"]) <= 8192,
+            "native_pending_inventory_v2_rows",
+        )
+        for row in inventory["rows"]:
+            contract.fields(row, {"request", "evidence_refs"}, "native_inventory_row")
+            request = contract.fields(
+                row["request"], {"op_id", "fingerprint"}, "native_inventory_v2_request"
+            )
+            contract.need(
+                contract.operation_id(request["op_id"])
+                and request["op_id"] not in requests
+                and row["evidence_refs"] == [inventory["source_checkpoint_ref"]],
+                "native_pending_inventory_v2_identity",
+            )
+            requests[request["op_id"]] = request
+        contract.need(
+            requests == actual and set(actual) == {row["op_id"] for row in pending["requests"]},
+            "native_pending_inventory_incomplete",
+        )
+        for row in pending["requests"]:
+            contract.need(
+                row["outcome"] == "unknown"
+                and row["retry"] == "forbidden"
+                and row["evidence_refs"] == [inventory["source_checkpoint_ref"]]
+                and {key: row[key] for key in ("op_id", "fingerprint")} == actual[row["op_id"]],
+                "native_pending_positive_outcome_requires_separate_terminal_protocol",
+            )
+
     def verify_original_hold(self, validated):
         from scripts import j1_forward_cold_hold as hold
 
@@ -674,7 +783,11 @@ class NativeProvider:
 
     def kernel_profile(self, validated):
         kernel, policy = validated["kernel"], validated["kernel_policy"]
-        expected = kernel["actor"]
+        expected = (
+            kernel["supervisor_actor"]
+            if kernel["schema"] == "autostop.j1.cold-kernel.v2"
+            else kernel["actor"]
+        )
         actor_shape(expected)
         actual = actor(expected["pid"])
         environment = io.document(self.read_reference(policy["environment_ref"]))["values"]
@@ -698,6 +811,8 @@ class NativeProvider:
         return policy
 
     def verify_kernel(self, validated):
+        if validated["kernel"]["schema"] == "autostop.j1.cold-kernel.v2":
+            return self._verify_kernel_v2(validated)
         kernel, binding = validated["kernel"], validated["package"]["binding"]
         unit = kernel_unit(binding["generation"])
         contract.need(kernel["unit"] == unit, "native_new_kernel_unit")
@@ -764,6 +879,295 @@ class NativeProvider:
             )
         finally:
             os.close(descriptor)
+
+    @contextmanager
+    def _runtime_kernel_admitted(self, validated):
+        """A public OPEN snapshot alone cannot relax the pre-start thread gate."""
+        from scripts import j1_forward_cold_epoch as epochs
+        from scripts import j1_forward_cold_state as cold_state
+
+        binding = validated["package"]["binding"]
+        path = STATE / "epochs" / binding["generation"] / "epoch.json"
+        if not path.exists():
+            yield False
+            return
+        epoch_ref = io.reference(path)
+        epoch = io.document(self.read_reference(epoch_ref))
+        package_ref = {
+            "path": str(package_path(binding["attempt_id"])),
+            "sha256": contract.digest(validated["package"]),
+        }
+        contract.need(epoch["package_ref"] == package_ref, "kernel_runtime_epoch_package")
+        fence = epochs.verify(epoch, validated["package"], self)
+        before = io.document(io.read_protected(fence["state_path"]))
+        if before == epochs.closed_state(epoch):
+            yield False
+            return
+        borrowed = getattr(self, "_borrowed_dispatch_fd", None)
+        descriptor = epochs.locked_fence(fence, exclusive=False) if borrowed is None else borrowed
+        try:
+            if borrowed is not None:
+                info, linked, pin = (
+                    os.fstat(descriptor),
+                    Path(fence["dispatch_lock_path"]).lstat(),
+                    fence["dispatch_lock_identity"],
+                )
+                contract.need(
+                    (info.st_dev, info.st_ino, info.st_ctime_ns)
+                    == (linked.st_dev, linked.st_ino, linked.st_ctime_ns)
+                    == (pin["device"], pin["inode"], pin["ctime_ns"]),
+                    "kernel_runtime_lock_changed",
+                )
+                held_descriptor(controller(os.getpid()), descriptor, [info.st_dev, info.st_ino])
+            current = io.document(io.read_protected(fence["state_path"]))
+            contract.fields(
+                current,
+                {"schema", *epochs.COMMON, "state", "plan_ref", "commit_ref", "admission_ref"},
+                "kernel_runtime_dispatch_fields",
+            )
+            contract.need(
+                current["schema"] == "autostop.j1.cold-dispatch-state.v1"
+                and current["state"] == "open"
+                and current["admission_ref"] is not None
+                and all(current[key] == epoch[key] for key in epochs.COMMON),
+                "kernel_runtime_dispatch_not_open",
+            )
+            plan = io.document(self.read_reference(current["plan_ref"]))
+            cold_state.validate_plan(plan, plan["base_sha256"])
+            commit = io.document(self.read_reference(current["commit_ref"]))
+            store = cold_state.ColdStore(STATE.parent.parent / "state", plan["base_sha256"])
+            head = store.head()
+            contract.need(
+                head["sha256"] == current["commit_ref"]["sha256"]
+                and current["commit_ref"]["path"]
+                == str(store.history / f"{head['sequence']:020d}.json")
+                and head["record"] == commit
+                and commit["plan"] == plan
+                and plan["cold_authority_package_ref"] == package_ref
+                and plan["dispatch_epoch_ref"] == epoch_ref
+                and plan["attempt_id"] == binding["attempt_id"],
+                "kernel_runtime_actual_head",
+            )
+            projection = io.document(self.read_reference(current["admission_ref"]))
+            contract.fields(
+                projection,
+                {"schema", *epochs.COMMON, "source_refs", "projected_refs"},
+                "kernel_runtime_projection_fields",
+            )
+            contract.need(
+                projection["schema"] == "autostop.j1.cold-dispatch-admission.v1"
+                and all(projection[key] == epoch[key] for key in epochs.COMMON)
+                and projection["source_refs"]["plan"] == current["plan_ref"]
+                and projection["source_refs"]["commit"] == current["commit_ref"]
+                and projection["source_refs"]["epoch"] == epoch_ref,
+                "kernel_runtime_projection_binding",
+            )
+            yield True
+            contract.need(
+                io.document(io.read_protected(fence["state_path"])) == current
+                and store.head() == head,
+                "kernel_runtime_publication_raced",
+            )
+        finally:
+            if borrowed is None:
+                os.close(descriptor)
+
+    def _verify_kernel_v2(self, validated):
+        from scripts import j1_forward_cold_kernel as kernel_source
+
+        kernel, binding = validated["kernel"], validated["package"]["binding"]
+        policy = self.kernel_profile(validated)
+        expected = kernel["supervisor_actor"]
+        contract.need(
+            kernel["unit"] == kernel_unit(binding["generation"]), "native_new_kernel_unit"
+        )
+        for key, name in (
+            ("source_ref", "j1_forward_cold_kernel_supervisor.py"),
+            ("rpc_ref", "j1_forward_cold_kernel_rpc.py"),
+        ):
+            contract.need(
+                policy[key]["path"] == str(INSTALL / name)
+                and policy[key]["sha256"] == io.sha(Path(__file__).with_name(name).read_bytes()),
+                "native_kernel_reviewed_source",
+            )
+        contract.need(
+            policy["argv"]
+            == [
+                policy["interpreter_ref"]["path"],
+                "-I",
+                "-S",
+                "-B",
+                policy["source_ref"]["path"],
+                "--attempt",
+                binding["attempt_id"],
+            ],
+            "native_kernel_fixed_command",
+        )
+        actual = self.systemd(kernel["unit"])
+        expected_unit = io.document(self.read_reference(policy["unit_ref"]))
+        contract.need(
+            actual == expected_unit["properties"]
+            and actual["Type"] == "notify"
+            and actual["Restart"] == "no"
+            and actual["RuntimeMaxUSec"] == "infinity"
+            and actual["KillMode"] == "control-group"
+            and actual["NotifyAccess"] == "main"
+            and not actual["DropInPaths"]
+            and all(
+                not actual[key]
+                for key in (
+                    "ExecCondition",
+                    "ExecStartPre",
+                    "ExecStartPost",
+                    "ExecStop",
+                    "ExecStopPost",
+                    "ExecReload",
+                )
+            )
+            and actual["ActiveState"] == "active"
+            and actual["SubState"] == "running"
+            and actual["MainPID"] == str(expected["pid"])
+            and commands(actual["ExecStart"]) == [" ".join(policy["argv"])]
+            and kernel["actor"]["cgroup"] == expected["cgroup"] == "0::" + actual["ControlGroup"],
+            "native_new_kernel_supervisor",
+        )
+        ready = io.document(self.read_reference(kernel["ready_ref"]))
+        proof = io.document(self.read_reference(kernel["empty_thread_ref"]))
+        contract.need(
+            ready
+            == {
+                "schema": "autostop.j1.cold-kernel-ready.v2",
+                "binding": binding,
+                "phase": "ready",
+                "actor": kernel["actor"],
+                "supervisor_actor": expected,
+                "preparation_ref": kernel["preparation_ref"],
+                "empty_thread_ref": kernel["empty_thread_ref"],
+                "thread_id": proof["thread_id"],
+            },
+            "native_kernel_ready_v2",
+        )
+        self._verify_kernel_cache(validated)
+        with self._runtime_kernel_admitted(validated) as admitted:
+            if admitted:
+                kernel_source.verify_runtime_identity(validated, self)
+            else:
+                kernel_source.verify_preparation(validated, self)
+        contract.need(self.systemd(kernel["unit"]) == actual, "native_kernel_unit_raced")
+        self._verify_kernel_cache(validated)
+
+    def _verify_kernel_cache(self, validated):
+        kernel, binding = validated["kernel"], validated["package"]["binding"]
+        view = io.document(self.read_reference(kernel["cache_view_ref"]))
+        contract.fields(
+            view,
+            {
+                "schema",
+                "binding",
+                "kind",
+                "path",
+                "mount_id",
+                "checkpoint_ref",
+                "source_identity",
+                "target_identity",
+            },
+            "cache_view_v2_fields",
+        )
+        base = STATE / "packages" / binding["attempt_id"] / "kernel"
+        contract.need(
+            view["schema"] == "autostop.j1.cold-cache-view.v2"
+            and view["binding"] == binding
+            and view["kind"] == "kernel_read_only_checkpoint_mount"
+            and view["path"] == str(base / "cache-view"),
+            "native_cache_view_kind",
+        )
+        checkpoint = io.document(self.read_reference(view["checkpoint_ref"]))
+        contract.fields(
+            checkpoint, {"schema", "scope", "binding", "root", "files"}, "cache_checkpoint_fields"
+        )
+        contract.need(
+            checkpoint["schema"] == "autostop.j1.cold-cache-checkpoint.v1"
+            and checkpoint["scope"] == self.scope
+            and checkpoint["binding"] == binding
+            and checkpoint["root"] == str(base / "cache-source"),
+            "cache_checkpoint_binding",
+        )
+        source, target = Path(checkpoint["root"]), Path(view["path"])
+        source_info, target_info = source.lstat(), target.lstat()
+        contract.need(
+            view["source_identity"]
+            == view["target_identity"]
+            == [source_info.st_dev, source_info.st_ino]
+            == [target_info.st_dev, target_info.st_ino],
+            "cache_bind_identity",
+        )
+        self._cache_checkpoint_tree(checkpoint, source)
+        self._cache_checkpoint_tree(checkpoint, target)
+        for pid in (1, kernel["actor"]["pid"], kernel["supervisor_actor"]["pid"]):
+            rows = (Path("/proc") / str(pid) / "mountinfo").read_text().splitlines()
+            matches = [row.split() for row in rows if row.split()[4] == view["path"]]
+            contract.need(
+                len(matches) == 1
+                and {"ro", "nosuid", "nodev", "noexec"} <= set(matches[0][5].split(","))
+                and (pid != 1 or int(matches[0][0]) == view["mount_id"]),
+                "native_cache_view_not_read_only",
+            )
+
+    def _cache_checkpoint_tree(self, checkpoint, root):
+        from scripts import j1_forward_cold_kernel as kernel_source
+
+        io.protected_directory(root)
+        rows = checkpoint["files"]
+        contract.need(type(rows) is list and len(rows) <= 10000, "cache_checkpoint_limit")
+        expected, total = {}, 0
+        for row in rows:
+            contract.fields(row, {"name", "bytes", "sha256", "mode"}, "cache_checkpoint_file")
+            name = row["name"]
+            contract.need(
+                type(name) is str
+                and name
+                and str(PurePosixPath(name)) == name
+                and not PurePosixPath(name).is_absolute()
+                and ".." not in PurePosixPath(name).parts
+                and "\\" not in name
+                and "\0" not in name
+                and type(row["bytes"]) is int
+                and 0 <= row["bytes"] <= contract.MAX_RUNTIME_BYTES
+                and type(row["sha256"]) is str
+                and contract.HEX.fullmatch(row["sha256"])
+                and type(row["mode"]) is int
+                and 0 <= row["mode"] <= 0o777
+                and not row["mode"] & 0o022,
+                "cache_checkpoint_file_identity",
+            )
+            contract.need(name not in expected, "cache_checkpoint_duplicate")
+            expected[name] = row
+            total += row["bytes"]
+        contract.need(
+            list(expected) == sorted(expected) and total <= 512 * 1024**2,
+            "cache_checkpoint_order_or_budget",
+        )
+        actual = set()
+        for directory, folders, files in os.walk(root, followlinks=False):
+            io.protected_directory(directory)
+            for name in folders:
+                io.protected_directory(Path(directory) / name)
+            for name in files:
+                path = Path(directory) / name
+                logical = path.relative_to(root).as_posix()
+                contract.need(logical in expected, "cache_checkpoint_unindexed_file")
+                row, info = expected[logical], path.lstat()
+                contract.need(
+                    info.st_uid == 0
+                    and not info.st_mode & 0o022
+                    and info.st_nlink == 1
+                    and info.st_size == row["bytes"]
+                    and stat.S_IMODE(info.st_mode) == row["mode"]
+                    and kernel_source.file_digest(path)["sha256"] == row["sha256"],
+                    "cache_checkpoint_file_changed",
+                )
+                actual.add(logical)
+        contract.need(actual == set(expected), "cache_checkpoint_inventory_incomplete")
 
 
 def verify_package(reference, *, provider=None, required_scope="production_native"):
