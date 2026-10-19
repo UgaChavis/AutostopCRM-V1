@@ -71,17 +71,26 @@ def _interpreter_aliases(package, read):
     """Candidates become usable only after collect validates the full package."""
     from scripts import j1_forward_cold_runtime_capsule as capsule
 
-    result = {}
+    result, indexes = {}, {}
     cold.fields(package["policies"], cold.ALLOWED, "archive_alias_policies")
     for unit, reference in package["policies"].items():
         policy = io.document(read(reference))
         cold.fields(policy, cold.POLICY_FIELDS, "archive_alias_policy")
-        index_ref = policy["runtime_index_ref"]
-        index = io.document(read(index_ref))
-        io.require(type(index) is dict, "cold_archive_alias_index")
-        if index.get("schema") != capsule.SCHEMA:
+        index_ref = cold.reference(policy["runtime_index_ref"])
+        index_key = (index_ref["path"], index_ref["sha256"])
+        raw = read(index_ref)
+        if index_key not in indexes:
+            index = io.document(raw)
+            io.require(type(index) is dict, "cold_archive_alias_index")
+            rows = (
+                capsule.validate_index(index, binding=package["binding"], scope=package["scope"])
+                if index.get("schema") == capsule.SCHEMA
+                else None
+            )
+            indexes[index_key] = index, rows
+        index, rows = indexes[index_key]
+        if rows is None:
             continue
-        rows = capsule.validate_index(index, binding=package["binding"], scope=package["scope"])
         interpreter = cold.reference(policy["interpreter_ref"])
         for member in INTERPRETER_MEMBERS:
             root, *parts = PurePosixPath(member).parts
@@ -674,7 +683,16 @@ def collect(
             "cold_archive_old_writer_permission",
         )
     # Old origin and public review key are part of this same bounded graph.
-    cold_state.validate_origin(io.document(read(plan["baseline_ref"])), read_reference=read)
+    captured_baseline = io.document(read(plan["baseline_ref"]))
+    cold_state._origin_references(captured_baseline, read_reference=read)
+    io.require(
+        captured_baseline["native"]["cold_authority_package_ref"]
+        == plan["cold_authority_package_ref"],
+        "cold_recovery_native_refs",
+    )
+    # This exact package was fully validated above at this captured clock.
+    # Repeat the origin binding checks, not another decompression of its bytes.
+    cold_state._origin_binding(captured_baseline, value)
     snapshot.recheck()
     if codec == 5:
         io.require(

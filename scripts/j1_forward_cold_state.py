@@ -58,14 +58,17 @@ def historical_package(reference, *, read_reference):
     )
 
 
-def validate_origin(baseline, *, read_reference):
+def _origin_references(baseline, *, read_reference):
     io.require(baseline.get("schema") == BASELINE_SCHEMA, "cold_recovery_baseline_schema")
-    origin, native = baseline["recovery_origin"], baseline["native"]
+    origin = baseline["recovery_origin"]
     io.require(set(origin) == recovery.ORIGIN_FIELDS, "cold_recovery_origin_fields")
     for name in recovery.REFERENCE_FIELDS - {"plan_ref", "origin_pending_ref"}:
         state._reference(origin[name])
         read_reference(origin[name])
-    value = historical_package(native["cold_authority_package_ref"], read_reference=read_reference)
+
+
+def _origin_binding(baseline, value):
+    origin = baseline["recovery_origin"]
     package, anchor = value["package"], value["history"]["anchor"]
     io.require(package["binding"]["attempt_id"] == baseline["attempt_id"], "cold_recovery_attempt")
     for name, old in (
@@ -81,6 +84,14 @@ def validate_origin(baseline, *, read_reference):
         "cold_recovery_pending_hold_lock",
     )
     return value
+
+
+def validate_origin(baseline, *, read_reference):
+    _origin_references(baseline, read_reference=read_reference)
+    value = historical_package(
+        baseline["native"]["cold_authority_package_ref"], read_reference=read_reference
+    )
+    return _origin_binding(baseline, value)
 
 
 def envelope(store, document):

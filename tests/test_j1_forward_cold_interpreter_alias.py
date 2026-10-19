@@ -13,6 +13,7 @@ from unittest.mock import patch
 from scripts import j1_forward_archive as transport
 from scripts import j1_forward_cold_archive as archive
 from scripts import j1_forward_cold_authority as cold
+from scripts import j1_forward_cold_runtime_capsule as capsule
 from scripts import j1_forward_cold_state
 from scripts import j1_forward_io as io
 from scripts import j1_forward_transport as wire
@@ -84,6 +85,89 @@ class InterpreterAliasTests(unittest.TestCase):
             restored = archive.restore_interpreters(aliases, self.restored_inputs())
         self.assertEqual(restored, {self.path: self.elf})
         self.assertEqual(io.sha(restored[self.path]), aliases[self.path]["sha256"])
+
+    def test_index_validation_reuse_is_local_and_both_observations_are_independent(self):
+        with patch.object(capsule, "validate_index", wraps=capsule.validate_index) as validate:
+            first = self.aliases()
+            self.assertEqual(validate.call_count, 1)
+            self.assertEqual(self.aliases(), first)
+            self.assertEqual(validate.call_count, 2)
+            self.update_index(lambda doc: doc.update(binding={"candidate_manager_sha": "2" * 40}))
+            with self.assertRaises(io.Refusal):
+                self.aliases()
+            self.assertEqual(validate.call_count, 3)
+
+    def test_factored_origin_checks_preserve_raw_reads_and_all_anchor_bindings(self):
+        def ref(key):
+            return {"path": "/synthetic/" + key + ".json", "sha256": io.sha(key.encode())}
+
+        origin = {key: ref(key) for key in j1_forward_cold_state.recovery.ORIGIN_FIELDS}
+        origin.update(nonce="a" * 64, deployment_lock_identity={"inode": 1})
+        origin["origin_pending_ref"]["sha256"] = origin["origin_plan_ref"]["sha256"]
+        baseline = {
+            "schema": j1_forward_cold_state.BASELINE_SCHEMA,
+            "attempt_id": "synthetic-attempt",
+            "native": {"cold_authority_package_ref": ref("package")},
+            "recovery_origin": origin,
+        }
+        value = {
+            "package": {
+                "binding": {
+                    "attempt_id": baseline["attempt_id"],
+                    "deployment_lock_identity": origin["deployment_lock_identity"],
+                }
+            },
+            "history": {
+                "anchor": {
+                    "plan_ref": origin["origin_plan_ref"],
+                    "scope_ref": origin["origin_scope_ref"],
+                    "closure_ref": origin["origin_closure_ref"],
+                    "original_hold_ref": origin["hold_ref"],
+                }
+            },
+        }
+        reads = []
+        with patch.object(
+            j1_forward_cold_state, "historical_package", return_value=value
+        ) as decode:
+            self.assertIs(
+                j1_forward_cold_state.validate_origin(baseline, read_reference=reads.append), value
+            )
+        self.assertEqual(decode.call_count, 1)
+        expected_reads = [
+            origin[key]
+            for key in j1_forward_cold_state.recovery.REFERENCE_FIELDS
+            - {"plan_ref", "origin_pending_ref"}
+        ]
+        self.assertCountEqual(reads, expected_reads)
+        reads.clear()
+        with patch.object(
+            j1_forward_cold_state,
+            "historical_package",
+            side_effect=AssertionError("already checked capsule decoded twice"),
+        ):
+            j1_forward_cold_state._origin_references(baseline, read_reference=reads.append)
+            self.assertIs(j1_forward_cold_state._origin_binding(baseline, value), value)
+        self.assertCountEqual(reads, expected_reads)
+        for key in (
+            "origin_plan_ref",
+            "origin_scope_ref",
+            "origin_closure_ref",
+            "origin_pending_ref",
+            "hold_ref",
+            "deployment_lock_identity",
+        ):
+            changed = copy.deepcopy(baseline)
+            if key == "deployment_lock_identity":
+                changed["recovery_origin"][key] = {"inode": 2}
+            else:
+                changed["recovery_origin"][key]["sha256"] = "0" * 64
+            with self.subTest(key=key), self.assertRaises(io.Refusal):
+                j1_forward_cold_state._origin_binding(changed, value)
+        changed = copy.deepcopy(baseline)
+        changed["attempt_id"] = "another-attempt"
+        with self.assertRaises(io.Refusal):
+            j1_forward_cold_state._origin_binding(changed, value)
 
     def test_physical_budget_omits_alias_but_retains_and_rechecks_full_graph(self):
         aliases = self.aliases()
