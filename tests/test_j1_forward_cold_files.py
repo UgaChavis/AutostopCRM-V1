@@ -175,6 +175,53 @@ class SharedNativeTreeTests(unittest.TestCase):
     sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
 )
 class LoadedLibraryIdentityTests(unittest.TestCase):
+    def test_kernel_appserver_is_exact_typed_leaf_and_never_a_generic_library_allowlist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "private-codex"
+            path.write_bytes(b"\x7fELF" + bytes(128))
+            path.chmod(0o600)
+            reference = {"path": str(path), "sha256": io.sha(path.read_bytes())}
+            index = {"path": "/index.json", "sha256": "1" * 64}
+            policy = {
+                "schema": "autostop.j1.cold-kernel-policy.v2",
+                "runtime_index_ref": index,
+                "startup_index_ref": index,
+                "protocol_index_ref": index,
+                "appserver_ref": reference,
+            }
+            context = {"policy_ref": {"path": "/policy.json", "sha256": "2" * 64}}
+
+            def read(row):
+                if row["path"] == "/policy.json":
+                    return io.canonical(policy)
+                if row["path"] == "/index.json":
+                    return io.canonical({"files": []})
+                raw = path.read_bytes()
+                cold.need(row == reference and io.sha(raw) == row["sha256"], "test_leaf_changed")
+                return raw
+
+            provider = types.SimpleNamespace(read_reference=read)
+            info = path.stat()
+            maps = f"1000-2000 r-xp 0 {os.major(info.st_dev):x}:{os.minor(info.st_dev):x} {info.st_ino} {path}\n"
+            with patch.object(Path, "read_text", return_value=maps):
+                with self.assertRaisesRegex(io.Refusal, "unaccepted_loaded_library"):
+                    lifecycle._loaded_libraries(123, context, provider)
+                lifecycle._loaded_libraries(123, context, provider, kernel_appserver_ref=reference)
+                for invalid in (
+                    {**reference, "path": str(path.with_name("other"))},
+                    {**reference, "sha256": "f" * 64},
+                ):
+                    with self.subTest(invalid=invalid):
+                        with self.assertRaisesRegex(io.Refusal, "appserver_library_binding"):
+                            lifecycle._loaded_libraries(
+                                123, context, provider, kernel_appserver_ref=invalid
+                            )
+                policy["schema"] = "autostop.j1.cold-profile-policy.v1"
+                with self.assertRaisesRegex(io.Refusal, "appserver_library_binding"):
+                    lifecycle._loaded_libraries(
+                        123, context, provider, kernel_appserver_ref=reference
+                    )
+
     def test_mapped_inode_unknown_path_and_postread_replacement_are_denied(self):
         fixture = capsule_fixture.RuntimeCapsuleTests()
         fixture.setUp()

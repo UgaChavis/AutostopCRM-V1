@@ -290,6 +290,9 @@ class KernelV2BoundaryTests(unittest.TestCase):
 
         reference = {"path": "/isolated/kernel-policy.json", "sha256": "2" * 64}
         self.kernel["policy_ref"] = reference
+        appserver = {"path": "/accepted/codex", "sha256": "3" * 64}
+        self.validated["kernel_policy"]["appserver_ref"] = appserver
+        self.kernel["actor"]["exe_ref"] = appserver
         with patch.object(lifecycle, "_loaded_libraries") as loaded:
             self.provider._verify_kernel_libraries(self.validated)
             self.assertEqual(
@@ -299,11 +302,18 @@ class KernelV2BoundaryTests(unittest.TestCase):
                     (12, {"policy_ref": reference}, self.provider),
                 ],
             )
+            self.assertEqual(loaded.call_args_list[0].kwargs, {})
+            self.assertEqual(loaded.call_args_list[1].kwargs, {"kernel_appserver_ref": appserver})
         with patch.object(
             lifecycle, "_loaded_libraries", side_effect=[None, io.Refusal("changed_child_library")]
         ):
             with self.assertRaisesRegex(io.Refusal, "changed_child_library"):
                 self.provider._verify_kernel_libraries(self.validated)
+        self.kernel["actor"]["exe_ref"] = {**appserver, "sha256": "4" * 64}
+        with patch.object(lifecycle, "_loaded_libraries") as loaded:
+            with self.assertRaisesRegex(io.Refusal, "mapped_appserver_binding"):
+                self.provider._verify_kernel_libraries(self.validated)
+            self.assertEqual(loaded.call_count, 1)
 
     def test_restart_timeout_wrong_pid_hook_and_stale_source_deny_before_delegate(self):
         for key, value in (

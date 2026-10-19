@@ -438,7 +438,7 @@ def _index_references(provider, reference):
     return document["files"]
 
 
-def _loaded_libraries(pid, context, provider):
+def _loaded_libraries(pid, context, provider, *, kernel_appserver_ref=None):
     policy = io.document(provider.read_reference(context["policy_ref"]))
     accepted = {}
     contract.need(
@@ -455,6 +455,19 @@ def _loaded_libraries(pid, context, provider):
                 "slot_loaded_library_alias",
             )
             accepted[reference["path"]] = reference
+    if kernel_appserver_ref is not None:
+        contract.reference(kernel_appserver_ref)
+        contract.need(
+            policy.get("schema") == "autostop.j1.cold-kernel-policy.v2"
+            and policy.get("appserver_ref") == kernel_appserver_ref,
+            "kernel_appserver_library_binding",
+        )
+        path = kernel_appserver_ref["path"]
+        contract.need(
+            path not in accepted or accepted[path] == kernel_appserver_ref,
+            "slot_loaded_library_alias",
+        )
+        accepted[path] = kernel_appserver_ref
     maps = Path("/proc") / str(pid) / "maps"
     observed, checked = _library_mappings(maps.read_text()), {}
     for fields in observed:

@@ -1114,7 +1114,17 @@ class NativeProvider:
         kernel = validated["kernel"]
         context = {"policy_ref": kernel["policy_ref"]}
         for key in ("supervisor_actor", "actor"):
-            j1_forward_cold_lifecycle._loaded_libraries(kernel[key]["pid"], context, self)
+            if key == "actor":
+                reference = validated["kernel_policy"]["appserver_ref"]
+                contract.need(
+                    kernel[key]["exe_ref"] == reference,
+                    "kernel_mapped_appserver_binding",
+                )
+                j1_forward_cold_lifecycle._loaded_libraries(
+                    kernel[key]["pid"], context, self, kernel_appserver_ref=reference
+                )
+            else:
+                j1_forward_cold_lifecycle._loaded_libraries(kernel[key]["pid"], context, self)
 
     def _verify_kernel_cache(self, validated, *, check_tree=None):
         kernel, binding = validated["kernel"], validated["package"]["binding"]
