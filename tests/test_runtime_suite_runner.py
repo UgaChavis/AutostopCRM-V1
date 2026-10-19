@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.runtime_suite_runner import RuntimePlan, build_plan, run_plan
+from tests.runtime_suite_runner import RuntimePlan, build_plan, iter_cases, load_selected, run_plan
 
 
 def case(module: str, name: str):
@@ -18,6 +18,26 @@ def case(module: str, name: str):
 
 
 class RuntimeSuiteRunnerTests(unittest.TestCase):
+    def test_module_level_platform_skip_keeps_real_reason_and_exact_discovered_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            name = "test_owned_platform_skip"
+            (root / (name + ".py")).write_text(
+                'import unittest\nraise unittest.SkipTest("synthetic platform restriction")\n',
+                encoding="utf-8",
+            )
+            with patch.object(sys, "path", [str(root), *sys.path]):
+                discovered = unittest.defaultTestLoader.loadTestsFromName(name)
+                identities = tuple(item.id() for item in iter_cases(discovered))
+                selected = load_selected(identities)
+                self.assertEqual(tuple(item.id() for item in iter_cases(selected)), identities)
+                result = unittest.TestResult()
+                selected.run(result)
+            self.assertEqual(result.testsRun, 1)
+            self.assertEqual(len(result.skipped), 1)
+            self.assertEqual(result.skipped[0][1], "synthetic platform restriction")
+            self.assertEqual(result.errors, [])
+
     def test_partition_preserves_every_selected_id_and_nested_order(self):
         native = case("native_cases", "Native")
         browser = case("test_example_browser", "Browser")

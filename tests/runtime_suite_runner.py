@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,22 @@ def is_browser_case(case: unittest.TestCase) -> bool:
     cls = type(case)
     owner = getattr(cls.setUpClass, "__module__", "")
     return "browser" in cls.__module__ or "browser" in owner
+
+
+def load_selected(identities):
+    suite = unittest.TestSuite()
+    prefix = "unittest.loader.ModuleSkipped."
+    for identity in identities:
+        selected = identity
+        if identity.startswith(prefix):
+            module = identity.removeprefix(prefix)
+            # unittest creates this private class dynamically for module-level
+            # SkipTest. Reload its real module; the generated class has no
+            # importable attribute in unittest.loader. Exact ID checks remain.
+            if re.fullmatch(r"test_[A-Za-z0-9_]+", module):
+                selected = module
+        suite.addTests(unittest.defaultTestLoader.loadTestsFromName(selected))
+    return suite
 
 
 @dataclass(frozen=True)
@@ -177,7 +194,7 @@ def main() -> int:
         if args.core_plan is None or args.plan_sha256 is None:
             parser.error("a core cohort requires the immutable plan and its hash")
         _plan, selected = load_plan(args.core_plan, args.plan_sha256, args.core_cohort)
-        suite = unittest.defaultTestLoader.loadTestsFromNames(selected)
+        suite = load_selected(selected)
         actual = tuple(case.id() for case in iter_cases(suite))
         if actual != selected:
             missing = sorted(set(selected) - set(actual))[:3]
