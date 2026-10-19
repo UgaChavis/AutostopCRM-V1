@@ -306,6 +306,10 @@ def verify_custody(reference, seed, measured, *, provider):
     cold.need(
         store.head()["sha256"] == body["commit_ref"]["sha256"]
         and store.head()["record"] == commit
+        and body["commit_ref"]["path"]
+        == str(store.history / f"{store.head()['sequence']:020d}.json")
+        and body["cold_completion_ref"]["path"]
+        == str(native.STATE / "epochs" / binding["generation"] / "complete.json")
         and plan["attempt_id"] == binding["attempt_id"]
         and commit["schema"] == "autostop.j1.crm-forward-commit.v2"
         and package["binding"] == binding
@@ -322,6 +326,11 @@ def verify_custody(reference, seed, measured, *, provider):
         and store._active_recovery() is None,
         "kernel_custody_durable_completion",
     )
+    # Durable HEAD and a completion-shaped object do not establish OPEN. The
+    # independent native reader checks the actual public epoch, projection and
+    # HEAD under its dispatch lock; no caller flag selects the runtime phase.
+    with provider._runtime_kernel_admitted({"package": package}) as admitted:
+        cold.need(admitted, "kernel_custody_requires_actual_public_open")
     return body
 
 
