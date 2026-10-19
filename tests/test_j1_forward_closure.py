@@ -2377,11 +2377,10 @@ class LinuxBackendTests(unittest.TestCase):
 
         with (
             tempfile.TemporaryDirectory() as directory,
-            patch.object(closure, "WRITER_ROOTS", (directory,)),
             patch.object(closure.os, "walk", side_effect=incomplete),
         ):
             with self.assertRaisesRegex(Refusal, "source_inventory_incomplete"):
-                closure.LinuxRunner.source_inodes()
+                closure.LinuxRunner.source_inodes(roots=(directory,))
 
 
 if __name__ == "__main__":

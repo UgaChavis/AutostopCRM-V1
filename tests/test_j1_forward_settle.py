@@ -356,7 +356,9 @@ class SettleCrashTests(unittest.TestCase):
         self.assertLess(self.trace.index("state-durable"), self.trace.index("unlock"))
         self.assertLess(self.trace.index("completion.json-durable"), self.trace.index("unlock"))
         self.assertLess(self.trace.index("progress.json-durable"), self.trace.index("unlock"))
-        self.native.assert_called_once_with(self.baseline["native"], running=True)
+        self.native.assert_called_once_with(
+            self.baseline["native"], running=True, owned_closure=None
+        )
         self.container.assert_called_once()
         self.host.validate_manager.assert_called_once_with(
             self.host.manager.return_value, self.attempt, held=False
