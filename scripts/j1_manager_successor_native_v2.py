@@ -74,12 +74,21 @@ def _read(path, *, native=True):
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             raw = stream.read(4 * 1024**2 + 1)
         after, final = os.fstat(descriptor), path.lstat()
-        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
-        if len(raw) != before.st_size or any(
-            getattr(before, key) != getattr(opened, key)
-            or getattr(before, key) != getattr(after, key)
-            or getattr(before, key) != getattr(final, key)
-            for key in fields
+        # Keep path creation time separate from fd change time on Windows;
+        # python/cpython#157671. Linux retains all original comparisons.
+        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns") + (
+            ("st_birthtime_ns",) if os.name == "nt" else ("st_ctime_ns",)
+        )
+        if (
+            before.st_ctime_ns != final.st_ctime_ns
+            or opened.st_ctime_ns != after.st_ctime_ns
+            or len(raw) != before.st_size
+            or any(
+                getattr(before, key) != getattr(opened, key)
+                or getattr(before, key) != getattr(after, key)
+                or getattr(before, key) != getattr(final, key)
+                for key in fields
+            )
         ):
             raise ValueError("v2_native_bootstrap_changed")
         return raw

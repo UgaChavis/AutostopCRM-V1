@@ -60,12 +60,22 @@ def _read(path, limit=32 * 1024**2, *, native=True):
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             raw = stream.read(limit + 1)
         after, final = os.fstat(descriptor), path.lstat()
-        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
-        if len(raw) != before.st_size or any(
-            getattr(before, key) != getattr(opened, key)
-            or getattr(before, key) != getattr(after, key)
-            or getattr(before, key) != getattr(final, key)
-            for key in fields
+        # CPython Windows path ctime is creation time, fd ctime can be change
+        # time (python/cpython#157671). Compare each branch to itself and bind
+        # both handles by inode/size/mtime/birthtime; Linux checks stay exact.
+        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns") + (
+            ("st_birthtime_ns",) if os.name == "nt" else ("st_ctime_ns",)
+        )
+        if (
+            before.st_ctime_ns != final.st_ctime_ns
+            or opened.st_ctime_ns != after.st_ctime_ns
+            or len(raw) != before.st_size
+            or any(
+                getattr(before, key) != getattr(opened, key)
+                or getattr(before, key) != getattr(after, key)
+                or getattr(before, key) != getattr(final, key)
+                for key in fields
+            )
         ):
             raise ValueError("v2_bootstrap_changed")
         return raw

@@ -524,16 +524,8 @@ def _package_read(path, custody, limit=MAX_FILE_BYTES):
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
             raw = stream.read(limit + 1)
         after, final = os.fstat(descriptor), path.lstat()
-        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
         io.require(
-            len(raw) == before.st_size <= limit
-            and all(
-                getattr(before, key)
-                == getattr(opened, key)
-                == getattr(after, key)
-                == getattr(final, key)
-                for key in fields
-            ),
+            len(raw) == before.st_size <= limit and io.unchanged_read(before, opened, after, final),
             "control_archive_payload_changed_during_read",
         )
     finally:

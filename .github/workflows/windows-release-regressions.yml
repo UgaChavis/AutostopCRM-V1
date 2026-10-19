@@ -69,7 +69,7 @@ jobs:
           & .venv/Scripts/python.exe scripts/rehearsal_runtime.py --sqlite-library (Join-Path $private 'sqlite3.dll') `
             --prepare-windows-bootstrap $bootstrap --output output/windows-regressions/sqlite-bootstrap.json
           if ($LASTEXITCODE -ne 0) { throw 'SQLite bootstrap failed.' }
-          "PYTHONPATH=$bootstrap" >> $env:GITHUB_ENV
+          "PYTHONPATH=$bootstrap$([IO.Path]::PathSeparator)$env:GITHUB_WORKSPACE/src" >> $env:GITHUB_ENV
       - name: Verify the pinned Compose plugin without a Docker daemon
         run: |
           $plugins = Join-Path $env:RUNNER_TEMP 'windows-regression-compose'
@@ -86,7 +86,7 @@ jobs:
         run: |
           & .venv/Scripts/python.exe -m tests.runtime_process --timeout-seconds 900 --label windows-release-regressions `
             -- .venv/Scripts/python.exe -m unittest `
-            tests.test_j1_forward_archive tests.test_j1_forward_closure.LinuxBackendTests `
+            tests.test_j1_forward_io tests.test_j1_forward_archive tests.test_j1_forward_closure.LinuxBackendTests `
             tests.test_j1_forward_settle tests.test_j1_manager_successor_transition `
             tests.test_docs_audit tests.test_deploy_script.DeployScriptTests.test_production_compose_resolves_without_legacy_crawler_credentials `
             tests.test_cold_manager tests.test_j1_forward_cold_container `
