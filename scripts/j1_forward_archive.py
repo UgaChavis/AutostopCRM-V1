@@ -599,6 +599,72 @@ def _witness_files(root, witnesses, existing, end, *, cold=False):
     return result
 
 
+def _capture_graph(root, pending, files, launch_refs, end, *, cold):
+    pending = list(pending)
+    while pending:
+        _budget(end)
+        reference = pending.pop()
+        path = _path(root, reference["path"])
+        if str(path) in files:
+            io.require(
+                io.sha(files[str(path)]) == reference["sha256"], "control_archive_reference_changed"
+            )
+            continue
+        io.require(len(files) < MAX_FILES, "control_archive_file_limit")
+        raw = io.read_protected(Path(path), MAX_FILE_BYTES)
+        io.require(io.sha(raw) == reference["sha256"], "control_archive_reference_changed")
+        files[str(path)] = raw
+        io.require(sum(map(len, files.values())) <= MAX_TOTAL_BYTES, "control_archive_total_limit")
+        if path.suffix != ".json":
+            io.require(
+                (
+                    path.is_relative_to(root / "origins")
+                    and CONSUMER.fullmatch("/".join(path.parts[-2:]))
+                )
+                or (
+                    path.is_relative_to(root / "launch-permits")
+                    and path.name == "operation.lock"
+                    and raw == b""
+                ),
+                "control_archive_unexpected_binary",
+            )
+            continue
+        doc = io.document(raw)
+        refs = _launch_references(root, doc)
+        if refs:
+            launch_refs[str(path)] = refs
+            pending.extend(refs)
+        pending.extend(ref for ref in _references(doc) if _control_reference(root, ref, cold=cold))
+        pending.extend(_implicit_references(root, doc))
+
+
+def _inward_references(root, authorities):
+    """An external authority can point back into the canonical Store graph."""
+    for name, raw in authorities.items():
+        if name.endswith(".json"):
+            for reference in _references(io.document(raw)):
+                if _control_reference(root, reference, cold=True):
+                    yield reference
+
+
+def _consumer_bytes(documents, files, consumer_roots):
+    required, consumers = _consumer_maps(documents), {}
+    for digest, inventory in required.items():
+        root = Path((consumer_roots or {}).get(digest, SOURCE))
+        consumers[digest] = {}
+        for name, expected in inventory.items():
+            retained = [
+                raw
+                for path, raw in files.items()
+                if io.logical_path(path).as_posix().endswith("/consumers/" + name)
+                and io.sha(raw) == expected
+            ]
+            raw = retained[0] if retained else io.read_protected(root / name, MAX_FILE_BYTES)
+            io.require(io.sha(raw) == expected, "control_archive_consumer_bytes_unavailable")
+            consumers[digest][name] = raw
+    return consumers
+
+
 def capture(
     root,
     plan_ref,
@@ -652,57 +718,8 @@ def capture(
 
     fence()
     seeds = _seed(root, plan_ref, backup_manifest_ref, stage)
-    pending, files, launch_refs = list(seeds), {}, {}
-    while pending:
-        _budget(end)
-        reference = pending.pop()
-        path = _path(root, reference["path"])
-        if str(path) in files:
-            io.require(
-                io.sha(files[str(path)]) == reference["sha256"], "control_archive_reference_changed"
-            )
-            continue
-        io.require(len(files) < MAX_FILES, "control_archive_file_limit")
-        raw = io.read_protected(Path(path), MAX_FILE_BYTES)
-        io.require(io.sha(raw) == reference["sha256"], "control_archive_reference_changed")
-        files[str(path)] = raw
-        io.require(sum(map(len, files.values())) <= MAX_TOTAL_BYTES, "control_archive_total_limit")
-        if path.suffix != ".json":
-            io.require(
-                (
-                    path.is_relative_to(root / "origins")
-                    and CONSUMER.fullmatch("/".join(path.parts[-2:]))
-                )
-                or (
-                    path.is_relative_to(root / "launch-permits")
-                    and path.name == "operation.lock"
-                    and raw == b""
-                ),
-                "control_archive_unexpected_binary",
-            )
-            continue
-        doc = io.document(raw)
-        refs = _launch_references(root, doc)
-        if refs:
-            launch_refs[str(path)] = refs
-            pending.extend(refs)
-        pending.extend(ref for ref in _references(doc) if _control_reference(root, ref, cold=cold))
-        pending.extend(_implicit_references(root, doc))
-    documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
-    required, consumers = _consumer_maps(documents), {}
-    for digest, inventory in required.items():
-        roots = [Path((consumer_roots or {}).get(digest, SOURCE))]
-        consumers[digest] = {}
-        for name, expected in inventory.items():
-            retained = [
-                raw
-                for path, raw in files.items()
-                if io.logical_path(path).as_posix().endswith("/consumers/" + name)
-                and io.sha(raw) == expected
-            ]
-            raw = retained[0] if retained else io.read_protected(roots[0] / name, MAX_FILE_BYTES)
-            io.require(io.sha(raw) == expected, "control_archive_consumer_bytes_unavailable")
-            consumers[digest][name] = raw
+    files, launch_refs = {}, {}
+    _capture_graph(root, seeds, files, launch_refs, end, cold=cold)
     authorities = {}
     plan = io.document(files[plan_ref["path"]])
     capture_clock = None
@@ -724,6 +741,9 @@ def capture(
             read_reference=authority_reader,
             read_file=authority_file_reader,
         )
+        _capture_graph(
+            root, _inward_references(root, authorities), files, launch_refs, end, cold=True
+        )
     elif variant.is_mixed(plan):
         from scripts import j1_forward_mixed_archive
 
@@ -735,6 +755,8 @@ def capture(
                 name: baseline["source_consumers"][name] for name in variant.SUPPLEMENTAL
             },
         )
+    documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
+    consumers = _consumer_bytes(documents, files, consumer_roots)
     semantic = _semantic(
         root, files, consumers, plan_ref, backup_manifest_ref, stage, authorities, capture_clock
     )

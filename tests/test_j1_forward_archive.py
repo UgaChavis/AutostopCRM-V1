@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import shutil
 import tempfile
+import time
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -46,6 +47,49 @@ class ControlReferenceRoutingTests(unittest.TestCase):
             str(root) + "-other/state/x",
         ):
             self.assertFalse(archive._control_reference(root, {"path": name}, cold=True))
+
+    def test_external_authority_backlink_closes_the_plain_control_graph(self):
+        root = PurePosixPath("/var/lib/autostop-crm-forward")
+        history = str(root / "origins/old/plan.json")
+        anchor = str(root / "attempts/new/predecessor-anchor.json")
+        rows = {history: io.canonical({"historical": True})}
+        history_ref = {"path": history, "sha256": io.sha(rows[history])}
+        rows[anchor] = io.canonical({"origin": history_ref})
+        anchor_ref = {"path": anchor, "sha256": io.sha(rows[anchor])}
+        external = {
+            "/etc/autostop-crm-forward/cold/v1/authority.json": io.canonical(
+                {
+                    "predecessor_anchor_ref": anchor_ref,
+                    "epoch_ref": {"path": str(root / "cold/v1/epoch.json"), "sha256": "e" * 64},
+                }
+            )
+        }
+        files, launches = {}, {}
+        with patch.object(
+            io, "read_protected", side_effect=lambda path, _limit: rows[path.as_posix()]
+        ):
+            archive._capture_graph(
+                root,
+                archive._inward_references(root, external),
+                files,
+                launches,
+                time.monotonic() + 5,
+                cold=True,
+            )
+        self.assertEqual(files, rows)
+        self.assertEqual(launches, {})
+        changed = {
+            "/etc/authority.json": io.canonical({"anchor": anchor_ref | {"sha256": "0" * 64}})
+        }
+        with self.assertRaisesRegex(io.Refusal, "reference_changed"):
+            archive._capture_graph(
+                root,
+                archive._inward_references(root, changed),
+                files,
+                launches,
+                time.monotonic() + 5,
+                cold=True,
+            )
 
 
 class ControlArchiveTests(unittest.TestCase):
