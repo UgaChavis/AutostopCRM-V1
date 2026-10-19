@@ -200,19 +200,58 @@ def _closed(fence, epoch):
 @contextmanager
 def close_before_mutation(store):
     """Keep previous epoch CLOSED through the caller's complete State mutation."""
-    head = store.head()
-    if head["record"] is None or not cold_state.is_cold(head["record"]["plan"]):
+    snapshot, plans = _mutation_snapshot(store)
+    if not plans:
         yield
         return
-    plan = head["record"]["plan"]
-    epoch = io.document(store._read_reference(plan["dispatch_epoch_ref"]))
-    fence = _fence(epoch, store._read_reference)
-    descriptor = epochs.locked_fence(fence, exclusive=True)
+    bindings = {}
+    for plan in plans:
+        epoch = io.document(store._read_reference(plan["dispatch_epoch_ref"]))
+        fence = _fence(epoch, store._read_reference)
+        key = fence["dispatch_lock_path"]
+        contract.need(
+            key not in bindings or bindings[key] == (epoch, fence), "projection_epoch_alias"
+        )
+        bindings[key] = (epoch, fence)
+    acquired = []
     try:
-        _exclusive(fence, descriptor)
-        contract.need(store.head() == head, "projection_head_raced_before_close")
-        _closed(fence, epoch)
+        for key in sorted(bindings):
+            epoch, fence = bindings[key]
+            descriptor = epochs.locked_fence(fence, exclusive=True)
+            acquired.append((descriptor, fence))
+            _exclusive(fence, descriptor)
+        contract.need(
+            _mutation_snapshot(store)[0] == snapshot, "projection_head_raced_before_close"
+        )
+        for epoch, fence in bindings.values():
+            _closed(fence, epoch)
         yield
-        _exclusive(fence, descriptor)
+        for descriptor, fence in acquired:
+            _exclusive(fence, descriptor)
     finally:
-        os.close(descriptor)
+        for descriptor, _fence_value in reversed(acquired):
+            os.close(descriptor)
+
+
+def _mutation_snapshot(store):
+    """Recognize only the existing crash case: one durable tip before HEAD.
+
+    A regular head() deliberately rejects that state. Recovery needs to close
+    both the previously published epoch and that unpublished tip, then let the
+    existing strict Store.recover validate/complete its original publication.
+    Corrupt HEAD, broken history and larger gaps still stop before mutation.
+    """
+    with store._locked() as present:
+        if not present:
+            return {"head": None, "records": []}, []
+        records, head = store._records(), store._head_record()
+        sequence = head["sequence"]
+        contract.need(sequence <= len(records) <= sequence + 1, "projection_recovery_history_gap")
+        expected = records[sequence - 1][1]["sha256"] if sequence else store.base_sha256
+        contract.need(head["sha256"] == expected, "projection_recovery_head_corrupt")
+        selected = [records[sequence - 1][0]["plan"]] if sequence else []
+        if len(records) > sequence:
+            selected.append(records[-1][0]["plan"])
+        return {"head": head, "records": [reference for _record, reference in records]}, [
+            plan for plan in selected if cold_state.is_cold(plan)
+        ]

@@ -158,6 +158,32 @@ class ColdProjectionTests(unittest.TestCase):
         self.assertEqual(before, self.store.head_path.read_bytes())
         self.assertEqual(self.closed, io.document(io.read_protected(self.fence["state_path"])))
 
+    def test_recovery_of_history_before_head_closes_unpublished_epoch(self):
+        # Actual durable commit is present, but simulate process death before
+        # the first HEAD publication. This is an existing recoverable state.
+        self.store.head_path.unlink()
+        with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
+            self.store.head()
+        io.atomic_replace(
+            self.fence["state_path"],
+            {
+                **self.closed,
+                "state": "open",
+                "plan_ref": self.plan_ref,
+                "commit_ref": self.commit_ref,
+                "admission_ref": self.plan_ref,
+            },
+        )
+        original = state_tests.state.Store._publish_head
+
+        def publish_head(store, *arguments):
+            self.assertEqual(self.closed, io.document(io.read_protected(self.fence["state_path"])))
+            return original(store, *arguments)
+
+        with patch.object(state_tests.state.Store, "_publish_head", publish_head):
+            self.store.recover(self.plan)
+        self.assertEqual(self.commit_ref["sha256"], self.store.head()["sha256"])
+
 
 if __name__ == "__main__":
     unittest.main()
