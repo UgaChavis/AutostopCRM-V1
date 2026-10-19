@@ -100,6 +100,7 @@ def closed_state(binding):
         "state": "closed",
         "commit_ref": None,
         "plan_ref": None,
+        "admission_ref": None,
     }
 
 

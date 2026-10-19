@@ -53,6 +53,46 @@ if mode == 'probe':
                             required_scope='native_fixture', current_process=True)
     publish(root / 'probe-effects' / unit, receipt)
     raise SystemExit(0)
+if mode == 'candidate':
+    provider = fixture.FixtureProvider(root)
+    ref = provider.reference(root / 'authority.json')
+    receipt = guard.inspect(ref, unit, config['binding_sha256'], provider=provider,
+                            required_scope='native_fixture', current_process=True)
+    binding = json.loads(pathlib.Path(os.environ['AUTOSTOP_COLD_RUNTIME_BINDING']).read_bytes())
+    fence = json.loads(provider.read_reference(binding['ingress_fence_ref']))
+    tombstones = json.loads(provider.read_reference(binding['tombstones_ref']))
+    forbidden = {row['op_id'] for row in tombstones['rows']}
+    requests = pathlib.Path(binding['paths']['state_dir']) / 'requests'; requests.mkdir(mode=0o700)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(binding['paths']['socket_path']); listener.listen(8)
+    publish(root / 'probe-effects' / unit, receipt)
+    print('READY', flush=True)
+    while True:
+        peer, _ = listener.accept()
+        try:
+            peer.settimeout(3)
+            request = json.loads(peer.recv(4096))
+            if set(request) != {'op_id','payload_sha256'} or request['op_id'] in forbidden:
+                peer.sendall(b'DENY\n'); continue
+            if str(uuid.UUID(request['op_id'])) != request['op_id'] or not contract.HEX.fullmatch(request['payload_sha256']):
+                peer.sendall(b'DENY\n'); continue
+            lock = os.open(fence['dispatch_lock_path'], os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                identity = fence['dispatch_lock_identity']; info = os.fstat(lock)
+                if [info.st_dev,info.st_ino,info.st_ctime_ns] != [identity['device'],identity['inode'],identity['ctime_ns']]:
+                    peer.sendall(b'DENY\n'); continue
+                fcntl.flock(lock, fcntl.LOCK_SH)
+                linked = pathlib.Path(fence['dispatch_lock_path']).stat()
+                if [linked.st_dev,linked.st_ino,linked.st_ctime_ns] != [info.st_dev,info.st_ino,info.st_ctime_ns]:
+                    peer.sendall(b'DENY\n'); continue
+                state = json.loads(pathlib.Path(fence['state_path']).read_bytes())
+                if state['state'] != 'open' or any(state[key] != binding[key] for key in ('attempt_id','boot_id','generation','epoch_id')):
+                    peer.sendall(b'HELD\n'); continue
+                journal = requests / request['op_id']; journal.mkdir(mode=0o700)
+                publish(journal / 'effect.json', {'unit':unit, **request})
+                peer.sendall(b'ACK\n')
+            finally: os.close(lock)
+        finally: peer.close()
 if mode == 'kernel':
     ready = {'schema':'autostop.j1.cold-kernel-ready.v1','binding':config['binding'],
              'phase':'ready','pid':os.getpid(),'start_ticks':native.birth(os.getpid())}
@@ -439,7 +479,12 @@ class Fixture:
     """Own every effect handle before spawning. No outside PID can be signalled."""
 
     def __init__(
-        self, *, ttl_seconds=120, candidate_crm_sha="1" * 40, candidate_manager_sha="2" * 40
+        self,
+        *,
+        ttl_seconds=120,
+        candidate_crm_sha="1" * 40,
+        candidate_manager_sha="2" * 40,
+        candidates=False,
     ):
         contract.need(
             sys.platform.startswith("linux")
@@ -452,6 +497,8 @@ class Fixture:
         self.dispatch_fd = self.deployment_fd = None
         self.package_ref = None
         self.catalog = {}
+        contract.need(type(candidates) is bool, "fixture_candidate_mode")
+        self.candidates = candidates
         contract.need(
             all(
                 type(value) is str and contract.SHA1.fullmatch(value)
@@ -543,6 +590,15 @@ class Fixture:
             self.publish(
                 "source/scripts/" + name, Path(__file__).with_name(name).read_bytes(), raw=True
             )
+        if self.candidates:
+            from scripts import j1_forward_cold_guard
+
+            for name in j1_forward_cold_guard.BOOTSTRAP_HASHES:
+                target = "source/scripts/" + name + ".py"
+                if not (self.root / target).exists():
+                    self.publish(
+                        target, Path(__file__).with_name(name + ".py").read_bytes(), raw=True
+                    )
         self.publish("source/scripts/__init__.py", b"", raw=True)
         self.publish("source/worker.py", WORKER.encode(), raw=True)
         interpreter = Path(sys.executable).resolve()
@@ -686,6 +742,7 @@ class Fixture:
         predecessor, predecessor_scope, original_hold, hold_checkpoint = self._history(
             endpoints, pipe_inodes
         )
+        self._cold_predecessor = predecessor
         containment = self.publish(
             "evidence/population.json",
             self.doc(
@@ -730,6 +787,10 @@ class Fixture:
             ),
         )
         pending = self._pending(quarantine)
+        if self.candidates:
+            from scripts import j1_forward_cold_epoch
+
+            j1_forward_cold_epoch.fixture_inputs(self, pending)
         _kernel_process, kernel_actor = self._spawn("kernel", "private-cold-kernel")
         self.publish("private-cache", b"synthetic-only", raw=True, mode=0o400)
         view = self.publish(
@@ -1027,12 +1088,21 @@ class Fixture:
                 "-B",
                 str(source_root / "worker.py"),
                 str(self.root),
-                "probe",
+                "candidate" if self.candidates else "probe",
                 unit,
             ]
+            values = dict(ENVIRONMENT)
+            if self.candidates:
+                from scripts import j1_forward_cold_epoch
+
+                binding_ref = self.runtime_bindings[j1_forward_cold_epoch.ROLES[unit]]
+                values.update(
+                    AUTOSTOP_COLD_RUNTIME_BINDING=binding_ref["path"],
+                    AUTOSTOP_COLD_RUNTIME_BINDING_SHA256=binding_ref["sha256"],
+                )
             environment = self.publish(
                 "evidence/environment-" + unit + ".json",
-                self.doc("environment", unit=unit, values=ENVIRONMENT),
+                self.doc("environment", unit=unit, values=values),
             )
             unit_file = self.publish(
                 "evidence/unit-source-" + unit,

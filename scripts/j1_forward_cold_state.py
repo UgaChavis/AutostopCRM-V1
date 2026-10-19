@@ -110,6 +110,30 @@ def envelope(store, document):
 
 
 class ColdStore(state.Store):
+    def _mutation(self, method, *args):
+        from scripts import j1_forward_cold_projection
+
+        with j1_forward_cold_projection.close_before_mutation(self):
+            return method(*args)
+
+    def begin(self, plan):
+        return self._mutation(super().begin, plan)
+
+    def commit(self, plan, proofs):
+        return self._mutation(super().commit, plan, proofs)
+
+    def recover(self, plan):
+        return self._mutation(super().recover, plan)
+
+    def begin_recovery(self, envelope):
+        return self._mutation(super().begin_recovery, envelope)
+
+    def commit_recovery(self, envelope, proofs):
+        return self._mutation(super().commit_recovery, envelope, proofs)
+
+    def recover_recovery(self, envelope):
+        return self._mutation(super().recover_recovery, envelope)
+
     def _validate_plan(self, plan):
         from scripts import j1_forward_variant
 

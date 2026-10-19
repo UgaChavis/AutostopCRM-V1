@@ -32,6 +32,12 @@ def is_mixed(plan):
     return type(plan) is dict and plan.get("schema") == MIXED_PLAN
 
 
+def _is_cold(plan):
+    return (
+        type(plan) is dict and plan.get("schema") == "autostop.j1.crm-manager-cold-forward-plan.v1"
+    )
+
+
 def validate_plan(plan, base):
     from scripts import j1_forward_cold_state
 
@@ -53,10 +59,14 @@ def baseline_schema(plan):
 
 
 def inspection_schema(plan):
+    if _is_cold(plan):
+        return "autostop.j1.crm-manager-cold-forward-inspection.v1"
     return MIXED_INSPECTION if is_mixed(plan) else "autostop.j1.crm-forward-inspection.v1"
 
 
 def guard_acceptance_field(plan):
+    if _is_cold(plan):
+        return "cold_guards_executed"
     return "mixed_guards_executed" if is_mixed(plan) else "original_guards_executed"
 
 
@@ -73,6 +83,10 @@ def store(root, plan):
 
 
 def backup_engine(plan):
+    if _is_cold(plan):
+        from scripts import j1_forward_cold_backup
+
+        return j1_forward_cold_backup.for_plan(plan)
     if is_mixed(plan):
         from scripts import j1_forward_mixed_backup
 
@@ -83,6 +97,10 @@ def backup_engine(plan):
 
 
 def transport_engine(plan):
+    if _is_cold(plan):
+        from scripts import j1_forward_cold_backup
+
+        return j1_forward_cold_backup.transport_engine(plan)
     if is_mixed(plan):
         from scripts import j1_forward_mixed_backup
 

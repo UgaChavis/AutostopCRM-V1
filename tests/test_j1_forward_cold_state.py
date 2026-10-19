@@ -12,7 +12,9 @@ from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts import j1_forward_variant as variant
 
 
-@unittest.skipUnless(sys.platform.startswith("linux"), "Requires private native Linux fixture")
+@unittest.skipUnless(
+    sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
+)
 class ColdRecoveryStateTests(unittest.TestCase):
     def test_exact_cold_origin_retains_pending_and_permanent_old_writer_ban(self):
         with rehearsal.TraceFixture() as fixture:

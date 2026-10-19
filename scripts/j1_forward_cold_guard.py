@@ -1,17 +1,137 @@
 """A checked cold-stage consumer, separate from every preserved warm guard.
 
-The closed-stage check grants no application start. The current process check
-is shared by the native fixture's six fixed probe entrypoints. There is no
-production installation/issuer/launch CLI and no environment bypass.
+The standalone bootstrap verifies its fixed controller dependencies before
+loading them. Application import is reachable only after independently accepted
+native incarnation and durable one-shot C/E. Original eight barriers stay closed.
 """
 
 from __future__ import annotations
 
+import importlib
 import os
+import sys
 from pathlib import Path
 
-from scripts import j1_forward_cold_authority as contract
-from scripts import j1_forward_cold_native as native
+# Generated from this reviewed controller source; no application module belongs
+# to this allowlist. The guard's own digest is bound by the cold package.
+BOOTSTRAP_HASHES = {
+    "j1_forward_io": "1468da15de5b5d11e58d42de336bfc00ee041b6aac399622520b576c32c1de15",
+    "j1_forward_cold_authority": "762de70cde3f8b002c6c3fb31528f62c347cdcb685c3517fd397bfff631eb3ed",
+    "j1_forward_cold_native": "e56f39afc37401a956cb72763b7f8f63b22ea00aef7c91b17028969b2b8b5a2c",
+    "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
+    "j1_forward_cold_history": "8786ee7b8f4688763eb68a1bc4d9910d181bef566dfad7eea8a509d82409b509",
+    "j1_forward_cold_hold": "2f158f5a2158e2f8ed178ad7f9c0bfd56ddc70028ba6f3e968320ef723926d60",
+    "j1_forward_cold_epoch": "00b13d8f8493bdec476ea9d504d5de77662fca7c108324a919c4fe7599ca66b0",
+    "j1_forward_launch_permission": "bc02591b3c8e3eee37b58d8b440c2c041968ba8bd34d8597c13e6bc7431be8a9",
+    "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
+    "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
+    "j1_forward_cold_lifecycle": "9f32fe6d1114e3f5db2ada460c4a7a1c09ea486443f5206590d10e7658f54d69",
+    "j1_forward_cold_fixture": "e6396b2b3e5403a85707efac301582cd5f9bfa3d932e084363fcbf2c3e811d77",
+}
+
+
+def _bootstrap():
+    import hashlib
+    import importlib.util
+    import json
+    import stat
+    import tempfile
+    import types
+
+    if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
+        raise ValueError("cold_bootstrap_flags")
+    here = Path(__file__).absolute()
+    install = Path("/usr/local/libexec/autostop-crm-forward-cold/v1")
+    private_root = here.parents[2]
+    private = (
+        here.name == "j1_forward_cold_guard.py"
+        and here.parent == private_root / "source/scripts"
+        and private_root.parent == Path(tempfile.gettempdir())
+        and private_root.name.startswith("autostop-cold-native-")
+    )
+    base = here.parent
+    if not private and (here != install / "guard.py" or os.geteuid() != 0):
+        raise ValueError("cold_bootstrap_location")
+    boundary = private_root if private else Path("/")
+    owner = os.geteuid() if private else 0
+
+    def physical(path, directory=False):
+        if not path.is_relative_to(boundary):
+            raise ValueError("cold_bootstrap_outside_boundary")
+        for parent in [*reversed(path.parent.parents), path.parent]:
+            if not parent.is_relative_to(boundary):
+                continue
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or info.st_mode & 0o022:
+                raise ValueError("cold_bootstrap_directory")
+        before = path.lstat()
+        if directory:
+            if (
+                not stat.S_ISDIR(before.st_mode)
+                or stat.S_IMODE(before.st_mode) != 0o700
+                or before.st_uid != owner
+            ):
+                raise ValueError("cold_bootstrap_private_root")
+            return b""
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != owner
+            or before.st_nlink != 1
+            or before.st_mode & 0o022
+            or before.st_size > 2 * 1024**2
+        ):
+            raise ValueError("cold_bootstrap_file")
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            opened = os.fstat(descriptor)
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                raw = stream.read(2 * 1024**2 + 1)
+            final = path.lstat()
+            keys = ("st_dev", "st_ino", "st_size", "st_ctime_ns", "st_mtime_ns")
+            if len(raw) != before.st_size or any(
+                getattr(before, key) != getattr(opened, key)
+                or getattr(before, key) != getattr(final, key)
+                for key in keys
+            ):
+                raise ValueError("cold_bootstrap_changed")
+            return raw
+        finally:
+            os.close(descriptor)
+
+    if private:
+        physical(private_root, directory=True)
+        fixture = json.loads(physical(private_root / "fixture.json"))
+        if fixture.get("kind") != "private_owned_process_topology_v1" or fixture.get("root") != str(
+            private_root
+        ):
+            raise ValueError("cold_bootstrap_fixture")
+    else:
+        physical(here)
+    package = types.ModuleType("scripts")
+    package.__path__ = []
+    sys.modules["scripts"] = package
+    sys.modules["scripts.j1_forward_cold_guard"] = sys.modules["__main__"]
+    package.j1_forward_cold_guard = sys.modules["__main__"]
+    for name, expected in BOOTSTRAP_HASHES.items():
+        filename = name + ".py"
+        if not private and name in {"j1_forward_cold_authority", "j1_forward_cold_native"}:
+            filename = "authority.py" if name.endswith("authority") else "native.py"
+        raw = physical(base / filename)
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError("cold_bootstrap_source_changed")
+        spec = importlib.util.spec_from_loader("scripts." + name, loader=None)
+        module = importlib.util.module_from_spec(spec)
+        module.__file__ = str(base / filename)
+        sys.modules["scripts." + name] = module
+        setattr(package, name, module)
+        exec(compile(raw, module.__file__, "exec"), module.__dict__)
+    return private_root if private else None
+
+
+_PRIVATE_ROOT = _bootstrap() if __name__ == "__main__" else None
+
+contract = importlib.import_module("scripts.j1_forward_cold_authority")
+native = importlib.import_module("scripts.j1_forward_cold_native")
 
 
 def inspect(
@@ -52,3 +172,80 @@ def inspect(
 def io_document(provider, reference):
     reader = native.NativeProvider() if provider is None else provider
     return native.io.document(reader.read_reference(reference))
+
+
+def main(argv=None):
+    import argparse
+    import uuid
+
+    from scripts import j1_forward_cold_lifecycle as lifecycle
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", choices=("check", "launch"))
+    parser.add_argument("--epoch")
+    parser.add_argument("--unit", required=True, choices=contract.ALLOWED)
+    parser.add_argument("--binding-sha256", required=True)
+    args = parser.parse_args(argv)
+    if _PRIVATE_ROOT is not None:
+        from scripts import j1_forward_cold_fixture
+
+        provider = j1_forward_cold_fixture.FixtureProvider(_PRIVATE_ROOT)
+        package_ref = provider.reference(_PRIVATE_ROOT / "authority.json")
+        epoch_path = _PRIVATE_ROOT / "execution/epoch.json"
+        backend = object()  # Worker has no publisher, launch or acceptance capability.
+    else:
+        provider = native.NativeProvider()
+        package_ref = native.io.reference(native.PACKAGE)
+        package = native.io.document(provider.read_reference(package_ref))
+        generation = package["binding"]["generation"]
+        epoch_path = native.STATE / "epochs" / generation / "epoch.json"
+        backend = None
+    package = native.io.document(provider.read_reference(package_ref))
+    generation = package["binding"]["generation"]
+    contract.need(
+        str(uuid.UUID(generation)) == generation
+        and (args.epoch is None or args.epoch == generation)
+        and contract.digest(package["binding"]) == args.binding_sha256,
+        "cli_context",
+    )
+    epoch_ref = (
+        provider.reference(epoch_path)
+        if _PRIVATE_ROOT is not None
+        else native.io.reference(epoch_path)
+    )
+    controller = lifecycle.Controller(package_ref, epoch_ref, provider=provider, backend=backend)
+    controller.verify()
+    controller.admitted()
+    if args.command == "check":
+        controller.context(args.unit)
+        return 0
+    context = lifecycle.consume(controller, args.unit)
+    # Policy identity and one-shot entry are established before application
+    # bytecode, application environment, working directory or role credentials.
+    credentials = context["credentials"]
+    if os.geteuid() == 0:
+        os.setgroups(credentials["groups"])
+        os.setgid(credentials["gid"])
+        os.setuid(credentials["uid"])
+    else:
+        contract.need(
+            credentials
+            == {"uid": os.geteuid(), "gid": os.getegid(), "groups": sorted(os.getgroups())},
+            "cli_credentials",
+        )
+    os.chdir(context["application_cwd"])
+    os.execve(context["application_argv"][0], context["application_argv"], context["environment"])
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        import re
+
+        code = str(error)
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,127}", code):
+            code = "cold_guard_refused"
+        print(type(error).__name__ + ": " + code, file=sys.stderr)
+        raise SystemExit(2) from None
