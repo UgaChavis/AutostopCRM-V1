@@ -86,6 +86,20 @@ jobs:
         with:
           node-version: "24.21.0"
 
+      - name: Verify the pinned Compose plugin without a Docker daemon
+        if: runner.os == 'Windows'
+        run: |
+          $plugins = Join-Path $env:RUNNER_TEMP 'rehearsal-compose'
+          New-Item -ItemType Directory -Path $plugins | Out-Null
+          $binary = Join-Path $plugins 'docker-compose.exe'
+          Invoke-WebRequest https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-windows-x86_64.exe -OutFile $binary
+          if ((Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant() -ne '8aeaa0055e660e12cf07cd70680dc8333957fe6718528b91ec3da084eab62483') {
+            throw 'Compose executable mismatch.'
+          }
+          & $binary version --short
+          if ($LASTEXITCODE -ne 0) { throw 'Compose version probe failed.' }
+          "CRM_REHEARSAL_COMPOSE_DIR=$plugins" >> $env:GITHUB_ENV
+
       - name: Create a disposable project environment
         run: |
           python -m venv .venv
