@@ -173,6 +173,24 @@ try {
         "scripts/coverage_audit.py", "--format", "text"
     )
 
+    $storeDrainCoverage = Join-Path $ciPycachePath "store-drain.coverage"
+    Invoke-Python -StepName "Store pre-stop branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $storeDrainCoverage,
+        "--source=scripts.j1_forward_store", "-m", "unittest",
+        "tests.test_j1_forward_store", "tests.test_j1_forward_store_wire",
+        "tests.test_j1_forward_store_integration", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Store pre-stop coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $storeDrainCoverage
+    )
+    Invoke-Python -StepName "Report Store pre-stop coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $storeDrainCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Store pre-stop coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $storeDrainCoverage,
+        "-o", "coverage-store-drain.json"
+    )
+
     Invoke-Python -StepName "Repository code health" -Arguments @(
         "scripts/code_health_audit.py", "--format", "text"
     )

@@ -290,6 +290,16 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: python scripts/coverage_audit.py --format text
 
+      - name: Store pre-stop branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label store-drain -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/store-drain.coverage" --source=scripts.j1_forward_store -m unittest \
+            tests.test_j1_forward_store tests.test_j1_forward_store_wire tests.test_j1_forward_store_integration -v
+          coverage combine --data-file "$RUNNER_TEMP/store-drain.coverage"
+          coverage report --data-file "$RUNNER_TEMP/store-drain.coverage" --fail-under=90 | tee coverage-store-drain.txt
+          coverage json --data-file "$RUNNER_TEMP/store-drain.coverage" -o coverage-store-drain.json
+
       - name: Upload coverage evidence
         if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
@@ -301,6 +311,8 @@ jobs:
             coverage-runtime.xml
             coverage-release.txt
             coverage-release.json
+            coverage-store-drain.txt
+            coverage-store-drain.json
             htmlcov/
           if-no-files-found: warn
 
