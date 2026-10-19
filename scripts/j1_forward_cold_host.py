@@ -171,6 +171,49 @@ class ColdHost(MixedHost):
     start_manager_writers = _warm_forbidden
     source = _warm_forbidden
 
+    def probes(self, candidate, attempt_id, *, held):
+        io.require(held is True, "cold_crm_closed_probe_requires_hold")
+        return self.readonly_probes(candidate, attempt_id, phase="closed")
+
+    def readonly_probes(self, candidate, attempt_id, *, phase):
+        from scripts import j1_forward_cold_runtime as runtime
+
+        io.require(hasattr(self, "cold_spec"), "cold_crm_configuration_required")
+        selected = {key: candidate[key] for key in ("image", "revision", "tree")}
+        io.require(selected == self.cold_spec["candidate"], "cold_crm_probe_candidate")
+        expected = io.document(io.read_protected(self.directory / "cold-crm-started.json"))
+        adapter = containers.Adapter(self.run)
+        io.require(
+            acceptance(adapter, self.cold_spec, self.cold_spec_ref) == expected,
+            "cold_crm_probe_instance_changed",
+        )
+        report = io.document(
+            self.run(
+                DOCKER
+                + [
+                    "exec",
+                    "autostopcrm",
+                    "/usr/local/bin/python",
+                    "-B",
+                    "scripts/j1_forward_cold_runtime.py",
+                    "--candidate",
+                    io.canonical(selected).decode(),
+                    "--attempt-id",
+                    attempt_id,
+                    "--phase",
+                    phase,
+                ],
+                label="cold-crm-readonly-" + phase,
+                timeout=90,
+            )
+        )
+        runtime.validate_report(report, candidate=selected, attempt=attempt_id, phase=phase)
+        io.require(
+            acceptance(adapter, self.cold_spec, self.cold_spec_ref) == expected,
+            "cold_crm_probe_instance_changed",
+        )
+        return report
+
     def prepare_spec(self, candidate, *, epoch_ref, package_ref):
         package = io.document(io.referenced(package_ref))
         epoch = io.document(io.referenced(epoch_ref))

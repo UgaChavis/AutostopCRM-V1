@@ -58,7 +58,7 @@ class ColdManagerTests(unittest.TestCase):
     def fixture(self, folder):
         source = folder / ("1" * 40) / "source"
         source.mkdir(parents=True)
-        (source / "REVISION").write_text("1" * 40 + "\n")
+        (source / "REVISION").write_bytes(("1" * 40 + "\n").encode("ascii"))
         manifest = folder / "binding.json"
         document = {
             "source_revision": "1" * 40,

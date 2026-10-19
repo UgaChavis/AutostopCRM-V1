@@ -12,6 +12,7 @@ from scripts import j1_forward_cold_state as state
 from scripts import j1_forward_cold_worker as cold
 from scripts import j1_forward_io as io
 from scripts import j1_forward_worker as worker
+from tests import test_j1_forward_cold_runtime as runtime_tests
 from tests import test_j1_forward_worker as warm_tests
 
 
@@ -218,13 +219,10 @@ class ColdWorkerTests(unittest.TestCase):
             "crm": crm,
             "execution_acceptance_sha256": contract.digest(refs),
         }
-        runtime = {
-            **{
-                name: {"ok": True}
-                for name in ("runtime", "gateway", "oauth", "performance", "feed")
-            },
-            "actual_crm_revision": plan["candidate"]["revision"],
-        }
+        runtime = runtime_tests.report(
+            {key: plan["candidate"][key] for key in ("image", "revision", "tree")},
+            plan["attempt_id"],
+        )
         evidence.update(accepted=accepted, crm=crm, runtime=runtime)
         inspection.update(
             cold_guards_executed=True,

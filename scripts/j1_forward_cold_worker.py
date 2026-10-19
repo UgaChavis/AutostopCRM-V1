@@ -11,6 +11,7 @@ import re
 from pathlib import PurePosixPath
 
 from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_runtime as readonly_runtime
 from scripts import j1_forward_cold_state as state
 from scripts import j1_forward_io as io
 from scripts import j1_forward_recovery_state as recovery
@@ -234,14 +235,11 @@ def _accepted(document, response):
         and (crm["instance"]["main_pid"], crm["instance"]["start_ticks"]) not in identities,
         "worker_embedded_runtime",
     )
-    runtime = evidence["runtime"]
-    contract.need(
-        all(
-            type(runtime.get(name)) is dict and runtime[name].get("ok") is True
-            for name in ("runtime", "gateway", "oauth", "performance", "feed")
-        )
-        and runtime.get("actual_crm_revision") == plan["candidate"]["revision"],
-        "worker_runtime",
+    readonly_runtime.validate_report(
+        evidence["runtime"],
+        candidate={key: plan["candidate"][key] for key in ("image", "revision", "tree")},
+        attempt=plan["attempt_id"],
+        phase="closed",
     )
 
 
