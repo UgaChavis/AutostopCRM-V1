@@ -12,6 +12,7 @@ from scripts import j1_forward_cold_state as state
 from scripts import j1_forward_cold_worker as cold
 from scripts import j1_forward_io as io
 from scripts import j1_forward_worker as worker
+from tests import test_j1_forward_cold_qualification as qualification_tests
 from tests import test_j1_forward_cold_runtime as runtime_tests
 from tests import test_j1_forward_worker as warm_tests
 
@@ -95,11 +96,16 @@ class ColdWorkerTests(unittest.TestCase):
             candidate_manager_sha=binding["candidate_manager_sha"],
             cold_crm_spec_ref=self.fixture.ref("cold-crm-spec.json", {"synthetic": True}),
         )
+        response["qualification"] = qualification_tests.document(
+            {key: plan["candidate"][key] for key in ("revision", "tree", "consumer_sha256")}
+        )
+        baseline["ci"].update(run_id=101, run_url=cold.qualification.RUN_URL + "101")
         baseline.update(
             schema=state.BASELINE_SCHEMA,
             native={"cold_authority_package_ref": package_ref, "dispatch_epoch_ref": epoch_ref},
             controller_request_ref=self.fixture.ref("controller-request.json", {"synthetic": True}),
             controller_launch_ref=self.fixture.ref("controller-launch.json", {"synthetic": True}),
+            qualification_ref=self.fixture.ref("qualification.json", response["qualification"]),
         )
         profile = worker.variant.backup_engine(plan).profile_sha256()
         baseline["backup_profile_sha256"] = response["scope_profile_sha256"] = profile

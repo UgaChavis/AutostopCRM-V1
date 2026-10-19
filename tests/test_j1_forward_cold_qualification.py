@@ -12,7 +12,7 @@ from scripts import j1_forward_io as io
 SOURCE = {"revision": "1" * 40, "tree": "2" * 40, "consumer_sha256": "3" * 64}
 
 
-def responses():
+def responses(source=SOURCE):
     result = {}
     for identifier, workflow, jobs in (
         (101, qualification.QUALITY, qualification.QUALITY_JOBS),
@@ -25,8 +25,8 @@ def responses():
             "status": "completed",
             "conclusion": "success",
             "path": workflow,
-            "head_sha": SOURCE["revision"],
-            "head_commit": {"id": SOURCE["revision"], "tree_id": SOURCE["tree"]},
+            "head_sha": source["revision"],
+            "head_commit": {"id": source["revision"], "tree_id": source["tree"]},
             "html_url": qualification.RUN_URL + str(identifier),
         }
         result[f"actions/runs/{identifier}/jobs?per_page=100"] = {
@@ -36,7 +36,7 @@ def responses():
                     "name": name,
                     "status": "completed",
                     "conclusion": "success",
-                    "head_sha": SOURCE["revision"],
+                    "head_sha": source["revision"],
                     "run_id": identifier,
                     "run_attempt": 1,
                 }
@@ -46,9 +46,9 @@ def responses():
     return result
 
 
-def document():
+def document(source=SOURCE):
     return qualification.measure(
-        SOURCE, quality_run=101, rehearsal_run=102, fetch=responses().__getitem__
+        source, quality_run=101, rehearsal_run=102, fetch=responses(source).__getitem__
     )
 
 

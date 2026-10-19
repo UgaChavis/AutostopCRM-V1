@@ -11,6 +11,7 @@ import re
 from pathlib import PurePosixPath
 
 from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_qualification as qualification
 from scripts import j1_forward_cold_runtime as readonly_runtime
 from scripts import j1_forward_cold_state as state
 from scripts import j1_forward_io as io
@@ -85,6 +86,7 @@ def _baseline(response, attempt):
         "maintenance_parent",
         "controller_request_ref",
         "controller_launch_ref",
+        "qualification_ref",
     }
     is_recovery = "recovery_origin" in baseline
     contract.need(
@@ -102,6 +104,11 @@ def _baseline(response, attempt):
     from scripts import j1_forward_marker
 
     j1_forward_marker.validate_parent(baseline["maintenance_parent"])
+    worker._bound(response["qualification"], baseline["qualification_ref"])
+    qualification.validate_document(
+        response["qualification"],
+        {key: plan["candidate"][key] for key in ("revision", "tree", "consumer_sha256")},
+    )
     ci = baseline["ci"]
     contract.need(
         type(ci) is dict
@@ -114,6 +121,12 @@ def _baseline(response, attempt):
         and ci["run_url"]
         == f"https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/{ci['run_id']}",
         "worker_ci",
+    )
+    qualified_quality = response["qualification"]["checks"]["quality"]
+    contract.need(
+        ci["run_id"] == qualified_quality["run_id"]
+        and ci["run_url"] == qualified_quality["run_url"],
+        "worker_qualified_quality_run",
     )
     contract.need(
         response["review_key_ref"] == baseline["review_key_ref"]
@@ -274,6 +287,7 @@ def validate_response(response, *, attempt, stage):
         "evidence",
         "backup_context",
         "scope_profile_sha256",
+        "qualification",
     }
     has_recovery = (
         type(response) is dict
