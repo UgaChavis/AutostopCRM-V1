@@ -20,6 +20,7 @@ from scripts import j1_forward_cold_producer as producer
 from scripts import j1_forward_cold_producer_inputs as inputs
 from scripts import j1_forward_cold_producer_native as effectors
 from scripts import j1_forward_io as io
+from scripts import j1_forward_release_rehearsal as rehearsal
 
 
 class ProducerTests(unittest.TestCase):
@@ -119,6 +120,21 @@ class ProducerTests(unittest.TestCase):
                 {"telegram_frontier_policy_ref": ref}, self.binding, {}
             )
         backend.publish.assert_not_called()
+
+    def test_model_manifest_only_accepts_complete_source_pinned_payload_names(self):
+        raw = "# qualified Manager manifest\n" + "".join(
+            "1" * 64 + "  " + name + "\n" for name in sorted(effectors.MODEL_NAMES)
+        )
+        self.assertEqual(set(effectors.model_hashes(raw.encode())), effectors.MODEL_NAMES)
+        for damaged in (
+            raw + "1" * 64 + "  config.json\n",
+            raw.replace("model.bin", "other.bin"),
+            raw.replace("model.bin", "../model.bin"),
+            raw.replace("model.bin\n", "model.bin extra\n"),
+            raw.replace("1" * 64, "z" * 64),
+        ):
+            with self.subTest(damaged=damaged[-80:]), self.assertRaises(io.Refusal):
+                effectors.model_hashes(damaged.encode())
 
     def test_fresh_crm_uses_image_runtime_while_manager_uses_pinned_python_library(self):
         documents = {}
@@ -385,3 +401,92 @@ class ProducerTests(unittest.TestCase):
                 supervisor.verify_custody(
                     custody_ref, {"binding": self.binding}, ready, provider=provider
                 )
+
+
+@unittest.skipUnless(os.name == "posix", "Requires private native Linux fixture")
+class NativeRoleModelTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cold-model-material-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.root.chmod(0o700)
+        self.enterContext(rehearsal.PrivateFilesystem(self.root))
+        self.uid = 65534 if os.geteuid() == 0 else os.geteuid()
+        self.gid = os.getegid()
+        self.base = self.root / "role"
+        self.base.mkdir(mode=0o700)
+        os.chown(self.base, self.uid, self.gid)
+        self.source = self.root / "config.json"
+        self.source.write_bytes(b"private synthetic model bytes\n")
+        self.source.chmod(0o600)
+        self.row = {
+            "name": "config.json",
+            "bytes": self.source.stat().st_size,
+            "content_sha256": io.sha(self.source.read_bytes()),
+        }
+        self.binding = {"deadline_ns": time.monotonic_ns() + 20 * 10**9}
+        self.backend = object.__new__(effectors.NativeBackend)
+        self.backend.continuity = Mock()
+
+    def install(self, *, work):
+        self.backend.install_model_file(
+            self.source, self.base, self.row, self.binding, uid=self.uid, gid=self.gid, work=work
+        )
+        return self.base / "models/faster-whisper-small/config.json"
+
+    def test_work_material_is_system_owned_and_group_readable(self):
+        target = self.install(work=True)
+        self.assertEqual(target.read_bytes(), self.source.read_bytes())
+        self.assertEqual((target.stat().st_uid, target.stat().st_gid), (io.ROOT_UID, self.gid))
+        self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(target.parent.stat().st_uid, io.ROOT_UID)
+        self.assertEqual(target.parent.stat().st_mode & 0o777, 0o750)
+        self.assertEqual(self.backend.continuity.call_count, 2)
+        with self.assertRaises(FileExistsError):
+            self.install(work=True)
+        self.assertEqual(target.read_bytes(), self.source.read_bytes())
+
+    def test_personal_material_keeps_private_owner_and_modes(self):
+        target = self.install(work=False)
+        self.assertEqual((target.stat().st_uid, target.stat().st_gid), (self.uid, self.gid))
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(target.parent.stat().st_uid, self.uid)
+        self.assertEqual(target.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_changed_source_does_not_publish_final_material(self):
+        self.row["content_sha256"] = "0" * 64
+        with self.assertRaisesRegex(io.Refusal, "model_source_changed"):
+            self.install(work=True)
+        target = self.base / "models/faster-whisper-small/config.json"
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.backend.continuity.call_count, 1)
+
+    def test_expired_copy_does_not_publish_final_material(self):
+        self.binding["deadline_ns"] = time.monotonic_ns() - 1
+        with self.assertRaisesRegex(ValueError, "operation_deadline"):
+            self.install(work=True)
+        target = self.base / "models/faster-whisper-small/config.json"
+        self.assertEqual(target.stat().st_size, 0)
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+
+    def test_native_directory_ownership_uses_os_primitive(self):
+        from scripts import j1_forward_cold_install as install
+
+        target = self.root / "producer-directory"
+        self.backend.directory_at(target, uid=os.geteuid(), gid=self.gid)
+        self.assertEqual(target.stat().st_uid, os.geteuid())
+        other = self.root / "installer-directory"
+        installer = install.NativeBackend()
+        installer.directory = Mock(side_effect=lambda path: self.assertEqual(path, self.root))
+        install.NativeBackend.directory(
+            installer, other, mode=0o700, uid=os.geteuid(), gid=self.gid
+        )
+        self.assertEqual(other.stat().st_mode & 0o777, 0o700)
+
+    def test_role_symlink_and_foreign_model_directory_are_refused(self):
+        foreign = self.root / "foreign"
+        foreign.mkdir(mode=0o700)
+        (self.base / "models").symlink_to(foreign, target_is_directory=True)
+        with self.assertRaises(OSError):
+            self.install(work=True)
+        self.assertEqual(list(foreign.iterdir()), [])

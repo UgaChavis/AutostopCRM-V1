@@ -106,6 +106,18 @@ inventory. COMMIT, pre-OPEN and marker removal repeat readiness. Fresh Telegram
 credentials and an authenticated owned kernel thread remain required
 future-window inputs.
 
+Fresh role material includes exactly the four model payload names for both
+Telegram roles. Their hashes come from the already qualified Manager source's
+`deploy/telegram/faster-whisper-small.sha256`, never from an observed process.
+The 483,546,902-byte pinned model is streamed within the existing 2 GiB data-file
+budget; it is not a JSON authority or a control-archive leaf. Copying checks the
+complete source version, package deadline, destination bytes and final identity.
+Open directory descriptors confine the new files to the fresh role's model
+directories. Work model directories/files are root:role 0750/0640; personal
+models remain role-owned 0700/0600. Partial or corrupt copies retain closed
+dispatch and cannot satisfy preparation. Credentials and old sessions are not
+included in the public model asset.
+
 Production Telegram policy v2 requires both expected account-self hashes from
 separately qualified staged authorization. The shared parser rejects v1 before
 any fresh credential installation. A cut's observed account hash is compared
@@ -115,6 +127,6 @@ The focused tests exercise synthetic SQL/files, explicit OS/GitHub doubles,
 single-submit unknown outcomes, source-index binding and custody denial. They
 are not native production acceptance. Before any production window the exact
 published joined controller needs a private full trace, real mapped-library
-admission, actual archive codec-4 total/path/RSS measurement and successful
+admission, actual archive total/path/RSS measurement and successful
 canonical OS/rehearsal gates. The archive's 512 MiB and existing deadlines are
 not raised to fit an unmeasured graph.

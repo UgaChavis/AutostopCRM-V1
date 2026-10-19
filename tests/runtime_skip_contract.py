@@ -43,6 +43,7 @@ PRIVATE_COLD_FAMILIES = frozenset(
         ("test_j1_forward_cold_lifecycle", "ColdNativeLifecycleTests"),
         ("test_j1_forward_cold_catalog", "CatalogTests"),
         ("test_j1_forward_cold_runtime_artifact", "NativeRuntimeArtifactTests"),
+        ("test_j1_forward_cold_producer", "NativeRoleModelTests"),
         ("test_j1_forward_release_rehearsal", "ReleaseRehearsalFilesystemTests"),
     }
 )

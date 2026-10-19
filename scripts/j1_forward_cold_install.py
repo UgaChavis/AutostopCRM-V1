@@ -71,7 +71,7 @@ class NativeBackend:
         if not path.exists() and not path.is_symlink():
             self.directory(path.parent)
             path.mkdir(mode=mode)
-            path.chown(uid, gid)
+            os.chown(path, uid, gid, follow_symlinks=False)
             path.chmod(mode)
             io.fsync_directory(path.parent)
         info = path.lstat()

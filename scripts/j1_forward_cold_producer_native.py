@@ -8,6 +8,7 @@ provided. A private backend may replace these OS boundaries in unit tests.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import select
@@ -16,6 +17,7 @@ import socket
 import stat
 import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from scripts import j1_forward_cold_authority as cold
@@ -33,6 +35,81 @@ from scripts.j1_forward_cold_catalog_native import (
 
 ENVIRONMENT = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 CRM_PRODUCTION_BRANCH = "autostopcrm-v1"
+MODEL_NAMES = frozenset({"config.json", "model.bin", "tokenizer.json", "vocabulary.txt"})
+
+
+def model_hashes(raw):
+    """Only the four model payloads pinned by the qualified Manager source."""
+    result = {}
+    for line in raw.decode("ascii").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split()
+        cold.need(
+            len(fields) == 2
+            and cold.HEX.fullmatch(fields[0])
+            and fields[1] in MODEL_NAMES
+            and fields[1] not in result,
+            "producer_model_manifest",
+        )
+        result[fields[1]] = fields[0]
+    cold.need(set(result) == MODEL_NAMES, "producer_model_manifest_inventory")
+    return result
+
+
+@contextmanager
+def model_directory(base, *, uid, gid, work):
+    """Keep role and both model directories open; never follow role symlinks."""
+    io.protected_directory(base.parent)
+    descriptors = []
+    path, owner, mode = base, uid, 0o700
+    try:
+        for name in (None, "models", "faster-whisper-small"):
+            parent = descriptors[-1][1] if descriptors else None
+            if name is not None:
+                path, owner, mode = (
+                    path / name,
+                    io.ROOT_UID if work else uid,
+                    0o750 if work else 0o700,
+                )
+                try:
+                    os.mkdir(name, mode, dir_fd=parent)
+                except FileExistsError:
+                    pass
+                else:
+                    os.chown(name, owner, gid, dir_fd=parent, follow_symlinks=False)
+                    os.chmod(name, mode, dir_fd=parent, follow_symlinks=False)
+                    os.fsync(parent)
+            fd = os.open(
+                path if parent is None else name,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=parent,
+            )
+            descriptors.append((path, fd, owner, mode))
+            info, actual = path.lstat(), os.fstat(fd)
+            cold.need(
+                stat.S_ISDIR(info.st_mode)
+                and info.st_dev == actual.st_dev
+                and info.st_ino == actual.st_ino
+                and info.st_uid == actual.st_uid == owner
+                and info.st_gid == actual.st_gid == gid
+                and stat.S_IMODE(info.st_mode) == stat.S_IMODE(actual.st_mode) == mode,
+                "producer_model_directory_identity",
+            )
+        yield descriptors[-1][1]
+        for path, fd, owner, mode in descriptors:
+            info, actual = path.lstat(), os.fstat(fd)
+            cold.need(
+                info.st_uid == owner
+                and info.st_gid == gid
+                and stat.S_IMODE(info.st_mode) == mode
+                and (info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode)
+                == (actual.st_dev, actual.st_ino, actual.st_uid, actual.st_gid, actual.st_mode),
+                "producer_model_directory_changed",
+            )
+    finally:
+        for _path, fd, _owner, _mode in reversed(descriptors):
+            os.close(fd)
 
 
 def systemd_paths(value):
@@ -210,7 +287,7 @@ class NativeBackend:
             else:
                 io.protected_directory(path.parent)
             path.mkdir(mode=mode)
-            path.chown(uid, gid)
+            os.chown(path, uid, gid, follow_symlinks=False)
             path.chmod(mode)
             io.fsync_directory(path.parent)
         value = path.lstat()
@@ -895,6 +972,83 @@ class NativeBackend:
 
         return origin.verify_artifact(self, document, runtime)
 
+    def install_model_file(self, source, base, row, binding, *, uid, gid, work):
+        from scripts import j1_forward_backup as backup
+
+        self.continuity(binding)
+        io.protected_directory(source.parent)
+        before = source.lstat()
+        cold.need(
+            stat.S_ISREG(before.st_mode)
+            and before.st_nlink == 1
+            and before.st_uid == io.ROOT_UID
+            and not before.st_mode & 0o022
+            and before.st_size == row["bytes"] <= backup.MAX_FILE_BYTES,
+            "producer_model_source_identity",
+        )
+        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            opened = os.fstat(descriptor)
+            with model_directory(base, uid=uid, gid=gid, work=work) as directory:
+                target = os.open(
+                    row["name"],
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                    dir_fd=directory,
+                )
+                try:
+                    count, digest = 0, hashlib.sha256()
+                    while block := os.read(descriptor, 1024**2):
+                        backup.budget(binding["deadline_ns"] / 1e9)
+                        count += len(block)
+                        cold.need(count <= row["bytes"], "producer_model_grew")
+                        digest.update(block)
+                        view = memoryview(block)
+                        while view:
+                            written = os.write(target, view)
+                            cold.need(written > 0, "producer_model_short_write")
+                            view = view[written:]
+                    cold.need(
+                        count == row["bytes"]
+                        and digest.hexdigest() == row["content_sha256"]
+                        and io.unchanged_read(before, opened, os.fstat(descriptor), source.lstat()),
+                        "producer_model_source_changed",
+                    )
+                    os.fsync(target)
+                    os.lseek(target, 0, os.SEEK_SET)
+                    restored = hashlib.sha256()
+                    while block := os.read(target, 1024**2):
+                        backup.budget(binding["deadline_ns"] / 1e9)
+                        restored.update(block)
+                    cold.need(restored.digest() == digest.digest(), "producer_model_readback")
+                    os.fchown(target, io.ROOT_UID if work else uid, gid)
+                    os.fchmod(target, 0o640 if work else 0o600)
+                    os.fsync(target)
+                    info = os.stat(row["name"], dir_fd=directory, follow_symlinks=False)
+                    actual = os.fstat(target)
+                    cold.need(
+                        info.st_nlink == actual.st_nlink == 1
+                        and info.st_size == actual.st_size == row["bytes"]
+                        and info.st_uid == (io.ROOT_UID if work else uid)
+                        and info.st_gid == gid
+                        and stat.S_IMODE(info.st_mode) == (0o640 if work else 0o600)
+                        and (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid)
+                        == (
+                            actual.st_dev,
+                            actual.st_ino,
+                            actual.st_mode,
+                            actual.st_uid,
+                            actual.st_gid,
+                        ),
+                        "producer_model_destination_changed",
+                    )
+                    os.fsync(directory)
+                finally:
+                    os.close(target)
+        finally:
+            os.close(descriptor)
+        self.continuity(binding)
+
     def install_fresh_role_material(self, document, binding, staged):
         from scripts import j1_forward_cold_telegram as telegram
 
@@ -915,6 +1069,13 @@ class NativeBackend:
             "producer_material_binding",
         )
         source = native.CONFIG / "credentials" / binding["attempt_id"] / "roles"
+        hashes = model_hashes(
+            io.read_protected(
+                Path(document["manager"]["checkout"])
+                / "deploy/telegram/faster-whisper-small.sha256",
+                limit=4096,
+            )
+        )
         seen, credentials = set(), set()
         for row in material["files"]:
             cold.fields(
@@ -935,7 +1096,8 @@ class NativeBackend:
             cold.need(
                 key not in seen
                 and type(row["bytes"]) is int
-                and 0 < row["bytes"] <= 384 * 1024**2
+                and 0 < row["bytes"]
+                and (kind == "model" or row["bytes"] <= 384 * 1024**2)
                 and type(row["content_sha256"]) is str
                 and cold.HEX.fullmatch(row["content_sha256"]),
                 "producer_material_identity",
@@ -950,9 +1112,20 @@ class NativeBackend:
                 )
             else:
                 cold.need(
-                    not name.endswith((".py", ".so", ".session", ".sqlite3")),
-                    "producer_model_not_executable_or_session",
+                    name in hashes and row["content_sha256"] == hashes[name],
+                    "producer_model_not_source_pinned",
                 )
+                uid, gid = (document["credentials"][role][key] for key in ("uid", "gid"))
+                self.install_model_file(
+                    source / role / kind / name,
+                    Path("/var/lib/autostop-manager-cold") / binding["generation"] / role,
+                    row,
+                    binding,
+                    uid=uid,
+                    gid=gid,
+                    work=role == "work-telegram",
+                )
+                continue
             # The descriptor stores only a content hash. Secret bytes never
             # become canonical archive leaves through a {path,sha256} ref.
             raw = io.read_protected(source / role / kind / name, limit=384 * 1024**2)
@@ -961,31 +1134,16 @@ class NativeBackend:
                 "producer_material_bytes",
             )
             uid, gid = (document["credentials"][role][key] for key in ("uid", "gid"))
-            if kind in {"credential", "owner"}:
-                target = Path("/etc/autostop-manager-cold") / binding["generation"] / role / name
-            else:
-                target = (
-                    Path("/var/lib/autostop-manager-cold")
-                    / binding["generation"]
-                    / role
-                    / "models/faster-whisper-small"
-                    / name
-                )
-                current = target.parent
-                missing = []
-                while not current.exists():
-                    missing.append(current)
-                    current = current.parent
-                for parent in reversed(missing):
-                    self.directory_at(parent, uid=uid, gid=gid)
+            target = Path("/etc/autostop-manager-cold") / binding["generation"] / role / name
             cold.need(
                 not target.exists() and not target.is_symlink(), "producer_fresh_material_exists"
             )
             self.publish(target, raw, raw=True, mode=0o600, gid=gid)
-            target.chown(uid, gid)
+            os.chown(target, uid, gid, follow_symlinks=False)
         cold.need(
             credentials == {"work-telegram", "personal-telegram"}
-            and ("work-telegram", "owner", "owner.json") in seen,
+            and ("work-telegram", "owner", "owner.json") in seen
+            and {(role, "model", name) for role in credentials for name in MODEL_NAMES} <= seen,
             "producer_fresh_telegram_material_missing",
         )
         return self.evidence(
