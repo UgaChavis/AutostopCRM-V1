@@ -7,12 +7,15 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.runtime_core_cohorts import load_plan, run_core
 from tests.runtime_skip_contract import unexpected_skips
 from tests.runtime_test_result import ImmediateTracebackResult
 
@@ -60,27 +63,31 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     environment = os.environ.copy()
     previous = environment.get("PYTHONPATH", "")
     environment["PYTHONPATH"] = str(root / "tests") + (os.pathsep + previous if previous else "")
+    environment["PYTHONUTF8"] = "1"
     coverage = [sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m"]
-    commands = [[*coverage, "tests.runtime_suite_runner", "--core-only"]]
-    commands.extend(
+    commands = [
         [*coverage, "tests.runtime_suite_runner", "--browser-group", *group]
         for group in plan.browser_groups
-    )
+    ]
     print(
         f"Runtime plan: {plan.count} tests; {len(plan.core_ids)} core; "
         f"{len(plan.browser_groups)} isolated browser groups; no retries.",
         flush=True,
     )
-    for index, command in enumerate(commands):
-        timeout = CORE_TIMEOUT_SECONDS if index == 0 else BROWSER_TIMEOUT_SECONDS
+    core_result = run_core(
+        plan.core_ids, root=root, environment=environment, budget=CORE_TIMEOUT_SECONDS
+    )
+    if core_result:
+        return core_result
+    for index, command in enumerate(commands, 1):
         controlled = [
             sys.executable,
             "-m",
             "tests.runtime_process",
             "--timeout-seconds",
-            str(timeout),
+            str(BROWSER_TIMEOUT_SECONDS),
             "--label",
-            "core" if index == 0 else f"browser-{index}",
+            f"browser-{index}",
             "--",
             *command,
         ]
@@ -90,9 +97,28 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     return 0
 
 
-def record_result(result: unittest.TestResult) -> int:
+class MeasuredResult(ImmediateTracebackResult):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.executed_ids, self.class_seconds = [], {}
+
+    def startTest(self, test):
+        self.executed_ids.append(test.id())
+        self.test_started = time.monotonic()
+        super().startTest(test)
+
+    def stopTest(self, test):
+        name = test.id().rsplit(".", 1)[0]
+        self.class_seconds[name] = (
+            self.class_seconds.get(name, 0) + time.monotonic() - self.test_started
+        )
+        super().stopTest(test)
+
+
+def record_result(result: unittest.TestResult, *, selected_ids=None, cohort=None) -> int:
     unexplained = unexpected_skips(result.skipped, sys.platform)
     strict = os.environ.get("AUTOSTOP_REHEARSAL_STRICT_SKIPS") == "1"
+    exact = selected_ids is None or list(selected_ids) == getattr(result, "executed_ids", [])
     if directory := os.environ.get("AUTOSTOP_REHEARSAL_RECEIPT_DIR"):
         output = Path(directory)
         output.mkdir(parents=True, exist_ok=True)
@@ -100,8 +126,10 @@ def record_result(result: unittest.TestResult) -> int:
             json.dumps(
                 {
                     "platform": sys.platform,
+                    "pid": os.getpid(),
+                    "fixture_temp_root": str(Path(tempfile.gettempdir()).resolve()),
                     "run": result.testsRun,
-                    "successful": result.wasSuccessful() and not (strict and unexplained),
+                    "successful": result.wasSuccessful() and exact and not (strict and unexplained),
                     "tests_successful": result.wasSuccessful(),
                     "strict_skip_contract": strict,
                     "skipped": [
@@ -110,6 +138,11 @@ def record_result(result: unittest.TestResult) -> int:
                     "unexplained_skips": unexplained,
                     "failures": [test.id() for test, _ in result.failures],
                     "errors": [test.id() for test, _ in result.errors],
+                    "selected_ids": list(selected_ids or ()),
+                    "executed_ids": getattr(result, "executed_ids", []),
+                    "exact_identity_coverage": exact,
+                    "class_seconds": getattr(result, "class_seconds", {}),
+                    **(cohort or {}),
                 },
                 indent=2,
             )
@@ -122,16 +155,30 @@ def record_result(result: unittest.TestResult) -> int:
             file=sys.stderr,
             flush=True,
         )
-    return 0 if result.wasSuccessful() and not (strict and unexplained) else 1
+    return 0 if result.wasSuccessful() and exact and not (strict and unexplained) else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--core-only", action="store_true")
+    selection.add_argument("--core-cohort", type=int)
     selection.add_argument("--browser-group", nargs="+")
+    parser.add_argument("--core-plan", type=Path)
+    parser.add_argument("--plan-sha256")
     args = parser.parse_args()
-    if args.browser_group:
+    cohort = None
+    if args.core_cohort is not None:
+        if args.core_plan is None or args.plan_sha256 is None:
+            parser.error("a core cohort requires the immutable plan and its hash")
+        _plan, selected = load_plan(args.core_plan, args.plan_sha256, args.core_cohort)
+        suite = unittest.defaultTestLoader.loadTestsFromNames(selected)
+        if tuple(case.id() for case in iter_cases(suite)) != selected:
+            parser.error("loaded core test identities differ from the immutable plan")
+        if any(is_browser_case(case) for case in iter_cases(suite)):
+            parser.error("a core cohort cannot contain browser tests")
+        cohort = {"core_plan_sha256": args.plan_sha256, "core_cohort_index": args.core_cohort}
+    elif args.browser_group:
         suite = unittest.defaultTestLoader.loadTestsFromNames(args.browser_group)
         if not all(is_browser_case(case) for case in iter_cases(suite)):
             parser.error("browser group must resolve only to browser tests")
@@ -141,11 +188,10 @@ def main() -> int:
             suite = unittest.TestSuite(
                 case for case in iter_cases(suite) if not is_browser_case(case)
             )
-    if args.core_only or args.browser_group:
-        result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTracebackResult).run(
-            suite
-        )
-        return record_result(result)
+    if args.core_only or args.browser_group or args.core_cohort is not None:
+        selected = tuple(case.id() for case in iter_cases(suite))
+        result = unittest.TextTestRunner(verbosity=2, resultclass=MeasuredResult).run(suite)
+        return record_result(result, selected_ids=selected, cohort=cohort)
     return run_plan(build_plan(suite))
 
 

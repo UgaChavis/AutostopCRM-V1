@@ -35,6 +35,15 @@ WINDOWS_REASONS = frozenset(
     }
 )
 NATIVE_LAUNCH_REASON = "Linux root-owned launch journal and systemd admission"
+PRIVATE_COLD_REASON = "Requires private native Linux fixture"
+PRIVATE_COLD_FAMILIES = frozenset(
+    {
+        ("test_j1_forward_cold", "ColdNativeFixtureTests"),
+        ("test_j1_forward_cold_state", "ColdRecoveryStateTests"),
+        ("test_j1_forward_cold_lifecycle", "ColdNativeLifecycleTests"),
+        ("test_j1_forward_release_rehearsal", "ReleaseRehearsalFilesystemTests"),
+    }
+)
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -47,9 +56,15 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
     unexpected = []
     for test, reason in skipped:
         native_launch_family = type(test).__name__ in {"LaunchPermissionTests", "NativeLaunchTests"}
+        cold_family = (
+            type(test).__module__.removeprefix("tests."),
+            type(test).__name__,
+        ) in PRIVATE_COLD_FAMILIES
         if reason in allowed or (
             platform == "win32" and native_launch_family and reason == NATIVE_LAUNCH_REASON
         ):
+            continue
+        if platform == "win32" and cold_family and reason == PRIVATE_COLD_REASON:
             continue
         unexpected.append({"test": test.id(), "reason": reason})
     return unexpected

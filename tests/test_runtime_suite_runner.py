@@ -41,13 +41,19 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
 
     def test_child_failure_propagates_without_retry_or_later_groups(self):
         plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
-        with patch("tests.runtime_suite_runner.subprocess.run") as run:
-            run.side_effect = [
-                subprocess.CompletedProcess([], 0),
-                subprocess.CompletedProcess([], 7),
-            ]
+        with (
+            patch("tests.runtime_suite_runner.run_core", return_value=0),
+            patch("tests.runtime_suite_runner.subprocess.run") as run,
+        ):
+            run.return_value = subprocess.CompletedProcess([], 7)
             self.assertEqual(run_plan(plan), 7)
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 1)
+        with (
+            patch("tests.runtime_suite_runner.run_core", return_value=124),
+            patch("tests.runtime_suite_runner.subprocess.run") as run,
+        ):
+            self.assertEqual(run_plan(plan), 124)
+            run.assert_not_called()
 
     def test_success_uses_parallel_coverage_for_all_groups_and_preserves_environment(self):
         plan = RuntimePlan(("native.test",), (("browser.one", "browser.two"),))
@@ -55,19 +61,21 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             patch.dict(
                 os.environ, {"COVERAGE_FILE": "isolated-coverage", "PYTHONPATH": "existing"}
             ),
+            patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
             patch("tests.runtime_suite_runner.subprocess.run") as run,
         ):
             run.return_value = subprocess.CompletedProcess([], 0)
             self.assertEqual(run_plan(plan, root=Path.cwd()), 0)
-            self.assertEqual(run.call_count, 2)
-            first, second = run.call_args_list
-            self.assertIn("--parallel-mode", first.args[0])
-            self.assertEqual(first.args[0][-2:], ["tests.runtime_suite_runner", "--core-only"])
+            self.assertEqual(run.call_count, 1)
+            second = run.call_args
+            self.assertIn("--parallel-mode", second.args[0])
             self.assertEqual(
                 second.args[0][-4:],
                 ["tests.runtime_suite_runner", "--browser-group", "browser.one", "browser.two"],
             )
             self.assertEqual(second.kwargs["env"]["COVERAGE_FILE"], "isolated-coverage")
+            self.assertEqual(core.call_args.kwargs["budget"], 1800)
+            self.assertEqual(core.call_args.kwargs["environment"]["PYTHONUTF8"], "1")
             self.assertEqual(
                 second.kwargs["env"]["PYTHONPATH"],
                 str(Path.cwd() / "tests") + os.pathsep + "existing",
@@ -75,11 +83,15 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
 
     def test_external_controller_has_core_and_browser_budgets_without_retries(self):
         plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
-        with patch("tests.runtime_suite_runner.subprocess.run") as run:
+        with (
+            patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
+            patch("tests.runtime_suite_runner.subprocess.run") as run,
+        ):
             run.return_value = subprocess.CompletedProcess([], 0)
             self.assertEqual(run_plan(plan), 0)
-            self.assertEqual(3, run.call_count)
-            for call, budget in zip(run.call_args_list, (1800, 300, 300), strict=True):
+            self.assertEqual(2, run.call_count)
+            self.assertEqual(core.call_args.kwargs["budget"], 1800)
+            for call, budget in zip(run.call_args_list, (300, 300), strict=True):
                 command = call.args[0]
                 self.assertEqual("tests.runtime_process", command[2])
                 self.assertEqual(str(budget), command[command.index("--timeout-seconds") + 1])

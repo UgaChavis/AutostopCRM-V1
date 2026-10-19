@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.runtime_skip_contract import NATIVE_LAUNCH_REASON, unexpected_skips
+from tests.runtime_skip_contract import NATIVE_LAUNCH_REASON, PRIVATE_COLD_REASON, unexpected_skips
 from tests.runtime_suite_runner import record_result
 
 
@@ -47,6 +47,17 @@ class RuntimeSkipContractTests(unittest.TestCase):
         self.assertEqual(
             len(unexpected_skips([(self, "Windows job handle lifetime")], "darwin")), 1
         )
+
+    def test_private_cold_exclusion_requires_exact_module_class_reason_and_windows(self):
+        cold = type(
+            "ColdRecoveryStateTests",
+            (unittest.TestCase,),
+            {"__module__": "test_j1_forward_cold_state", "test_case": lambda self: None},
+        )("test_case")
+        self.assertEqual(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "win32"), [])
+        self.assertEqual(len(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "linux")), 1)
+        self.assertEqual(len(unexpected_skips([(self, PRIVATE_COLD_REASON)], "win32")), 1)
+        self.assertEqual(len(unexpected_skips([(cold, "another private reason")], "win32")), 1)
 
     def test_strict_unknown_skip_fails_and_keeps_the_complete_skip_receipt(self):
         result = unittest.TestResult()
