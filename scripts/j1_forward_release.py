@@ -451,6 +451,18 @@ def await_proof(directory, kind, plan_ref, plan, baseline, observer):
 
 
 def inspect(attempt, stage):
+    if stage == "barriers":
+        directory = attempt_directory(attempt)
+        ownership = io.document(io.read_protected(directory / "closure-owned.json"))
+        io.require(
+            type(ownership) is dict
+            and ownership.get("attempt_id") == attempt
+            and ownership.get("attempt_dir") == str(directory),
+            "barrier_attempt_binding",
+        )
+        observation = closure.inspect_barriers(ownership)
+        return {"ok": True, "stage": stage, "observation": observation}
+    io.require(stage in {"closed", "activated"}, "inspection_stage_invalid")
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     host.deadline = time.monotonic() + remaining(plan)
     require_marker(plan_ref, plan)
@@ -1111,7 +1123,9 @@ def main():
         child = sub.add_parser(operation)
         child.add_argument("--attempt", required=True)
         if operation == "inspect":
-            child.add_argument("--stage", choices=("closed", "activated"), required=True)
+            child.add_argument(
+                "--stage", choices=("closed", "activated", "barriers"), required=True
+            )
         if operation == "receive-proof":
             child.add_argument("--kind", choices=sorted(signatures.KINDS), required=True)
     args = parser.parse_args()

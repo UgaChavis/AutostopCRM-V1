@@ -20,6 +20,10 @@ FREEZE_PIDS = (538285, 538487, *range(700001, 700012))
 TRANSPORT_PIDS = (538314, *range(800001, 800005))
 
 
+def loaded(path):
+    return f"{{ path={path} ; argv[]={path} ; ignore_errors=no ; status=0 }}"
+
+
 def actor(pid):
     return {
         "pid": pid,
@@ -1270,7 +1274,7 @@ class LinuxBackendTests(unittest.TestCase):
             "SubState": "dead",
             "NeedDaemonReload": "no",
             "MainPID": "0",
-            "ExecCondition": "path=/original/guard ; path=/usr/bin/false",
+            "ExecCondition": loaded("/original/guard") + " " + loaded("/usr/bin/false"),
             **dict.fromkeys(closure.HOOKS, ""),
             "TriggeredBy": trigger or "",
             "Job": "",
@@ -1340,17 +1344,26 @@ class LinuxBackendTests(unittest.TestCase):
             )
         )
 
+    def test_repeated_loaded_conditions_preserve_guard_then_deny(self):
+        guard, deny = loaded("/original/guard"), loaded("/usr/bin/false")
+        runner = self.units_fixture(
+            values={"ExecCondition": guard}, extra=("ExecCondition=" + deny + "\n").encode()
+        )
+        units = runner.units(time.monotonic() + 30)
+        self.assertTrue(all(row["ExecCondition"] == guard + " " + deny for row in units.values()))
+        closure._unit_policy(units)
+
     def test_nonempty_original_hook_and_guard_are_preserved_and_not_accepted_closed(self):
-        condition = "path=/original/guard ; path=/usr/bin/false"
+        condition = loaded("/original/guard") + " " + loaded("/usr/bin/false")
+        hook = loaded("/original/duty-hook")
         runner = self.units_fixture(
             missing=tuple(hook for hook in closure.HOOKS if hook != "ExecStartPost"),
-            values={"ExecStartPost": "path=/original/duty-hook", "ExecCondition": condition},
+            values={"ExecStartPost": hook, "ExecCondition": condition},
         )
         units = runner.units(time.monotonic() + 30)
         self.assertTrue(
             all(
-                row["ExecStartPost"] == "path=/original/duty-hook"
-                and row["ExecCondition"] == condition
+                row["ExecStartPost"] == hook and row["ExecCondition"] == condition
                 for row in units.values()
             )
         )
@@ -1395,10 +1408,17 @@ class LinuxBackendTests(unittest.TestCase):
                     runner.units(time.monotonic() + 30)
 
     def test_duplicate_and_malformed_systemd_fields_are_refused(self):
-        for extra in (b"Job=unsafe\n", b"malformed\n", b"Unexpected=\n"):
+        for extra in (
+            b"Job=unsafe\n",
+            b"malformed\n",
+            b"Unexpected=\n",
+            b"ExecCondition=\n",
+            b"ExecStop=\n",
+            b"ExecCondition=path=/unsafe\n",
+        ):
             with self.subTest(extra=extra):
                 with self.assertRaisesRegex(Refusal, "unit_status_incomplete"):
-                    self.units_fixture(extra=extra).units(time.monotonic() + 30)
+                    self.units_fixture(missing=(), extra=extra).units(time.monotonic() + 30)
 
     def test_trigger_requires_explicit_empty_job_and_inactive_state(self):
         for raw, error in (

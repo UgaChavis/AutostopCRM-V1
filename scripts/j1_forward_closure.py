@@ -15,6 +15,7 @@ import json
 import os
 import re
 import signal
+import socket
 import stat
 import subprocess
 import threading
@@ -24,6 +25,7 @@ from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from scripts import j1_forward_authority as authority
 from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
@@ -267,12 +269,10 @@ def _empty_hooks_command(unit, hooks):
 
 
 def _show_fields(raw, expected, *, omitted=()):
-    rows = [line.split("=", 1) for line in raw.decode().splitlines()]
-    io.require(
-        all(len(row) == 2 for row in rows) and len({row[0] for row in rows}) == len(rows),
-        "unit_status_incomplete",
-    )
-    fields = dict(rows)
+    try:
+        fields = authority._systemd_fields(raw)
+    except (io.Refusal, UnicodeError) as exc:
+        raise io.Refusal("unit_status_incomplete") from exc
     io.require(
         set(fields) <= set(expected) and set(expected) - set(fields) <= set(omitted),
         "unit_status_incomplete",
@@ -1257,6 +1257,116 @@ def _unit_policy(units, *, stopped=True):
                 and not status.get("Job"),
                 "unit_not_stopped",
             )
+
+
+def _barrier_files(closure):
+    """Bind both samples to protected bytes and file identities, without adoption."""
+    samples = {}
+
+    def sample(path, digest=None):
+        path = Path(path)
+        before = path.lstat()
+        raw = io.read_protected(path)
+        after = path.lstat()
+        fields = (*_EXE_METADATA, "st_nlink")
+        identity = tuple(getattr(before, key) for key in fields)
+        io.require(identity == tuple(getattr(after, key) for key in fields), "barrier_file_changed")
+        actual = io.sha(raw)
+        io.require(digest is None or actual == digest, "barrier_file_hash_changed")
+        samples[str(path)] = (*identity, actual)
+        return raw
+
+    for entry in closure["dropins"]:
+        sample(entry["path"], entry["sha256"])
+    record = sample(Path(closure["attempt_dir"]) / "closure-owned.json")
+    io.require(io.document(record) == closure, "closure_ownership_changed")
+    scope_ref = closure["process_scope_ref"]
+    sample(scope_ref["path"], scope_ref["sha256"])
+    sample(authority.GUARD, authority.PINS[authority.GUARD])
+    capsule = io.document(sample(authority.CAPSULE, authority.PINS[authority.CAPSULE]))
+    policy_ref = capsule["policy"]
+    io.referenced(policy_ref)
+    sample(policy_ref["path"], policy_ref["sha256"])
+    return policy_ref["sha256"], samples
+
+
+def _barrier_conditions(raw, unit, policy_hash):
+    prefix = f"/usr/bin/python3 -I -S {authority.GUARD}"
+    expected = (
+        ("/usr/bin/python3", f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"),
+        ("/usr/bin/false", "/usr/bin/false"),
+    )
+    records = re.findall(r"\{ ([^{}]*) \}", raw)
+    io.require(" ".join("{ " + row + " }" for row in records) == raw, "barrier_condition_shape")
+    commands = []
+    for row in records:
+        parts = [part.split("=", 1) for part in row.split(" ; ")]
+        io.require(all(len(part) == 2 for part in parts), "barrier_condition_shape")
+        fields = dict(parts)
+        io.require(
+            len(fields) == len(parts)
+            and set(fields)
+            == {
+                "path",
+                "argv[]",
+                "ignore_errors",
+                "start_time",
+                "stop_time",
+                "pid",
+                "code",
+                "status",
+            }
+            and fields["ignore_errors"] == "no",
+            "barrier_condition_shape",
+        )
+        commands.append((fields.get("path"), fields.get("argv[]")))
+    io.require(tuple(commands) == expected, "barrier_guard_conditions_changed")
+
+
+def inspect_barriers(closure):
+    """Read existing barriers; this is neither writer closure nor new ownership."""
+    with _LOCK:
+        io.require(
+            os.name == "posix" and os.geteuid() == 0 and socket.gethostname() == authority.HOST,
+            "barrier_host_required",
+        )
+        deadline = time.monotonic() + 30
+        _validate(closure)
+        policy_hash, files = _barrier_files(closure)
+        _barriers(closure)
+        units = RUNNER.units(deadline)
+        _unit_policy(units, stopped=False)
+        for unit, status in units.items():
+            _barrier_conditions(status["ExecCondition"], unit, policy_hash)
+            io.require(not status.get("Job"), "barrier_unit_job_pending")
+            if unit not in authority.NATIVE_UNITS:
+                io.require(
+                    status.get("ActiveState") == "inactive"
+                    and status.get("SubState") == "dead"
+                    and status.get("MainPID") == "0",
+                    "barrier_denied_role_active",
+                )
+        _barriers(closure)
+        io.require(RUNNER.units(deadline) == units, "barrier_units_changed")
+        _validate(closure)
+        _barriers(closure)
+        io.require(_barrier_files(closure) == (policy_hash, files), "barrier_files_changed")
+        _remaining(deadline)
+        return {
+            "schema": "autostop.j1.crm-forward-barrier-inspection.v1",
+            "attempt_id": closure["attempt_id"],
+            "boot_id": closure["boot_id"],
+            "barriers": closure["dropins"],
+            "units": {
+                unit: {key: status[key] for key in ("ActiveState", "SubState", "MainPID")}
+                for unit, status in units.items()
+            },
+            "barriers_verified": True,
+            "writer_closure_confirmed": False,
+            "ownership_adopted": False,
+            "native_acceptance": False,
+            "activation_authorized": False,
+        }
 
 
 def _closed_actors(closure, deadline, *, full=False):

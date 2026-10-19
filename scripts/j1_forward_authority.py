@@ -205,7 +205,20 @@ def _systemd(unit: str, deadline: float) -> dict[str, str]:
     require(
         result.returncode == 0 and len(result.stdout) < 65536, "native_systemd_observation_failed"
     )
-    rows = [line.split("=", 1) for line in result.stdout.decode("utf-8", "strict").splitlines()]
+    fields = _systemd_fields(result.stdout)
+    require(
+        fields.get("Id") == unit
+        and fields.get("LoadState") == "loaded"
+        and fields.get("NeedDaemonReload") == "no",
+        "native_unit_not_loaded_exactly",
+    )
+    return fields
+
+
+def _systemd_fields(raw: bytes) -> dict[str, str]:
+    """Preserve ordered command arrays without accepting duplicate scalar fields."""
+    require(len(raw) < 65536, "native_systemd_shape")
+    rows = [line.split("=", 1) for line in raw.decode("utf-8", "strict").splitlines()]
     require(all(len(row) == 2 for row in rows), "native_systemd_shape")
     fields = {}
     for key, value in rows:
@@ -215,12 +228,6 @@ def _systemd(unit: str, deadline: float) -> dict[str, str]:
             require(key in COMMAND_FIELDS and fields[key] and value, "native_systemd_shape")
             value = fields[key] + " " + value
         fields[key] = value
-    require(
-        fields.get("Id") == unit
-        and fields.get("LoadState") == "loaded"
-        and fields.get("NeedDaemonReload") == "no",
-        "native_unit_not_loaded_exactly",
-    )
     return fields
 
 
