@@ -144,7 +144,7 @@ class TraceFixture(cold_fixture.Fixture):
             self.source_bytes = source_inventory()
             self.consumers = {name: io.sha(raw) for name, raw in self.source_bytes.items()}
             self.source = checkout_identity()
-            from scripts.j1_forward_rehearsal_parent import PrivateParent
+            from scripts.rehearsal_parent import PrivateParent
 
             with self.custody:
                 self.parent = PrivateParent(self)
