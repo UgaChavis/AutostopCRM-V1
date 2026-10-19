@@ -171,6 +171,7 @@ class Reader:
         self.read = read_reference
         self.seen = {}
         self.opaque, self.capsules = set(), set()
+        self._validated_indexes = set()
 
     def raw(self, ref, *, opaque=False):
         reference(ref)
@@ -211,6 +212,12 @@ class Reader:
 
     def index(self, ref, name, binding, scope):
         header = self.doc(ref)
+        key = (ref["path"], ref["sha256"], name, scope, digest(binding))
+        # Reuse only a pure result for the same captured bytes in this reader.
+        # Every actual leaf is still read again by recheck(), and a later
+        # native observation constructs a new Reader.
+        if key in self._validated_indexes:
+            return header
         if (
             name == "runtime-index"
             and type(header) is dict
@@ -221,6 +228,7 @@ class Reader:
             j1_forward_cold_runtime_capsule.validate(
                 header, binding=binding, scope=scope, read_reference=self.raw
             )
+            self._validated_indexes.add(key)
             return header
         value = self.bound(ref, name, binding, scope, {"files"})
         files = value["files"]
@@ -230,6 +238,7 @@ class Reader:
             self.raw(row, opaque=name in {"runtime-index", "startup-index"})
             paths.append(row["path"])
         need(paths == sorted(set(paths)), name + "_order")
+        self._validated_indexes.add(key)
         return value
 
     def recheck(self):

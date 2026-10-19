@@ -78,6 +78,41 @@ class RuntimeCapsuleTests(unittest.TestCase):
         with self.artifact.open("rb") as source, self.assertRaisesRegex(io.Refusal, "capsule_hash"):
             capsule.verify_archive(changed, source)
 
+    def test_shared_index_semantics_are_local_and_all_source_bytes_are_rechecked(self):
+        document = self.produce()
+        encoded = io.canonical(document)
+        reference = {"path": str(self.root / "index.json"), "sha256": io.sha(encoded)}
+        files = {reference["path"]: encoded, str(self.artifact): self.artifact.read_bytes()}
+        reads = []
+
+        def read(ref):
+            reads.append(ref["path"])
+            return files[ref["path"]]
+
+        reader = cold.Reader(read)
+        with patch.object(capsule, "validate", wraps=capsule.validate) as semantic:
+            for _role in range(6):
+                self.assertEqual(
+                    reader.index(reference, "runtime-index", self.binding, "native_fixture"),
+                    document,
+                )
+            self.assertEqual(semantic.call_count, 1)
+            self.assertEqual(len(reads), 2)
+            reader.recheck()
+            self.assertEqual(len(reads), 4)
+            with self.assertRaises(io.Refusal):
+                reader.index(
+                    reference,
+                    "runtime-index",
+                    {"candidate_manager_sha": "2" * 40},
+                    "native_fixture",
+                )
+            files[str(self.artifact)] += b"changed after captured validation"
+            with self.assertRaisesRegex(io.Refusal, "reference_changed"):
+                reader.recheck()
+            with self.assertRaisesRegex(io.Refusal, "reference_bytes"):
+                cold.Reader(read).index(reference, "runtime-index", self.binding, "native_fixture")
+
     def test_exact_data_can_be_materialized_once_and_existing_conflict_never_overwritten(self):
         document = self.produce()
         target = self.root / "target"
