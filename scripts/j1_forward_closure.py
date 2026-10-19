@@ -31,6 +31,7 @@ from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
 from scripts import j1_forward_recovery_scope as recovery_scope
 from scripts import j1_forward_state as forward_state
+from scripts import j1_forward_store as store_drain
 
 SCHEMA = "autostop.j1.crm-forward-closure.v2"
 UNITS = tuple(
@@ -529,7 +530,72 @@ class LinuxRunner:
     def reload(self, deadline):
         self.command(["/usr/bin/systemctl", "daemon-reload"], deadline)
 
-    def stop(self, deadline):
+    def _store_stop(self, ownership, deadline):
+        # Reconstruct from the same protected plan in the independent settlement
+        # process too. A receipt from an earlier PID or activation is no permit.
+        plan, baseline = self._control_baseline(ownership)
+        self.control_bindings(ownership)
+        native = baseline["native"]
+        io.require(
+            native.get("sha256")
+            == io.sha(
+                io.canonical({key: value for key, value in native.items() if key != "sha256"})
+            ),
+            "store_stop_native_digest",
+        )
+        binding = {
+            "schema": "autostop.j1.crm-forward-store-stop.v1",
+            "attempt_id": ownership["attempt_id"],
+            "consumer_sha256": ownership["consumer_sha256"],
+            "native_baseline_sha256": ownership["baseline_sha256"],
+            "baseline_ref": plan["baseline_ref"],
+            "process_scope_ref": ownership["process_scope_ref"],
+        }
+        try:
+            drain_deadline = min(deadline, time.monotonic() + 120)
+            result = store_drain.drain_before_stop(
+                native, deadline=drain_deadline, command=self.command
+            )
+            io.require(
+                type(result) is dict
+                and result.get("ok") is True
+                and result.get("stop_permitted") is True,
+                "store_stop_not_permitted",
+            )
+            receipt = self._store_stop_receipt(ownership, binding, result)
+            store_drain.verify_stop_identity(
+                native, result, deadline=drain_deadline, command=self.command
+            )
+        except Exception as error:
+            self._store_stop_receipt(
+                ownership,
+                binding,
+                {
+                    "ok": False,
+                    "stop_permitted": False,
+                    "error_code": str(error)
+                    if isinstance(error, io.Refusal)
+                    else "store_drain_failed",
+                },
+            )
+            raise
+        return receipt
+
+    @staticmethod
+    def _store_stop_receipt(ownership, binding, result):
+        return io.write_new(
+            Path(ownership["attempt_dir"]) / ("store-drain-" + uuid.uuid4().hex + ".json"),
+            {
+                **binding,
+                "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "result": result,
+            },
+        )
+
+    def stop(self, deadline, *, ownership):
+        # This gate precedes BOTH systemd and Docker effects. Normal closure and
+        # failure/ExecStopPost settlement must never bypass a pending Store write.
+        self._store_stop(ownership, deadline)
         failures = []
         for args in (
             ["/usr/bin/systemctl", "stop", *UNITS],
@@ -647,8 +713,7 @@ class LinuxRunner:
         io.require(len(result) <= 65536, "process_scan_limit")
         return result
 
-    def control_bindings(self, closure):
-        """Bind the fixed script to this attempt's already protected plan."""
+    def _control_baseline(self, closure):
         directory = ATTEMPTS / closure["attempt_id"]
         io.require(str(directory) == closure["attempt_dir"], "control_attempt_directory")
         plan = io.document(io.read_protected(directory / "plan.json"))
@@ -660,6 +725,11 @@ class LinuxRunner:
             and io.sha(io.canonical(baseline["native"])) == closure["baseline_sha256"],
             "control_baseline_binding",
         )
+        return plan, baseline
+
+    def control_bindings(self, closure):
+        """Bind the fixed script to this attempt's already protected plan."""
+        plan, baseline = self._control_baseline(closure)
         consumers = baseline["source_consumers"]
         io.require(
             type(consumers) is dict
@@ -1634,7 +1704,7 @@ def close_writers(baseline: dict, attempt_dir: Path, *, deadline: float, idle_ob
                 RUNNER.put_barrier(Path(entry["path"]))
             RUNNER.reload(deadline)
             _unit_policy(RUNNER.units(deadline), stopped=False)
-            RUNNER.stop(deadline)
+            RUNNER.stop(deadline, ownership=closure)
             scope = _scope(closure)
             RUNNER.verify_scope(scope, frozen=False)
             _process_policy(closure, RUNNER.processes())
@@ -1776,7 +1846,7 @@ def fail_closed(closure: dict) -> dict:
             errors.append("loaded_barrier_restore_failed")
         if safe_to_stop:
             try:
-                RUNNER.stop(deadline)
+                RUNNER.stop(deadline, ownership=closure)
             except Exception:
                 errors.append("writer_stop_failed")
         for actor in closure["freeze_actors"]:

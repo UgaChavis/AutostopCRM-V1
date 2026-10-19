@@ -289,7 +289,7 @@ class FakeRunner:
     def reload(self, deadline):
         self.events.append("reload")
 
-    def stop(self, deadline):
+    def stop(self, deadline, *, ownership):
         self.events.append("stop")
         self.stopped = True
         if self.extra_after_stop:
@@ -2231,8 +2231,14 @@ class LinuxBackendTests(unittest.TestCase):
     def test_container_stop_is_attempted_even_if_unit_stop_fails(self):
         runner = closure.LinuxRunner()
         runner.command = Mock(side_effect=[Refusal("unit-stop"), b""])
-        with self.assertRaisesRegex(Refusal, "writer_stop_failed"):
-            runner.stop(time.monotonic() + 10)
+        ownership = {"fixture": "already-drained"}
+        deadline = time.monotonic() + 10
+        with (
+            patch.object(runner, "_store_stop") as store_stop,
+            self.assertRaisesRegex(Refusal, "writer_stop_failed"),
+        ):
+            runner.stop(deadline, ownership=ownership)
+        store_stop.assert_called_once_with(ownership, deadline)
         first, second = [call.args[0] for call in runner.command.call_args_list]
         self.assertEqual(first, ["/usr/bin/systemctl", "stop", *closure.UNITS])
         self.assertEqual(second[:3], closure.DOCKER)

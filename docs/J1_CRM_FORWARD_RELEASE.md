@@ -195,6 +195,50 @@ and `NeedDaemonReload=no` before stop effects. It then stops all eight units
 and the fixed `autostopcrm` Compose service. This protocol neither stops other
 projects nor treats an unrelated process as an owned writer.
 
+### Store pre-stop gate
+
+The shared `LinuxRunner.stop` boundary runs the versioned
+`j1_forward_store.py` gate before either systemd or Docker stop. Normal closure,
+failure recovery and a fresh ExecStopPost `settle` process use the same gate.
+They reconstruct the native binding from the protected plan/baseline and
+ownership; a previous drain receipt is never permission to stop another process.
+
+For a worker-capable Manager, the gate binds fresh MainPID, boot, start ticks,
+invocation, interpreter, source revision and the accepted TCP connection's kernel
+owner. Direct numeric loopback HTTP uses no proxy or redirect. GET obtains the
+instance; at most one empty POST per gate invocation closes admission. Bounded
+GET polling requires that same instance/PID, `accepting=false`, `drained=true`
+and zero read, stateful and transport counts. An uncertain POST is resolved only
+by reading the same
+instance. The total drain budget is at most 120 seconds and never exceeds the
+current stop invocation's remaining time. Normal closure is bounded by the
+release window; failure recovery and cold settle use the existing separate
+90-second closure budget, including after that window expires. Incarnation is
+rechecked after each request and after the receipt is durable, immediately before
+stop effects.
+
+Each observation creates a separate append-only `store-drain-UUID.json` receipt
+under the attempt directory, binding attempt, consumer, native baseline and
+process scope. Failure, schema/identity uncertainty, incomplete HTTP cleanup or
+a receipt-write failure prevents both stop effects. Recovery retains its owned
+barriers/maintenance/hold and reports closure incomplete until a fresh observation
+permits stop; it does not force-kill Manager to turn a timeout into closure.
+Backup and activation still require the full independently established closure.
+
+The preserved `89af29082e0a6f72c5d85ae448acb6d4deec5d94` runtime predates
+the Store worker endpoint. Only that exact verified legacy revision retains the
+existing native closure path, with explicit `mode=legacy_unsupported`,
+`worker_drain_supported=false` and `store_workers_drained=null`. An inactive
+service requires MainPID zero, a terminal state and an empty service cgroup.
+Neither case fabricates a successful worker drain; HTTP 404/timeout never selects
+a legacy fallback for another revision.
+
+This gate does not change the accepted Manager revision, guards or earlier
+authority/receipts. A new consumer bundle requires a new prepare. Activating the
+worker-capable Manager from [Manager PR 126](https://github.com/UgaChavis/AutostopManager/pull/126)
+still requires a separately reviewed Manager authority transition; this CRM-only
+protocol remains scoped to its preserved native authority.
+
 Closure version 2 keeps the original three accepted warm identities unchanged
 and separately records the processes that must stop writing. This cohort
 contains the accepted daemon, its proven stdio helpers and exact proxy clients
