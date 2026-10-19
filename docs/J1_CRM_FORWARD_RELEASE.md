@@ -239,6 +239,11 @@ worker-capable Manager from [Manager PR 126](https://github.com/UgaChavis/Autost
 still requires a separately reviewed Manager authority transition; this CRM-only
 protocol remains scoped to its preserved native authority.
 
+The separate [Manager MCP successor preparation contract](J1_MANAGER_AUTHORITY_TRANSITION.md)
+provides offline `prepare`/`verify` and a capsule with no activation permission.
+It preserves this observer and successor chain; a native transition remains a
+separate guarded operation.
+
 Closure version 2 keeps the original three accepted warm identities unchanged
 and separately records the processes that must stop writing. This cohort
 contains the accepted daemon, its proven stdio helpers and exact proxy clients
