@@ -77,6 +77,14 @@ def transport_total_limit(codec=3):
     return COLD_RUNTIME_MAX_TOTAL_BYTES if codec == 4 else MAX_TOTAL_BYTES
 
 
+def _runtime_reader(reader, raw):
+    from scripts import j1_forward_cold_authority
+
+    # The typed collector already authenticated this leaf and its exact kind.
+    # Final revalidation uses that same capability, never a larger JSON reader.
+    return j1_forward_cold_authority.opaque_reader(reader, capsule=raw.startswith(b"\x1f\x8b"))
+
+
 def _runtime_blobs(manifest):
     """Bound declared large leaves before loading their opaque payloads.
 
@@ -390,6 +398,9 @@ class _RestoredStore(state.Store):
 
     def read_opaque_reference(self, reference):
         # The payload map is restored bytes, never a native filesystem reader.
+        return self._read_reference(reference)
+
+    def read_runtime_capsule(self, reference):
         return self._read_reference(reference)
 
     def _history_paths(self):
@@ -947,15 +958,9 @@ def capture(
     for path, raw in authorities.items():
         _budget(end)
         observed = (
-            (
-                getattr(
-                    getattr(authority_reader, "__self__", None),
-                    "read_opaque_reference",
-                    authority_reader,
-                )
-                if path in runtime_blobs
-                else authority_reader
-            )({"path": path, "sha256": io.sha(raw)})
+            (_runtime_reader(authority_reader, raw) if path in runtime_blobs else authority_reader)(
+                {"path": path, "sha256": io.sha(raw)}
+            )
             if _cold(plan) and authority_reader is not None
             else io.read_protected(
                 path,

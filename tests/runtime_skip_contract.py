@@ -44,6 +44,11 @@ PRIVATE_COLD_FAMILIES = frozenset(
         ("test_j1_forward_release_rehearsal", "ReleaseRehearsalFilesystemTests"),
     }
 )
+WINDOWS_LINUX_STORAGE_CASES = {
+    "test_committed_normal_wal_replays_in_new_process_without_saved_shm": "Retained WAL lifecycle is enabled only on Linux",
+    "test_failed_commit_rolls_back_registration_and_next_request_succeeds": "Reusable page failure cleanup is Linux only",
+    "test_online_backup_includes_committed_wal_and_restore_discards_stale_sidecars": "Retained WAL fixture is enabled only on Linux",
+}
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -65,6 +70,14 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
         ):
             continue
         if platform == "win32" and cold_family and reason == PRIVATE_COLD_REASON:
+            continue
+        if (
+            platform == "win32"
+            and type(test).__module__.removeprefix("tests.")
+            == "test_change_feed_checkpoint_lifecycle"
+            and type(test).__name__ == "ChangeFeedCheckpointLifecycleTests"
+            and WINDOWS_LINUX_STORAGE_CASES.get(getattr(test, "_testMethodName", None)) == reason
+        ):
             continue
         unexpected.append({"test": test.id(), "reason": reason})
     return unexpected

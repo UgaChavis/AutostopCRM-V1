@@ -98,6 +98,21 @@ class ColdArchiveCodecTests(unittest.TestCase):
                 archive._write_bytes(target, b"too large", limit=1)
             self.assertFalse(target.parent.exists())
 
+    def test_final_runtime_read_uses_the_same_typed_capsule_or_executable_capability(self):
+        class Reader:
+            def read(self, _ref):
+                raise AssertionError("ordinary JSON reader cannot revalidate runtime leaves")
+
+            def read_opaque_reference(self, _ref):
+                return b"ELF-copy"
+
+            def read_runtime_capsule(self, _ref):
+                return b"capsule-copy"
+
+        reader = Reader()
+        self.assertEqual(archive._runtime_reader(reader.read, b"\x7fELF")(None), b"ELF-copy")
+        self.assertEqual(archive._runtime_reader(reader.read, b"\x1f\x8b")(None), b"capsule-copy")
+
 
 if __name__ == "__main__":
     unittest.main()

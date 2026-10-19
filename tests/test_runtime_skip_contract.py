@@ -59,6 +59,22 @@ class RuntimeSkipContractTests(unittest.TestCase):
         self.assertEqual(len(unexpected_skips([(self, PRIVATE_COLD_REASON)], "win32")), 1)
         self.assertEqual(len(unexpected_skips([(cold, "another private reason")], "win32")), 1)
 
+    def test_retained_wal_exclusions_require_the_exact_linux_only_storage_case(self):
+        from tests.runtime_skip_contract import WINDOWS_LINUX_STORAGE_CASES
+
+        methods = {name: lambda self: None for name in WINDOWS_LINUX_STORAGE_CASES}
+        storage = type(
+            "ChangeFeedCheckpointLifecycleTests",
+            (unittest.TestCase,),
+            {"__module__": "test_change_feed_checkpoint_lifecycle", **methods},
+        )
+        for name, reason in WINDOWS_LINUX_STORAGE_CASES.items():
+            test = storage(name)
+            self.assertEqual(unexpected_skips([(test, reason)], "win32"), [])
+            self.assertEqual(len(unexpected_skips([(test, reason)], "linux")), 1)
+            self.assertEqual(len(unexpected_skips([(self, reason)], "win32")), 1)
+            self.assertEqual(len(unexpected_skips([(test, "other reason")], "win32")), 1)
+
     def test_strict_unknown_skip_fails_and_keeps_the_complete_skip_receipt(self):
         result = unittest.TestResult()
         result.addSkip(self, "new unknown exclusion")
