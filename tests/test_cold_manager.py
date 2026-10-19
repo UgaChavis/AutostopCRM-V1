@@ -31,6 +31,15 @@ class ColdManagerTests(unittest.TestCase):
                 with self.assertRaises(cold.ColdManagerUnavailableError):
                     cold.prepare_cold_manager()
 
+    def test_cold_source_without_manifest_is_rejected_before_application_imports(self):
+        with patch.dict(
+            os.environ,
+            {"AUTOSTOP_MANAGER_PATH": str(cold.SOURCE_PARENT / ("1" * 40) / "source")},
+            clear=True,
+        ):
+            with self.assertRaises(cold.ColdManagerUnavailableError):
+                cold.prepare_cold_manager()
+
     def test_missing_explicit_source_cannot_fall_back(self):
         environment = {
             cold.BINDING_ENV: "/missing/binding.json",

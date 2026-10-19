@@ -60,6 +60,8 @@ def prepare_cold_manager() -> bool:
     manifest = os.environ.get(BINDING_ENV)
     digest = os.environ.get(HASH_ENV)
     if manifest is None and digest is None:
+        configured = Path(os.environ.get("AUTOSTOP_MANAGER_PATH", ""))
+        _require(not configured.is_relative_to(SOURCE_PARENT))
         return False
     try:
         _require(manifest and digest and re.fullmatch(r"[0-9a-f]{64}", digest))

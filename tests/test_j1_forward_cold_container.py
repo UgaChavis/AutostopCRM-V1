@@ -120,6 +120,7 @@ def inspection(spec):
         "HostConfig": {
             "RestartPolicy": {"Name": "no"},
             "ReadonlyRootfs": True,
+            "Tmpfs": dict(row.split(":", 1) for row in service["tmpfs"]),
             "Init": True,
             "CapDrop": ["ALL"],
             "SecurityOpt": ["no-new-privileges:true"],
@@ -199,6 +200,7 @@ class ColdContainerTests(unittest.TestCase):
             lambda value: value.update(Id=spec["previous_container_id"]),
             lambda value: value["HostConfig"].update(RestartPolicy={"Name": "always"}),
             lambda value: value["HostConfig"].update(ReadonlyRootfs=False),
+            lambda value: value["HostConfig"]["Tmpfs"].pop("/tmp"),
             lambda value: value["Mounts"][0].update(RW=not value["Mounts"][0]["RW"]),
             lambda value: value["Config"]["Env"].append("UNPLANNED=1"),
             lambda value: value["State"].update(Running=False),

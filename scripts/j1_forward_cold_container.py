@@ -36,12 +36,29 @@ def mounts(rows):
     io.require(type(rows) is list and len(rows) <= 32, "cold_crm_mount_count")
     result = []
     for row in rows:
+        if row.get("Type") == "tmpfs":
+            continue  # Independently checked against HostConfig.Tmpfs below.
         io.require(row.get("Type") == "bind", "cold_crm_bind_required")
         result.append({"source": row["Source"], "destination": row["Destination"], "rw": row["RW"]})
     io.require(
         len({row["destination"] for row in result}) == len(result), "cold_crm_duplicate_mount"
     )
     return sorted(result, key=lambda row: row["destination"])
+
+
+def _tmpfs(rows):
+    result = {}
+    for path, options in rows.items():
+        normalized = []
+        for value in options.split(","):
+            if value.startswith("size="):
+                amount = value[5:].lower()
+                factor = {"k": 1024, "m": 1024**2, "g": 1024**3}.get(amount[-1:], 1)
+                amount = amount[:-1] if factor != 1 else amount
+                value = "size=" + str(int(amount) * factor)
+            normalized.append(value)
+        result[path] = sorted(normalized)
+    return result
 
 
 def compile_spec(model, image, previous, epoch, package, *, epoch_ref, package_ref):
@@ -255,6 +272,9 @@ def validate_inspection(spec, observed):
     validate_spec(spec)
     labels = observed["Config"].get("Labels") or {}
     host, state = observed["HostConfig"], observed["State"]
+    expected_tmpfs = dict(
+        row.split(":", 1) for row in spec["compose"]["services"][SERVICE]["tmpfs"]
+    )
     io.require(
         observed["Id"] != spec["previous_container_id"]
         and re.fullmatch(r"[0-9a-f]{64}", observed["Id"])
@@ -274,6 +294,7 @@ def validate_inspection(spec, observed):
         and observed["RestartCount"] == 0
         and host["RestartPolicy"]["Name"] == "no"
         and host["ReadonlyRootfs"] is True
+        and _tmpfs(host["Tmpfs"]) == _tmpfs(expected_tmpfs)
         and host["Init"] is True
         and not host.get("Privileged")
         and host.get("CapDrop") == ["ALL"]
