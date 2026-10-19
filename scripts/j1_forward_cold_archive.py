@@ -41,6 +41,33 @@ def control_path(path, root):
     }
 
 
+def restored_children(files, path):
+    """Reconstruct only the canonical empty events directory at initial state.
+
+    Capture checked the physical directory. A restored byte graph has no
+    directory payloads; initial state proves the historical *empty topology*,
+    never a no-effect outcome or any current execution permission.
+    """
+    parent = PurePosixPath(path)
+    children = {
+        str(parent / PurePosixPath(name).relative_to(parent).parts[0])
+        for name in files
+        if PurePosixPath(name).is_relative_to(parent) and PurePosixPath(name) != parent
+    }
+    required = {
+        str(parent / name)
+        for name in ("ticket.json", "context.json", "state.json", "operation.lock")
+    }
+    if parent.parent.name == "journals" and cold._uuid(parent.name) and required <= set(files):
+        ticket_raw = files[str(parent / "ticket.json")]
+        launch.validate_ticket(io.document(ticket_raw))
+        initial = launch._initial(io.sha(ticket_raw))
+        current = launch._state(io.document(files[str(parent / "state.json")]), io.sha(ticket_raw))
+        if current == initial:
+            children.add(str(parent / "events"))
+    return sorted(children)
+
+
 def _references(document):
     pending = [document]
     count = 0
