@@ -302,6 +302,52 @@ class ColdWorkerTests(unittest.TestCase):
         self.assertIn(cold.REMOTE, arguments)
         self.assertNotIn(worker.REMOTE, arguments)
 
+    def test_seven_runtime_identities_require_distinct_positive_integer_pids(self):
+        for failure in (
+            "native_pid_reused",
+            "crm_native_pid_reused",
+            "crm_negative_pid",
+            "crm_boolean_pid",
+            "crm_zero_ticks",
+            "crm_boolean_ticks",
+            "crm_boolean_restart_count",
+            "crm_float_observation_count",
+            "crm_same_init_pid",
+            "crm_boolean_init_pid",
+        ):
+            response = self.response("activated")
+            accepted = response["evidence"]["accepted"]
+            first, second = contract.ALLOWED[:2]
+            crm = response["evidence"]["crm"]
+            if failure == "native_pid_reused":
+                row = accepted["observations"][first]
+                row["pid"] = accepted["observations"][second]["pid"]
+                row["start_ticks"] += 1
+                accepted["accepted"][first] = self.fixture.ref("changed-role.json", row)
+                accepted["execution_acceptance_sha256"] = contract.digest(accepted["accepted"])
+                response["inspection"]["execution_acceptance_sha256"] = accepted[
+                    "execution_acceptance_sha256"
+                ]
+            elif failure == "crm_float_observation_count":
+                crm["independent_observations"] = 2.0
+            else:
+                field, value = {
+                    "crm_native_pid_reused": ("main_pid", accepted["observations"][first]["pid"]),
+                    "crm_negative_pid": ("main_pid", -1),
+                    "crm_boolean_pid": ("main_pid", True),
+                    "crm_zero_ticks": ("start_ticks", 0),
+                    "crm_boolean_ticks": ("start_ticks", True),
+                    "crm_boolean_restart_count": ("restart_count", False),
+                    "crm_same_init_pid": ("init_pid", crm["instance"]["main_pid"]),
+                    "crm_boolean_init_pid": ("init_pid", True),
+                }[failure]
+                crm["instance"][field] = value
+            reference = self.fixture.ref("changed-crm.json", crm)
+            accepted["crm_ref"] = response["inspection"]["crm_ref"] = reference
+            self.rebind(response)
+            with self.subTest(failure=failure), self.assertRaises(io.Refusal):
+                cold.validate_response(response, attempt=self.fixture.attempt, stage="activated")
+
     def test_data_only_restore_cannot_skip_missing_or_changed_control_fence(self):
         response = self.response()
         body = response["evidence"]["native"]

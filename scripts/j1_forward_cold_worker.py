@@ -174,7 +174,7 @@ def _accepted(document, response):
         == response["inspection"]["execution_acceptance_sha256"],
         "worker_accepted_binding",
     )
-    identities = set()
+    identities, pids = set(), set()
     for unit in contract.ALLOWED:
         value, reference = document["observations"][unit], document["accepted"][unit]
         worker._bound(value, reference)
@@ -213,8 +213,9 @@ def _accepted(document, response):
             "worker_role_binding",
         )
         identities.add((value["pid"], value["start_ticks"]))
+        pids.add(value["pid"])
     contract.need(
-        len(identities) == 6
+        len(identities) == len(pids) == 6
         and document["crm_ref"] == response["inspection"]["crm_ref"]
         and document["crm"] == evidence["crm"],
         "worker_seven_distinct_runtimes",
@@ -228,11 +229,25 @@ def _accepted(document, response):
         and crm["spec_ref"] == plan["cold_crm_spec_ref"]
         and crm["manager_source_revision"] == plan["candidate_manager_sha"]
         and crm["binding_ref"] == epoch["runtime_bindings"]["crm-embedded"]
+        and type(crm["independent_observations"]) is int
         and crm["independent_observations"] == 2
         and crm["business_acceptance"] is False
         and crm["instance"]["image_id"] == plan["candidate"]["image"]
+        and type(crm["instance"]["restart_count"]) is int
         and crm["instance"]["restart_count"] == 0
-        and (crm["instance"]["main_pid"], crm["instance"]["start_ticks"]) not in identities,
+        and type(crm["instance"]["main_pid"]) is int
+        and crm["instance"]["main_pid"] > 0
+        and type(crm["instance"]["start_ticks"]) is int
+        and crm["instance"]["start_ticks"] > 0
+        and (
+            "init_pid" not in crm["instance"]
+            or (
+                type(crm["instance"]["init_pid"]) is int
+                and crm["instance"]["init_pid"] > 0
+                and crm["instance"]["init_pid"] != crm["instance"]["main_pid"]
+            )
+        )
+        and crm["instance"]["main_pid"] not in pids,
         "worker_embedded_runtime",
     )
     readonly_runtime.validate_report(
