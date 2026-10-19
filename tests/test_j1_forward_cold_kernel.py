@@ -115,8 +115,14 @@ class KernelPreparationTests(unittest.TestCase):
                 "binding": self.binding,
                 "closure_ref": self.publish("closure.json", {}),
                 "hold_ref": self.publish("hold.json", {}),
+                "predecessor_ref": self.publish("predecessor.json", {}),
             },
         )
+        history = patch(
+            "scripts.j1_forward_cold_history.load", return_value={"private_protocol_fixture": True}
+        )
+        history.start()
+        self.addCleanup(history.stop)
         self.custody = patch.object(io, "protected_directory", side_effect=lambda *_a, **_kw: None)
         self.custody.start()
         self.addCleanup(self.custody.stop)

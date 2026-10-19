@@ -258,7 +258,9 @@ def _continuity(binding, context_ref, provider):
     cold._binding(binding, now_ns=time.monotonic_ns())
     context = _read(provider, context_ref)
     cold.fields(
-        context, {"schema", "scope", "binding", "closure_ref", "hold_ref"}, "kernel_context_fields"
+        context,
+        {"schema", "scope", "binding", "closure_ref", "hold_ref", "predecessor_ref"},
+        "kernel_context_fields",
     )
     cold.need(
         context["schema"] == "autostop.j1.cold-kernel-context.v1"
@@ -266,11 +268,19 @@ def _continuity(binding, context_ref, provider):
         and context["binding"] == binding,
         "kernel_context_binding",
     )
+    from scripts import j1_forward_cold_history
+
+    history = j1_forward_cold_history.load(
+        context["predecessor_ref"],
+        read_reference=provider.read_reference,
+        fixture=provider.scope == "native_fixture",
+    )
     provider.verify_closure(
         {
             "package": {"binding": binding},
             "closure": _read(provider, context["closure_ref"]),
             "hold": _read(provider, context["hold_ref"]),
+            "history": history,
         }
     )
 
