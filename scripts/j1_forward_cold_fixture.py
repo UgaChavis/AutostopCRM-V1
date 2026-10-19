@@ -1,0 +1,1141 @@
+"""Disposable real-process producer for the versioned cold quarantine contract.
+
+Only processes started by this object's fixed worker source can be retired.
+No caller-supplied PID, path, command, environment, service or business API is
+accepted. Fixture references cannot pass the production consumer boundary.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import select
+import shutil
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_native as native
+from scripts import j1_forward_io as io
+
+ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
+WORKER = r"""
+import fcntl, json, os, pathlib, socket, struct, sys, time, uuid
+root, mode, unit = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+sys.path.insert(0, str(root / 'source'))
+from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_guard as guard
+from scripts import j1_forward_cold_native as native
+from scripts import j1_forward_cold_fixture as fixture
+from scripts import j1_forward_io as io
+config = json.loads((root / 'worker-config.json').read_text())
+def publish(path, value):
+    raw = io.canonical(value)
+    pending = path.with_name(path.name + '.publishing-' + str(os.getpid()))
+    fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+    os.link(pending, path, follow_symlinks=False); pending.unlink()
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(fd)
+    finally: os.close(fd)
+if mode == 'probe':
+    provider = fixture.FixtureProvider(root)
+    ref = provider.reference(root / 'authority.json')
+    receipt = guard.inspect(ref, unit, config['binding_sha256'], provider=provider,
+                            required_scope='native_fixture', current_process=True)
+    publish(root / 'probe-effects' / unit, receipt)
+    raise SystemExit(0)
+if mode == 'kernel':
+    ready = {'schema':'autostop.j1.cold-kernel-ready.v1','binding':config['binding'],
+             'phase':'ready','pid':os.getpid(),'start_ticks':native.birth(os.getpid())}
+    publish(root / 'kernel-ready.json', ready)
+    print('READY', flush=True)
+    while True: time.sleep(0.05)
+listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+listener.bind(str(root / 'ingress' / unit)); listener.listen(8)
+print('READY', flush=True)
+while True:
+    peer, _address = listener.accept()
+    stream = None
+    try:
+        pid, uid, gid = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        if [pid, uid, gid] != config['client_credentials']:
+            peer.sendall(b'FOREIGN\n'); continue
+        stream = peer.makefile('rb')
+        raw = stream.readline(4097)
+        if len(raw) > 4096: continue
+        request = json.loads(raw)
+        if set(request) != {'op_id','payload_sha256'}: continue
+        if str(uuid.UUID(request['op_id'])) != request['op_id']: continue
+        if not contract.HEX.fullmatch(request['payload_sha256']): continue
+        journal = root / 'requests' / request['op_id']
+        journal.mkdir(mode=0o700)
+        publish(journal / 'intent.json', {'unit':unit, **request})
+        while (root / 'pause-before-effect').exists(): time.sleep(0.01)
+        lock = os.open(root / 'dispatch.lock', os.O_RDONLY)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if (root / 'ingress-held.json').exists() or (root / 'barriers' / unit).exists():
+                outcome = 'not_applied_terminal'
+            else:
+                publish(journal / 'effect.json', {'unit':unit, **request})
+                outcome = 'applied_readback'
+            publish(journal / 'terminal.json', {'unit':unit, **request, 'outcome':outcome})
+        finally: os.close(lock)
+        peer.sendall(b'ACK\n')
+    finally:
+        if stream is not None: stream.close()
+        peer.close()
+"""
+
+
+def _safe_file(path, root, *, limit=128 * 1024**2):
+    path, root = Path(path), Path(root)
+    contract.need(
+        path.is_absolute() and path.is_relative_to(root) and ".." not in path.parts,
+        "fixture_reference_outside_root",
+    )
+    for part in [root, *reversed(path.parent.relative_to(root).parents)]:
+        # Relative parents are checked by the component walk below.
+        if not part.is_absolute():
+            continue
+        info = part.lstat()
+        contract.need(
+            stat.S_ISDIR(info.st_mode)
+            and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) == 0o700,
+            "fixture_root_changed",
+        )
+    current = root
+    for name in path.relative_to(root).parts[:-1]:
+        current /= name
+        info = current.lstat()
+        contract.need(
+            stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o022,
+            "fixture_directory_changed",
+        )
+    before = path.lstat()
+    contract.need(
+        stat.S_ISREG(before.st_mode)
+        and before.st_nlink == 1
+        and before.st_uid == os.geteuid()
+        and not before.st_mode & 0o022
+        and before.st_size <= limit,
+        "fixture_file_changed",
+    )
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        opened = os.fstat(descriptor)
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(limit + 1)
+        after, final = os.fstat(descriptor), path.lstat()
+        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+        contract.need(
+            len(raw) == before.st_size <= limit
+            and all(
+                getattr(before, key)
+                == getattr(opened, key)
+                == getattr(after, key)
+                == getattr(final, key)
+                for key in fields
+            ),
+            "fixture_read_changed",
+        )
+        return raw
+    finally:
+        os.close(descriptor)
+
+
+class FixtureProvider(native.NativeProvider):
+    scope = "native_fixture"
+
+    def __init__(self, root):
+        self.root = Path(root)
+        contract.need(
+            self.root.parent == Path(tempfile.gettempdir())
+            and self.root.name.startswith("autostop-cold-native-"),
+            "fixture_root_boundary",
+        )
+        self.manifest = json.loads(_safe_file(self.root / "fixture.json", self.root))
+        contract.need(
+            self.manifest["kind"] == "private_owned_process_topology_v1"
+            and self.manifest["root"] == str(self.root),
+            "fixture_manifest",
+        )
+
+    def reference(self, path):
+        raw = self.read_path(path)
+        return {"path": str(path), "sha256": io.sha(raw)}
+
+    def read_path(self, path):
+        if str(path) == self.manifest["interpreter"]["path"]:
+            before = Path(path).stat()
+            raw = Path(path).read_bytes()
+            after = Path(path).stat()
+            contract.need(
+                before == after and io.sha(raw) == self.manifest["interpreter"]["sha256"],
+                "fixture_interpreter_changed",
+            )
+            return raw
+        return _safe_file(path, self.root)
+
+    def read_reference(self, reference):
+        contract.reference(reference)
+        raw = self.read_path(reference["path"])
+        contract.need(io.sha(raw) == reference["sha256"], "fixture_reference_digest")
+        return raw
+
+    def boundary(self, reference):
+        contract.need(
+            sys.platform.startswith("linux")
+            and hasattr(os, "pidfd_open")
+            and reference["path"] == str(self.root / "authority.json"),
+            "fixture_native_boundary",
+        )
+        _safe_file(self.root / "fixture.json", self.root)
+
+    def verify_files(self, validated):
+        package = validated["package"]
+        source = io.document(self.read_reference(package["source_package_ref"]))
+        expected_hashes = {}
+        for name in ("authority", "native", "guard", "history", "hold"):
+            filename = "j1_forward_cold_" + name + ".py"
+            raw = Path(__file__).with_name(filename).read_bytes()
+            expected_hashes[name] = io.sha(raw)
+            contract.need(
+                io.sha(_safe_file(self.root / "source" / "scripts" / filename, self.root))
+                == io.sha(raw),
+                "fixture_actual_consumer_changed",
+            )
+        contract.need(
+            package["binding"]["consumer_sha256"] == contract.digest(expected_hashes),
+            "fixture_consumer_binding",
+        )
+        contract.need(
+            source["guard_ref"]
+            == self.reference(self.root / "source" / "scripts" / "j1_forward_cold_guard.py")
+            and source["native_ref"]
+            == self.reference(self.root / "source" / "scripts" / "j1_forward_cold_native.py"),
+            "fixture_dispatch_source",
+        )
+        for unit, policy in validated["policies"].items():
+            index = io.document(self.read_reference(policy["source_index_ref"]))
+            root = self.root / "source"
+            actual = {str(path) for path in root.rglob("*") if path.is_file()}
+            contract.need(
+                actual == {row["path"] for row in index["files"]}, "fixture_source_inventory"
+            )
+            doc = io.document(self.read_reference(policy["unit_ref"]))
+            contract.need(
+                doc["properties"]
+                == {
+                    "unit": unit,
+                    "binding_sha256": contract.digest(package["binding"]),
+                    "guard_sha256": source["guard_ref"]["sha256"],
+                    "argv": policy["argv"],
+                },
+                "fixture_effective_dispatch",
+            )
+
+    def verify_closure(self, validated):
+        hold, binding = validated["hold"], validated["package"]["binding"]
+        contract.need(
+            hold["marker_ref"]["path"] == str(self.root / "ingress-held.json")
+            and hold["dispatch_lock_ref"]["path"] == str(self.root / "dispatch.lock"),
+            "fixture_hold_paths",
+        )
+        marker = io.document(self.read_reference(hold["marker_ref"]))
+        contract.need(marker["binding"] == binding, "fixture_hold_binding")
+        deployment = (self.root / "deployment.lock").stat()
+        lock = (self.root / "dispatch.lock").stat()
+        contract.need(
+            [deployment.st_dev, deployment.st_ino] == binding["deployment_lock_identity"],
+            "fixture_deployment_changed",
+        )
+        native.held_descriptor(hold["controller"], hold["descriptor"], [lock.st_dev, lock.st_ino])
+        native.held_descriptor(
+            hold["controller"], marker["deployment_descriptor"], binding["deployment_lock_identity"]
+        )
+        for unit, reference in validated["closure"]["barriers"].items():
+            contract.need(
+                reference["path"] == str(self.root / "barriers" / unit)
+                and self.read_reference(reference) == contract.DENY_BYTES,
+                "fixture_barrier_changed",
+            )
+
+    def verify_retirement(self, validated):
+        from scripts import j1_forward_cold_history as history
+
+        rows = validated["retirement"]["actors"]
+        contract.need(rows == self.manifest["owned_actors"], "fixture_cannot_adopt_actor")
+        contract.need(
+            validated["history"]["inventory"]["actors"] == self.manifest["owned_actors"],
+            "fixture_history_cannot_adopt",
+        )
+        containment = io.document(self.read_reference(validated["origin"]["containment_ref"]))
+        history.check_containment(containment, validated, validated["history"])
+        contract.need(
+            validated["origin"]["containment_ref"]
+            == validated["quarantine"]["closed_population_ref"],
+            "fixture_population_binding",
+        )
+        for expected in rows:
+            native.retired(expected)
+
+    def verify_original_hold(self, validated):
+        from scripts import j1_forward_cold_hold as hold
+
+        contract.need(
+            validated["hold_checkpoint"]["database_ref"]["path"]
+            == str(self.root / "registry.sqlite3"),
+            "fixture_hold_database",
+        )
+        hold.verify(validated, self, fixture=True)
+
+    def verify_ingress(self, validated):
+        # Inspect only this fixture's endpoint IDs and its controller's FDs.
+        # The pinned worker never forks or passes descriptors. Production uses
+        # the separate whole-kernel observer and accepted preserved population.
+        rows = [
+            line.split(maxsplit=7) for line in Path("/proc/net/unix").read_text().splitlines()[1:]
+        ]
+        inodes = {int(row[6]) for row in rows if len(row) >= 7}
+        paths = {row[7] for row in rows if len(row) == 8}
+        for endpoint in validated["quarantine"]["endpoints"]:
+            contract.need(
+                endpoint["inode"] not in inodes and endpoint["path"] not in paths,
+                "fixture_retired_listener_present",
+            )
+        owner = self.manifest["controller"]
+        contract.need(
+            validated["hold"]["controller"] == owner and native.controller(owner["pid"]) == owner,
+            "fixture_controller_changed",
+        )
+        forbidden = {
+            "pipe:[" + str(inode) + "]" for inode in validated["quarantine"]["pipe_inodes"]
+        }
+        for descriptor in (Path("/proc") / str(owner["pid"]) / "fd").iterdir():
+            try:
+                contract.need(
+                    os.readlink(descriptor) not in forbidden, "fixture_old_pipe_still_owned"
+                )
+            except FileNotFoundError:
+                continue
+
+    def verify_pending(self, validated):
+        pending = validated["pending"]
+        inventory = io.document(self.read_reference(pending["inventory_ref"]))
+        contract.need(
+            inventory
+            == {
+                "schema": "autostop.j1.cold-pending-inventory.v1",
+                "scope": self.scope,
+                "binding": validated["package"]["binding"],
+                "coverage": "fixture_client_catalog_and_published_intents_only",
+                "rows": [
+                    {
+                        "request": {key: row[key] for key in ("op_id", "payload_sha256")},
+                        "evidence_refs": row["evidence_refs"],
+                    }
+                    for row in pending["requests"]
+                ],
+            },
+            "fixture_pending_inventory",
+        )
+        for row in pending["requests"]:
+            request = {key: row[key] for key in ("op_id", "payload_sha256")}
+            client = io.document(
+                self.read_path(self.root / "requests" / ("client-" + row["op_id"] + ".json"))
+            )
+            contract.need(client == request, "fixture_pending_client_identity")
+            directory = self.root / "requests" / row["op_id"]
+            terminal = directory / "terminal.json"
+            outcome = "unknown"
+            refs = []
+            for name in ("intent.json", "effect.json", "terminal.json"):
+                if (directory / name).exists():
+                    refs.append(self.reference(directory / name))
+            if terminal.exists():
+                result = io.document(self.read_path(terminal))
+                contract.need(
+                    {key: result[key] for key in request} == request,
+                    "fixture_pending_terminal_identity",
+                )
+                outcome = result["outcome"]
+                if outcome == "applied_readback":
+                    effect = io.document(self.read_path(directory / "effect.json"))
+                    contract.need(
+                        effect == {key: result[key] for key in ("unit", "op_id", "payload_sha256")},
+                        "fixture_pending_actual_readback",
+                    )
+                elif outcome == "not_applied_terminal":
+                    contract.need(
+                        not (directory / "effect.json").exists(), "fixture_terminal_contradiction"
+                    )
+                else:
+                    contract.need(False, "fixture_terminal_outcome")
+            contract.need(
+                row["outcome"] == outcome and row["evidence_refs"] == refs,
+                "fixture_pending_not_inferred",
+            )
+
+    def verify_kernel(self, validated):
+        kernel, binding = validated["kernel"], validated["package"]["binding"]
+        policy = self.kernel_profile(validated)
+        expected = kernel["actor"]
+        unit_doc = io.document(self.read_reference(policy["unit_ref"]))
+        contract.need(
+            unit_doc["properties"]
+            == {
+                "unit": "private-cold-kernel",
+                "argv": policy["argv"],
+                "source_ref": policy["source_ref"],
+            },
+            "fixture_kernel_dispatch",
+        )
+        contract.need(
+            kernel["unit"] == "private-cold-kernel"
+            and expected["pid"] not in {row["pid"] for row in self.manifest["owned_actors"]}
+            and native.actor(expected["pid"]) == expected,
+            "fixture_new_kernel",
+        )
+        descriptor = os.pidfd_open(expected["pid"], 0)
+        try:
+            contract.need(not select.select([descriptor], [], [], 0)[0], "fixture_kernel_dead")
+            ready = io.document(self.read_reference(kernel["ready_ref"]))
+            contract.need(
+                ready
+                == {
+                    "schema": "autostop.j1.cold-kernel-ready.v1",
+                    "binding": binding,
+                    "phase": "ready",
+                    "pid": expected["pid"],
+                    "start_ticks": expected["start_ticks"],
+                },
+                "fixture_kernel_ready",
+            )
+            view = io.document(self.read_reference(kernel["cache_view_ref"]))
+            contract.need(
+                view["binding"] == binding
+                and view["kind"] == "private_read_only_file"
+                and view["path"] == str(self.root / "private-cache")
+                and stat.S_IMODE(Path(view["path"]).stat().st_mode) == 0o400,
+                "fixture_cache_mode",
+            )
+            contract.need(native.actor(expected["pid"]) == expected, "fixture_kernel_raced")
+        finally:
+            os.close(descriptor)
+
+
+class Fixture:
+    """Own every effect handle before spawning. No outside PID can be signalled."""
+
+    def __init__(self, *, ttl_seconds=120):
+        contract.need(
+            sys.platform.startswith("linux")
+            and hasattr(os, "pidfd_open")
+            and hasattr(signal, "pidfd_send_signal"),
+            "fixture_linux_pidfd_required",
+        )
+        self.root = Path(tempfile.mkdtemp(prefix="autostop-cold-native-"))
+        self.children, self.pidfds, self.actors, self.clients = [], {}, [], []
+        self.dispatch_fd = self.deployment_fd = None
+        self.package_ref = None
+        self.catalog = {}
+        try:
+            self._prepare(ttl_seconds)
+        except BaseException:
+            self.close()
+            raise
+
+    def _mkdir(self, relative):
+        path = self.root / relative
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return path
+
+    def publish(self, relative, value, *, raw=False, mode=0o600):
+        path = self.root / relative
+        data = value if raw else io.canonical(value)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return {"path": str(path), "sha256": io.sha(data)}
+
+    def doc(self, name, **extra):
+        return {
+            "schema": "autostop.j1.cold-" + name + ".v1",
+            "scope": "native_fixture",
+            "binding": self.binding,
+            **extra,
+        }
+
+    def _prepare(self, ttl):
+        import fcntl
+
+        contract.need(type(ttl) is int and 0 < ttl <= 900, "fixture_ttl")
+        for folder in (
+            "source/scripts",
+            "ingress",
+            "barriers",
+            "requests",
+            "probe-effects",
+            "evidence",
+        ):
+            self._mkdir(folder)
+        for name in ("deployment.lock", "dispatch.lock"):
+            self.publish(name, b"", raw=True)
+        self.deployment_fd = os.open(self.root / "deployment.lock", os.O_RDONLY | os.O_CLOEXEC)
+        fcntl.flock(self.deployment_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        info = os.fstat(self.deployment_fd)
+        now = time.monotonic_ns()
+        hashes = {
+            name: io.sha(Path(__file__).with_name("j1_forward_cold_" + name + ".py").read_bytes())
+            for name in ("authority", "native", "guard", "history", "hold")
+        }
+        self.binding = {
+            "attempt_id": str(uuid.uuid4()),
+            "generation": str(uuid.uuid4()),
+            "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "consumer_sha256": contract.digest(hashes),
+            "candidate_crm_sha": "1" * 40,
+            "candidate_manager_sha": "2" * 40,
+            "deployment_lock_identity": [info.st_dev, info.st_ino],
+            "not_before_ns": now,
+            "deadline_ns": now + ttl * 10**9,
+        }
+        for name in (
+            "j1_forward_cold_authority.py",
+            "j1_forward_cold_native.py",
+            "j1_forward_cold_guard.py",
+            "j1_forward_cold_history.py",
+            "j1_forward_cold_hold.py",
+            "j1_forward_cold_fixture.py",
+            "j1_forward_io.py",
+        ):
+            self.publish(
+                "source/scripts/" + name, Path(__file__).with_name(name).read_bytes(), raw=True
+            )
+        self.publish("source/scripts/__init__.py", b"", raw=True)
+        self.publish("source/worker.py", WORKER.encode(), raw=True)
+        interpreter = Path(sys.executable).resolve()
+        self.interpreter = {"path": str(interpreter), "sha256": io.sha(interpreter.read_bytes())}
+        self.publish(
+            "worker-config.json",
+            {
+                "binding": self.binding,
+                "binding_sha256": contract.digest(self.binding),
+                "client_credentials": [os.getpid(), os.geteuid(), os.getegid()],
+            },
+        )
+        for unit in contract.ALLOWED:
+            self._spawn("old", unit)
+        self.publish(
+            "fixture.json",
+            {
+                "kind": "private_owned_process_topology_v1",
+                "root": str(self.root),
+                "interpreter": self.interpreter,
+                "owned_actors": self.actors,
+                "controller": native.controller(os.getpid()),
+            },
+        )
+        self.provider = FixtureProvider(self.root)
+
+    def _spawn(self, mode, unit):
+        process = subprocess.Popen(
+            [
+                str(Path(sys.executable).resolve()),
+                "-I",
+                "-S",
+                "-B",
+                str(self.root / "source/worker.py"),
+                str(self.root),
+                mode,
+                unit,
+            ],
+            cwd=self.root,
+            env=ENVIRONMENT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+        )
+        self.children.append(process)
+        descriptor = os.pidfd_open(process.pid, 0)
+        self.pidfds[process.pid] = descriptor
+        ready, _, _ = select.select([process.stdout], [], [], 5)
+        contract.need(ready and process.stdout.readline() == b"READY\n", "fixture_worker_start")
+        record = native.actor(process.pid)
+        if mode == "old":
+            self.actors.append(record)
+        return process, record
+
+    def submit(self, unit, *, op_id=None, payload_sha256=None, wait=True):
+        contract.need(
+            self.package_ref is None and unit in contract.ALLOWED, "fixture_submit_closed"
+        )
+        op_id = str(uuid.uuid4()) if op_id is None else op_id
+        payload_sha256 = io.sha(b"synthetic-request") if payload_sha256 is None else payload_sha256
+        request = {"op_id": op_id, "payload_sha256": payload_sha256}
+        contract.need(op_id not in self.catalog, "fixture_request_identity_reused")
+        self.catalog[op_id] = request
+        self.publish("requests/client-" + op_id + ".json", request)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.clients.append(client)
+        client.settimeout(5)
+        client.connect(str(self.root / "ingress" / unit))
+        client.sendall(io.canonical(request))
+        if wait:
+            contract.need(client.recv(16) == b"ACK\n", "fixture_request_ack")
+        return request
+
+    def _retire(self, process, expected):
+        descriptor = self.pidfds[process.pid]
+        contract.need(
+            expected["pid"] == process.pid and native.actor(process.pid) == expected,
+            "fixture_owned_actor_changed",
+        )
+        signal.pidfd_send_signal(descriptor, signal.SIGKILL, None, 0)
+        contract.need(bool(select.select([descriptor], [], [], 5)[0]), "fixture_retire_timeout")
+        process.wait(timeout=5)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+        native.retired(expected)
+
+    def produce(self):
+        import fcntl
+
+        if self.package_ref is not None:
+            native.verify_package(
+                self.package_ref, provider=self.provider, required_scope="native_fixture"
+            )
+            return dict(self.package_ref)
+        contract._binding(self.binding, now_ns=time.monotonic_ns())
+        barriers = {
+            unit: self.publish("barriers/" + unit, contract.DENY_BYTES, raw=True)
+            for unit in contract.UNITS
+        }
+        marker = self.publish(
+            "ingress-held.json",
+            {
+                "schema": "autostop.j1.cold-ingress-held.v1",
+                "binding": self.binding,
+                "deployment_descriptor": self.deployment_fd,
+            },
+        )
+        self.dispatch_fd = os.open(self.root / "dispatch.lock", os.O_RDONLY | os.O_CLOEXEC)
+        fcntl.flock(self.dispatch_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        hold = self.publish(
+            "evidence/hold.json",
+            self.doc(
+                "hold",
+                marker_ref=marker,
+                dispatch_lock_ref=self.provider.reference(self.root / "dispatch.lock"),
+                controller=native.controller(os.getpid()),
+                descriptor=self.dispatch_fd,
+            ),
+        )
+        closure = self.publish("evidence/closure.json", self.doc("closure", barriers=barriers))
+        endpoints = []
+        socket_rows = [
+            line.split(maxsplit=7) for line in Path("/proc/net/unix").read_text().splitlines()[1:]
+        ]
+        for unit in contract.ALLOWED:
+            path = str(self.root / "ingress" / unit)
+            matches = [row for row in socket_rows if len(row) == 8 and row[7] == path]
+            contract.need(
+                sum(row[3] == "00010000" for row in matches) == 1, "fixture_original_listener"
+            )
+            endpoints.extend({"path": path, "inode": int(row[6])} for row in matches)
+        pipe_inodes = sorted(
+            {
+                int(os.readlink(Path("/proc") / str(actor["pid"]) / "fd" / str(fd))[6:-1])
+                for actor in self.actors
+                for fd in (1, 2)
+            }
+        )
+        predecessor, predecessor_scope, original_hold, hold_checkpoint = self._history(
+            endpoints, pipe_inodes
+        )
+        containment = self.publish(
+            "evidence/population.json",
+            self.doc(
+                "closed-population",
+                predecessor_scope_ref=predecessor_scope,
+                actors_sha256=contract.digest(self.actors),
+                cgroup_roots=sorted(
+                    {"/sys/fs/cgroup" + row["cgroup"].removeprefix("0::") for row in self.actors}
+                ),
+            ),
+        )
+        origin = self.publish(
+            "evidence/actors.json",
+            self.doc(
+                "actor-scope",
+                actors=self.actors,
+                containment_ref=containment,
+                predecessor_scope_ref=predecessor_scope,
+            ),
+        )
+        for process, expected in zip(self.children, self.actors, strict=True):
+            self._retire(process, expected)
+        retirement = self.publish(
+            "evidence/retirement.json",
+            self.doc(
+                "retirement",
+                origin_actor_scope_ref=origin,
+                actors=self.actors,
+                completed_ns=time.monotonic_ns(),
+            ),
+        )
+        quarantine = self.publish(
+            "evidence/quarantine.json",
+            self.doc(
+                "quarantine",
+                retirement_ref=retirement,
+                hold_ref=hold,
+                endpoints=endpoints,
+                pipe_inodes=pipe_inodes,
+                unparsed_ingress="retired_without_replay",
+                closed_population_ref=containment,
+            ),
+        )
+        pending = self._pending(quarantine)
+        _kernel_process, kernel_actor = self._spawn("kernel", "private-cold-kernel")
+        self.publish("private-cache", b"synthetic-only", raw=True, mode=0o400)
+        view = self.publish(
+            "evidence/cache-view.json",
+            {
+                "schema": "autostop.j1.cold-cache-view.v1",
+                "binding": self.binding,
+                "kind": "private_read_only_file",
+                "path": str(self.root / "private-cache"),
+                "mount_id": None,
+            },
+        )
+        source, policies = self._policies()
+        kernel_policy = self._kernel_policy()
+        kernel = self.publish(
+            "evidence/kernel.json",
+            self.doc(
+                "kernel",
+                actor=kernel_actor,
+                unit="private-cold-kernel",
+                policy_ref=kernel_policy,
+                ready_ref=self.provider.reference(self.root / "kernel-ready.json"),
+                cache_view_ref=view,
+            ),
+        )
+        lifecycle = self.publish(
+            "evidence/lifecycle.json",
+            self.doc(
+                "lifecycle",
+                phase="cold_quarantined",
+                kernel_ref=kernel,
+                closure_ref=closure,
+                hold_ref=hold,
+                policies=policies,
+                pending_ref=pending,
+            ),
+        )
+        raw = contract.compile_package(
+            str(self.root / "authority.json"),
+            scope="native_fixture",
+            binding=self.binding,
+            predecessor_ref=predecessor,
+            source_package_ref=source,
+            policies=policies,
+            evidence_refs={
+                "closure_ref": closure,
+                "hold_ref": hold,
+                "retirement_ref": retirement,
+                "quarantine_ref": quarantine,
+                "pending_ref": pending,
+                "kernel_ref": kernel,
+                "lifecycle_ref": lifecycle,
+                "original_hold_ref": original_hold,
+                "hold_checkpoint_ref": hold_checkpoint,
+            },
+            read_reference=self.provider.read_reference,
+        )
+        self.package_ref = self.publish("authority.json", raw, raw=True)
+        native.verify_package(
+            self.package_ref, provider=self.provider, required_scope="native_fixture"
+        )
+        return dict(self.package_ref)
+
+    def _history(self, endpoints, pipes):
+        import sqlite3
+
+        from scripts import j1_forward_cold_hold as hold
+
+        origin_id = str(uuid.uuid4())
+        original_hash = io.sha(("release-attempt:" + origin_id).encode())
+        database = self.root / "registry.sqlite3"
+        connection = sqlite3.connect(database)
+        try:
+            connection.executescript("""
+                CREATE TABLE manager_automation_controller_runtime(singleton INTEGER PRIMARY KEY,
+                    hold_enabled INTEGER,hold_reason TEXT,hold_owner_hash TEXT,hold_attempt_hash TEXT,hold_revision INTEGER);
+                CREATE TABLE manager_automation_runtime(lease_until TEXT);
+                CREATE TABLE manager_automation_outbox(status TEXT);
+            """)
+            connection.execute(
+                "INSERT INTO manager_automation_controller_runtime VALUES(1,1,?,?,?,1)",
+                ("release", "a" * 64, original_hash),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        database.chmod(0o600)
+        database_ref = self.provider.reference(database)
+        backup_ref = self.publish(
+            "evidence/registry-quiet.sqlite3", self.provider.read_reference(database_ref), raw=True
+        )
+        identity = hold.file_identity(database)
+        measurement = hold.measure(
+            database, identity, database_ref["sha256"], origin_id, read_file=self.provider.read_path
+        )
+        status = self.publish(
+            "evidence/original-hold-status.json",
+            {
+                "global_hold": {
+                    "enabled": True,
+                    "reason": "release",
+                    "attempt_hash": original_hash,
+                },
+                "active_leases": 0,
+                "outbox_sending": 0,
+            },
+        )
+        original_hold = self.publish(
+            "evidence/original-hold.json",
+            {
+                "schema": "autostop.j1.crm-forward-recovery-hold.v2",
+                "origin_attempt_id": origin_id,
+                "attempt_hash": original_hash,
+                "reason": "release",
+                "enabled": True,
+                "scheduler_counts": {"active_leases": 0, "outbox_sending": 0},
+                "status_ref": status,
+            },
+        )
+        checkpoint = self.publish(
+            "evidence/original-hold-checkpoint.json",
+            self.doc(
+                "hold-checkpoint",
+                origin_attempt_id=origin_id,
+                original_hold_ref=original_hold,
+                database_ref=database_ref,
+                database_identity=identity,
+                quiet_backup_ref=backup_ref,
+                measurement=measurement,
+            ),
+        )
+        scope = self.publish(
+            "evidence/preserved-scope.json",
+            {
+                "schema": "autostop.j1.cold-fixture-preserved-scope.v1",
+                "attempt_id": origin_id,
+                "boot_id": self.binding["boot_id"],
+                "actors": self.actors,
+                "endpoints": endpoints,
+                "pipe_inodes": pipes,
+            },
+        )
+        baseline = self.publish("evidence/preserved-baseline.json", {"attempt_id": origin_id})
+        plan = self.publish(
+            "evidence/preserved-plan.json", {"attempt_id": origin_id, "baseline_ref": baseline}
+        )
+        closure = self.publish(
+            "evidence/preserved-closure.json", {"attempt_id": origin_id, "process_scope_ref": scope}
+        )
+        anchor = self.publish(
+            "evidence/historical-origin.json",
+            {
+                "schema": "autostop.j1.cold-predecessor-anchor.v1",
+                "scope": "native_fixture",
+                "origin_attempt_id": origin_id,
+                "plan_ref": plan,
+                "baseline_ref": baseline,
+                "scope_ref": scope,
+                "closure_ref": closure,
+                "original_hold_ref": original_hold,
+            },
+        )
+        return anchor, scope, original_hold, checkpoint
+
+    def _kernel_policy(self):
+        source_ref = self.provider.reference(self.root / "source" / "worker.py")
+        argv = [
+            self.interpreter["path"],
+            "-I",
+            "-S",
+            "-B",
+            source_ref["path"],
+            str(self.root),
+            "kernel",
+            "private-cold-kernel",
+        ]
+        environment = self.publish(
+            "evidence/kernel-environment.json",
+            self.doc("environment", unit="private-cold-kernel", values=ENVIRONMENT),
+        )
+        unit_ref = self.publish(
+            "evidence/kernel-unit.json",
+            self.doc(
+                "unit",
+                unit="private-cold-kernel",
+                files=[source_ref],
+                properties={"unit": "private-cold-kernel", "argv": argv, "source_ref": source_ref},
+            ),
+        )
+        return self.publish(
+            "evidence/kernel-policy.json",
+            self.doc(
+                "kernel-policy",
+                unit="private-cold-kernel",
+                source_ref=source_ref,
+                interpreter_ref=self.interpreter,
+                runtime_index_ref=self.provider.reference(
+                    self.root / "evidence/runtime-index.json"
+                ),
+                startup_index_ref=self.provider.reference(
+                    self.root / "evidence/startup-index.json"
+                ),
+                environment_ref=environment,
+                unit_ref=unit_ref,
+                argv=argv,
+                cwd=str(self.root),
+                credentials={
+                    "uid": os.geteuid(),
+                    "gid": os.getegid(),
+                    "groups": sorted(os.getgroups()),
+                },
+            ),
+        )
+
+    def _pending(self, quarantine):
+        requests, inventory = [], []
+        published = {path.parent.name for path in (self.root / "requests").glob("*/intent.json")}
+        contract.need(published <= set(self.catalog), "fixture_unregistered_intent")
+        for op_id, request in self.catalog.items():
+            directory = self.root / "requests" / op_id
+            refs = []
+            terminal = directory / "terminal.json"
+            outcome = "unknown"
+            for name in ("intent.json", "effect.json", "terminal.json"):
+                path = directory / name
+                if path.exists():
+                    refs.append(self.provider.reference(path))
+            if terminal.exists():
+                result = json.loads(_safe_file(terminal, self.root))
+                contract.need(
+                    result["op_id"] == op_id
+                    and result["payload_sha256"] == request["payload_sha256"],
+                    "fixture_terminal_identity",
+                )
+                outcome = result["outcome"]
+                if outcome == "applied_readback":
+                    effect = json.loads(_safe_file(directory / "effect.json", self.root))
+                    contract.need(
+                        {key: effect[key] for key in request} == request, "fixture_effect_identity"
+                    )
+            inventory.append({"request": request, "evidence_refs": refs})
+            requests.append(
+                {**request, "outcome": outcome, "evidence_refs": refs, "retry": "forbidden"}
+            )
+        catalog = self.publish(
+            "evidence/pending-inventory.json",
+            self.doc(
+                "pending-inventory",
+                coverage="fixture_client_catalog_and_published_intents_only",
+                rows=inventory,
+            ),
+        )
+        return self.publish(
+            "evidence/pending.json",
+            self.doc(
+                "pending-disposition",
+                quarantine_ref=quarantine,
+                inventory_ref=catalog,
+                requests=requests,
+            ),
+        )
+
+    def _policies(self):
+        source_root = self.root / "source"
+        files = [
+            self.provider.reference(path)
+            for path in sorted(source_root.rglob("*"))
+            if path.is_file()
+        ]
+        index = self.publish("evidence/source-index.json", self.doc("source-index", files=files))
+        guard = self.provider.reference(source_root / "scripts/j1_forward_cold_guard.py")
+        native_ref = self.provider.reference(source_root / "scripts/j1_forward_cold_native.py")
+        source = self.publish(
+            "evidence/source-package.json",
+            self.doc(
+                "source-package",
+                revision=self.binding["candidate_manager_sha"],
+                source_index_ref=index,
+                guard_ref=guard,
+                native_ref=native_ref,
+            ),
+        )
+        runtime = self.publish(
+            "evidence/runtime-index.json", self.doc("runtime-index", files=[self.interpreter])
+        )
+        startup = self.publish(
+            "evidence/startup-index.json", self.doc("startup-index", files=files)
+        )
+        policies = {}
+        for unit in contract.ALLOWED:
+            argv = [
+                self.interpreter["path"],
+                "-I",
+                "-S",
+                "-B",
+                str(source_root / "worker.py"),
+                str(self.root),
+                "probe",
+                unit,
+            ]
+            environment = self.publish(
+                "evidence/environment-" + unit + ".json",
+                self.doc("environment", unit=unit, values=ENVIRONMENT),
+            )
+            unit_file = self.publish(
+                "evidence/unit-source-" + unit,
+                {"unit": unit, "guard_ref": guard, "binding": self.binding},
+            )
+            unit_ref = self.publish(
+                "evidence/unit-" + unit + ".json",
+                self.doc(
+                    "unit",
+                    unit=unit,
+                    properties={
+                        "unit": unit,
+                        "binding_sha256": contract.digest(self.binding),
+                        "guard_sha256": guard["sha256"],
+                        "argv": argv,
+                    },
+                    files=[unit_file],
+                ),
+            )
+            inputs = {
+                "source_root": str(source_root),
+                "source_index_ref": index,
+                "interpreter_ref": self.interpreter,
+                "runtime_index_ref": runtime,
+                "startup_index_ref": startup,
+                "environment_ref": environment,
+                "unit_ref": unit_ref,
+                "guard_ref": guard,
+                "native_ref": native_ref,
+                "argv": argv,
+                "cwd": str(self.root),
+                "credentials": {
+                    "uid": os.geteuid(),
+                    "gid": os.getegid(),
+                    "groups": sorted(os.getgroups()),
+                },
+            }
+            policy = contract.compile_policy(
+                self.binding,
+                "native_fixture",
+                unit,
+                inputs,
+                source,
+                read_reference=self.provider.read_reference,
+            )
+            policies[unit] = self.publish("evidence/policy-" + unit + ".json", policy)
+        return source, policies
+
+    def probe(self, unit):
+        contract.need(self.package_ref is not None, "fixture_not_produced")
+        native.CheckedDispatcher(
+            self.package_ref, provider=self.provider, required_scope="native_fixture"
+        ).inspect(unit)
+        process = subprocess.run(
+            [
+                self.interpreter["path"],
+                "-I",
+                "-S",
+                "-B",
+                str(self.root / "source/worker.py"),
+                str(self.root),
+                "probe",
+                unit,
+            ],
+            cwd=self.root,
+            env=ENVIRONMENT,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+        return process
+
+    def close(self):
+        cleanup_complete = True
+        for process in reversed(self.children):
+            try:
+                if process.poll() is None:
+                    descriptor = self.pidfds.get(process.pid)
+                    if descriptor is None:
+                        cleanup_complete = False
+                        continue
+                    signal.pidfd_send_signal(descriptor, signal.SIGKILL, None, 0)
+                process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                cleanup_complete = False
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+        for descriptor in self.pidfds.values():
+            os.close(descriptor)
+        self.pidfds.clear()
+        for client in self.clients:
+            client.close()
+        self.clients.clear()
+        for name in ("dispatch_fd", "deployment_fd"):
+            descriptor = getattr(self, name)
+            if descriptor is not None:
+                os.close(descriptor)
+                setattr(self, name, None)
+        # Uncertain cleanup retains evidence; never remove another topology.
+        if cleanup_complete:
+            info = self.root.lstat()
+            contract.need(
+                stat.S_ISDIR(info.st_mode)
+                and info.st_uid == os.geteuid()
+                and self.root.parent == Path(tempfile.gettempdir())
+                and self.root.name.startswith("autostop-cold-native-"),
+                "fixture_cleanup_scope",
+            )
+            shutil.rmtree(self.root)
+        else:
+            raise io.Refusal("cold_fixture_cleanup_incomplete")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()

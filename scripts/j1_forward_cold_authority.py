@@ -1,0 +1,622 @@
+"""A separate all-profile cold contract; artifact validation grants no execution.
+
+Warm authorities are historical references only. Fresh native measurements are
+performed by ``j1_forward_cold_native`` while its caller retains the fence.
+There is deliberately no installation, issuance, open-fence or replay API here.
+"""
+
+from __future__ import annotations
+
+import re
+import time
+import uuid
+
+from scripts import j1_forward_io as io
+
+SCHEMA = "autostop.j1.crm-manager-cold-authority-package.v1"
+PLAN_SCHEMA = "autostop.j1.crm-manager-cold-forward-plan.v1"
+PLAN_SCOPE = "crm_and_manager_all_profiles_cold"
+CONTRACT = "all_six_profiles_cold_quarantined_v1"
+SCOPES = {"native_fixture", "production_native"}
+ALLOWED = tuple(
+    sorted(
+        (
+            "autostop-j1.service",
+            "autostop-manager-mcp.service",
+            "autostop-manager-scheduler.service",
+            "autostop-work-telegram.service",
+            "autostop-telegram.service",
+            "autostop-codex-wake.service",
+        )
+    )
+)
+DENIED = ("autostop-codex-start.service", "autostop-j1-browser.service")
+UNITS = tuple(sorted((*ALLOWED, *DENIED)))
+DENY_BYTES = (
+    b"[Service]\nExecCondition=/usr/bin/false\nExecStartPre=\nExecStartPost=\n"
+    b"ExecStop=\nExecStopPost=\nExecReload=\n"
+)
+BINDING_FIELDS = set(
+    "attempt_id boot_id generation consumer_sha256 candidate_crm_sha candidate_manager_sha "
+    "deployment_lock_identity not_before_ns deadline_ns".split()
+)
+PACKAGE_FIELDS = set(
+    "schema scope contract binding predecessor_ref source_package_ref policies "
+    "permanent_denied_units closure_ref hold_ref retirement_ref quarantine_ref "
+    "pending_ref kernel_ref lifecycle_ref original_hold_ref hold_checkpoint_ref".split()
+)
+POLICY_FIELDS = set(
+    "schema scope contract binding unit source_root source_index_ref interpreter_ref "
+    "runtime_index_ref startup_index_ref environment_ref unit_ref guard_ref native_ref "
+    "argv cwd credentials".split()
+)
+HEX = re.compile(r"[0-9a-f]{64}\Z")
+SHA1 = re.compile(r"[0-9a-f]{40}\Z")
+
+
+def need(condition, code):
+    io.require(condition, "cold_" + code)
+
+
+def fields(value, expected, code):
+    need(type(value) is dict and set(value) == set(expected), code)
+    return value
+
+
+def digest(value):
+    return io.sha(io.canonical(value))
+
+
+def identity(value):
+    return (
+        type(value) is list
+        and len(value) == 2
+        and all(type(item) is int and item >= 0 for item in value)
+    )
+
+
+def _uuid(value):
+    try:
+        return type(value) is str and str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def reference(value):
+    fields(value, {"path", "sha256"}, "reference_fields")
+    path = value["path"]
+    need(
+        type(path) is str
+        and path.startswith("/")
+        and ".." not in path.split("/")
+        and "//" not in path
+        and not path.endswith("/"),
+        "reference_path",
+    )
+    need(type(value["sha256"]) is str and HEX.fullmatch(value["sha256"]), "reference_digest")
+    return value
+
+
+def _binding(value, *, now_ns):
+    fields(value, BINDING_FIELDS, "binding_fields")
+    need(all(_uuid(value[key]) for key in ("attempt_id", "boot_id", "generation")), "binding_uuid")
+    need(
+        type(value["consumer_sha256"]) is str and HEX.fullmatch(value["consumer_sha256"]),
+        "consumer_digest",
+    )
+    need(
+        all(
+            type(value[key]) is str and SHA1.fullmatch(value[key])
+            for key in ("candidate_crm_sha", "candidate_manager_sha")
+        ),
+        "candidate_revision",
+    )
+    need(identity(value["deployment_lock_identity"]), "deployment_lock_identity")
+    need(
+        all(type(value[key]) is int and value[key] > 0 for key in ("not_before_ns", "deadline_ns")),
+        "binding_time",
+    )
+    need(
+        value["not_before_ns"]
+        <= now_ns
+        < value["deadline_ns"]
+        <= value["not_before_ns"] + 900 * 10**9,
+        "binding_expired_or_window",
+    )
+
+
+class Reader:
+    """Hash every leaf, then reread the complete reference graph after checking."""
+
+    def __init__(self, read_reference):
+        self.read = read_reference
+        self.seen = {}
+
+    def raw(self, ref):
+        reference(ref)
+        if ref["path"] in self.seen:
+            previous, raw = self.seen[ref["path"]]
+            need(previous == ref, "reference_alias")
+            return raw
+        raw = self.read(ref)
+        need(type(raw) is bytes and io.sha(raw) == ref["sha256"], "reference_bytes")
+        key = ref["path"]
+        need(key not in self.seen or self.seen[key] == (ref, raw), "reference_alias")
+        self.seen[key] = (dict(ref), raw)
+        return raw
+
+    def doc(self, ref):
+        return io.document(self.raw(ref))
+
+    def bound(self, ref, name, binding, scope, extra):
+        value = self.doc(ref)
+        fields(value, {"schema", "scope", "binding", *extra}, name + "_fields")
+        need(
+            value["schema"] == "autostop.j1.cold-" + name + ".v1"
+            and value["scope"] == scope
+            and value["binding"] == binding,
+            name + "_binding",
+        )
+        return value
+
+    def index(self, ref, name, binding, scope):
+        value = self.bound(ref, name, binding, scope, {"files"})
+        files = value["files"]
+        need(type(files) is list and files and len(files) <= 10000, name + "_files")
+        paths = []
+        for row in files:
+            self.raw(row)
+            paths.append(row["path"])
+        need(paths == sorted(set(paths)), name + "_order")
+        return value
+
+    def recheck(self):
+        for ref, raw in self.seen.values():
+            need(self.read(ref) == raw, "reference_changed")
+
+
+def compile_policy(binding, scope, unit, inputs, source_package, *, read_reference):
+    """Compile one new policy from an exact source package and explicit inputs.
+
+    A source package supplies bytes, never a native permit. Runtime/startup,
+    environment and effective-unit inputs must be measured independently.
+    """
+    need(unit in ALLOWED and scope in SCOPES, "compile_scope")
+    fields(
+        inputs, POLICY_FIELDS - {"schema", "scope", "contract", "binding", "unit"}, "compile_inputs"
+    )
+    reader = Reader(read_reference)
+    package = reader.bound(
+        source_package,
+        "source-package",
+        binding,
+        scope,
+        {"revision", "source_index_ref", "guard_ref", "native_ref"},
+    )
+    need(package["revision"] == binding["candidate_manager_sha"], "compile_revision")
+    for key in ("source_index_ref", "guard_ref", "native_ref"):
+        need(inputs[key] == package[key], "compile_package_" + key)
+    reader.index(package["source_index_ref"], "source-index", binding, scope)
+    reader.raw(package["guard_ref"])
+    reader.raw(package["native_ref"])
+    reader.recheck()
+    return {
+        "schema": "autostop.j1.cold-profile-policy.v1",
+        "scope": scope,
+        "contract": CONTRACT,
+        "binding": binding,
+        "unit": unit,
+        **inputs,
+    }
+
+
+def compile_policies(binding, scope, inputs, source_package, *, read_reference):
+    """No inherited five-profile exemption: all six inputs are mandatory."""
+    fields(inputs, ALLOWED, "compile_six_profiles")
+    return {
+        unit: compile_policy(
+            binding, scope, unit, inputs[unit], source_package, read_reference=read_reference
+        )
+        for unit in ALLOWED
+    }
+
+
+def compile_package(
+    package_path,
+    *,
+    scope,
+    binding,
+    predecessor_ref,
+    source_package_ref,
+    policies,
+    evidence_refs,
+    read_reference,
+):
+    """Compile a complete immutable package before publishing any selector.
+
+    This checks exact bytes and contracts; a native observer must then validate
+    them while the deployment/dispatch descriptors remain continuously held.
+    The returned bytes are not an issuer grant or native acceptance.
+    """
+    fields(
+        evidence_refs,
+        {
+            "closure_ref",
+            "hold_ref",
+            "retirement_ref",
+            "quarantine_ref",
+            "pending_ref",
+            "kernel_ref",
+            "lifecycle_ref",
+            "original_hold_ref",
+            "hold_checkpoint_ref",
+        },
+        "compile_evidence",
+    )
+    value = {
+        "schema": SCHEMA,
+        "scope": scope,
+        "contract": CONTRACT,
+        "binding": binding,
+        "predecessor_ref": predecessor_ref,
+        "source_package_ref": source_package_ref,
+        "policies": policies,
+        "permanent_denied_units": list(DENIED),
+        **evidence_refs,
+    }
+    raw = io.canonical(value)
+    ref = {"path": package_path, "sha256": io.sha(raw)}
+
+    def read(reference):
+        if reference["path"] == package_path:
+            need(reference == ref, "compile_package_alias")
+            return raw
+        return read_reference(reference)
+
+    validate_package(ref, read_reference=read, required_scope=scope)
+    return raw
+
+
+def profile_input_template():
+    """Versioned input field names; None is deliberately invalid in a policy."""
+    return {
+        unit: {
+            key: None
+            for key in sorted(POLICY_FIELDS - {"schema", "scope", "contract", "binding", "unit"})
+        }
+        for unit in ALLOWED
+    }
+
+
+def _policies(package, reader):
+    binding, scope = package["binding"], package["scope"]
+    need(
+        type(package["policies"]) is dict and set(package["policies"]) == set(ALLOWED),
+        "six_policy_scope",
+    )
+    source = reader.bound(
+        package["source_package_ref"],
+        "source-package",
+        binding,
+        scope,
+        {"revision", "source_index_ref", "guard_ref", "native_ref"},
+    )
+    need(source["revision"] == binding["candidate_manager_sha"], "source_revision")
+    reader.index(source["source_index_ref"], "source-index", binding, scope)
+    for key in ("guard_ref", "native_ref"):
+        reader.raw(source[key])
+    policies = {}
+    for unit in ALLOWED:
+        policy = reader.doc(package["policies"][unit])
+        fields(policy, POLICY_FIELDS, "profile_fields")
+        need(
+            policy["schema"] == "autostop.j1.cold-profile-policy.v1"
+            and policy["contract"] == CONTRACT
+            and policy["scope"] == scope
+            and policy["binding"] == binding
+            and policy["unit"] == unit,
+            "profile_binding",
+        )
+        for key in ("source_index_ref", "guard_ref", "native_ref"):
+            need(policy[key] == source[key], "profile_source_package")
+        reader.raw(policy["interpreter_ref"])
+        for key in ("runtime", "startup"):
+            reader.index(policy[key + "_index_ref"], key + "-index", binding, scope)
+        environment = reader.bound(
+            policy["environment_ref"], "environment", binding, scope, {"unit", "values"}
+        )
+        need(
+            environment["unit"] == unit
+            and type(environment["values"]) is dict
+            and all(
+                type(key) is str
+                and key
+                and "=" not in key
+                and "\0" not in key
+                and type(value) is str
+                and "\0" not in value
+                for key, value in environment["values"].items()
+            ),
+            "environment_values",
+        )
+        unit_doc = reader.bound(
+            policy["unit_ref"], "unit", binding, scope, {"unit", "properties", "files"}
+        )
+        need(
+            unit_doc["unit"] == unit
+            and type(unit_doc["properties"]) is dict
+            and type(unit_doc["files"]) is list
+            and unit_doc["files"],
+            "unit_document",
+        )
+        for row in unit_doc["files"]:
+            reader.raw(row)
+        need(
+            type(policy["source_root"]) is str
+            and policy["source_root"].startswith("/")
+            and type(policy["cwd"]) is str
+            and policy["cwd"].startswith("/"),
+            "profile_paths",
+        )
+        need(
+            type(policy["argv"]) is list
+            and policy["argv"]
+            and all(type(arg) is str and arg and "\0" not in arg for arg in policy["argv"])
+            and policy["argv"][0] == policy["interpreter_ref"]["path"],
+            "profile_argv",
+        )
+        credentials = fields(policy["credentials"], {"uid", "gid", "groups"}, "credentials")
+        need(
+            all(type(credentials[key]) is int and credentials[key] >= 0 for key in ("uid", "gid"))
+            and type(credentials["groups"]) is list
+            and all(type(group) is int and group >= 0 for group in credentials["groups"]),
+            "credential_values",
+        )
+        policies[unit] = policy
+    return policies
+
+
+def validate_package(package_ref, *, read_reference=None, required_scope=None, now_ns=None):
+    """Pure artifact check. Call native.verify_package before using a dispatch plan.
+
+    ``required_scope='production_native'`` strictly rejects fixture documents;
+    changing a scope field does not replace the independent native verification.
+    """
+    reader = Reader(io.referenced if read_reference is None else read_reference)
+    package = reader.doc(package_ref)
+    fields(package, PACKAGE_FIELDS, "package_fields")
+    scope, binding = package["scope"], package["binding"]
+    need(
+        package["schema"] == SCHEMA
+        and package["contract"] == CONTRACT
+        and scope in SCOPES
+        and (required_scope is None or scope == required_scope),
+        "package_scope",
+    )
+    _binding(binding, now_ns=time.monotonic_ns() if now_ns is None else now_ns)
+    need(package["permanent_denied_units"] == list(DENIED), "permanent_denied_scope")
+    # Preserved provenance determines complete retirement coverage, never a
+    # current warm permit. Its original hold requires a fresh raw DB measure.
+    from scripts import j1_forward_cold_history as historical
+
+    history = historical.load(
+        package["predecessor_ref"], read_reference=reader.raw, fixture=scope == "native_fixture"
+    )
+    need(
+        package["original_hold_ref"] == history["anchor"]["original_hold_ref"],
+        "original_hold_anchor",
+    )
+    hold_checkpoint = reader.bound(
+        package["hold_checkpoint_ref"],
+        "hold-checkpoint",
+        binding,
+        scope,
+        {
+            "origin_attempt_id",
+            "original_hold_ref",
+            "database_ref",
+            "database_identity",
+            "quiet_backup_ref",
+            "measurement",
+        },
+    )
+    need(
+        hold_checkpoint["origin_attempt_id"] == history["anchor"]["origin_attempt_id"]
+        and hold_checkpoint["original_hold_ref"] == package["original_hold_ref"],
+        "hold_checkpoint_binding",
+    )
+    reader.raw(hold_checkpoint["database_ref"])
+    reader.raw(hold_checkpoint["quiet_backup_ref"])
+    policies = _policies(package, reader)
+    closure = reader.bound(package["closure_ref"], "closure", binding, scope, {"barriers"})
+    need(
+        type(closure["barriers"]) is dict and set(closure["barriers"]) == set(UNITS),
+        "eight_barrier_scope",
+    )
+    for row in closure["barriers"].values():
+        reference(row)
+    need(len({row["path"] for row in closure["barriers"].values()}) == 8, "barrier_alias")
+    for row in closure["barriers"].values():
+        need(reader.raw(row) == DENY_BYTES, "barrier_bytes")
+    hold = reader.bound(
+        package["hold_ref"],
+        "hold",
+        binding,
+        scope,
+        {"marker_ref", "dispatch_lock_ref", "controller", "descriptor"},
+    )
+    reader.raw(hold["marker_ref"])
+    reader.raw(hold["dispatch_lock_ref"])
+    need(type(hold["descriptor"]) is int and hold["descriptor"] > 2, "hold_descriptor")
+    retirement = reader.bound(
+        package["retirement_ref"],
+        "retirement",
+        binding,
+        scope,
+        {"origin_actor_scope_ref", "actors", "completed_ns"},
+    )
+    origin = reader.bound(
+        retirement["origin_actor_scope_ref"],
+        "actor-scope",
+        binding,
+        scope,
+        {"actors", "containment_ref", "predecessor_scope_ref"},
+    )
+    reader.raw(origin["containment_ref"])
+    need(
+        type(origin["actors"]) is list
+        and origin["actors"]
+        and retirement["actors"] == origin["actors"],
+        "retirement_complete_scope",
+    )
+    need(
+        type(retirement["completed_ns"]) is int
+        and binding["not_before_ns"] <= retirement["completed_ns"] < binding["deadline_ns"],
+        "retirement_interval",
+    )
+    quarantine = reader.bound(
+        package["quarantine_ref"],
+        "quarantine",
+        binding,
+        scope,
+        {
+            "retirement_ref",
+            "hold_ref",
+            "endpoints",
+            "pipe_inodes",
+            "unparsed_ingress",
+            "closed_population_ref",
+        },
+    )
+    need(
+        quarantine["retirement_ref"] == package["retirement_ref"]
+        and quarantine["hold_ref"] == package["hold_ref"]
+        and quarantine["unparsed_ingress"] == "retired_without_replay",
+        "quarantine_binding",
+    )
+    reader.raw(quarantine["closed_population_ref"])
+    need(
+        type(quarantine["endpoints"]) is list
+        and quarantine["endpoints"]
+        and type(quarantine["pipe_inodes"]) is list,
+        "quarantine_endpoints",
+    )
+    pending = reader.bound(
+        package["pending_ref"],
+        "pending-disposition",
+        binding,
+        scope,
+        {"quarantine_ref", "inventory_ref", "scope", "requests"},
+    )
+    need(pending["quarantine_ref"] == package["quarantine_ref"], "pending_quarantine")
+    reader.raw(pending["inventory_ref"])
+    need(pending["scope"] == scope, "pending_scope")
+    need(type(pending["requests"]) is list, "pending_requests")
+    ids = []
+    for row in pending["requests"]:
+        fields(
+            row,
+            {"op_id", "payload_sha256", "outcome", "evidence_refs", "retry"},
+            "pending_request_fields",
+        )
+        need(
+            _uuid(row["op_id"])
+            and type(row["payload_sha256"]) is str
+            and HEX.fullmatch(row["payload_sha256"]),
+            "pending_request_identity",
+        )
+        need(
+            row["outcome"] in {"applied_readback", "not_applied_terminal", "unknown"}
+            and row["retry"] == "forbidden"
+            and type(row["evidence_refs"]) is list,
+            "pending_no_implicit_replay",
+        )
+        need(row["outcome"] == "unknown" or row["evidence_refs"], "pending_positive_evidence")
+        for ref in row["evidence_refs"]:
+            reader.raw(ref)
+        ids.append(row["op_id"])
+    need(len(ids) == len(set(ids)), "pending_duplicate_identity")
+    kernel = reader.bound(
+        package["kernel_ref"],
+        "kernel",
+        binding,
+        scope,
+        {"actor", "unit", "policy_ref", "ready_ref", "cache_view_ref"},
+    )
+    kernel_policy = reader.bound(
+        kernel["policy_ref"],
+        "kernel-policy",
+        binding,
+        scope,
+        {
+            "unit",
+            "source_ref",
+            "interpreter_ref",
+            "runtime_index_ref",
+            "startup_index_ref",
+            "environment_ref",
+            "unit_ref",
+            "argv",
+            "cwd",
+            "credentials",
+        },
+    )
+    need(kernel_policy["unit"] == kernel["unit"], "kernel_policy_unit")
+    source_package = reader.doc(package["source_package_ref"])
+    source_index = reader.doc(source_package["source_index_ref"])
+    need(kernel_policy["source_ref"] in source_index["files"], "kernel_source_not_accepted")
+    reader.raw(kernel_policy["interpreter_ref"])
+    for name in ("runtime", "startup"):
+        reader.index(kernel_policy[name + "_index_ref"], name + "-index", binding, scope)
+    environment = reader.bound(
+        kernel_policy["environment_ref"], "environment", binding, scope, {"unit", "values"}
+    )
+    need(
+        environment["unit"] == kernel["unit"] and type(environment["values"]) is dict,
+        "kernel_environment",
+    )
+    unit_doc = reader.bound(
+        kernel_policy["unit_ref"], "unit", binding, scope, {"unit", "properties", "files"}
+    )
+    need(
+        unit_doc["unit"] == kernel["unit"]
+        and type(unit_doc["files"]) is list
+        and unit_doc["files"],
+        "kernel_unit",
+    )
+    for ref in unit_doc["files"]:
+        reader.raw(ref)
+    reader.raw(kernel["ready_ref"])
+    reader.raw(kernel["cache_view_ref"])
+    lifecycle = reader.bound(
+        package["lifecycle_ref"],
+        "lifecycle",
+        binding,
+        scope,
+        {"phase", "kernel_ref", "closure_ref", "hold_ref", "policies", "pending_ref"},
+    )
+    need(
+        lifecycle["phase"] == "cold_quarantined"
+        and lifecycle["kernel_ref"] == package["kernel_ref"]
+        and lifecycle["closure_ref"] == package["closure_ref"]
+        and lifecycle["hold_ref"] == package["hold_ref"]
+        and lifecycle["policies"] == package["policies"]
+        and lifecycle["pending_ref"] == package["pending_ref"],
+        "lifecycle_binding",
+    )
+    reader.recheck()
+    return {
+        "package": package,
+        "policies": policies,
+        "closure": closure,
+        "hold": hold,
+        "origin": origin,
+        "retirement": retirement,
+        "quarantine": quarantine,
+        "pending": pending,
+        "kernel": kernel,
+        "kernel_policy": kernel_policy,
+        "history": history,
+        "hold_checkpoint": hold_checkpoint,
+        "lifecycle": lifecycle,
+    }
