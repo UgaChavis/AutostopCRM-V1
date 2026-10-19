@@ -19,19 +19,18 @@ def main():
     stack = os.open(stack_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     faulthandler.enable(file=stack, all_threads=True)
     faulthandler.dump_traceback_later(max(0.01, deadline - time.monotonic() - 0.5), file=stack)
-    try:
-        if arguments[0] == "-m":
-            sys.argv = arguments[1:]
-            runpy.run_module(arguments[1], run_name="__main__", alter_sys=True)
-        elif arguments[0] == "-c":
-            sys.argv = ["-c", *arguments[2:]]
-            exec(compile(arguments[1], "<string>", "exec"), {"__name__": "__main__"})
-        else:
-            sys.argv = arguments
-            sys.path[0] = str(Path(arguments[0]).resolve().parent)
-            runpy.run_path(arguments[0], run_name="__main__")
-    finally:
-        faulthandler.cancel_dump_traceback_later()
+    # Leave the deadline armed through atexit/native interpreter cleanup too.
+    # The operating system closes the raw descriptor on actual process exit.
+    if arguments[0] == "-m":
+        sys.argv = arguments[1:]
+        runpy.run_module(arguments[1], run_name="__main__", alter_sys=True)
+    elif arguments[0] == "-c":
+        sys.argv = ["-c", *arguments[2:]]
+        exec(compile(arguments[1], "<string>", "exec"), {"__name__": "__main__"})
+    else:
+        sys.argv = arguments
+        sys.path[0] = str(Path(arguments[0]).resolve().parent)
+        runpy.run_path(arguments[0], run_name="__main__")
 
 
 if __name__ == "__main__":

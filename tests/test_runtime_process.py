@@ -180,6 +180,28 @@ class RuntimeProcessTests(unittest.TestCase):
                 self.assertEqual("child_failed", report["reason"])
                 self.assertEqual([], report["owned_after_cleanup"])
 
+    def test_deadline_stack_survives_entrypoint_return_and_stalled_atexit(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            controller = self.launch(
+                directory,
+                [
+                    "-c",
+                    "import atexit,time\n"
+                    "def native_cleanup_stand_in(): time.sleep(30)\n"
+                    "atexit.register(native_cleanup_stand_in)\n"
+                    "print('ENTRYPOINT_RETURNED', flush=True)\n",
+                ],
+                timeout=3,
+            )
+            code, output, report = self.finish(controller, directory)
+            self.assertEqual(code, 124, output)
+            self.assertIn("ENTRYPOINT_RETURNED", output)
+            stack = Path(report["stack_path"]).read_text(encoding="utf-8")
+            self.assertIn("Timeout", stack)
+            self.assertIn("native_cleanup_stand_in", stack)
+            self.assertEqual([], report["owned_after_cleanup"])
+
     def test_timeout_kills_owned_detached_descendants_and_preserves_unrelated_process(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
