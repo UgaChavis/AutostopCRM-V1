@@ -433,15 +433,7 @@ def _semantic(
         combined = {**files, **restored}
 
         def listing(path):
-            parent = io.logical_path(path)
-            return sorted(
-                {
-                    str(parent / io.logical_path(name).relative_to(parent).parts[0])
-                    for name in combined
-                    if io.logical_path(name).is_relative_to(parent)
-                    and io.logical_path(name) != parent
-                }
-            )
+            return j1_forward_cold_archive.restored_children(combined, path)
 
         expected = j1_forward_cold_archive.collect(
             plan,
