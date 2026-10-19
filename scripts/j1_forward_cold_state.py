@@ -110,6 +110,18 @@ def envelope(store, document):
 
 
 class ColdStore(state.Store):
+    def _read_reference(self, reference):
+        cold.reference(reference)
+        raw = io.read_protected(reference["path"], cold.MAX_SOURCE_BYTES)
+        io.require(io.sha(raw) == reference["sha256"], "cold_state_reference_hash")
+        return raw
+
+    def read_opaque_reference(self, reference):
+        cold.reference(reference)
+        raw = io.read_protected(reference["path"], cold.MAX_RUNTIME_BYTES)
+        io.require(io.sha(raw) == reference["sha256"], "cold_state_reference_hash")
+        return cold.runtime_bytes(reference, raw)
+
     def _mutation(self, method, *args):
         from scripts import j1_forward_cold_projection
 

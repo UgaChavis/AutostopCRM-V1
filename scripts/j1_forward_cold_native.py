@@ -9,6 +9,7 @@ closed process topology; its scope cannot satisfy a production caller.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import select
@@ -25,7 +26,6 @@ CONFIG = Path("/etc/autostop-crm-forward/cold/v1")
 INSTALL = Path("/usr/local/libexec/autostop-crm-forward-cold/v1")
 STATE = Path("/var/lib/autostop-crm-forward/cold/v1")
 DEPLOY_LOCK = Path("/opt/autostopcrm/.autostop-deploy.lock")
-HOLD = STATE / "ingress-held.json"
 DISPATCH_LOCK = STATE / "dispatch.lock"
 UNIT_PROPERTIES = (
     "Id",
@@ -67,6 +67,11 @@ def kernel_unit(generation):
     return "autostop-j1-cold-kernel-" + generation + ".service"
 
 
+def hold_path(attempt):
+    contract.need(contract._uuid(attempt), "native_hold_attempt")
+    return STATE / "packages" / attempt / "ingress-held.json"
+
+
 def birth(pid):
     raw = (Path("/proc") / str(pid) / "stat").read_bytes()
     return int(raw[raw.rfind(b")") + 2 :].split()[19])
@@ -96,7 +101,7 @@ def actor(pid):
     )
     contract.need(len(set(uid)) == len(set(gid)) == 1, "native_actor_credentials")
     executable = Path(os.readlink(root / "exe"))
-    executable_raw = executable.read_bytes()
+    executable_sha = executable_digest(executable)
     value = {
         "pid": pid,
         "start_ticks": before,
@@ -105,17 +110,68 @@ def actor(pid):
         "groups": sorted(int(group) for group in status["Groups"].split()),
         "cgroup": (root / "cgroup").read_text().strip(),
         "mount_namespace": os.readlink(root / "ns/mnt"),
-        "exe_ref": {"path": str(executable), "sha256": io.sha(executable_raw)},
+        "exe_ref": {"path": str(executable), "sha256": executable_sha},
         "argv_sha256": io.sha((root / "cmdline").read_bytes()),
         "environment_sha256": contract.digest(_environment((root / "environ").read_bytes())),
     }
     contract.need(
         birth(pid) == before
         and os.readlink(root / "exe") == str(executable)
-        and io.sha(executable.read_bytes()) == value["exe_ref"]["sha256"],
+        and executable_digest(executable) == value["exe_ref"]["sha256"],
         "native_actor_changed",
     )
     return value
+
+
+def executable_digest(path):
+    """Hash a stable executable with bounded memory and a full version cut.
+
+    The accepted policy's reference reader separately checks directory custody.
+    This process observation supplies bytes/identity, never source acceptance.
+    """
+    path = Path(path)
+    before = path.lstat()
+    contract.need(
+        stat.S_ISREG(before.st_mode)
+        and before.st_nlink == 1
+        and before.st_uid in {0, os.geteuid()}
+        and not before.st_mode & 0o022
+        and 0 < before.st_size <= contract.MAX_RUNTIME_BYTES,
+        "native_executable_file",
+    )
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    fields = (
+        "st_dev",
+        "st_ino",
+        "st_size",
+        "st_mtime_ns",
+        "st_ctime_ns",
+        "st_mode",
+        "st_uid",
+        "st_gid",
+        "st_nlink",
+    )
+    version = tuple(getattr(before, key) for key in fields)
+    try:
+        contract.need(
+            tuple(getattr(os.fstat(descriptor), key) for key in fields) == version,
+            "native_executable_changed",
+        )
+        digest, count = hashlib.sha256(), 0
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            while block := stream.read(1024**2):
+                count += len(block)
+                contract.need(count <= before.st_size, "native_executable_changed")
+                digest.update(block)
+        contract.need(
+            count == before.st_size
+            and tuple(getattr(os.fstat(descriptor), key) for key in fields) == version
+            and tuple(getattr(path.lstat(), key) for key in fields) == version,
+            "native_executable_changed",
+        )
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
 
 
 def actor_shape(value):
@@ -205,9 +261,15 @@ class NativeProvider:
 
     def read_reference(self, reference):
         contract.reference(reference)
-        raw = io.read_protected(reference["path"], limit=128 * 1024**2)
+        raw = io.read_protected(reference["path"], limit=contract.MAX_SOURCE_BYTES)
         contract.need(io.sha(raw) == reference["sha256"], "native_reference_hash")
         return raw
+
+    def read_opaque_reference(self, reference):
+        contract.reference(reference)
+        raw = io.read_protected(reference["path"], limit=contract.MAX_RUNTIME_BYTES)
+        contract.need(io.sha(raw) == reference["sha256"], "native_reference_hash")
+        return contract.runtime_bytes(reference, raw)
 
     def boundary(self, reference):
         contract.need(
@@ -364,7 +426,7 @@ class NativeProvider:
             "native_deployment_lock_changed",
         )
         contract.need(
-            hold["marker_ref"]["path"] == str(HOLD)
+            hold["marker_ref"]["path"] == str(hold_path(package["binding"]["attempt_id"]))
             and hold["dispatch_lock_ref"]["path"] == str(DISPATCH_LOCK),
             "native_hold_path",
         )

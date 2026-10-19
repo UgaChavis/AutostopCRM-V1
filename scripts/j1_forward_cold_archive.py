@@ -20,7 +20,25 @@ from scripts import j1_forward_launch_permission as launch
 MAX_FILES = 4096
 MAX_BYTES = 96 * 1024**2
 MAX_FILE_BYTES = 32 * 1024**2
+V4_MAX_BYTES = 512 * 1024**2
+V4_MAX_RUNTIME_BYTES = 384 * 1024**2
 SLOT_NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
+
+
+class CapturedGraph(dict):
+    """Captured bytes plus the exact typed large-leaf inventory for codec v4."""
+
+    def __init__(self, files, runtime_blob_paths):
+        super().__init__(files)
+        self.runtime_blob_paths = dict(runtime_blob_paths)
+
+
+class _ProtectedReader:
+    def read_reference(self, reference):
+        return io.read_protected(reference["path"], MAX_FILE_BYTES)
+
+    def read_opaque_reference(self, reference):
+        return io.read_protected(reference["path"], V4_MAX_RUNTIME_BYTES)
 
 
 def _version(path):
@@ -49,19 +67,27 @@ class _ReadSnapshot:
     never stats a logical native path or asserts current native authority.
     """
 
-    def __init__(self, reader, version=None):
+    def __init__(self, reader, version=None, *, codec=3):
+        io.require(type(codec) is int and codec in {3, 4}, "cold_archive_codec")
         self.reader, self.version = reader, version
+        self.codec, self.kernel_v2 = codec, False
         self.files, self.references, self.versions = {}, {}, {}
+        self.opaque, self.runtime_blob_paths = set(), {}
         self.total = 0
 
-    def read(self, reference):
+    def read(self, reference, *, opaque=False):
         cold.reference(reference)
         path = reference["path"]
         if path in self.files:
             io.require(self.references[path] == reference, "cold_archive_reference_alias")
+            self._kind(reference, self.files[path], opaque=opaque)
             return self.files[path]
         before = self.version(path) if self.version is not None else None
-        raw = self.reader(reference)
+        # Only a v2 kernel in this package enables the separate large reader.
+        # Ordinary references cannot opt into a larger source/JSON budget.
+        large = opaque and self.codec == 4 and self.kernel_v2
+        read = cold.opaque_reader(self.reader) if large else self.reader
+        raw = read(reference)
         io.require(
             type(raw) is bytes and io.sha(raw) == reference["sha256"],
             "cold_archive_reference_changed",
@@ -69,13 +95,36 @@ class _ReadSnapshot:
         if self.version is not None:
             io.require(self.version(path) == before, "cold_archive_source_version_changed")
             self.versions[path] = before
+        self._kind(reference, raw, opaque=opaque)
         self.total += len(raw)
         io.require(
-            len(self.files) < MAX_FILES and len(raw) <= MAX_FILE_BYTES and self.total <= MAX_BYTES,
+            len(self.files) < MAX_FILES
+            and self.total <= (V4_MAX_BYTES if self.codec == 4 else MAX_BYTES),
             "cold_archive_budget",
         )
         self.files[path], self.references[path] = raw, dict(reference)
         return raw
+
+    def _kind(self, reference, raw, *, opaque):
+        if opaque:
+            cold.runtime_bytes(reference, raw)
+            self.opaque.add(reference["path"])
+        if len(raw) > MAX_FILE_BYTES:
+            io.require(
+                opaque and self.codec == 4 and self.kernel_v2,
+                "cold_archive_large_runtime_untyped",
+            )
+            self.runtime_blob_paths[reference["path"]] = {
+                "sha256": reference["sha256"],
+                "bytes": len(raw),
+            }
+
+    def read_opaque_reference(self, reference):
+        return self.read(reference, opaque=True)
+
+    def captured(self, reference):
+        """Walk an already typed leaf without converting it into source code."""
+        return self.read(reference, opaque=reference["path"] in self.opaque)
 
     def recheck(self):
         for path, raw in self.files.items():
@@ -83,7 +132,9 @@ class _ReadSnapshot:
                 io.require(
                     self.version(path) == self.versions[path], "cold_archive_source_version_changed"
                 )
-            observed = self.reader(self.references[path])
+            large = path in self.opaque and self.codec == 4 and self.kernel_v2
+            read = cold.opaque_reader(self.reader) if large else self.reader
+            observed = read(self.references[path])
             io.require(observed == raw, "cold_archive_source_changed")
             if self.version is not None:
                 io.require(
@@ -218,14 +269,18 @@ def _references(document):
 
 
 def collect(
-    plan, *, root, stage, capture_clock, read_reference=None, read_file=None, list_directory=None
+    plan,
+    *,
+    root,
+    stage,
+    capture_clock,
+    read_reference=None,
+    read_file=None,
+    list_directory=None,
+    codec=3,
 ):
     """Pure byte semantics when supplied restored readers; no live permits."""
-    reader = (
-        (lambda reference: io.read_protected(reference["path"], MAX_FILE_BYTES))
-        if read_reference is None
-        else read_reference
-    )
+    reader = _ProtectedReader().read_reference if read_reference is None else read_reference
     file_reader = io.read_protected if read_file is None else read_file
     listing = (
         (lambda path: sorted(str(item) for item in Path(path).iterdir()))
@@ -241,7 +296,7 @@ def collect(
         and type(capture_clock["monotonic_ns"]) is int,
         "cold_archive_capture_clock",
     )
-    snapshot = _ReadSnapshot(reader, _version if list_directory is None else None)
+    snapshot = _ReadSnapshot(reader, _version if list_directory is None else None, codec=codec)
     seen, pending = (
         snapshot.files,
         [
@@ -252,22 +307,31 @@ def collect(
         ],
     )
 
-    def read(reference):
-        return snapshot.read(reference)
+    read, deferred, visited = snapshot.read, {}, set()
 
-    def walk():
-        visited = set()
+    def walk(*, binary=False):
         while pending:
             reference = pending.pop()
             if reference["path"] in visited:
-                read(reference)
+                snapshot.captured(reference)
+                continue
+            if not reference["path"].endswith(".json"):
+                previous = deferred.setdefault(reference["path"], reference)
+                io.require(previous == reference, "cold_archive_reference_alias")
                 continue
             raw = read(reference)
             visited.add(reference["path"])
-            if reference["path"].endswith(".json"):
-                pending.extend(_references(io.document(raw)))
+            pending.extend(_references(io.document(raw)))
+        if binary:
+            for path, reference in deferred.items():
+                snapshot.captured(reference)
+                visited.add(path)
 
     walk()
+    package_header = io.document(read(plan["cold_authority_package_ref"]))
+    kernel_header = io.document(read(package_header["kernel_ref"]))
+    io.require(type(kernel_header) is dict, "cold_archive_kernel_document")
+    snapshot.kernel_v2 = kernel_header.get("schema") == "autostop.j1.cold-kernel.v2"
     baseline = io.document(read(plan["baseline_ref"]))
     if baseline.get("controller_launch_ref") is not None:
         from scripts import j1_forward_cold_controller_native
@@ -285,6 +349,8 @@ def collect(
         now_ns=capture_clock["monotonic_ns"],
     )
     package, binding = value["package"], value["package"]["binding"]
+    io.require(not snapshot.runtime_blob_paths or snapshot.kernel_v2, "cold_archive_runtime_kernel")
+    walk(binary=True)
     if package["scope"] == "production_native":
         io.require(
             baseline.get("controller_launch_ref") is not None
@@ -386,7 +452,7 @@ def collect(
             path = str(directory / name)
             raw = file_reader(path, MAX_FILE_BYTES)
             pending.append({"path": path, "sha256": io.sha(raw)})
-        walk()
+        walk(binary=True)
         context, crm_state = _crm_entry(
             directory, plan, binding, read=read, file_reader=file_reader, listing=listing, seen=seen
         )
@@ -426,7 +492,7 @@ def collect(
                 path = str(attempt / ("proof-binding-" + kind + ".json"))
                 raw = file_reader(path, MAX_FILE_BYTES)
                 pending.append({"path": path, "sha256": io.sha(raw)})
-        walk()
+        walk(binary=True)
         completed = io.document(seen[str(directory / "complete.json")])
         io.require(
             completed.get("old_hold_released") is False
@@ -436,4 +502,7 @@ def collect(
     # Old origin and public review key are part of this same bounded graph.
     cold_state.validate_origin(io.document(read(plan["baseline_ref"])), read_reference=read)
     snapshot.recheck()
-    return {path: raw for path, raw in seen.items() if not control_path(path, root)}
+    return CapturedGraph(
+        {path: raw for path, raw in seen.items() if not control_path(path, root)},
+        snapshot.runtime_blob_paths,
+    )

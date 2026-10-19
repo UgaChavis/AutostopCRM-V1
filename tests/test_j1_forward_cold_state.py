@@ -68,6 +68,9 @@ class ColdRecoveryStateTests(unittest.TestCase):
                             return super()._read_reference(reference)
                         return fixture.provider.read_reference(reference)
 
+                    def read_opaque_reference(self, reference):
+                        return fixture.provider.read_opaque_reference(reference)
+
                 store = PrivateStore(fixture.control / "state", fixture.base_sha256)
                 variant.validate_plan(plan, fixture.base_sha256)
                 for changed in (

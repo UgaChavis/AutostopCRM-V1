@@ -52,6 +52,8 @@ POLICY_FIELDS = set(
 )
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 SHA1 = re.compile(r"[0-9a-f]{40}\Z")
+MAX_SOURCE_BYTES = 32 * 1024**2
+MAX_RUNTIME_BYTES = 384 * 1024**2
 
 
 def need(condition, code):
@@ -65,6 +67,27 @@ def fields(value, expected, code):
 
 def digest(value):
     return io.sha(io.canonical(value))
+
+
+def runtime_bytes(reference, raw):
+    """Large v4 leaves are opaque native executables, never JSON/source code."""
+    path = reference["path"].lower()
+    need(type(raw) is bytes and len(raw) <= MAX_RUNTIME_BYTES, "runtime_blob_limit")
+    if len(raw) > MAX_SOURCE_BYTES:
+        need(
+            not path.endswith(
+                (".json", ".py", ".pyw", ".ps1", ".sh", ".md", ".yml", ".yaml", ".toml")
+            )
+            and raw.startswith((b"\x7fELF", b"MZ")),
+            "runtime_blob_kind",
+        )
+    return raw
+
+
+def opaque_reader(reader):
+    direct = getattr(reader, "read_opaque_reference", None)
+    owner = getattr(reader, "__self__", None)
+    return direct or getattr(owner, "read_opaque_reference", None) or reader
 
 
 def identity(value):
@@ -146,15 +169,26 @@ class Reader:
     def __init__(self, read_reference):
         self.read = read_reference
         self.seen = {}
+        self.opaque = set()
 
-    def raw(self, ref):
+    def raw(self, ref, *, opaque=False):
         reference(ref)
         if ref["path"] in self.seen:
             previous, raw = self.seen[ref["path"]]
             need(previous == ref, "reference_alias")
+            if opaque:
+                runtime_bytes(ref, raw)
+                self.opaque.add(ref["path"])
+            else:
+                need(len(raw) <= MAX_SOURCE_BYTES, "reference_source_limit")
             return raw
-        raw = self.read(ref)
+        raw = (opaque_reader(self.read) if opaque else self.read)(ref)
         need(type(raw) is bytes and io.sha(raw) == ref["sha256"], "reference_bytes")
+        if opaque:
+            runtime_bytes(ref, raw)
+            self.opaque.add(ref["path"])
+        else:
+            need(len(raw) <= MAX_SOURCE_BYTES, "reference_source_limit")
         key = ref["path"]
         need(key not in self.seen or self.seen[key] == (ref, raw), "reference_alias")
         self.seen[key] = (dict(ref), raw)
@@ -180,14 +214,15 @@ class Reader:
         need(type(files) is list and files and len(files) <= 10000, name + "_files")
         paths = []
         for row in files:
-            self.raw(row)
+            self.raw(row, opaque=name in {"runtime-index", "startup-index"})
             paths.append(row["path"])
         need(paths == sorted(set(paths)), name + "_order")
         return value
 
     def recheck(self):
         for ref, raw in self.seen.values():
-            need(self.read(ref) == raw, "reference_changed")
+            read = opaque_reader(self.read) if ref["path"] in self.opaque else self.read
+            need(read(ref) == raw, "reference_changed")
 
 
 def compile_policy(binding, scope, unit, inputs, source_package, *, read_reference):
@@ -288,6 +323,7 @@ def compile_package(
             return raw
         return read_reference(reference)
 
+    read.read_opaque_reference = opaque_reader(read_reference)
     validate_package(ref, read_reference=read, required_scope=scope)
     return raw
 
@@ -334,7 +370,7 @@ def _policies(package, reader):
         )
         for key in ("source_index_ref", "guard_ref", "native_ref"):
             need(policy[key] == source[key], "profile_source_package")
-        reader.raw(policy["interpreter_ref"])
+        reader.raw(policy["interpreter_ref"], opaque=True)
         for key in ("runtime", "startup"):
             reader.index(policy[key + "_index_ref"], key + "-index", binding, scope)
         environment = reader.bound(
@@ -552,12 +588,21 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
             reader.raw(ref)
         ids.append(row["op_id"])
     need(len(ids) == len(set(ids)), "pending_duplicate_identity")
+    kernel_header = reader.doc(package["kernel_ref"])
+    need(type(kernel_header) is dict, "kernel_document")
+    kernel_version = 2 if kernel_header.get("schema") == "autostop.j1.cold-kernel.v2" else 1
     kernel = reader.bound(
         package["kernel_ref"],
         "kernel",
         binding,
         scope,
-        {"actor", "unit", "policy_ref", "ready_ref", "cache_view_ref"},
+        {"actor", "unit", "policy_ref", "ready_ref", "cache_view_ref"}
+        | (
+            {"supervisor_actor", "preparation_ref", "empty_thread_ref"}
+            if kernel_version == 2
+            else set()
+        ),
+        version=kernel_version,
     )
     kernel_policy = reader.bound(
         kernel["policy_ref"],
@@ -575,13 +620,48 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
             "argv",
             "cwd",
             "credentials",
-        },
+        }
+        | (
+            {
+                "appserver_ref",
+                "appserver_argv",
+                "appserver_environment_ref",
+                "protocol_index_ref",
+                "rpc_ref",
+            }
+            if kernel_version == 2
+            else set()
+        ),
+        version=kernel_version,
     )
     need(kernel_policy["unit"] == kernel["unit"], "kernel_policy_unit")
-    source_package = reader.doc(package["source_package_ref"])
-    source_index = reader.doc(source_package["source_index_ref"])
-    need(kernel_policy["source_ref"] in source_index["files"], "kernel_source_not_accepted")
-    reader.raw(kernel_policy["interpreter_ref"])
+    if kernel_version == 2:
+        protocol = reader.index(
+            kernel_policy["protocol_index_ref"], "kernel-protocol-index", binding, scope
+        )
+        need(
+            all(kernel_policy[key] in protocol["files"] for key in ("source_ref", "rpc_ref")),
+            "kernel_source_not_accepted",
+        )
+        reader.raw(kernel_policy["appserver_ref"], opaque=True)
+        app_environment = reader.bound(
+            kernel_policy["appserver_environment_ref"],
+            "environment",
+            binding,
+            scope,
+            {"unit", "values"},
+        )
+        need(
+            app_environment["unit"] == kernel["unit"] and type(app_environment["values"]) is dict,
+            "kernel_appserver_environment",
+        )
+        reader.doc(kernel["preparation_ref"])
+        reader.doc(kernel["empty_thread_ref"])
+    else:
+        source_package = reader.doc(package["source_package_ref"])
+        source_index = reader.doc(source_package["source_index_ref"])
+        need(kernel_policy["source_ref"] in source_index["files"], "kernel_source_not_accepted")
+    reader.raw(kernel_policy["interpreter_ref"], opaque=True)
     for name in ("runtime", "startup"):
         reader.index(kernel_policy[name + "_index_ref"], name + "-index", binding, scope)
     environment = reader.bound(
