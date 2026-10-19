@@ -76,6 +76,17 @@ SHOW_FIELDS = (
     "ActiveState,SubState,UnitFileState,MainPID,ControlGroup,ExecCondition,ExecStart,"
     "ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,ExecReload"
 )
+COMMAND_FIELDS = frozenset(
+    (
+        "ExecCondition",
+        "ExecStart",
+        "ExecStartPre",
+        "ExecStartPost",
+        "ExecStop",
+        "ExecStopPost",
+        "ExecReload",
+    )
+)
 
 
 def _expired(deadline: float) -> None:
@@ -195,11 +206,15 @@ def _systemd(unit: str, deadline: float) -> dict[str, str]:
         result.returncode == 0 and len(result.stdout) < 65536, "native_systemd_observation_failed"
     )
     rows = [line.split("=", 1) for line in result.stdout.decode("utf-8", "strict").splitlines()]
-    require(
-        all(len(row) == 2 for row in rows) and len({row[0] for row in rows}) == len(rows),
-        "native_systemd_shape",
-    )
-    fields = dict(rows)
+    require(all(len(row) == 2 for row in rows), "native_systemd_shape")
+    fields = {}
+    for key, value in rows:
+        if key in COMMAND_FIELDS:
+            _commands({key: value}, key)
+        if key in fields:
+            require(key in COMMAND_FIELDS and fields[key] and value, "native_systemd_shape")
+            value = fields[key] + " " + value
+        fields[key] = value
     require(
         fields.get("Id") == unit
         and fields.get("LoadState") == "loaded"
