@@ -93,8 +93,10 @@ def _load(attempt, *, fresh=True):
 def _native_observation(plan, controller, phase):
     value, _fence = controller.verify()
     if phase == "closed":
-        controller.closed()
+        controller._closed_slots()
     binding = value["package"]["binding"]
+    observed = time.monotonic_ns()
+    cold._binding(binding, now_ns=observed)
     return {
         "schema": "autostop.j1.cold-native-observation.v1",
         "scope": controller.provider.scope,
@@ -105,7 +107,7 @@ def _native_observation(plan, controller, phase):
         "epoch_ref": plan["dispatch_epoch_ref"],
         "binding_sha256": cold.digest(binding),
         "boot_id": binding["boot_id"],
-        "observed_monotonic_ns": time.monotonic_ns(),
+        "observed_monotonic_ns": observed,
         "original_barriers_closed": True,
         "original_hold_retained": True,
         "old_writer_allowed": False,
@@ -371,6 +373,7 @@ class Coordinator:
             target / "closed",
             stage="closed",
             observer=self.observe,
+            codec=5,
         )
         archive.verify_and_restore(
             target / "closed",
@@ -527,6 +530,7 @@ class Coordinator:
             target / "terminal",
             stage="terminal",
             observer=terminal_observer,
+            codec=5,
         )
         archive.verify_and_restore(
             target / "terminal",

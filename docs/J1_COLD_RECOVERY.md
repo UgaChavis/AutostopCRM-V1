@@ -378,3 +378,20 @@ completed interval. It resolves every interval document from the independently
 restored control payloads, verifies their sizes and hashes, and validates both
 full native ends and the complete ordered boundary list before signing. Reading
 the corresponding live controller paths cannot satisfy this restore check.
+
+## Exact interpreter transport aliases
+
+Cold control capture explicitly selects codec v5; v3/v4 remain readable. V5 can
+omit a policy's raw Python interpreter only when it is the exact regular ELF
+member of that policy's complete qualified runtime-index v2 and capsule. The
+manifest binds the index reference, member, digest, byte count and source mode.
+Capture still reads and hashes the raw interpreter path and retains its source
+version through the final reread. This is not general hash deduplication.
+
+Independent restore validates the full capsule and index, inertly reconstructs
+the omitted interpreter, checks its complete bytes/mode and then validates the
+full restored authority graph. Reconstructed Python is never executed by the
+custodian. The physical control transport stays within 512 MiB and its typed
+large leaves within 384 MiB. The receipt distinguishes source Unix permissions
+from the restoring operating system's file custody. Alias metadata grants no
+native acceptance or permission to replay an operation.

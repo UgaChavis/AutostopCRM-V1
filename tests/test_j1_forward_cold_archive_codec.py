@@ -25,7 +25,7 @@ class ColdArchiveCodecTests(unittest.TestCase):
         self.assertEqual(archive.transport_total_limit(), 128 * 1024**2)
         self.assertEqual(archive.transport_total_limit(3), 128 * 1024**2)
         self.assertEqual(archive.transport_total_limit(4), 512 * 1024**2)
-        for value in (True, False, 4.0, "4", 5, None):
+        for value in (True, False, 4.0, "4", 6, None):
             with self.subTest(value=value), self.assertRaisesRegex(io.Refusal, "codec"):
                 archive.transport_total_limit(value)
 
