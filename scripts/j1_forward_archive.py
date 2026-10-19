@@ -27,10 +27,12 @@ SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
 MIXED_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-archive.v2"
 COLD_V3_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v3"
 COLD_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v4"
+COLD_V5_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-archive.v5"
 RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
 MIXED_RESTORE_SCHEMA = "autostop.j1.crm-manager-mcp-forward-control-restore.v2"
 COLD_V3_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v3"
 COLD_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v4"
+COLD_V5_RESTORE_SCHEMA = "autostop.j1.crm-manager-cold-forward-control-restore.v5"
 ROOT = Path("/var/lib/autostop-crm-forward")
 SOURCE = Path("/opt/autostopcrm")
 MAX_FILES = 8192
@@ -66,6 +68,8 @@ def _schema(plan, *, restore=False, codec=4):
     if _cold(plan):
         if codec == 3:
             return COLD_V3_RESTORE_SCHEMA if restore else COLD_V3_SCHEMA
+        if codec == 5:
+            return COLD_V5_RESTORE_SCHEMA if restore else COLD_V5_SCHEMA
         return COLD_RESTORE_SCHEMA if restore else COLD_SCHEMA
     if variant.is_mixed(plan):
         return MIXED_RESTORE_SCHEMA if restore else MIXED_SCHEMA
@@ -73,8 +77,38 @@ def _schema(plan, *, restore=False, codec=4):
 
 
 def transport_total_limit(codec=3):
-    io.require(type(codec) is int and codec in {3, 4}, "control_archive_codec")
-    return COLD_RUNTIME_MAX_TOTAL_BYTES if codec == 4 else MAX_TOTAL_BYTES
+    io.require(type(codec) is int and codec in {3, 4, 5}, "control_archive_codec")
+    return COLD_RUNTIME_MAX_TOTAL_BYTES if codec in {4, 5} else MAX_TOTAL_BYTES
+
+
+def _codec(manifest):
+    return (
+        5
+        if manifest.get("schema") == COLD_V5_SCHEMA
+        else 4
+        if manifest.get("schema") == COLD_SCHEMA
+        else 3
+    )
+
+
+def _runtime_aliases(manifest):
+    from scripts import j1_forward_cold_archive
+
+    if manifest.get("schema") != COLD_V5_SCHEMA:
+        io.require("runtime_aliases" not in manifest, "control_archive_unexpected_runtime_aliases")
+        return {}
+    aliases = j1_forward_cold_archive.validate_aliases(manifest.get("runtime_aliases"))
+    names = {entry["logical_name"] for entry in manifest["artifacts"]}
+    io.require(len(names) + len(aliases) <= MAX_FILES, "control_archive_file_limit")
+    io.require(
+        all(
+            "authority" + path not in names
+            and "authority" + row["runtime_index_ref"]["path"] in names
+            for path, row in aliases.items()
+        ),
+        "control_archive_alias_inventory",
+    )
+    return aliases
 
 
 def _runtime_reader(reader, raw):
@@ -91,7 +125,7 @@ def _runtime_blobs(manifest):
     These declarations cannot authenticate a runtime. The restored typed cold
     graph must independently derive the exact same map before acceptance.
     """
-    if manifest.get("schema") != COLD_SCHEMA:
+    if manifest.get("schema") not in {COLD_SCHEMA, COLD_V5_SCHEMA}:
         io.require("runtime_blobs" not in manifest, "control_archive_unexpected_runtime_blobs")
         return {}
     blobs = manifest.get("runtime_blobs")
@@ -139,7 +173,7 @@ def _runtime_blobs(manifest):
 
 
 def _entry_limit(schema, entry, blobs):
-    if schema == COLD_SCHEMA:
+    if schema in {COLD_SCHEMA, COLD_V5_SCHEMA}:
         name = entry["logical_name"]
         if name.startswith("authority/") and name.removeprefix("authority") in blobs:
             value = blobs[name.removeprefix("authority")]
@@ -435,6 +469,7 @@ def _semantic(
     *,
     codec=3,
     runtime_blobs=None,
+    runtime_aliases=None,
 ):
     root = io.logical_path(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
@@ -549,9 +584,17 @@ def _semantic(
             codec=codec,
         )
         io.require(expected == restored, "cold_archive_exact_graph_required")
-        if codec == 4:
+        if codec in {4, 5}:
             io.require(
                 expected.runtime_blob_paths == runtime_blobs, "cold_archive_exact_runtime_blobs"
+            )
+        if codec == 5:
+            io.require(
+                expected.runtime_aliases == runtime_aliases, "cold_archive_exact_runtime_aliases"
+            )
+            result["cold_authority_expanded_bytes"] = sum(map(len, expected.values()))
+            result["cold_authority_transport_bytes"] = sum(
+                len(raw) for path, raw in expected.items() if path not in runtime_aliases
             )
         result["cold_authority_graph_files"] = len(expected)
     elif variant.is_mixed(plan):
@@ -777,6 +820,7 @@ def capture(
     timeout=60,
     authority_reader=None,
     authority_file_reader=None,
+    codec=4,
 ):
     """Copy one fenced control graph; caller retains the deployment lock."""
     root, output = Path(root), Path(output)
@@ -796,6 +840,8 @@ def capture(
     )
     end = time.monotonic() + timeout
     cold = _cold(io.document(io.referenced(plan_ref)))
+    io.require(type(codec) is int and codec in {3, 4, 5}, "control_archive_codec")
+    codec = codec if cold else 3
     witnesses = []
 
     def fence():
@@ -824,6 +870,7 @@ def capture(
     plan = io.document(files[plan_ref["path"]])
     capture_clock = None
     runtime_blobs = {}
+    runtime_aliases = {}
     if _cold(plan):
         from scripts import j1_forward_cold_archive
 
@@ -841,9 +888,10 @@ def capture(
             capture_clock=capture_clock,
             read_reference=authority_reader,
             read_file=authority_file_reader,
-            codec=4,
+            codec=codec,
         )
         runtime_blobs = authorities.runtime_blob_paths
+        runtime_aliases = authorities.runtime_aliases
         _capture_graph(
             root, _inward_references(root, authorities), files, launch_refs, end, cold=True
         )
@@ -869,8 +917,9 @@ def capture(
         stage,
         authorities,
         capture_clock,
-        codec=4 if cold else 3,
+        codec=codec,
         runtime_blobs=runtime_blobs,
+        runtime_aliases=runtime_aliases,
     )
     fence()
     io.require(
@@ -890,10 +939,14 @@ def capture(
         for digest, inventory in sorted(consumers.items())
         for name, raw in sorted(inventory.items())
     ]
-    payloads += [("authority" + path, raw) for path, raw in sorted(authorities.items())]
-    io.require(len(payloads) <= MAX_FILES, "control_archive_file_limit")
+    payloads += [
+        ("authority" + path, raw)
+        for path, raw in sorted(authorities.items())
+        if path not in runtime_aliases
+    ]
+    io.require(len(payloads) + len(runtime_aliases) <= MAX_FILES, "control_archive_file_limit")
     io.require(
-        sum(len(raw) for _, raw in payloads) <= transport_total_limit(4 if cold else 3),
+        sum(len(raw) for _, raw in payloads) <= transport_total_limit(codec),
         "control_archive_total_limit",
     )
     for index, (logical, raw) in enumerate(payloads):
@@ -906,10 +959,14 @@ def capture(
             "sha256": io.sha(raw),
         }
         io.require(
-            len(raw) <= _entry_limit(_schema(plan), entry, runtime_blobs),
+            len(raw) <= _entry_limit(_schema(plan, codec=codec), entry, runtime_blobs),
             "control_archive_entry_size",
         )
-        _write_bytes(output / payload, raw, limit=_entry_limit(_schema(plan), entry, runtime_blobs))
+        _write_bytes(
+            output / payload,
+            raw,
+            limit=_entry_limit(_schema(plan, codec=codec), entry, runtime_blobs),
+        )
         artifacts.append(entry)
     fence()
     # The terminal fence is itself part of the recoverable proof graph. Include
@@ -930,7 +987,7 @@ def capture(
         )
     files.update(witnesses_raw)
     io.require(
-        sum(entry["bytes"] for entry in artifacts) <= transport_total_limit(4 if cold else 3),
+        sum(entry["bytes"] for entry in artifacts) <= transport_total_limit(codec),
         "control_archive_total_limit",
     )
     io.require(
@@ -943,8 +1000,9 @@ def capture(
             stage,
             authorities,
             capture_clock,
-            codec=4 if cold else 3,
+            codec=codec,
             runtime_blobs=runtime_blobs,
+            runtime_aliases=runtime_aliases,
         )
         == semantic,
         "control_archive_witness_semantics_changed",
@@ -957,6 +1015,13 @@ def capture(
         io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
     for path, raw in authorities.items():
         _budget(end)
+        if path in runtime_aliases:
+            io.require(
+                set(authorities.runtime_alias_versions) == set(runtime_aliases)
+                and j1_forward_cold_archive._version(path)
+                == authorities.runtime_alias_versions[path],
+                "cold_archive_alias_source_version_changed",
+            )
         observed = (
             (_runtime_reader(authority_reader, raw) if path in runtime_blobs else authority_reader)(
                 {"path": path, "sha256": io.sha(raw)}
@@ -972,12 +1037,17 @@ def capture(
             )
         )
         io.require(observed == raw, "mixed_archive_source_changed")
+        if path in runtime_aliases:
+            io.require(
+                j1_forward_cold_archive._version(path) == authorities.runtime_alias_versions[path],
+                "cold_archive_alias_source_version_changed",
+            )
     for path, refs in launch_refs.items():
         io.require(
             _launch_references(root, documents[path]) == refs, "control_archive_launch_changed"
         )
     manifest = {
-        "schema": _schema(plan),
+        "schema": _schema(plan, codec=codec),
         "stage": stage,
         "root": str(root),
         "plan_ref": plan_ref,
@@ -989,8 +1059,12 @@ def capture(
     }
     if _cold(plan):
         manifest["native_capture_clock"] = capture_clock
-        manifest["runtime_blobs"] = runtime_blobs
-        _runtime_blobs(manifest)
+        if codec in {4, 5}:
+            manifest["runtime_blobs"] = runtime_blobs
+            _runtime_blobs(manifest)
+        if codec == 5:
+            manifest["runtime_aliases"] = runtime_aliases
+            _runtime_aliases(manifest)
     reference = io.write_new(output / "manifest.json", manifest)
     return {"manifest": reference, "manifest_sha256": reference["sha256"], "stage": stage, **CLAIMS}
 
@@ -1006,7 +1080,8 @@ def bundle(package, manifest_sha256, output, *, timeout=60):
     manifest = io.document(raw)
     entries = manifest["artifacts"]
     blobs = _runtime_blobs(manifest)
-    codec = 4 if manifest.get("schema") == COLD_SCHEMA else 3
+    codec = _codec(manifest)
+    _runtime_aliases(manifest)
     io.require(len(entries) <= MAX_FILES, "control_archive_file_limit")
     names = {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))}
     io.require(
@@ -1040,7 +1115,7 @@ def unbundle(envelope, envelope_sha256, package, *, timeout=60, codec=3):
         Path(package),
         transport.deadline(timeout),
         max_members=MAX_FILES + 1,
-        max_file=COLD_RUNTIME_MAX_FILE_BYTES if codec == 4 else COLD_MAX_FILE_BYTES,
+        max_file=COLD_RUNTIME_MAX_FILE_BYTES if codec in {4, 5} else COLD_MAX_FILE_BYTES,
         max_total=transport_total_limit(codec),
         max_manifest=MAX_FILE_BYTES,
     )
@@ -1090,12 +1165,18 @@ def verify_and_restore(
             *CLAIMS,
             *(
                 ("native_capture_clock",)
-                if manifest.get("schema") in {COLD_V3_SCHEMA, COLD_SCHEMA}
+                if manifest.get("schema") in {COLD_V3_SCHEMA, COLD_SCHEMA, COLD_V5_SCHEMA}
                 else ()
             ),
-            *(("runtime_blobs",) if manifest.get("schema") == COLD_SCHEMA else ()),
+            *(
+                ("runtime_blobs",)
+                if manifest.get("schema") in {COLD_SCHEMA, COLD_V5_SCHEMA}
+                else ()
+            ),
+            *(("runtime_aliases",) if manifest.get("schema") == COLD_V5_SCHEMA else ()),
         }
-        and manifest["schema"] in {SCHEMA, MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA}
+        and manifest["schema"]
+        in {SCHEMA, MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA, COLD_V5_SCHEMA}
         and manifest["stage"] == stage
         and manifest["root"] == str(root)
         and manifest["plan_ref"] == plan_ref
@@ -1104,8 +1185,9 @@ def verify_and_restore(
         "control_archive_manifest_binding",
     )
     entries = manifest["artifacts"]
-    codec = 4 if manifest["schema"] == COLD_SCHEMA else 3
+    codec = _codec(manifest)
     blobs = _runtime_blobs(manifest)
+    aliases = _runtime_aliases(manifest)
     io.require(
         type(manifest["witnesses"]) is list and len(manifest["witnesses"]) == 3,
         "control_archive_witness_inventory",
@@ -1167,7 +1249,7 @@ def verify_and_restore(
             files[str(path)] = restored
         elif parts[0] == "authority":
             io.require(
-                manifest["schema"] in {MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA}
+                manifest["schema"] in {MIXED_SCHEMA, COLD_V3_SCHEMA, COLD_SCHEMA, COLD_V5_SCHEMA}
                 and len(parts) > 1,
                 "mixed_archive_schema",
             )
@@ -1184,6 +1266,25 @@ def verify_and_restore(
                 "control_archive_consumer_path",
             )
             consumers.setdefault(parts[1], {})["/".join(parts[2:])] = restored
+    if aliases:
+        from scripts import j1_forward_cold_archive
+
+        reconstructed = j1_forward_cold_archive.restore_interpreters(aliases, authorities)
+        for index, (path, raw) in enumerate(sorted(reconstructed.items())):
+            _budget(end)
+            target = output / f"runtime-alias-{index:06d}.elf"
+            _write_bytes(target, raw, custody=custody, limit=COLD_MAX_FILE_BYTES)
+            if os.name != "nt":
+                target.chmod(aliases[path]["mode"])
+                io.require(
+                    stat.S_IMODE(target.lstat().st_mode) == aliases[path]["mode"],
+                    "cold_archive_alias_restored_mode",
+                )
+            io.require(
+                _package_read(target, custody, COLD_MAX_FILE_BYTES) == raw,
+                "cold_archive_alias_copy_changed",
+            )
+            authorities[path] = raw
     plan = io.document(files[plan_ref["path"]])
     io.require(
         manifest["schema"] == _schema(plan, codec=codec),
@@ -1200,6 +1301,7 @@ def verify_and_restore(
         manifest.get("native_capture_clock"),
         codec=codec,
         runtime_blobs=blobs,
+        runtime_aliases=aliases,
     )
     io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
     io.require(
@@ -1219,5 +1321,12 @@ def verify_and_restore(
         "semantic": actual,
         **CLAIMS,
     }
+    if codec == 5:
+        receipt.update(
+            runtime_aliases_restored=len(aliases),
+            logical_file_count=len(entries) + len(aliases),
+            runtime_alias_source_modes_validated=True,
+            runtime_alias_posix_modes_materialized=os.name != "nt",
+        )
     _write_bytes(output / "restore.json", io.canonical(receipt), custody=custody)
     return receipt

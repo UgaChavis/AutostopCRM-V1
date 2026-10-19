@@ -7,6 +7,9 @@ never used as validators or freshness evidence.
 
 from __future__ import annotations
 
+import io as streams
+import stat
+import tarfile
 import types
 import uuid
 from pathlib import Path, PurePosixPath
@@ -22,15 +25,151 @@ MAX_BYTES = 96 * 1024**2
 MAX_FILE_BYTES = 32 * 1024**2
 V4_MAX_BYTES = 512 * 1024**2
 V4_MAX_RUNTIME_BYTES = 384 * 1024**2
+MAX_INTERPRETER_ALIASES = 6
+INTERPRETER_MEMBERS = {"python/bin/python3.12", "venv/bin/python3.12"}
 SLOT_NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 
 
 class CapturedGraph(dict):
-    """Captured bytes plus the exact typed large-leaf inventory for codec v4."""
+    """Full captured bytes plus exact large leaves and optional v5 aliases."""
 
-    def __init__(self, files, runtime_blob_paths):
+    def __init__(self, files, runtime_blob_paths, runtime_aliases=None):
         super().__init__(files)
         self.runtime_blob_paths = dict(runtime_blob_paths)
+        self.runtime_aliases = {} if runtime_aliases is None else dict(runtime_aliases)
+        self.runtime_alias_versions = {}
+
+
+def validate_aliases(aliases):
+    """The v5 extension describes only bounded regular CPython interpreters."""
+    io.require(
+        type(aliases) is dict and len(aliases) <= MAX_INTERPRETER_ALIASES,
+        "cold_archive_alias_inventory",
+    )
+    for path, row in aliases.items():
+        cold.reference({"path": path, "sha256": row.get("sha256") if type(row) is dict else None})
+        cold.fields(
+            row, {"runtime_index_ref", "member", "sha256", "bytes", "mode"}, "archive_alias_fields"
+        )
+        cold.reference(row["runtime_index_ref"])
+        io.require(
+            type(row["member"]) is str
+            and row["member"] in INTERPRETER_MEMBERS
+            and type(row["bytes"]) is int
+            and 4 <= row["bytes"] <= MAX_FILE_BYTES
+            and type(row["mode"]) is int
+            and 0 <= row["mode"] <= 0o777
+            and row["mode"] & 0o111
+            and not row["mode"] & 0o022
+            and PurePosixPath(path).name == "python3.12",
+            "cold_archive_alias_shape",
+        )
+    return aliases
+
+
+def _interpreter_aliases(package, read):
+    """Candidates become usable only after collect validates the full package."""
+    from scripts import j1_forward_cold_runtime_capsule as capsule
+
+    result = {}
+    cold.fields(package["policies"], cold.ALLOWED, "archive_alias_policies")
+    for unit, reference in package["policies"].items():
+        policy = io.document(read(reference))
+        cold.fields(policy, cold.POLICY_FIELDS, "archive_alias_policy")
+        index_ref = policy["runtime_index_ref"]
+        index = io.document(read(index_ref))
+        io.require(type(index) is dict, "cold_archive_alias_index")
+        if index.get("schema") != capsule.SCHEMA:
+            continue
+        rows = capsule.validate_index(index, binding=package["binding"], scope=package["scope"])
+        interpreter = cold.reference(policy["interpreter_ref"])
+        for member in INTERPRETER_MEMBERS:
+            root, *parts = PurePosixPath(member).parts
+            if (
+                str(PurePosixPath(index["runtime_roots"][root]).joinpath(*parts))
+                != interpreter["path"]
+            ):
+                continue
+            row = rows.get(member)
+            io.require(
+                row is not None
+                and row["kind"] == "file"
+                and row["sha256"] == interpreter["sha256"],
+                "cold_archive_alias_member",
+            )
+            alias = {
+                "runtime_index_ref": index_ref,
+                "member": member,
+                **{key: row[key] for key in ("sha256", "bytes", "mode")},
+            }
+            io.require(
+                interpreter["path"] not in result or result[interpreter["path"]] == alias,
+                "cold_archive_alias_conflict",
+            )
+            result[interpreter["path"]] = alias
+    return validate_aliases(result)
+
+
+def restore_interpreters(aliases, authorities):
+    """Verify every capsule member, then reconstruct selected ELF bytes inertly."""
+    from scripts import j1_forward_cold_runtime_capsule as capsule
+
+    validate_aliases(aliases)
+    result, groups = {}, {}
+    for path, row in aliases.items():
+        io.require(path not in authorities, "cold_archive_alias_payload_present")
+        groups.setdefault(
+            (row["runtime_index_ref"]["path"], row["runtime_index_ref"]["sha256"]), []
+        ).append((path, row))
+    for (index_path, digest), selected in groups.items():
+        io.require(index_path in authorities, "cold_archive_alias_index_missing")
+        raw_index = authorities[index_path]
+        io.require(io.sha(raw_index) == digest, "cold_archive_alias_index_digest")
+        index = io.document(raw_index)
+        cold.fields(index, capsule.FIELDS, "archive_alias_index_fields")
+        rows = capsule.validate_index(index, binding=index["binding"], scope=index["scope"])
+
+        def read(reference):
+            io.require(reference["path"] in authorities, "cold_archive_alias_reference_missing")
+            raw = authorities[reference["path"]]
+            io.require(io.sha(raw) == reference["sha256"], "cold_archive_alias_reference_changed")
+            return raw
+
+        capsule.validate(index, binding=index["binding"], scope=index["scope"], read_reference=read)
+        wanted = {}
+        for path, row in selected:
+            entry = rows.get(row["member"])
+            root, *parts = PurePosixPath(row["member"]).parts
+            io.require(
+                entry is not None
+                and entry["kind"] == "file"
+                and all(entry[key] == row[key] for key in ("sha256", "bytes", "mode"))
+                and str(PurePosixPath(index["runtime_roots"][root]).joinpath(*parts)) == path,
+                "cold_archive_alias_member_binding",
+            )
+            wanted[row["member"]] = (path, row)
+        with tarfile.open(
+            fileobj=streams.BytesIO(read(index["capsule_ref"])), mode="r|gz"
+        ) as packed:
+            for member in packed:
+                if member.name not in wanted:
+                    continue
+                path, row = wanted.pop(member.name)
+                io.require(
+                    member.isfile() and member.mode == row["mode"] and member.size == row["bytes"],
+                    "cold_archive_alias_tar_member",
+                )
+                stream = packed.extractfile(member)
+                raw = stream.read(row["bytes"] + 1)
+                io.require(
+                    len(raw) == row["bytes"]
+                    and io.sha(raw) == row["sha256"]
+                    and raw.startswith(b"\x7fELF"),
+                    "cold_archive_alias_elf",
+                )
+                result[path] = raw
+        io.require(not wanted, "cold_archive_alias_member_missing")
+    return result
 
 
 class _ProtectedReader:
@@ -70,12 +209,13 @@ class _ReadSnapshot:
     """
 
     def __init__(self, reader, version=None, *, codec=3):
-        io.require(type(codec) is int and codec in {3, 4}, "cold_archive_codec")
+        io.require(type(codec) is int and codec in {3, 4, 5}, "cold_archive_codec")
         self.reader, self.version = reader, version
         self.codec, self.kernel_v2 = codec, False
         self.files, self.references, self.versions = {}, {}, {}
         self.opaque, self.capsules, self.runtime_blob_paths = set(), set(), {}
         self.total = 0
+        self.runtime_aliases = {}
 
     def read(self, reference, *, opaque=False, capsule=False):
         cold.reference(reference)
@@ -87,7 +227,7 @@ class _ReadSnapshot:
         before = self.version(path) if self.version is not None else None
         # Only a v2 kernel in this package enables the separate large reader.
         # Ordinary references cannot opt into a larger source/JSON budget.
-        large = (opaque or capsule) and self.codec == 4 and self.kernel_v2
+        large = (opaque or capsule) and self.codec in {4, 5} and self.kernel_v2
         read = cold.opaque_reader(self.reader, capsule=capsule) if large else self.reader
         raw = read(reference)
         io.require(
@@ -98,10 +238,25 @@ class _ReadSnapshot:
             io.require(self.version(path) == before, "cold_archive_source_version_changed")
             self.versions[path] = before
         self._kind(reference, raw, opaque=opaque, capsule=capsule)
-        self.total += len(raw)
+        alias = self.runtime_aliases.get(path)
+        if alias is not None:
+            io.require(
+                reference["sha256"] == alias["sha256"]
+                and len(raw) == alias["bytes"]
+                and raw.startswith(b"\x7fELF"),
+                "cold_archive_alias_elf",
+            )
+            if before is not None:
+                io.require(
+                    stat.S_ISREG(before[5])
+                    and stat.S_IMODE(before[5]) == alias["mode"]
+                    and before[-1] == 1,
+                    "cold_archive_alias_source_metadata",
+                )
+        self.total += 0 if alias is not None else len(raw)
         io.require(
             len(self.files) < MAX_FILES
-            and self.total <= (V4_MAX_BYTES if self.codec == 4 else MAX_BYTES),
+            and self.total <= (V4_MAX_BYTES if self.codec in {4, 5} else MAX_BYTES),
             "cold_archive_budget",
         )
         self.files[path], self.references[path] = raw, dict(reference)
@@ -113,7 +268,7 @@ class _ReadSnapshot:
             (self.capsules if capsule else self.opaque).add(reference["path"])
         if len(raw) > MAX_FILE_BYTES:
             io.require(
-                (opaque or capsule) and self.codec == 4 and self.kernel_v2,
+                (opaque or capsule) and self.codec in {4, 5} and self.kernel_v2,
                 "cold_archive_large_runtime_untyped",
             )
             self.runtime_blob_paths[reference["path"]] = {
@@ -125,7 +280,7 @@ class _ReadSnapshot:
         return self.read(reference, opaque=True)
 
     def read_runtime_capsule(self, reference):
-        io.require(self.codec == 4, "cold_archive_capsule_codec")
+        io.require(self.codec in {4, 5}, "cold_archive_capsule_codec")
         return self.read(reference, capsule=True)
 
     def captured(self, reference):
@@ -142,7 +297,7 @@ class _ReadSnapshot:
                 io.require(
                     self.version(path) == self.versions[path], "cold_archive_source_version_changed"
                 )
-            large = path in self.opaque | self.capsules and self.codec == 4 and self.kernel_v2
+            large = path in self.opaque | self.capsules and self.codec in {4, 5} and self.kernel_v2
             read = (
                 cold.opaque_reader(self.reader, capsule=path in self.capsules)
                 if large
@@ -346,6 +501,11 @@ def collect(
     kernel_header = io.document(read(package_header["kernel_ref"]))
     io.require(type(kernel_header) is dict, "cold_archive_kernel_document")
     snapshot.kernel_v2 = kernel_header.get("schema") == "autostop.j1.cold-kernel.v2"
+    if codec == 5 and snapshot.kernel_v2:
+        # Conditional transport accounting is not acceptance: the unchanged
+        # package validator below still verifies the complete capsule and all
+        # policies before this function may return any captured graph.
+        snapshot.runtime_aliases = _interpreter_aliases(package_header, read)
     baseline = io.document(read(plan["baseline_ref"]))
     if baseline.get("controller_launch_ref") is not None:
         from scripts import j1_forward_cold_controller_native
@@ -516,7 +676,21 @@ def collect(
     # Old origin and public review key are part of this same bounded graph.
     cold_state.validate_origin(io.document(read(plan["baseline_ref"])), read_reference=read)
     snapshot.recheck()
-    return CapturedGraph(
+    if codec == 5:
+        io.require(
+            snapshot.runtime_aliases == _interpreter_aliases(package, read)
+            if snapshot.kernel_v2
+            else not snapshot.runtime_aliases,
+            "cold_archive_alias_derivation_changed",
+        )
+    graph = CapturedGraph(
         {path: raw for path, raw in seen.items() if not control_path(path, root)},
         snapshot.runtime_blob_paths,
+        snapshot.runtime_aliases,
     )
+    graph.runtime_alias_versions = {
+        path: snapshot.versions[path]
+        for path in snapshot.runtime_aliases
+        if path in snapshot.versions
+    }
+    return graph
