@@ -82,6 +82,7 @@ class PayrollAsyncContextTests(unittest.TestCase):
             + scenario
             + "\n})().then(()=>clearTimeout(scenarioWatchdog),error=>{clearTimeout(scenarioWatchdog);console.error(error);process.exitCode=1;});",
             text=True,
+            encoding="utf-8",
             capture_output=True,
             cwd=ROOT,
             timeout=15,

@@ -160,7 +160,13 @@ assert.equal(printRepairOrderDraft(unsaved), unsaved);
 assert.deepEqual(calls, [null, prepared, unsaved]);
 """
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -417,7 +423,13 @@ function isModalOpen(){return false;}
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -549,7 +561,13 @@ const exported = auxiliaryFactory({{state, els, api, setStatus() {{}}, shared}})
 }})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
 """
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -614,7 +632,13 @@ function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -673,6 +697,12 @@ function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelInten
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

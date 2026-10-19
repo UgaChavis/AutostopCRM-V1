@@ -58,5 +58,8 @@ sse-starlette==3.5.0
 starlette==1.9.0
 typing-extensions==4.16.0
 typing-inspection==0.4.4
+# Explicit cross-platform runtime addition; not part of the historic CI freeze.
+# https://pypi.org/project/tzdata/2026.5/
+tzdata==2026.5
 uvicorn==0.54.0
 virtualenv==21.14.11

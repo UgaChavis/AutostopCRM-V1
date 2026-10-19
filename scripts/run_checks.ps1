@@ -74,6 +74,9 @@ if ($Profile -eq "changed") {
 
 $managedEnvironmentNames = @(
     "PYTHONPYCACHEPREFIX",
+    "PYTHONUTF8",
+    "TEMP",
+    "TMP",
     "COVERAGE_FILE",
     "QT_QPA_PLATFORM",
     "QTWEBENGINE_DISABLE_SANDBOX",
@@ -87,7 +90,11 @@ foreach ($environmentName in $managedEnvironmentNames) {
     )
 }
 
-$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$tempRoot = & $pythonExe -c 'import os, pathlib, tempfile; candidate = os.environ.get("RUNNER_TEMP") if os.name == "nt" and os.environ.get("GITHUB_ACTIONS") == "true" else tempfile.gettempdir(); print(pathlib.Path(candidate).resolve(strict=True))'
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tempRoot)) {
+    throw "Cannot establish the canonical private CI temp parent."
+}
+$tempRoot = [IO.Path]::GetFullPath($tempRoot.Trim())
 $ciRunId = [Guid]::NewGuid().ToString("N")
 $ciPycacheName = "autostopcrm-ci-pycache-$ciRunId"
 $ciPycachePath = [IO.Path]::GetFullPath((Join-Path $tempRoot $ciPycacheName))
@@ -109,6 +116,11 @@ Initialize-CiProfileCompletion
 try {
     [void](New-Item -ItemType Directory -Path $ciPycachePath -ErrorAction Stop)
     $env:PYTHONPYCACHEPREFIX = $ciPycachePath
+    $ciFixtureTemp = Join-Path $ciPycachePath "fixtures"
+    [void](New-Item -ItemType Directory -Path $ciFixtureTemp -ErrorAction Stop)
+    $env:TEMP = $ciFixtureTemp
+    $env:TMP = $ciFixtureTemp
+    $env:PYTHONUTF8 = "1"
     $env:COVERAGE_FILE = Join-Path $ciPycachePath ".coverage"
     $env:QT_QPA_PLATFORM = "offscreen"
     $env:QTWEBENGINE_DISABLE_SANDBOX = "1"

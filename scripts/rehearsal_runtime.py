@@ -11,7 +11,9 @@ import os
 import sys
 import tempfile
 from contextlib import closing
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 SQLITE_VERSION = "3.51.3"
 SQLITE_SOURCE = (
@@ -164,6 +166,7 @@ def main() -> int:
             "python": sys.version,
             "python_executable": sys.executable,
             "platform": sys.platform,
+            "business_timezone": str(ZoneInfo("Asia/Krasnoyarsk")),
             "sqlite": sqlite_receipt(library),
             "ui": qt_browser_receipt(),
             "dependencies": {
@@ -176,9 +179,14 @@ def main() -> int:
                     "mcp",
                     "PySide6",
                     "playwright",
+                    "tzdata",
                 )
             },
         }
+        if datetime(2026, 7, 26, tzinfo=ZoneInfo("Asia/Krasnoyarsk")).utcoffset() != timedelta(
+            hours=7
+        ):
+            raise RuntimeError("Business timezone data is missing or inconsistent")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))

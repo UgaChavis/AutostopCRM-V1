@@ -60,7 +60,9 @@ global.window={setTimeout,clearTimeout};
             + body
             + "\n})().then(()=>clearTimeout(watchdog),error=>{clearTimeout(watchdog);console.error(error);process.exitCode=1;});"
         )
-        result = subprocess.run(["node"], input=script, text=True, capture_output=True, timeout=15)
+        result = subprocess.run(
+            ["node"], input=script, text=True, encoding="utf-8", capture_output=True, timeout=15
+        )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def inventory_functions(self, *names: str) -> str:

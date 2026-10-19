@@ -88,6 +88,12 @@ class PaymentReconciliationTests(CardServiceCase):
         with closing(sqlite3.connect(root / "change_feed.sqlite3")) as connection:
             return tuple(sorted(connection.iterdump()))
 
+    def _new_events(self, before, after):
+        # Persistence sorts equal-time events by UUID; coarse Windows clocks
+        # can give several audit records the same timestamp. Select by identity.
+        previous = {event.id for event in before["events"]}
+        return [event for event in after["events"] if event.id not in previous]
+
     def _write(self, service, method, card_id, rows, **fields):
         payload = {
             "card_id": card_id,
@@ -130,15 +136,19 @@ class PaymentReconciliationTests(CardServiceCase):
                     )
                     self.assertEqual(str(amounts[selected]), order["paid_total"])
                     self.assertTrue(meta["changed"])
-                    events = after["events"][len(before["events"]) :]
-                    self.assertEqual(
+                    events = self._new_events(before, after)
+                    self.assertCountEqual(
                         ["cash_transaction_deleted"] * (len(amounts) - 1)
                         + ["repair_order_updated"],
                         [e.action for e in events],
                     )
                     self.assertEqual(
                         {p["cash_transaction_id"] for i, p in enumerate(rows) if i != selected},
-                        {e.details["cash_transaction_id"] for e in events[:-1]},
+                        {
+                            e.details["cash_transaction_id"]
+                            for e in events
+                            if e.action == "cash_transaction_deleted"
+                        },
                     )
                     self.assertTrue(all(e.actor_name == "BOB" and e.source == "ui" for e in events))
                     self.assertEqual(1, len({e.details["correlation_id"] for e in events}))
@@ -273,8 +283,8 @@ class PaymentReconciliationTests(CardServiceCase):
                 self.assertEqual(15000 if field == "amount" else 10000, transaction.amount_minor)
                 self.assertEqual(transaction.id, order["payments"][0]["cash_transaction_id"])
                 self.assertEqual(row[field], order["payments"][0][field])
-                events = after["events"][len(before["events"]) :]
-                self.assertEqual(
+                events = self._new_events(before, after)
+                self.assertCountEqual(
                     [
                         "cash_transaction_deleted",
                         "cash_transaction_deleted",
@@ -385,13 +395,16 @@ class PaymentReconciliationTests(CardServiceCase):
                     sum(transaction.amount_minor for transaction in after["cash_transactions"]),
                     10000,
                 )
-                events = after["events"][len(before["events"]) :]
-                self.assertEqual(
+                events = self._new_events(before, after)
+                self.assertCountEqual(
                     [event.action for event in events],
                     ["cash_transaction_deleted", "repair_order_updated"],
                 )
                 self.assertEqual(
-                    events[0].details["cash_transaction_id"], rows[loser]["cash_transaction_id"]
+                    next(e for e in events if e.action == "cash_transaction_deleted").details[
+                        "cash_transaction_id"
+                    ],
+                    rows[loser]["cash_transaction_id"],
                 )
                 self.assertEqual(len({event.details["correlation_id"] for event in events}), 1)
                 self._assert_no_finance_errors(service)
