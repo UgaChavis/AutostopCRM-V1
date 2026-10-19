@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from scripts import j1_forward_cold_history as history
 from scripts import j1_forward_io as io
+from scripts import j1_forward_rehearsal_crm as crm_boundary
 from scripts import j1_forward_release_faults as faults
 from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts import j1_forward_state as state
@@ -117,6 +118,31 @@ class ReleaseRehearsalFilesystemTests(unittest.TestCase):
                             io.document(io.referenced(old["baseline_ref"])),
                         )
                 self.assertEqual(fixture.store.pending_path.read_bytes(), original_pending)
+
+    def test_artificial_crm_boundary_measures_peer_http_and_actual_unchanged_sqlite(self):
+        import sqlite3
+
+        with rehearsal.TraceFixture() as fixture:
+            package_ref = fixture.produce()
+            with fixture.custody:
+                rehearsal.synthetic_data(fixture)
+                epoch_ref = fixture._write(
+                    fixture.root / "external-boundary-test-epoch.json",
+                    {"scope": "external-boundary-test-only-not-dispatch-authority"},
+                )
+                crm = crm_boundary.PrivateCRM(
+                    fixture,
+                    revision=fixture.source["revision"],
+                    image="sha256:" + "4" * 64,
+                )
+                first = crm.measure(epoch_ref, package_ref)
+                self.assertEqual(crm.measure(epoch_ref, package_ref), first)
+                self.assertFalse(first["production_crm_application_executed"])
+                self.assertEqual(first["actor"]["pid"], crm.process.pid)
+                with sqlite3.connect(crm.database) as connection:
+                    connection.execute("INSERT INTO records VALUES(2,'changed')")
+                with self.assertRaisesRegex(io.Refusal, "reference_hash_mismatch"):
+                    crm.measure(epoch_ref, package_ref)
                 self.assertGreater(rehearsal.measure_private_bytes(fixture.root), 0)
 
     def test_real_process_death_before_and_after_durable_store_boundaries(self):
