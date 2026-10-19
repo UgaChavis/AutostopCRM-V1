@@ -24,7 +24,11 @@ def _dashboard_script(source: str) -> str:
 class DisplayDashboardRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.dashboard_script = _dashboard_script(SOURCE_PATH.read_text(encoding="utf-8"))
+        cls.dashboard_script = (
+            SOURCE_PATH.with_name("cold_board_url.js").read_text(encoding="utf-8")
+            + "\n"
+            + _dashboard_script(SOURCE_PATH.read_text(encoding="utf-8"))
+        )
 
     def _run_node(self, scenario: str) -> None:
         harness = r"""
