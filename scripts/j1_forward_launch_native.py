@@ -423,6 +423,11 @@ def publish_acceptance(store, snapshot, context):
 
 def submit_and_wait(attempt, *, timeout=1100):
     store, snapshot, context = validate(attempt)
+    return submit_reserved(store, snapshot, context, timeout=timeout)
+
+
+def submit_reserved(store, snapshot, context, *, timeout):
+    """Shared S/A launch mechanics; profile validators supply fixed context."""
     ticket = snapshot["ticket"]
     result = _transition(store, ticket, "submit", {"owner": owner()})
     require(result["action_authorized"], "launch_submit_authority_consumed")
@@ -477,7 +482,7 @@ class Admission:
         self.deployment_fd = None
 
     def __enter__(self):
-        store, snapshot, context = validate(self.attempt)
+        store, snapshot, context = self._validate()
         ticket = snapshot["ticket"]
         until = time.monotonic() + 15
         while snapshot["state"]["acceptance"] is None:
@@ -499,7 +504,7 @@ class Admission:
         self.lease = self.lock_factory(context["deployment_lock_identity"])
         self.deployment_fd = self.lease.__enter__()
         try:
-            store, snapshot, context = validate(self.attempt)
+            store, snapshot, context = self._validate()
             require(
                 observe_worker(ticket, context, self_only=True) == worker, "launch_worker_replaced"
             )
@@ -509,6 +514,9 @@ class Admission:
             self.__exit__(*sys.exc_info())
             raise
         return self
+
+    def _validate(self):
+        return validate(self.attempt)
 
     @contextlib.contextmanager
     def execution(self, expected, *, on_failure):
