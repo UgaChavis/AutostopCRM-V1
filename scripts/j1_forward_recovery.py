@@ -10,7 +10,7 @@ import os
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from scripts import j1_forward_io as io
 from scripts import j1_forward_recovery_state as recovery_state
@@ -50,9 +50,9 @@ def _origin_documents(origin, *, root=None, read_reference=None, read_file=None)
         (ATTEMPTS, ORIGINS, STATE)
         if root is None
         else (
-            PurePosixPath(root) / "attempts",
-            PurePosixPath(root) / "origins",
-            PurePosixPath(root) / "state",
+            io.logical_path(root) / "attempts",
+            io.logical_path(root) / "origins",
+            io.logical_path(root) / "state",
         )
     )
     io.require(type(origin) is dict and set(origin) == ORIGIN_FIELDS, "recovery_origin_fields")
@@ -96,7 +96,7 @@ def validate_origin(origin, *, root=None, read_reference=None, read_file=None):
     from scripts import j1_forward_process_scope as process_scope
 
     read_reference = io.referenced if read_reference is None else read_reference
-    origins = ORIGINS if root is None else PurePosixPath(root) / "origins"
+    origins = ORIGINS if root is None else io.logical_path(root) / "origins"
     plan, result = _origin_documents(
         origin, root=root, read_reference=read_reference, read_file=read_file
     )

@@ -58,7 +58,7 @@ SUPPLEMENTAL = frozenset(
 
 def worker_command(attempt):
     journal._uuid(attempt)
-    return ["/usr/bin/python3", "-I", "-S", "-B", str(FORWARD), "run", "--attempt", attempt]
+    return ["/usr/bin/python3", "-I", "-S", "-B", FORWARD.as_posix(), "run", "--attempt", attempt]
 
 
 def launch_command(attempt):
@@ -73,7 +73,7 @@ def launch_command(attempt):
         "--property=TimeoutStopSec=120",
         "--property=KillSignal=SIGTERM",
         "--property=ExecStopPost=/usr/bin/python3 -I -S -B "
-        + str(FORWARD)
+        + FORWARD.as_posix()
         + " settle --attempt "
         + attempt,
         "--setenv=LD_LIBRARY_PATH=" + WORKER_ENVIRONMENT["LD_LIBRARY_PATH"],

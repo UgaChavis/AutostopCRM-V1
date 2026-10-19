@@ -1,0 +1,104 @@
+name: Windows release regressions
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["codex/release-rehearsal/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-regressions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regressions:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      PYTHONDONTWRITEBYTECODE: "1"
+      QT_QPA_PLATFORM: offscreen
+      QTWEBENGINE_DISABLE_SANDBOX: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.10"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+      - name: Use canonical private temporary paths
+        run: |
+          $private = Join-Path $env:RUNNER_TEMP 'windows-release-regressions'
+          New-Item -ItemType Directory -Path $private | Out-Null
+          $physical = python -c 'import sys; from pathlib import Path; print(Path(sys.argv[1]).resolve())' $private
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the private temporary path.' }
+          "TEMP=$physical" >> $env:GITHUB_ENV
+          "TMP=$physical" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Path output/windows-regressions -Force | Out-Null
+      - name: Install the constrained test environment
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Venv creation failed.' }
+          & .venv/Scripts/python.exe -m pip install pip==26.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned pip installation failed.' }
+          & .venv/Scripts/python.exe -m pip install -r requirements-dev.txt -c .github/release-rehearsal-constraints.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Constrained installation failed.' }
+          & .venv/Scripts/python.exe -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency consistency failed.' }
+          & .venv/Scripts/python.exe -m pip freeze | Set-Content output/windows-regressions/pip-freeze.txt
+      - name: Prepare the verified private SQLite DLL
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'windows-regression-sqlite.zip'
+          Invoke-WebRequest https://sqlite.org/2026/sqlite-dll-win-x64-3510300.zip -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ea004f52ba873cc54d1cb908c2f7cf48c3064061d9ee3ded6a309284da5ff411') {
+            throw 'SQLite archive mismatch.'
+          }
+          $private = Join-Path $env:RUNNER_TEMP 'windows-regression-sqlite'
+          Expand-Archive $archive -DestinationPath $private
+          $bootstrap = Join-Path $env:RUNNER_TEMP 'windows-regression-sqlite-bootstrap'
+          & .venv/Scripts/python.exe scripts/rehearsal_runtime.py --sqlite-library (Join-Path $private 'sqlite3.dll') `
+            --prepare-windows-bootstrap $bootstrap --output output/windows-regressions/sqlite-bootstrap.json
+          if ($LASTEXITCODE -ne 0) { throw 'SQLite bootstrap failed.' }
+          "PYTHONPATH=$bootstrap" >> $env:GITHUB_ENV
+      - name: Verify the pinned Compose plugin without a Docker daemon
+        run: |
+          $plugins = Join-Path $env:RUNNER_TEMP 'windows-regression-compose'
+          New-Item -ItemType Directory -Path $plugins | Out-Null
+          $binary = Join-Path $plugins 'docker-compose.exe'
+          Invoke-WebRequest https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-windows-x86_64.exe -OutFile $binary
+          if ((Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant() -ne '8aeaa0055e660e12cf07cd70680dc8333957fe6718528b91ec3da084eab62483') {
+            throw 'Compose executable mismatch.'
+          }
+          & $binary version --short
+          if ($LASTEXITCODE -ne 0) { throw 'Compose version probe failed.' }
+          "CRM_REHEARSAL_COMPOSE_DIR=$plugins" >> $env:GITHUB_ENV
+      - name: Exercise the measured Windows failures once
+        run: |
+          & .venv/Scripts/python.exe -m tests.runtime_process --timeout-seconds 900 --label windows-release-regressions `
+            -- .venv/Scripts/python.exe -m unittest `
+            tests.test_j1_forward_archive tests.test_j1_forward_closure.LinuxBackendTests `
+            tests.test_j1_forward_settle tests.test_j1_manager_successor_transition `
+            tests.test_docs_audit tests.test_deploy_script.DeployScriptTests.test_production_compose_resolves_without_legacy_crawler_credentials `
+            tests.test_cold_manager tests.test_j1_forward_cold_container `
+            tests.test_printing_async_context tests.test_repair_order_number_audit `
+            tests.test_payment_reconciliation -v *> output/windows-regressions/results.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Windows regression group failed; see retained results and stack evidence.' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-regressions-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            output/windows-regressions/
+            output/runtime-process/
+          retention-days: 14
+          if-no-files-found: warn

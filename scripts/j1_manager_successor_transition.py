@@ -15,7 +15,7 @@ import stat
 import time
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_authority as authority
 from scripts import j1_forward_closure as closure
@@ -27,9 +27,9 @@ from scripts import j1_manager_successor_guard_v2 as guard
 from scripts import j1_manager_successor_native_v2 as native
 from scripts import j1_manager_transition_source as source
 
-INSTALL_RECEIPT = Path(guard.CONFIG) / "installation.json"
-SOURCE_INPUTS = Path(guard.CONFIG) / "source-inputs.json"
-DEPLOY_LOCK = Path("/opt/autostopcrm/.autostop-deploy.lock")
+INSTALL_RECEIPT = PurePosixPath(guard.CONFIG) / "installation.json"
+SOURCE_INPUTS = PurePosixPath(guard.CONFIG) / "source-inputs.json"
+DEPLOY_LOCK = PurePosixPath("/opt/autostopcrm/.autostop-deploy.lock")
 
 
 def derive_capsule(original):
@@ -232,7 +232,7 @@ def stage_locked(
 
     observe()
     source.verify(inputs_ref["path"], inputs_ref["sha256"], package)
-    package = Path(package)
+    package = PurePosixPath(package)
     capsule = derive_capsule(io.document(source.stable_read(package / "capsule.json")))
     index = io.document(source.stable_read(package / "source-index.json"))
     io.require(
@@ -268,15 +268,17 @@ def stage_locked(
         observe()
         mode_map = {row["path"]: int(row["mode"][-3:], 8) for row in index["files"]}
         for name, raw in files.items():
-            backend.publish(Path(guard.SOURCE_ROOT) / name, raw, mode=mode_map.get(name, 0o644))
+            backend.publish(
+                PurePosixPath(guard.SOURCE_ROOT) / name, raw, mode=mode_map.get(name, 0o644)
+            )
         identity = authority._identity(Path(guard.SOURCE_ROOT))
         # Load the exact reviewed base bytes, never the configured namespace.
         backend.publish(
-            Path(guard.INSTALL) / "base-guard.py",
+            PurePosixPath(guard.INSTALL) / "base-guard.py",
             io.read_protected(Path(guard.__file__).with_name("j1_manager_successor_guard.py")),
         )
         backend.publish(
-            Path(guard.INSTALL) / "base-native.py",
+            PurePosixPath(guard.INSTALL) / "base-native.py",
             io.read_protected(Path(native.__file__).with_name("j1_manager_successor_native.py")),
         )
         guard_ref = backend.publish(guard.GUARD, io.read_protected(Path(guard.__file__)))
@@ -369,7 +371,7 @@ def issue_locked(
     baseline = io.document(io.referenced(plan["baseline_ref"]))
     captured = io.document(io.referenced(backup_ref))
     archived = io.document(
-        io.read_protected(Path(ownership["attempt_dir"]) / "control-closed.json")
+        io.read_protected(PurePosixPath(ownership["attempt_dir"]) / "control-closed.json")
     )
     payload = proofs.verify_proof(
         offhost_ref,
@@ -431,7 +433,7 @@ def issue_locked(
             running=False,
             owned_closure={key: ownership[key] for key in ("dropins", "bytes_sha256")},
         )
-        closure_path = Path(ownership["attempt_dir"]) / "manager-successor-closure.json"
+        closure_path = PurePosixPath(ownership["attempt_dir"]) / "manager-successor-closure.json"
         previous = backend.read_optional(closure_path)
         if previous is not None:
             prior = io.document(previous)
@@ -469,7 +471,7 @@ def issue_locked(
                 "old_writer_allowed": False,
             }
             wrapper_refs[kind] = backend.publish(
-                Path(guard.STATE_DIR) / "proofs" / (kind + ".json"), io.canonical(wrapper)
+                PurePosixPath(guard.STATE_DIR) / "proofs" / (kind + ".json"), io.canonical(wrapper)
             )
         # These are observations from actual native producers, not caller bools.
         io.require(

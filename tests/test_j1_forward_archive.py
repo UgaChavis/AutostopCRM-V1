@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
-from pathlib import Path, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest.mock import patch
 
 from scripts import j1_forward_archive as archive
@@ -160,7 +160,7 @@ class ControlArchiveTests(unittest.TestCase):
         manifest = io.document((self.package / "manifest.json").read_bytes())
         names = {row["logical_name"] for row in manifest["artifacts"]}
         for ref in proofs.values():
-            self.assertIn("control/" + str(Path(ref["path"]).relative_to(self.root)), names)
+            self.assertIn("control/" + Path(ref["path"]).relative_to(self.root).as_posix(), names)
         self.assertTrue(any(name.endswith("/released-cohort.json") for name in names))
         self.assertTrue(any(name.endswith("/auxiliary-release.json") for name in names))
         shutil.rmtree(self.root)
@@ -298,6 +298,22 @@ class ControlArchiveTests(unittest.TestCase):
             receipt = self.restore(result)
         self.assertTrue(receipt["semantic_graph_verified"])
 
+    def test_captured_path_syntax_is_explicit_and_cannot_escape_its_logical_root(self):
+        linux = io.logical_path("/var/lib/synthetic-release")
+        windows = io.logical_path(r"C:\synthetic-release")
+        self.assertIsInstance(linux, PurePosixPath)
+        self.assertIsInstance(windows, PureWindowsPath)
+        self.assertEqual(
+            PureWindowsPath(r"C:\synthetic-release\state\HEAD.json"),
+            archive._path(windows, r"C:\synthetic-release\state\HEAD.json"),
+        )
+        for path in (
+            r"D:\synthetic-release\state\HEAD.json",
+            r"C:\synthetic-release\..\state\HEAD.json",
+        ):
+            with self.subTest(path=path), self.assertRaises(io.Refusal):
+                archive._path(windows, path)
+
     def test_file_and_total_limits_are_enforced_before_publication(self):
         for name, value in (("MAX_FILES", 1), ("MAX_TOTAL_BYTES", 1)):
             with self.subTest(limit=name), patch.object(archive, name, value):
@@ -381,7 +397,9 @@ class ControlArchiveTests(unittest.TestCase):
         names = {entry["logical_name"] for entry in manifest["artifacts"]}
         self.assertGreaterEqual(len(references), 3)
         for reference in references:
-            self.assertIn("control/" + str(Path(reference["path"]).relative_to(self.root)), names)
+            self.assertIn(
+                "control/" + Path(reference["path"]).relative_to(self.root).as_posix(), names
+            )
         shutil.rmtree(self.root)
         self.assertTrue(self.restore(captured)["semantic_graph_verified"])
 

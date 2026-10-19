@@ -1147,10 +1147,21 @@ printf 'status=%s\n' "$status"
             # discovers it through the user's config. Keep that config private
             # while providing the installed plugin directory to this temp run.
             docker = Path(shutil.which("docker") or "docker")
-            plugins = docker.parent.parent / "cli-plugins"
+            plugin_candidates = [
+                docker.parent / "cli-plugins",
+                docker.parent.parent / "cli-plugins",
+            ]
+            if os.environ.get("CRM_REHEARSAL_COMPOSE_DIR"):
+                plugin_candidates.insert(0, Path(os.environ["CRM_REHEARSAL_COMPOSE_DIR"]))
             environment["DOCKER_CONFIG"] = directory
             (root / "config.json").write_text(
-                json.dumps({"cliPluginsExtraDirs": [str(plugins)] if plugins.is_dir() else []}),
+                json.dumps(
+                    {
+                        "cliPluginsExtraDirs": [
+                            str(path) for path in plugin_candidates if path.is_dir()
+                        ]
+                    }
+                ),
                 encoding="utf-8",
             )
             environment["AUTOSTOP_MCP_OAUTH_STATE_KEY"] = "synthetic-oauth-state-key"

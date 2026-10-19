@@ -199,7 +199,10 @@ class ColdHost(MixedHost):
             epoch_ref=epoch_ref,
             package_ref=package_ref,
         )
-        io.require(spec["candidate"] == candidate, "cold_crm_prepare_candidate")
+        io.require(
+            spec["candidate"] == {key: candidate[key] for key in ("image", "revision", "tree")},
+            "cold_crm_prepare_candidate",
+        )
         spec_ref, _compose_ref = containers.write_spec(self.directory, spec)
         return spec_ref
 
@@ -214,13 +217,17 @@ class ColdHost(MixedHost):
 
     def replace_crm(self, candidate):
         io.require(hasattr(self, "cold_spec"), "cold_crm_configuration_required")
-        io.require(candidate == self.cold_spec["candidate"], "cold_crm_candidate_changed")
+        io.require(
+            {key: candidate[key] for key in ("image", "revision", "tree")}
+            == self.cold_spec["candidate"],
+            "cold_crm_candidate_changed",
+        )
         # The caller has consumed parent E before this method. A timeout or lost
         # reply propagates; it never causes a second submission here.
         compose_ref = io.reference(self.directory / "cold-crm-compose.json")
         adapter = containers.Adapter(self.run)
         adapter.replace_once(self.cold_spec_ref, compose_ref)
-        deadline = min(self.deadline, time.monotonic() + 120)
+        deadline = min(self.deadline, time.monotonic() + 80)
         while True:
             try:
                 receipt = acceptance(adapter, self.cold_spec, self.cold_spec_ref)

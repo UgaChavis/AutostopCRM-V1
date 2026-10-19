@@ -1567,9 +1567,10 @@ def _is_link_like(path: Path) -> bool:
         if path.is_symlink():
             return True
         junction_probe = getattr(path, "is_junction", None)
-        if junction_probe is not None:
-            return junction_probe()
-        # Python 3.11 has no Path.is_junction; reject every Windows reparse point.
+        if junction_probe is not None and junction_probe():
+            return True
+        # A non-junction can still be a Windows reparse file. Python 3.11
+        # additionally needs this check because it has no is_junction method.
         return bool(
             getattr(path.lstat(), "st_file_attributes", 0)
             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)

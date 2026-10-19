@@ -67,7 +67,7 @@ def _schema(plan, *, restore=False):
 
 def _path(root, value):
     io.require(type(value) is str and "\x00" not in value, "control_archive_path")
-    path = PurePosixPath(value)
+    path = io.logical_path(value)
     io.require(
         path.is_absolute()
         and str(path) == value
@@ -125,7 +125,7 @@ def _implicit_references(root, document):
     if type(document) is not dict:
         return []
     if document.get("schema") == recovery.BUNDLE_SCHEMA:
-        origin = PurePosixPath(document["origin_plan_ref"]["path"]).parent.name
+        origin = io.logical_path(document["origin_plan_ref"]["path"]).parent.name
         return [
             {
                 "path": str(root / "origins" / origin / "pending.json"),
@@ -236,7 +236,7 @@ class _RestoredStore(state.Store):
     """Use the production state validators against explicit restored bytes only."""
 
     def __init__(self, root, base_sha256, files, authorities=None):
-        self.root, self.base_sha256 = PurePosixPath(root), base_sha256
+        self.root, self.base_sha256 = io.logical_path(root), base_sha256
         io.require(self.root.is_absolute() and ".." not in self.root.parts, "state_root_absolute")
         io.require(state._hash(base_sha256), "state_base_invalid")
         self.history = self.root / "history"
@@ -251,7 +251,7 @@ class _RestoredStore(state.Store):
         return j1_forward_cold_state.envelope(self, document)
 
     def _logical_path(self, value):
-        return PurePosixPath(value)
+        return io.logical_path(value)
 
     def _validate_plan(self, plan):
         return variant.validate_plan(plan, self.base_sha256)
@@ -271,7 +271,9 @@ class _RestoredStore(state.Store):
 
     def _contains(self, path):
         path = str(path)
-        return path in self.files or any(name.startswith(path + "/") for name in self.files)
+        return path in self.files or any(
+            io.logical_path(name).is_relative_to(io.logical_path(path)) for name in self.files
+        )
 
     def _raw(self, path):
         key = str(path)
@@ -295,7 +297,9 @@ class _RestoredStore(state.Store):
 
     def _history_paths(self):
         return sorted(
-            PurePosixPath(name) for name in self.files if PurePosixPath(name).parent == self.history
+            io.logical_path(name)
+            for name in self.files
+            if io.logical_path(name).parent == self.history
         )
 
     def _durable(self, reference):
@@ -314,7 +318,7 @@ class _RestoredStore(state.Store):
 def _semantic(
     root, files, consumers, plan_ref, backup_ref, stage, authorities=None, capture_clock=None
 ):
-    root = PurePosixPath(root)
+    root = io.logical_path(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
     _path(root, plan_ref["path"])
     raw_plan = files.get(plan_ref["path"])
@@ -325,7 +329,7 @@ def _semantic(
     plan = io.document(raw_plan)
     variant.validate_plan(plan, plan["base_sha256"])
     store = _RestoredStore(root / "state", plan["base_sha256"], files, authorities)
-    directory = PurePosixPath(plan_ref["path"]).parent
+    directory = io.logical_path(plan_ref["path"]).parent
     captured, _ = store._read(directory / "backup-evidence.json")
     io.require(
         backup_ref["path"] == str(directory / "backup/manifest.json")
@@ -367,14 +371,14 @@ def _semantic(
             reference = completed[field]
             state._reference(reference)
             io.require(
-                _cold(plan) or PurePosixPath(reference["path"]).parent == directory,
+                _cold(plan) or io.logical_path(reference["path"]).parent == directory,
                 "control_archive_terminal_evidence_path",
             )
             store._read_reference(reference)
     documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
     for doc in documents.values():
         for reference in _references(doc):
-            if PurePosixPath(reference["path"]).is_relative_to(root):
+            if io.logical_path(reference["path"]).is_relative_to(root):
                 store._read_reference(reference)
         for reference in _implicit_references(root, doc):
             store._read_reference(reference)
@@ -414,12 +418,13 @@ def _semantic(
         combined = {**files, **restored}
 
         def listing(path):
-            parent = PurePosixPath(path)
+            parent = io.logical_path(path)
             return sorted(
                 {
-                    str(parent / PurePosixPath(name).relative_to(parent).parts[0])
+                    str(parent / io.logical_path(name).relative_to(parent).parts[0])
                     for name in combined
-                    if PurePosixPath(name).is_relative_to(parent) and PurePosixPath(name) != parent
+                    if io.logical_path(name).is_relative_to(parent)
+                    and io.logical_path(name) != parent
                 }
             )
 
@@ -583,7 +588,7 @@ def _witness_files(root, witnesses, existing, end):
         io.require(path.suffix == ".json", "control_archive_witness_document")
         doc = io.document(raw)
         pending.extend(
-            ref for ref in _references(doc) if PurePosixPath(ref["path"]).is_relative_to(root)
+            ref for ref in _references(doc) if io.logical_path(ref["path"]).is_relative_to(root)
         )
         pending.extend(_implicit_references(root, doc))
     return result
@@ -686,7 +691,8 @@ def capture(
             retained = [
                 raw
                 for path, raw in files.items()
-                if path.endswith("/consumers/" + name) and io.sha(raw) == expected
+                if io.logical_path(path).as_posix().endswith("/consumers/" + name)
+                and io.sha(raw) == expected
             ]
             raw = retained[0] if retained else io.read_protected(roots[0] / name, MAX_FILE_BYTES)
             io.require(io.sha(raw) == expected, "control_archive_consumer_bytes_unavailable")
@@ -736,7 +742,8 @@ def capture(
     io.fsync_directory(output.parent)
     artifacts = []
     payloads = [
-        ("control/" + str(Path(path).relative_to(root)), raw) for path, raw in sorted(files.items())
+        ("control/" + Path(path).relative_to(root).as_posix(), raw)
+        for path, raw in sorted(files.items())
     ]
     payloads += [
         ("code/" + digest + "/" + name, raw)
@@ -766,7 +773,7 @@ def capture(
         _write_bytes(output / payload, raw)
         artifacts.append(
             {
-                "logical_name": "control/" + str(Path(path).relative_to(root)),
+                "logical_name": "control/" + Path(path).relative_to(root).as_posix(),
                 "payload": payload,
                 "bytes": len(raw),
                 "sha256": io.sha(raw),
@@ -881,7 +888,7 @@ def verify_and_restore(
     custody=None,
 ):
     """Restore private copies; Windows worker supplies its accepted ACL custody."""
-    package, output, root = Path(package), Path(output), PurePosixPath(logical_root)
+    package, output, root = Path(package), Path(output), io.logical_path(logical_root)
     io.require(state._hash(manifest_sha256) and 0 < timeout <= 300, "control_archive_context")
     io.require(custody is None or callable(custody), "control_archive_custody_required")
     _package_directory(package, custody)
@@ -890,7 +897,7 @@ def verify_and_restore(
         not output.exists() and not output.is_symlink(), "control_archive_new_restore_required"
     )
     io.require(
-        not PurePosixPath(output.as_posix()).is_relative_to(root),
+        not io.logical_path(output).is_relative_to(root),
         "control_archive_production_restore_refused",
     )
     end = time.monotonic() + timeout

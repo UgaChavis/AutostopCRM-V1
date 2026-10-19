@@ -8,7 +8,7 @@ import math
 import os
 import stat
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT_UID = 0
 
@@ -33,6 +33,20 @@ def canonical(value: object) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+def logical_path(value):
+    """Preserve captured path syntax independently of the restoring OS.
+
+    Native Linux captures stay POSIX on Windows. Explicit drive-qualified
+    private Windows fixtures retain their own syntax; UNC paths are excluded.
+    No logical path is opened by this helper.
+    """
+    text = os.fspath(value)
+    windows = PureWindowsPath(text)
+    if windows.is_absolute() and len(windows.drive) == 2 and windows.drive[1] == ":":
+        return windows
+    return PurePosixPath(text)
 
 
 def _pairs(pairs):
