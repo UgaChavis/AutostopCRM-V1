@@ -724,6 +724,10 @@ class DocsAuditTests(unittest.TestCase):
             (temp_root / "requirements-runtime.txt").write_text(
                 "runtime manifest\n", encoding="utf-8"
             )
+            (temp_root / ".github").mkdir()
+            (temp_root / ".github/release-rehearsal-constraints.txt").write_text(
+                "pinned rehearsal manifest\n", encoding="utf-8"
+            )
             (temp_root / "notes.md").write_text("unclassified\n", encoding="utf-8")
             (temp_root / "removed.md").write_text("deleted before audit\n", encoding="utf-8")
             subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
@@ -734,6 +738,7 @@ class DocsAuditTests(unittest.TestCase):
                     "README.md",
                     "requirements.txt",
                     "requirements-runtime.txt",
+                    ".github/release-rehearsal-constraints.txt",
                     "notes.md",
                     "removed.md",
                 ],

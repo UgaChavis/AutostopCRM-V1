@@ -39,9 +39,11 @@ CRM_CANONICAL_DOCS = (
     "docs/J1_RELEASE_BOUNDARY.md",
     "docs/J1_CRM_FORWARD_RELEASE.md",
     "docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
+    "docs/J1_FORWARD_LAUNCH_ADMISSION.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
+    ".github/release-rehearsal-constraints.txt",
     "requirements-common.txt",
     "requirements.txt",
     "requirements-dev.txt",
