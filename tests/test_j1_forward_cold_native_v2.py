@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import sys
+import tempfile
 import types
 import unittest
 import uuid
@@ -17,6 +18,58 @@ from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_cold_state as cold_state
 from scripts import j1_forward_io as io
 from tests import test_j1_forward_state as state_fixture
+
+
+@unittest.skipUnless(
+    sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
+)
+class ExecutableObservationTests(unittest.TestCase):
+    def test_toolcache_fact_does_not_grant_source_custody(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "python"
+            raw = b"a fact about bytes is not an accepted source"
+            executable.write_bytes(raw)
+            executable.chmod(0o775)
+            executable.with_name("alias").hardlink_to(executable)
+            # Hosted Python toolcaches need not be root-private source packages.
+            self.assertEqual(native.executable_digest(executable), io.sha(raw))
+            reference = {"path": str(executable), "sha256": io.sha(raw)}
+            with patch.object(io, "protected_directory", return_value=executable.parent):
+                with self.assertRaisesRegex(io.Refusal, "root_protected_regular_file"):
+                    native.NativeProvider().read_opaque_reference(reference)
+
+    def test_replaced_executable_during_measurement_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "python"
+            executable.write_bytes(b"original")
+            replacement = executable.with_name("replacement")
+            replacement.write_bytes(b"original")
+            actual_sha256 = native.hashlib.sha256
+
+            class ReplacingDigest:
+                def __init__(self):
+                    self.digest = actual_sha256()
+
+                def update(self, block):
+                    self.digest.update(block)
+                    replacement.replace(executable)
+
+                def hexdigest(self):
+                    return self.digest.hexdigest()
+
+            with patch.object(native.hashlib, "sha256", ReplacingDigest):
+                with self.assertRaisesRegex(io.Refusal, "native_executable_changed"):
+                    native.executable_digest(executable)
+
+    def test_actor_hashes_fresh_once_and_rechecks_the_executing_inode(self):
+        expected = native.executable_digest(Path(os.readlink("/proc/self/exe")))
+        with patch.object(
+            native, "_executable_snapshot", wraps=native._executable_snapshot
+        ) as read:
+            measured = native.actor(os.getpid())
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(measured["pid"], os.getpid())
+            self.assertEqual(measured["exe_ref"]["sha256"], expected)
 
 
 class FingerprintProtocolTests(unittest.TestCase):

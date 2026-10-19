@@ -106,7 +106,7 @@ def actor(pid):
     )
     contract.need(len(set(uid)) == len(set(gid)) == 1, "native_actor_credentials")
     executable = Path(os.readlink(root / "exe"))
-    executable_sha = executable_digest(executable)
+    executable_sha, executable_version = _executable_snapshot(executable)
     value = {
         "pid": pid,
         "start_ticks": before,
@@ -122,13 +122,35 @@ def actor(pid):
     contract.need(
         birth(pid) == before
         and os.readlink(root / "exe") == str(executable)
-        and executable_digest(executable) == value["exe_ref"]["sha256"],
+        and _executable_version(executable.lstat()) == executable_version
+        and _executable_version((root / "exe").stat()) == executable_version,
         "native_actor_changed",
     )
     return value
 
 
+def _executable_version(value):
+    return tuple(
+        getattr(value, key)
+        for key in (
+            "st_dev",
+            "st_ino",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+            "st_mode",
+            "st_uid",
+            "st_gid",
+            "st_nlink",
+        )
+    )
+
+
 def executable_digest(path):
+    return _executable_snapshot(path)[0]
+
+
+def _executable_snapshot(path):
     """Hash a stable executable with bounded memory and a full version cut.
 
     The accepted policy's reference reader separately checks directory custody.
@@ -137,29 +159,14 @@ def executable_digest(path):
     path = Path(path)
     before = path.lstat()
     contract.need(
-        stat.S_ISREG(before.st_mode)
-        and before.st_nlink == 1
-        and before.st_uid in {0, os.geteuid()}
-        and not before.st_mode & 0o022
-        and 0 < before.st_size <= contract.MAX_RUNTIME_BYTES,
+        stat.S_ISREG(before.st_mode) and 0 < before.st_size <= contract.MAX_RUNTIME_BYTES,
         "native_executable_file",
     )
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    fields = (
-        "st_dev",
-        "st_ino",
-        "st_size",
-        "st_mtime_ns",
-        "st_ctime_ns",
-        "st_mode",
-        "st_uid",
-        "st_gid",
-        "st_nlink",
-    )
-    version = tuple(getattr(before, key) for key in fields)
+    version = _executable_version(before)
     try:
         contract.need(
-            tuple(getattr(os.fstat(descriptor), key) for key in fields) == version,
+            _executable_version(os.fstat(descriptor)) == version,
             "native_executable_changed",
         )
         digest, count = hashlib.sha256(), 0
@@ -170,11 +177,11 @@ def executable_digest(path):
                 digest.update(block)
         contract.need(
             count == before.st_size
-            and tuple(getattr(os.fstat(descriptor), key) for key in fields) == version
-            and tuple(getattr(path.lstat(), key) for key in fields) == version,
+            and _executable_version(os.fstat(descriptor)) == version
+            and _executable_version(path.lstat()) == version,
             "native_executable_changed",
         )
-        return digest.hexdigest()
+        return digest.hexdigest(), version
     finally:
         os.close(descriptor)
 
