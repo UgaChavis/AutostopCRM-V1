@@ -23,12 +23,12 @@ BOOTSTRAP_HASHES = {
     "j1_forward_cold_history": "8786ee7b8f4688763eb68a1bc4d9910d181bef566dfad7eea8a509d82409b509",
     "j1_forward_cold_hold": "2f158f5a2158e2f8ed178ad7f9c0bfd56ddc70028ba6f3e968320ef723926d60",
     "j1_forward_cold_epoch": "00b13d8f8493bdec476ea9d504d5de77662fca7c108324a919c4fe7599ca66b0",
-    "j1_forward_launch_permission": "bc02591b3c8e3eee37b58d8b440c2c041968ba8bd34d8597c13e6bc7431be8a9",
+    "j1_forward_launch_permission": "8b6c3ae925cbf97b8fb047949ab4f86f19af7cd035d9026b0cdbc4dd16d00544",
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
     "j1_forward_cold_state": "965f34275faf8e4b979672fa97dafee9878ae6a57547200a7fa32879f48225ca",
     "j1_forward_cold_lifecycle": "1fbe00c3aa718600ebae0266e8f589888d2416b36c8286cf1605b1132df7e62b",
-    "j1_forward_cold_fixture": "e6396b2b3e5403a85707efac301582cd5f9bfa3d932e084363fcbf2c3e811d77",
+    "j1_forward_cold_fixture": "531675606de324e997bc7eb7e5b6e7d7958eb3a0183bdd265e543ba7e0ae0f64",
 }
 
 

@@ -13,6 +13,45 @@ from unittest.mock import patch
 from scripts import j1_forward_launch_permission as launch
 
 
+class LogicalTicketRestoreTests(unittest.TestCase):
+    def ticket(self, path):
+        attempt = str(uuid.uuid4())
+        return {
+            "schema": launch.SCHEMA,
+            "attempt_id": attempt,
+            "nonce": str(uuid.uuid4()),
+            "plan_ref": {"path": path, "sha256": "1" * 64},
+            "source_sha256": "2" * 64,
+            "context_sha256": "3" * 64,
+            "host": "isolated.invalid",
+            "boot_id": str(uuid.uuid4()),
+            "owner_generation": str(uuid.uuid4()),
+            "unit": f"autostop-crm-forward-{attempt}.service",
+            "not_before": 1,
+            "expires_at": 2,
+        }
+
+    def test_captured_linux_and_drive_qualified_fixture_paths_remain_logical(self):
+        for path in ("/etc/autostop-crm-forward/plan.json", r"C:\private\plan.json"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    launch.validate_ticket(self.ticket(path))["plan_ref"]["path"], path
+                )
+
+    def test_relative_traversing_and_unc_paths_never_become_absolute_authority(self):
+        for path in (
+            "plan.json",
+            "/private/../plan.json",
+            r"C:\private\..\plan.json",
+            r"\\host\share\plan.json",
+        ):
+            with (
+                self.subTest(path=path),
+                self.assertRaisesRegex(launch.Refusal, "launch_plan_path"),
+            ):
+                launch.validate_ticket(self.ticket(path))
+
+
 @unittest.skipUnless(os.name == "posix", "Linux root-owned launch journal and systemd admission")
 class LaunchPermissionTests(unittest.TestCase):
     def setUp(self):

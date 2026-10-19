@@ -19,7 +19,7 @@ import stat
 import tempfile
 import time
 import uuid
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 SCHEMA = "autostop.j1.forward-launch-ticket.v1"
 STATE_SCHEMA = "autostop.j1.forward-launch-state.v1"
@@ -128,10 +128,18 @@ def validate_ticket(value):
     ref = value["plan_ref"]
     require(type(ref) is dict and set(ref) == {"path", "sha256"}, "launch_plan_reference")
     _hash(ref["sha256"])
+    # Ticket validation is also used for pure off-host graph restore. Preserve
+    # a captured Linux path on Windows; physical opens remain in _read below.
+    text = ref["path"]
+    require(type(text) is str, "launch_plan_path")
+    windows = PureWindowsPath(text)
+    path = (
+        windows
+        if windows.is_absolute() and len(windows.drive) == 2 and windows.drive[1] == ":"
+        else PurePosixPath(text)
+    )
     require(
-        type(ref["path"]) is str
-        and Path(ref["path"]).is_absolute()
-        and ".." not in Path(ref["path"]).parts,
+        path.is_absolute() and ".." not in path.parts,
         "launch_plan_path",
     )
     require(type(value["host"]) is str and 0 < len(value["host"]) <= 253, "launch_host")

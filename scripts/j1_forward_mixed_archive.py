@@ -64,7 +64,10 @@ def collect(plan, *, stage, controller_inventory, read_reference=None, read_file
     for name in ("guard", "native"):
         referenced(binding[name])
     for path, digest in ((guard.BASE, guard.BASE_SHA256), (native.BASE, native.BASE_SHA256)):
-        referenced({"path": str(path), "sha256": digest})
+        # These are fixed logical Linux locations, even when the restoring
+        # workstation constructs the native constant as a WindowsPath.
+        logical = path.as_posix() if hasattr(path, "as_posix") else path
+        referenced({"path": logical, "sha256": digest})
 
     class Reader(guard.Reader):
         def raw(self, ref):

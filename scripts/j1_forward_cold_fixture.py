@@ -25,7 +25,15 @@ from scripts import j1_forward_cold_authority as contract
 from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_io as io
 
-ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
+# Every child must retain this owned cohort's temporary boundary. Sanitizing
+# away TEMP/TMP made a child compare its /tmp default with the parent's private
+# cohort directory, refusing the same fixture before its real guard could run.
+ENVIRONMENT = {
+    "PATH": "/usr/bin:/bin",
+    "LANG": "C",
+    "LC_ALL": "C",
+    **dict.fromkeys(("TMPDIR", "TEMP", "TMP"), tempfile.gettempdir()),
+}
 WORKER = r"""
 import fcntl, json, os, pathlib, socket, struct, sys, time, uuid
 root, mode, unit = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]

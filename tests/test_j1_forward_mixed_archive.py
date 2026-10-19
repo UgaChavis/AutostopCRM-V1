@@ -51,7 +51,9 @@ class MixedArchiveTests(unittest.TestCase):
         f.plan_ref = f.fixture.add(f.plan_ref["path"], f.plan)
         f.payload["plan_sha256"] = f.plan_ref["sha256"]
         f.fixture.add(guard.BASE, self.inventory["scripts/j1_manager_successor_guard.py"])
-        f.fixture.add(str(native.BASE), self.inventory["scripts/j1_manager_successor_native.py"])
+        f.fixture.add(
+            native.BASE.as_posix(), self.inventory["scripts/j1_manager_successor_native.py"]
+        )
         for path in (
             guard.STATE,
             guard.ADMISSION,
@@ -83,7 +85,7 @@ class MixedArchiveTests(unittest.TestCase):
             guard.BASELINE,
             guard.RUNTIME,
             guard.BASE,
-            str(native.BASE),
+            native.BASE.as_posix(),
         ):
             self.assertIn(path, files)
         self.assertTrue(any(path.endswith("/input") for path in files))
