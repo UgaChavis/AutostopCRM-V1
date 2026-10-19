@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -61,7 +63,10 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             first, second = run.call_args_list
             self.assertIn("--parallel-mode", first.args[0])
             self.assertEqual(first.args[0][-2:], ["tests.runtime_suite_runner", "--core-only"])
-            self.assertEqual(second.args[0][-4:], ["unittest", "browser.one", "browser.two", "-v"])
+            self.assertEqual(
+                second.args[0][-4:],
+                ["tests.runtime_suite_runner", "--browser-group", "browser.one", "browser.two"],
+            )
             self.assertEqual(second.kwargs["env"]["COVERAGE_FILE"], "isolated-coverage")
             self.assertEqual(
                 second.kwargs["env"]["PYTHONPATH"],
@@ -92,11 +97,16 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             )
         )
         for name, seconds in (
-            ("Runtime branch coverage", "1800"),
             ("Release branch coverage", "1800"),
             ("Mandatory core browser smoke", "300"),
         ):
             self.assertEqual(seconds, bounded_local.get(name), name)
+        self.assertRegex(
+            profile,
+            r'Invoke-Python -StepName "Isolated runtime branch coverage" -Arguments @\(\s*'
+            r'"-m", "tests.runtime_suite_runner"\s*\)',
+        )
+        self.assertNotIn("Isolated Windows runtime coverage", profile)
         for name, seconds in (
             ("Unit tests with runtime branch coverage", "1800"),
             ("Release backup and restore branch coverage", "1800"),
@@ -119,3 +129,42 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             diagnostics_position, workflow.index("- name: Optional full browser smoke")
         )
         self.assertIn("always() && matrix.suite != 'static'", workflow[diagnostics_position:])
+
+    def test_primary_failure_is_visible_before_cleanup_times_out(self):
+        with tempfile.TemporaryDirectory(prefix="runtime-primary-failure-") as name:
+            probe = """
+import time, unittest
+from tests.runtime_test_result import ImmediateTracebackResult
+class Failing(unittest.TestCase):
+    def test_primary(self):
+        self.addCleanup(time.sleep, 30)
+        self.fail('SYNTHETIC_PRIMARY_FAILURE_BEFORE_NATIVE_CLEANUP')
+unittest.TextTestRunner(resultclass=ImmediateTracebackResult, verbosity=2).run(
+    unittest.defaultTestLoader.loadTestsFromTestCase(Failing)
+)
+"""
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "tests.runtime_process",
+                    "--timeout-seconds",
+                    "3",
+                    "--diagnostics-dir",
+                    name,
+                    "--",
+                    sys.executable,
+                    "-c",
+                    probe,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 124, completed.stdout + completed.stderr)
+            self.assertIn("Immediate failure detail:", completed.stderr)
+            self.assertIn(
+                "AssertionError: SYNTHETIC_PRIMARY_FAILURE_BEFORE_NATIVE_CLEANUP",
+                completed.stderr,
+            )

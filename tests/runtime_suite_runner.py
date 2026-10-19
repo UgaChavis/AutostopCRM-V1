@@ -1,4 +1,4 @@
-"""Run complete runtime coverage with isolated browser lifetimes on Windows."""
+"""Run complete runtime coverage with isolated browser lifetimes on either OS."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ import unittest
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+
+from tests.runtime_test_result import ImmediateTracebackResult
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_TIMEOUT_SECONDS = 30 * 60
@@ -57,7 +59,10 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     environment["PYTHONPATH"] = str(root / "tests") + (os.pathsep + previous if previous else "")
     coverage = [sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m"]
     commands = [[*coverage, "tests.runtime_suite_runner", "--core-only"]]
-    commands.extend([*coverage, "unittest", *group, "-v"] for group in plan.browser_groups)
+    commands.extend(
+        [*coverage, "tests.runtime_suite_runner", "--browser-group", *group]
+        for group in plan.browser_groups
+    )
     print(
         f"Runtime plan: {plan.count} tests; {len(plan.core_ids)} core; "
         f"{len(plan.browser_groups)} isolated browser groups; no retries.",
@@ -84,12 +89,24 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--core-only", action="store_true")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--core-only", action="store_true")
+    selection.add_argument("--browser-group", nargs="+")
     args = parser.parse_args()
-    suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
-    if args.core_only:
-        core = unittest.TestSuite(case for case in iter_cases(suite) if not is_browser_case(case))
-        result = unittest.TextTestRunner(verbosity=2).run(core)
+    if args.browser_group:
+        suite = unittest.defaultTestLoader.loadTestsFromNames(args.browser_group)
+        if not all(is_browser_case(case) for case in iter_cases(suite)):
+            parser.error("browser group must resolve only to browser tests")
+    else:
+        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
+        if args.core_only:
+            suite = unittest.TestSuite(
+                case for case in iter_cases(suite) if not is_browser_case(case)
+            )
+    if args.core_only or args.browser_group:
+        result = unittest.TextTestRunner(verbosity=2, resultclass=ImmediateTracebackResult).run(
+            suite
+        )
         return 0 if result.wasSuccessful() else 1
     return run_plan(build_plan(suite))
 
