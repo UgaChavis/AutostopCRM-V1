@@ -267,6 +267,7 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
         self.assertIn("!docs/J1_RELEASE_BOUNDARY.md", rules)
         self.assertIn("!docs/J1_FORWARD_LAUNCH_ADMISSION.md", rules)
+        self.assertIn("!docs/J1_COLD_RECOVERY.md", rules)
         self.assertIn("!docs/J1_MANAGER_AUTHORITY_TRANSITION.md", rules)
 
     @unittest.skipUnless(
@@ -351,6 +352,7 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !docs/J1_RELEASE_BOUNDARY.md",
                 "Docker image excludes canonical documentation: !docs/J1_CRM_FORWARD_RELEASE.md",
                 "Docker image excludes canonical documentation: !docs/J1_FORWARD_LAUNCH_ADMISSION.md",
+                "Docker image excludes canonical documentation: !docs/J1_COLD_RECOVERY.md",
                 "Docker image excludes canonical documentation: !docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
             },
             {issue.detail for issue in issues},

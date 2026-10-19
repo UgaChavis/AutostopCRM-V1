@@ -265,6 +265,9 @@ The first Windows bootstrap failed because the official
 has no Windows 3.12.15 payload. Windows therefore uses the latest available
 3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
 The workflow has no deployment, production probes or production credentials.
+The separate [cold recovery contract](J1_COLD_RECOVERY.md) records all six
+replacement roles, original pending and hold provenance, and ingress
+quarantine. Closed-stage inspection alone never permits a replacement start.
 It runs on an explicit dispatch or a push to `autostopcrm-v1` or
 `codex/release-rehearsal/**`,
 so a new workflow can be verified before it reaches the default branch.
