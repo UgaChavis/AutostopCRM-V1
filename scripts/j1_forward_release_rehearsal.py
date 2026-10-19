@@ -385,6 +385,8 @@ def measure_private_bytes(root):
 
 def run_custodian_request(root, request_path):
     """A separate private process restores first, then signs measured results."""
+    import sqlite3
+
     from scripts import j1_forward_archive as archive
     from scripts import j1_forward_cold_native as native
 
@@ -408,10 +410,12 @@ def run_custodian_request(root, request_path):
             "private_key",
             "proof",
             "control",
+            "sqlite_runtime_ref",
         }
         and request["schema"] == "autostop.j1.private-custodian-request.v1",
         "rehearsal_request_fields",
     )
+    sqlite_readback = verify_private_sqlite(root, request["sqlite_runtime_ref"])
     for key in ("backup", "output", "public_key", "private_key", "proof"):
         path = Path(request[key])
         io.require(
@@ -503,6 +507,8 @@ def run_custodian_request(root, request_path):
         result = {
             "schema": "autostop.j1.private-custodian-result.v1",
             "pid": os.getpid(),
+            "sqlite_version": sqlite3.sqlite_version,
+            "sqlite_runtime": sqlite_readback,
             "wall_seconds": time.perf_counter() - begin,
             "data_restore": data_receipt,
             "control_restore": control_receipt,
@@ -527,6 +533,7 @@ def independent_restore(fixture, plan_ref, captured, context, roots, signer, *, 
         "private_key": str(signer.private),
         "proof": str(fixture.root / "peer-offhost-proof.json"),
         "control": control,
+        "sqlite_runtime_ref": private_sqlite_runtime(fixture),
     }
     path = fixture.root / "custodian-request.json"
     fixture._write(path, request)
@@ -551,13 +558,147 @@ def independent_restore(fixture, plan_ref, captured, context, roots, signer, *, 
             str(path),
         ],
         cwd=fixture.root,
-        env=cold_fixture.ENVIRONMENT,
+        env=private_sqlite_environment(fixture),
         stdin=subprocess.DEVNULL,
         capture_output=True,
         timeout=90,
         check=False,
     )
+    if result.returncode != 0:
+        print(
+            "PRIVATE_CUSTODIAN_DIAGNOSTIC "
+            + io.canonical(
+                {
+                    "returncode": result.returncode,
+                    "stderr": result.stderr[-8192:]
+                    .decode(errors="replace")
+                    .replace(str(fixture.root), "$FIXTURE"),
+                }
+            )
+            .decode()
+            .strip(),
+            flush=True,
+        )
     io.require(result.returncode == 0, "rehearsal_independent_custodian_failed")
     receipt = io.document(io.read_protected(fixture.root / "custodian-result.json"))
     io.require(receipt["pid"] != os.getpid(), "rehearsal_restore_process_not_independent")
     return receipt
+
+
+def private_sqlite_runtime(fixture):
+    """Copy only the stand-selected SQLite library into this private fixture.
+
+    The hosted builder supplies CRM_REHEARSAL_SQLITE_LIBRARY. The fixed local
+    fallback is the already approved runtime; arbitrary inherited LD settings
+    are never forwarded. This is a test runtime receipt, not native authority.
+    """
+    from scripts import j1_forward_cold_kernel as kernel
+
+    selected = Path(
+        os.environ.get(
+            "CRM_REHEARSAL_SQLITE_LIBRARY", "/opt/autostop-sqlite/3.51.3/lib/libsqlite3.so.0"
+        )
+    )
+    io.require(
+        selected.is_absolute() and ".." not in selected.parts, "rehearsal_sqlite_library_path"
+    )
+    selected = selected.resolve(strict=True)
+    before = kernel.file_version(selected.lstat())
+    digest = kernel.file_digest(selected, limit=32 * 1024**2)
+    descriptor = os.open(selected, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(32 * 1024**2 + 1)
+        io.require(
+            len(raw) <= 32 * 1024**2
+            and io.sha(raw) == digest["sha256"]
+            and kernel.file_version(os.fstat(descriptor))
+            == before
+            == kernel.file_version(selected.lstat()),
+            "rehearsal_sqlite_library_changed",
+        )
+    finally:
+        os.close(descriptor)
+    directory = fixture._mkdir("custodian-runtime")
+    target = directory / "libsqlite3.so.0"
+    if target.exists():
+        io.require(
+            cold_fixture._safe_file(target, fixture.root, limit=32 * 1024**2) == raw,
+            "rehearsal_sqlite_copy_changed",
+        )
+        library_ref = fixture.provider.reference(target)
+    else:
+        library_ref = fixture._copy(target, raw)
+    value = {
+        "schema": "autostop.j1.private-sqlite-runtime.v1",
+        "scope": "native_fixture",
+        "source_path": str(selected),
+        "source_sha256": digest["sha256"],
+        "library_ref": library_ref,
+        "expected_version": "3.51.3",
+    }
+    receipt = directory / "receipt.json"
+    if receipt.exists():
+        io.require(
+            io.document(cold_fixture._safe_file(receipt, fixture.root)) == value,
+            "rehearsal_sqlite_receipt_changed",
+        )
+        return fixture.provider.reference(receipt)
+    return fixture._write(receipt, value)
+
+
+def private_sqlite_environment(fixture):
+    return {
+        **cold_fixture.ENVIRONMENT,
+        "LD_LIBRARY_PATH": str(fixture.root / "custodian-runtime"),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+
+
+def verify_private_sqlite(root, reference):
+    """Actual fresh child version and mapped inode of its single copied library."""
+    import sqlite3
+
+    root = Path(root)
+    io.require(
+        reference["path"] == str(root / "custodian-runtime/receipt.json"),
+        "rehearsal_sqlite_receipt_path",
+    )
+    raw = cold_fixture._safe_file(reference["path"], root)
+    io.require(io.sha(raw) == reference["sha256"], "rehearsal_sqlite_receipt_hash")
+    document = io.document(raw)
+    io.require(
+        set(document)
+        == {"schema", "scope", "source_path", "source_sha256", "library_ref", "expected_version"}
+        and document["schema"] == "autostop.j1.private-sqlite-runtime.v1"
+        and document["scope"] == "native_fixture"
+        and document["expected_version"] == sqlite3.sqlite_version == "3.51.3",
+        "rehearsal_sqlite_actual_version",
+    )
+    library = Path(document["library_ref"]["path"])
+    io.require(
+        library == root / "custodian-runtime/libsqlite3.so.0", "rehearsal_sqlite_copied_path"
+    )
+    loaded = cold_fixture._safe_file(library, root, limit=32 * 1024**2)
+    io.require(
+        io.sha(loaded) == document["source_sha256"] == document["library_ref"]["sha256"],
+        "rehearsal_sqlite_actual_bytes",
+    )
+    identity = library.stat()
+    rows = [line.split(None, 5) for line in Path("/proc/self/maps").read_text().splitlines()]
+    matches = [row for row in rows if len(row) == 6 and row[5] == str(library)]
+    io.require(
+        matches
+        and all(
+            int(row[4]) == identity.st_ino
+            and tuple(int(value, 16) for value in row[3].split(":"))
+            == (os.major(identity.st_dev), os.minor(identity.st_dev))
+            for row in matches
+        ),
+        "rehearsal_sqlite_actual_mapping",
+    )
+    return {
+        "sqlite_version": sqlite3.sqlite_version,
+        "library_ref": document["library_ref"],
+        "mapping_identity": [identity.st_dev, identity.st_ino],
+    }

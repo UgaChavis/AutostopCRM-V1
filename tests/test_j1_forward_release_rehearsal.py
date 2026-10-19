@@ -4,6 +4,7 @@ import copy
 import os
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import j1_forward_cold_history as history
@@ -19,6 +20,24 @@ from scripts import j1_forward_state as state
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
 class ReleaseRehearsalFilesystemTests(unittest.TestCase):
+    def test_private_child_copies_only_selected_sqlite_and_rejects_changed_copy(self):
+        with rehearsal.TraceFixture() as fixture, fixture.custody:
+            with patch.dict(
+                os.environ,
+                {"LD_LIBRARY_PATH": "/untrusted/inherited", "GH_TOKEN": "ARTIFICIAL_UNUSED"},
+            ):
+                reference = rehearsal.private_sqlite_runtime(fixture)
+                environment = rehearsal.private_sqlite_environment(fixture)
+            value = io.document(io.referenced(reference))
+            copied = Path(value["library_ref"]["path"])
+            self.assertEqual(copied, fixture.root / "custodian-runtime/libsqlite3.so.0")
+            self.assertEqual(value["library_ref"]["sha256"], value["source_sha256"])
+            self.assertEqual(environment["LD_LIBRARY_PATH"], str(copied.parent))
+            self.assertNotIn("GH_TOKEN", environment)
+            copied.write_bytes(b"changed private copy")
+            with self.assertRaisesRegex(io.Refusal, "sqlite_copy_changed"):
+                rehearsal.private_sqlite_runtime(fixture)
+
     def test_real_state_backup_restore_and_ed25519_on_same_actual_cold_origin(self):
         with rehearsal.TraceFixture() as fixture:
             reference = fixture.produce()
