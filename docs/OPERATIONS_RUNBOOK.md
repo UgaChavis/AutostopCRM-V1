@@ -256,9 +256,14 @@ The `release-rehearsal.yml` workflow runs the complete canonical CI
 profile on separate disposable Ubuntu and Windows runners and a third real
 Linux systemd fixture. Every job checks out the workflow's exact commit and
 publishes source, dependency, native-library and failure evidence. It uses
-Python 3.12.15, the project requirements and diagnostic constraints captured
+Python 3.12.15 on Linux and 3.12.10 on Windows, the project requirements
+and diagnostic constraints captured
 from the successful unit job linked in `.github/release-rehearsal-constraints.txt`.
 Platform-only dependencies remain visible in each complete pip-freeze receipt.
+The first Windows bootstrap failed because the official
+[`actions/python-versions` manifest](https://github.com/actions/python-versions/blob/main/versions-manifest.json)
+has no Windows 3.12.15 payload. Windows therefore uses the latest available
+3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
 The workflow has no deployment, production probes or production credentials.
 It runs on an explicit dispatch or a push only to `codex/release-rehearsal/**`,
 so a new workflow can be verified before it reaches the default branch.

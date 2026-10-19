@@ -24,12 +24,15 @@ jobs:
         include:
           - os: ubuntu-latest
             scenario: linux-profile
+            python_version: "3.12.15"
             timeout_minutes: 45
           - os: windows-latest
             scenario: windows-profile
+            python_version: "3.12.10"
             timeout_minutes: 45
           - os: ubuntu-latest
             scenario: linux-systemd
+            python_version: "3.12.15"
             timeout_minutes: 15
     defaults:
       run:
@@ -63,6 +66,7 @@ jobs:
             source_sha = $head
             scenario = '${{ matrix.scenario }}'
             runner_os = '${{ runner.os }}'
+            selected_python = '${{ matrix.python_version }}'
             run_id = $env:GITHUB_RUN_ID
             run_attempt = $env:GITHUB_RUN_ATTEMPT
             production_access = $false
@@ -74,7 +78,7 @@ jobs:
       - name: Set up pinned Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12.15"
+          python-version: ${{ matrix.python_version }}
 
       - name: Set up Node for required JavaScript tests
         uses: actions/setup-node@v6
