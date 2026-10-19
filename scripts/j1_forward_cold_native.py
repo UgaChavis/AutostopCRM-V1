@@ -16,6 +16,7 @@ import select
 import socket
 import stat
 import subprocess
+import time
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
@@ -1177,12 +1178,45 @@ class NativeProvider:
         contract.need(actual == set(expected), "cache_checkpoint_inventory_incomplete")
 
 
+class _ObservationSources:
+    """Pin source versions for one observation without caching native facts."""
+
+    def __init__(self, provider):
+        self.provider, self.versions = provider, {}
+
+    def _read(self, reference, method):
+        contract.reference(reference)
+        path = reference["path"]
+        before = _executable_version(Path(path).lstat())
+        contract.need(
+            path not in self.versions or self.versions[path] == before,
+            "native_source_version_changed",
+        )
+        raw = getattr(self.provider, method)(reference)
+        contract.need(
+            _executable_version(Path(path).lstat()) == before,
+            "native_source_version_changed",
+        )
+        self.versions[path] = before
+        return raw
+
+    def read_reference(self, reference):
+        return self._read(reference, "read_reference")
+
+    def read_opaque_reference(self, reference):
+        return self._read(reference, "read_opaque_reference")
+
+    def read_runtime_capsule(self, reference):
+        return self._read(reference, "read_runtime_capsule")
+
+
 def verify_package(reference, *, provider=None, required_scope="production_native"):
     provider = NativeProvider() if provider is None else provider
     provider.boundary(reference)
-    validated = contract.validate_package(
-        reference, read_reference=provider.read_reference, required_scope=required_scope
-    )
+    # Captured semantic results belong to this observation only. Every typed
+    # source is physically reread after the independent native measurements.
+    reader = contract.Reader(_ObservationSources(provider).read_reference)
+    validated = contract._decode_package(reference, reader, required_scope=required_scope)
     contract.need(
         provider.scope == required_scope
         and provider.boot() == validated["package"]["binding"]["boot_id"],
@@ -1199,14 +1233,9 @@ def verify_package(reference, *, provider=None, required_scope="production_nativ
     ):
         operation(validated)
     # Establish the same interval at exit, including source and proof rereads.
-    contract.need(
-        contract.validate_package(
-            reference, read_reference=provider.read_reference, required_scope=required_scope
-        )
-        == validated,
-        "native_package_changed",
-    )
+    reader.recheck()
     provider.verify_closure(validated)
+    contract._binding(validated["package"]["binding"], now_ns=time.monotonic_ns())
     return validated
 
 

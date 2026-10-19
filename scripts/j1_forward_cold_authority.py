@@ -473,6 +473,13 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
     changing a scope field does not replace the independent native verification.
     """
     reader = Reader(io.referenced if read_reference is None else read_reference)
+    result = _decode_package(package_ref, reader, required_scope=required_scope, now_ns=now_ns)
+    reader.recheck()
+    return result
+
+
+def _decode_package(package_ref, reader, *, required_scope=None, now_ns=None):
+    """Decode one observation's captured bytes; its owner must recheck at exit."""
     package = reader.doc(package_ref)
     fields(package, PACKAGE_FIELDS, "package_fields")
     scope, binding = package["scope"], package["binding"]
@@ -745,7 +752,6 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
         and lifecycle["pending_ref"] == package["pending_ref"],
         "lifecycle_binding",
     )
-    reader.recheck()
     return {
         "package": package,
         "policies": policies,

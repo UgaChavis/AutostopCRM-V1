@@ -103,6 +103,34 @@ class ColdNativeFixtureTests(unittest.TestCase):
             self.assertEqual((fixture.root / "barriers" / unit).read_bytes(), contract.DENY_BYTES)
         self.assertTrue((fixture.root / "ingress-held.json").is_file())
 
+    def test_sources_changed_or_replaced_during_native_measurement_are_rejected(self):
+        fixture = self.fixture()
+        fixture.produce()
+        source = fixture.root / "source/worker.py"
+        original = source.read_bytes()
+        measure = fixture.provider.verify_kernel
+        for replacement in (False, True):
+            with self.subTest(replacement=replacement):
+
+                def change_after_measurement(validated):
+                    measure(validated)
+                    if replacement:
+                        other = source.with_name("replacement.py")
+                        other.write_bytes(original)
+                        other.replace(source)
+                    else:
+                        source.write_bytes(original + b"\n# source changed after its first cut\n")
+
+                with patch.object(
+                    fixture.provider, "verify_kernel", side_effect=change_after_measurement
+                ):
+                    with self.assertRaisesRegex(io.Refusal, "source_version_changed"):
+                        self.validate(fixture)
+                source.write_bytes(original)
+        # The next independent observation reads the current complete graph
+        # again rather than trusting the failed observation's semantic result.
+        self.validate(fixture)
+
     def test_pending_unknown_late_backlog_and_new_peer_never_become_replay(self):
         fixture = self.fixture()
         (fixture.root / "pause-before-effect").touch(mode=0o600)
