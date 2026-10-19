@@ -244,6 +244,9 @@ class Store(recovery_state.RecoveryStateMixin):
     def _logical_path(self, value):
         return Path(value)
 
+    def _validate_plan(self, plan):
+        return validate_plan(plan, self.base_sha256)
+
     def _reference(self, path):
         return io.reference(path)
 
@@ -277,7 +280,7 @@ class Store(recovery_state.RecoveryStateMixin):
                 "commit_fields",
             )
             io.require(record["schema"] == COMMIT_SCHEMA or is_recovery, "commit_schema")
-            validate_plan(record["plan"], self.base_sha256)
+            self._validate_plan(record["plan"])
             _proofs(record["proofs"])
             io.require(
                 type(record["sequence"]) is int
@@ -328,7 +331,7 @@ class Store(recovery_state.RecoveryStateMixin):
         if not self._contains(self.pending_path):
             return None
         plan, _ = self._read(self.pending_path)
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         return plan
 
     def pending(self):
@@ -368,7 +371,7 @@ class Store(recovery_state.RecoveryStateMixin):
         return ref
 
     def begin(self, plan):
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         with self._locked(create=True):
             self._no_recovery()
             head, records = self._snapshot()
@@ -407,7 +410,7 @@ class Store(recovery_state.RecoveryStateMixin):
         )
 
     def commit(self, plan, proofs):
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         _proofs(proofs)
         with self._locked(create=True):
             self._no_recovery()
@@ -447,7 +450,7 @@ class Store(recovery_state.RecoveryStateMixin):
 
     def recover(self, plan):
         """Finish only one already-published commit belonging to exact pending."""
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         with self._locked():
             self._no_recovery()
             self._matching_pending(plan)
@@ -474,7 +477,7 @@ class Store(recovery_state.RecoveryStateMixin):
             return ref
 
     def finish(self, plan):
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         with self._locked():
             self._no_recovery()
             self._matching_pending(plan)
@@ -493,7 +496,7 @@ class Store(recovery_state.RecoveryStateMixin):
 
     def confirm_finished(self, plan):
         """Confirm terminal durability after an interrupted acknowledgement."""
-        validate_plan(plan, self.base_sha256)
+        self._validate_plan(plan)
         with self._locked():
             self._no_recovery()
             io.require(self._pending() is None, "state_terminal_pending_present")

@@ -161,3 +161,67 @@ After any candidate start, recovery must use the successor MCP revision and a
 fresh exact-instance Store drain. A legacy receipt or an earlier PID cannot
 permit stop. Unknown write outcomes never permit an automatic return to the old
 writer. No production transition is established by source tests or CI alone.
+
+## Explicit warm transition library v2
+
+`j1_manager_successor_transition.py` adds separate `stage_locked` and
+`issue_locked` library boundaries, without an operational CLI. The controller
+retains its exact deployment-lock descriptor; publication additionally takes
+the successor lifecycle lock exclusively. The consumer keeps its shared lock
+through check/exec. Existing installed artifacts are never overwritten with
+different bytes. A failed or ambiguous publication keeps the same attempt and
+requires exact readback; no old-writer fallback is introduced.
+
+Staging verifies the original native warm authority and actual writer closure
+before its first publication. It verifies the offline source package, copies
+only its exact source inventory and stages inert v2 guard/native/config/runtime
+files. It does not publish a selector, systemd drop-in, admission or armed state.
+The v2 capsule is deterministically derived from the verified v1 capsule by
+changing its explicit contract and versioned guard path. The derived complete
+MCP profile and runtime receipt must still pass the original consumer validators.
+
+The separate `j1_manager_successor_guard_v2.py` and
+`j1_manager_successor_native_v2.py` seal the reviewed v1 implementations by
+byte hash before compiling them in independent namespaces. Their installed
+`base-guard.py` and `base-native.py` are protected immutable artifacts. A source
+change to either base requires a reviewed wrapper pin update. V1 contracts and
+installed locations retain their semantics. V2 uses `/v2/` locations and
+requires the exact canonical false barriers on both denied roles throughout
+activation; only the six working roles may reopen.
+
+The fixed v1 backup profile is unchanged. `j1_forward_mixed_backup.engine`
+loads the same capture/restore engine in a separate namespace with the explicit
+`crm_manager_mcp_native_preserved_warm_v2` profile. It adds exact v2 code,
+configuration, state and physical candidate-source roots. Inert staging must
+precede that backup; it cannot be described as a complete snapshot of an
+installation performed later.
+
+Issuance requires a fresh, exact mixed plan, closure/Store ownership bindings,
+the protected backup reference and an independently signed off-host restore
+proof. The proof must bind the actual data manifest and profile, the control
+archive manifest and an actual disposable graph-restore receipt. The producer
+performs native source/runtime/preserved-profile observations, publishes seven
+evidence wrappers, then admission, then armed state last. A prestart admission
+retains `native_acceptance=false`; actual six-role process/library/cache and
+guard-start acceptance remain separate release gates.
+
+`j1_forward_mixed_authority.py` defines the explicit plan schema
+`autostop.j1.crm-manager-mcp-forward-plan.v1`, scope
+`crm_and_manager_mcp_preserved_warm`, fields `manager_transition_ref` and
+`candidate_manager_sha`, and native baseline v2. Its `MixedStore` reuses the
+existing durable transaction protocol, reads original historical records and
+rejects a downgrade after the mixed transition. Original CRM-only plan and
+observer validators continue to refuse mixed documents. The controller must
+freeze the supplemental `CONTROLLER_FILES` inventory in addition to ordinary
+forward consumers; installation also binds and rereads those exact bytes.
+
+This is a warm-only stand library. On the existing failed host attempt, exited
+accepted SSH transports are a concrete compatibility STOP before staging:
+`_predecessor_chain` requires the complete accepted warm actor inventory and
+`NativeIO.verify_warm` verifies each original PID incarnation. PR47's historical
+recovery observation cannot replace that native guard authority. Unknown warm
+ingress, extra source/bytecode or a restarted/cold daemon remain refusals. There
+is no accepted all-profile cold package, authority rotation to a different
+attempt, or production release completion supplied by this implementation.
+Controller/worker integration, hosted checks, native timing and the actual
+host's independent admission are still required before release readiness.

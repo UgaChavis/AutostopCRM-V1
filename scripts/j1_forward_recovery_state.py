@@ -38,11 +38,12 @@ ORIGIN_FIELDS = (REFERENCE_FIELDS - {"plan_ref"}) | {"nonce", "deployment_lock_i
 MAX_WINDOW = 600
 
 
-def validate_envelope(envelope, base_sha256, *, read_reference=None):
+def validate_envelope(envelope, base_sha256, *, read_reference=None, plan_validator=None):
     """Read retained evidence, never the possibly consumed live pending file."""
     from scripts import j1_forward_state as state
 
     read_reference = io.referenced if read_reference is None else read_reference
+    plan_validator = state.validate_plan if plan_validator is None else plan_validator
     io.require(type(envelope) is dict and set(envelope) == FIELDS, "recovery_fields")
     io.require(envelope["schema"] == RECOVERY_SCHEMA, "recovery_schema")
     io.require(state._hash(envelope["nonce"]), "recovery_nonce")
@@ -61,7 +62,7 @@ def validate_envelope(envelope, base_sha256, *, read_reference=None):
             documents[name] = read_reference(envelope[name])
     origin, plan = (io.document(documents[name]) for name in ("origin_plan_ref", "plan_ref"))
     for value in (origin, plan):
-        state.validate_plan(value, base_sha256)
+        plan_validator(value, base_sha256)
     io.require(
         envelope["recovery_id"] == plan["attempt_id"] != origin["attempt_id"]
         and all(
@@ -116,7 +117,10 @@ class RecoveryStateMixin:
 
     def _envelope(self, envelope):
         origin, plan = validate_envelope(
-            envelope, self.base_sha256, read_reference=self._read_reference
+            envelope,
+            self.base_sha256,
+            read_reference=self._read_reference,
+            plan_validator=lambda value, _base: self._validate_plan(value),
         )
         attempts = self.root.parent / "attempts"
         old = attempts / origin["attempt_id"]

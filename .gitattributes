@@ -6,3 +6,4 @@ src/minimal_kanban/web_app_assets/source/markdown_it.js text eol=lf
 # Preserve the coordinator's immutable interface receipt hash on every platform.
 docs/j1_kernel_release_interface_v1.json -text
 scripts/j1_forward_*.py text eol=lf
+scripts/j1_manager_*.py text eol=lf
