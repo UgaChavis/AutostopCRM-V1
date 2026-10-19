@@ -246,6 +246,8 @@ def unit_status(unit):
 
 class Fixture:
     def __init__(self, root, native, journal, sqlite_directory, *, mode="normal", ttl=60):
+        initialized = time.monotonic()
+        self.wait_phase = "initialization"
         self.root, self.native, self.journal = root, native, journal
         root.mkdir(mode=0o700)
         self.crm, self.attempts = root / "crm", root / "attempts"
@@ -308,6 +310,27 @@ class Fixture:
         with self.deployment_lock():
             native.issue(plan_ref, self.consumers, baseline)
         self.store, self.snapshot, self.context = native.validate(self.attempt)
+        self.initialization_seconds = time.monotonic() - initialized
+
+    def failure_observation(self):
+        observation = {
+            "wait_phase": self.wait_phase,
+            "initialization_seconds": round(self.initialization_seconds, 3),
+            "seconds_to_expiry": round(self.deadline.timestamp() - time.time(), 3),
+        }
+        try:
+            current = self.state()
+            observation["launch_state"] = {
+                "sequence": current["sequence"],
+                "accepted": current["acceptance"] is not None,
+                "claimed": current["claim"] is not None,
+                "dispatch_possible": current["dispatch_possible"],
+                "execution_possible": current["execution_possible"],
+            }
+            observation["unit"] = unit_status(self.unit)
+        except BaseException as error:
+            observation["observation_failure_type"] = type(error).__name__
+        return observation
 
     @contextlib.contextmanager
     def deployment_lock(self):
@@ -442,11 +465,13 @@ def run_case(name, fixture):
     elif name in {"revoke_between_claim_and_enter", "expiry_before_enter"}:
         with f.deployment_lock():
             thread, result = f.asynchronous_submit()
+            f.wait_phase = "waiting_for_claim"
             wait_until(lambda: f.state()["claim"] is not None)
             require(
                 not f.state()["execution_possible"] and f.effect_count() == 0, "effect_before_d"
             )
             if name == "expiry_before_enter":
+                f.wait_phase = "waiting_for_real_expiry"
                 wait_until(lambda: time.time() > f.deadline.timestamp() + 0.05, seconds=10)
             else:
                 n.revoke(f.attempt)
@@ -617,6 +642,9 @@ def main():
                     ),
                     "wire_count_or_blind_retry",
                 )
+            except BaseException:
+                report["case_failure_observation"] = fixture.failure_observation()
+                raise
             finally:
                 fixture.stop()
             effects = fixture.effect_count()

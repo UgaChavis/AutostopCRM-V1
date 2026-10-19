@@ -51,7 +51,15 @@ def load_selected(identities):
             # importable attribute in unittest.loader. Exact ID checks remain.
             if re.fullmatch(r"test_[A-Za-z0-9_]+", module):
                 selected = module
-        suite.addTests(unittest.defaultTestLoader.loadTestsFromName(selected))
+        try:
+            loaded = unittest.defaultTestLoader.loadTestsFromName(selected)
+        except unittest.SkipTest as exception:
+            if not identity.startswith(prefix) or selected == identity:
+                raise
+            # Discovery catches this exception, loadTestsFromName does not.
+            # Reuse the same pinned stdlib constructor as discovery itself.
+            loaded = unittest.loader._make_skipped_test(selected, exception, unittest.TestSuite)
+        suite.addTests(loaded)
     return suite
 
 

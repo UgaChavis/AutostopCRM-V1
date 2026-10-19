@@ -27,7 +27,7 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch.object(sys, "path", [str(root), *sys.path]):
-                discovered = unittest.defaultTestLoader.loadTestsFromName(name)
+                discovered = unittest.TestLoader().discover(str(root), pattern=name + ".py")
                 identities = tuple(item.id() for item in iter_cases(discovered))
                 selected = load_selected(identities)
                 self.assertEqual(tuple(item.id() for item in iter_cases(selected)), identities)
