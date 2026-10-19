@@ -7,6 +7,7 @@ the existing Worker; only this explicit contract can use the cold remote CLI.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import PurePosixPath
 
@@ -528,6 +529,147 @@ def restored_capture_fences(response, data_manifest, package, restored):
         previous = body["observed_monotonic_ns"]
 
 
+def restored_kernel_cache(response, data_manifest, package, restored, data_restored):
+    """Bind cache metadata to independently restored DATA bytes before signing."""
+    control_raw = worker._physical(package / "manifest.json").read_bytes()
+    contract.need(
+        io.sha(control_raw) == response["control_archive"]["manifest_sha256"],
+        "worker_cache_control_manifest",
+    )
+    artifacts = io.document(control_raw)["artifacts"]
+    control_entries = {row["logical_name"]: row for row in artifacts}
+    contract.need(len(control_entries) == len(artifacts), "worker_cache_control_inventory")
+
+    def document(reference):
+        contract.reference(reference)
+        entry = control_entries.get("authority" + reference["path"])
+        contract.need(
+            type(entry) is dict
+            and entry["sha256"] == reference["sha256"]
+            and re.fullmatch(r"[0-9]{6}\.bin", entry["payload"]),
+            "worker_cache_control_missing",
+        )
+        path = worker._physical(restored / entry["payload"])
+        contract.need(path.stat().st_size <= worker.MAX_JSON, "worker_cache_control_size")
+        raw = path.read_bytes()
+        contract.need(
+            len(raw) == entry["bytes"] and io.sha(raw) == reference["sha256"],
+            "worker_cache_control_changed",
+        )
+        return io.document(raw)
+
+    authority = response["evidence"]["package"]
+    kernel = document(authority["kernel_ref"])
+    if kernel.get("schema") == "autostop.j1.cold-kernel.v1":
+        return {"cache_checkpoint_checked": False, "reason": "legacy_kernel_v1"}
+    contract.need(
+        kernel.get("schema") == "autostop.j1.cold-kernel.v2", "worker_cache_kernel_schema"
+    )
+    view = document(kernel["cache_view_ref"])
+    contract.need(
+        view.get("schema") == "autostop.j1.cold-cache-view.v2", "worker_cache_view_schema"
+    )
+    checkpoint = document(view["checkpoint_ref"])
+    binding = authority["binding"]
+    base = "/var/lib/autostop-crm-forward/cold/v1/packages/" + binding["attempt_id"] + "/kernel/"
+    root = base + "cache-source"
+    contract.need(
+        checkpoint.get("schema") == "autostop.j1.cold-cache-checkpoint.v1"
+        and checkpoint.get("scope") == authority["scope"]
+        and checkpoint.get("binding") == view.get("binding") == kernel.get("binding") == binding
+        and checkpoint.get("root") == root
+        and view.get("path") == base + "cache-view"
+        and view.get("kind") == "kernel_read_only_checkpoint_mount",
+        "worker_cache_checkpoint_binding",
+    )
+    rows = checkpoint["files"]
+    contract.need(type(rows) is list and len(rows) <= 10000, "worker_cache_checkpoint_limit")
+    expected = {}
+    for row in rows:
+        contract.fields(row, {"name", "bytes", "sha256", "mode"}, "worker_cache_checkpoint_file")
+        name = row["name"]
+        contract.need(
+            type(name) is str
+            and name
+            and str(PurePosixPath(name)) == name
+            and not PurePosixPath(name).is_absolute()
+            and ".." not in PurePosixPath(name).parts
+            and "\\" not in name
+            and "\0" not in name
+            and name not in expected
+            and type(row["bytes"]) is int
+            and 0 <= row["bytes"] <= contract.MAX_RUNTIME_BYTES
+            and worker._hash(row["sha256"])
+            and type(row["mode"]) is int
+            and 0 <= row["mode"] <= 0o777
+            and not row["mode"] & 0o022,
+            "worker_cache_checkpoint_file_binding",
+        )
+        expected[name] = row
+    total = sum(row["bytes"] for row in expected.values())
+    contract.need(
+        list(expected) == sorted(expected) and total <= 512 * 1024**2,
+        "worker_cache_checkpoint_order_or_budget",
+    )
+    for tree in (root, view["path"]):
+        _restored_cache_tree(data_manifest, tree, expected, data_restored)
+    return {
+        "cache_checkpoint_checked": True,
+        "checkpoint_ref": view["checkpoint_ref"],
+        "trees": [root, view["path"]],
+        "files_per_tree": len(expected),
+        "bytes_per_tree": total,
+        "native_source_ownership_restored": False,
+        "production_restore_performed": False,
+    }
+
+
+def _restored_cache_tree(data_manifest, root, expected, data_restored):
+    actual, roots = {}, 0
+    prefix = root + "/"
+    for entry in data_manifest["artifacts"]:
+        source = entry.get("source", "")
+        if entry.get("component") != "cold_controller_state":
+            continue
+        if source == root:
+            roots += 1
+            contract.need(roots == 1 and entry["kind"] == "directory", "worker_cache_data_root")
+            continue
+        if not source.startswith(prefix):
+            continue
+        name = source[len(prefix) :]
+        if entry["kind"] == "directory":
+            continue
+        contract.need(
+            name in expected
+            and name not in actual
+            and entry["kind"] == "file"
+            and re.fullmatch(r"[0-9]{6}\.bin", entry.get("payload", "")),
+            "worker_cache_data_inventory",
+        )
+        row = expected[name]
+        contract.need(
+            entry["bytes"] == row["bytes"]
+            and entry["sha256"] == row["sha256"]
+            and entry["source_version"][7] == row["mode"],
+            "worker_cache_data_binding",
+        )
+        path = worker._physical(data_restored / entry["payload"])
+        info = path.stat()
+        contract.need(info.st_size == row["bytes"], "worker_cache_restored_size")
+        with path.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        after = path.stat()
+        contract.need(
+            digest == row["sha256"]
+            and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+            == (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+            "worker_cache_restored_bytes",
+        )
+        actual[name] = row
+    contract.need(roots == 1 and actual == expected, "worker_cache_data_incomplete")
+
+
 class ColdWorker(worker.Worker):
     CONTRACT = "cold"
 
@@ -540,7 +682,11 @@ class ColdWorker(worker.Worker):
         return capture_manifest(manifest, response)
 
     def _after_control_restore(self, response, data_manifest, package, restored):
-        return restored_capture_fences(response, data_manifest, package, restored)
+        restored_capture_fences(response, data_manifest, package, restored)
+        result = restored_kernel_cache(
+            response, data_manifest, package, restored, package.parent / "restored"
+        )
+        return io.write_new(package.parent / "kernel-cache-restore-check.json", result)
 
     def _activation_payloads(self, response, binding):
         plan = response["plan"]
