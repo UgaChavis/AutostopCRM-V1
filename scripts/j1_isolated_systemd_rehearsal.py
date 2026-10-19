@@ -376,7 +376,7 @@ class Fixture:
         return self.native.publish_acceptance(self.store, self.store.read(), self.context)
 
     def state(self):
-        return self.store.read()["state"]
+        return self.native.coherent_snapshot(self.store)["state"]
 
     def effect_count(self):
         path = self.root / "effect"
