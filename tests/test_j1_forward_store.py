@@ -283,6 +283,44 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(self.command.call_args.args[1], self.deadline)
         self.assertIn("/usr/bin/systemctl", self.command.call_args.args[0])
 
+    def test_running_environment_uses_physical_root_after_guard_dispatch(self):
+        self.binding["selector"] = "/selectors/manager-mcp/current"
+        self.assertEqual(self.observe()["source_root"], self.binding["source_root"])
+        (self.proc / "42/environ").write_bytes(b"PYTHONPATH=/selectors/manager-mcp/current\0")
+        with self.assertRaisesRegex(Refusal, "store_process_source_changed"):
+            self.observe()
+
+    def test_mcp_successor_revision_requires_modern_drain_despite_legacy_other_roles(self):
+        self.native["manager_revision"] = store.LEGACY_REVISION
+        self.binding["manager_revision"] = REVISION
+        with patch.object(
+            store, "_request", return_value=(200, canonical(snapshot(accepting=False)))
+        ) as request:
+            report = store.drain_before_stop(
+                self.native, deadline=self.deadline, command=self.command
+            )
+        self.assertEqual(report["identity"]["revision"], REVISION)
+        self.assertEqual(report["mode"], "store_workers_drained")
+        self.assertIs(report["worker_drain_supported"], True)
+        self.assertIs(report["store_workers_drained"], True)
+        request.assert_called_once()
+
+    def test_missing_mcp_revision_cannot_treat_new_source_as_legacy(self):
+        self.native["manager_revision"] = store.LEGACY_REVISION
+        with patch.object(store, "_request") as request:
+            with self.assertRaisesRegex(Refusal, "store_process_revision_changed"):
+                store.drain_before_stop(self.native, deadline=self.deadline, command=self.command)
+        request.assert_not_called()
+
+    def test_invalid_explicit_profile_revision_has_no_global_fallback(self):
+        for value in (None, True, "", "B" * 40):
+            self.binding["manager_revision"] = value
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(Refusal, "store_native_binding_required"),
+            ):
+                self.observe()
+
     def test_wrong_revision_or_process_bindings_refuse(self):
         self.protected.return_value = b"a" * 40
         with self.assertRaisesRegex(Refusal, "store_process_revision_changed"):

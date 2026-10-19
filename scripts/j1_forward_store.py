@@ -64,8 +64,15 @@ def _identity(native, command, deadline):
     """Read systemd and /proc afresh; no prepared PID or prior receipt is authority."""
     _remaining(deadline)
     io.require(sys.platform == "linux", "store_native_linux_required")
-    revision = native.get("manager_revision")
     binding = native.get("profiles", {}).get(UNIT)
+    # A separately verified MCP successor can coexist with five Manager89
+    # profiles. Choose this role's explicit revision before the legacy default;
+    # the actual protected source REVISION must still match below.
+    revision = (
+        binding.get("manager_revision", native.get("manager_revision"))
+        if type(binding) is dict
+        else None
+    )
     io.require(
         type(revision) is str and re.fullmatch(r"[0-9a-f]{40}", revision) and type(binding) is dict,
         "store_native_binding_required",

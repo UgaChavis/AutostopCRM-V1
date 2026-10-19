@@ -48,6 +48,7 @@ coverage.xml
 coverage-runtime.*
 coverage-release.*
 coverage-store-drain.*
+coverage-manager-authority.*
 *.cover
 *.py,cover
 .hypothesis/

@@ -300,6 +300,17 @@ jobs:
           coverage report --data-file "$RUNNER_TEMP/store-drain.coverage" --fail-under=90 | tee coverage-store-drain.txt
           coverage json --data-file "$RUNNER_TEMP/store-drain.coverage" -o coverage-store-drain.json
 
+      - name: Manager authority preparation branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label manager-authority -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/manager-authority.coverage" \
+            --source=scripts.j1_manager_transition,scripts.j1_manager_transition_source -m unittest \
+            tests.test_j1_manager_transition tests.test_j1_manager_transition_source -v
+          coverage combine --data-file "$RUNNER_TEMP/manager-authority.coverage"
+          coverage report --data-file "$RUNNER_TEMP/manager-authority.coverage" --fail-under=90 | tee coverage-manager-authority.txt
+          coverage json --data-file "$RUNNER_TEMP/manager-authority.coverage" -o coverage-manager-authority.json
+
       - name: Upload coverage evidence
         if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
@@ -313,6 +324,8 @@ jobs:
             coverage-release.json
             coverage-store-drain.txt
             coverage-store-drain.json
+            coverage-manager-authority.txt
+            coverage-manager-authority.json
             htmlcov/
           if-no-files-found: warn
 

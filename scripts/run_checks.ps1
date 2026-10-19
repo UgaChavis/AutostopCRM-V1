@@ -191,6 +191,23 @@ try {
         "-o", "coverage-store-drain.json"
     )
 
+    $managerAuthorityCoverage = Join-Path $ciPycachePath "manager-authority.coverage"
+    Invoke-Python -StepName "Manager authority preparation branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $managerAuthorityCoverage,
+        "--source=scripts.j1_manager_transition,scripts.j1_manager_transition_source", "-m", "unittest",
+        "tests.test_j1_manager_transition", "tests.test_j1_manager_transition_source", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Manager authority preparation coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $managerAuthorityCoverage
+    )
+    Invoke-Python -StepName "Report Manager authority preparation coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $managerAuthorityCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Manager authority preparation coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $managerAuthorityCoverage,
+        "-o", "coverage-manager-authority.json"
+    )
+
     Invoke-Python -StepName "Repository code health" -Arguments @(
         "scripts/code_health_audit.py", "--format", "text"
     )
