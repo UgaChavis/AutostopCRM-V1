@@ -248,14 +248,49 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.12.15"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: |
+            requirements*.txt
+            .github/release-rehearsal-constraints.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install -r requirements-dev.txt -c .github/release-rehearsal-constraints.txt
+          python -m pip check
+
+      - name: Build the same private Linux SQLite as the runtime image
+        if: ${{ matrix.suite != 'static' }}
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/sqlite-src-3510300.zip"
+          curl --fail --location --retry 3 https://sqlite.org/2026/sqlite-src-3510300.zip --output "$archive"
+          printf '%s  %s\n' f8a67a1f5b5cae7c6d42f0994ca7bf1a4a5858868c82adc9fc1340bed5eb8cd2 "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/sqlite-src-3510300"
+          test "$(cat manifest.uuid)" = 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618
+          CFLAGS="-O2 -fno-strict-aliasing -DSQLITE_SECURE_DELETE \
+            -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_FTS3_PARENTHESIS \
+            -DSQLITE_ENABLE_FTS3_TOKENIZER -DSQLITE_SOUNDEX \
+            -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_ENABLE_DBSTAT_VTAB \
+            -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ALLOW_ROWID_IN_VIEW \
+            -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_URI \
+            -DSQLITE_MAX_SCHEMA_RETRY=25 -DSQLITE_ENABLE_STMTVTAB \
+            -DSQLITE_MAX_VARIABLE_NUMBER=250000 \
+            -DSQLITE_MAX_DEFAULT_PAGE_SIZE=32768" \
+            ./configure --prefix="$RUNNER_TEMP/quality-sqlite" --disable-static --soname=legacy \
+              --enable-threadsafe --enable-load-extension --enable-fts4 --enable-fts5 \
+              --enable-rtree --enable-session --enable-update-limit
+          make -j2 libsqlite3.so
+          install -D -m 755 libsqlite3.so "$RUNNER_TEMP/quality-sqlite/libsqlite3.so.0"
+          {
+            printf 'LD_LIBRARY_PATH=%s\n' "$RUNNER_TEMP/quality-sqlite${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            printf 'CRM_REHEARSAL_SQLITE_LIBRARY=%s\n' "$RUNNER_TEMP/quality-sqlite/libsqlite3.so.0"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify the selected SQLite before native unit tests
+        if: ${{ matrix.suite != 'static' }}
+        run: python -c 'import sqlite3; assert sqlite3.sqlite_version == "3.51.3", sqlite3.sqlite_version; print(sqlite3.sqlite_version)'
 
       - name: Cache Chromium
         if: ${{ matrix.suite == 'browser-performance' }}
