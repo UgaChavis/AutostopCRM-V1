@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - autostopcrm-v1
       - "codex/release-rehearsal/**"
 
 permissions:

@@ -48,6 +48,7 @@ jobs:
           load: true
           push: false
           tags: autostopcrm-ci:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=crm-runtime
           cache-to: type=gha,scope=crm-runtime,mode=max
 
@@ -155,6 +156,29 @@ jobs:
               finally:
                   browser.close()
           PY
+
+      - name: Seal the tested post-merge image without publishing a registry tag
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+        shell: bash
+        run: |
+          image="autostopcrm-ci:${GITHUB_SHA}"
+          test "$(docker image inspect --format '{{ .Architecture }}' "$image")" = amd64
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$GITHUB_SHA"
+          mkdir -p release-image
+          docker image inspect --format '{{ json .Id }} {{ json .Architecture }} {{ json .Os }} {{ json .RootFS.Layers }}' "$image" > release-image/image-identity.txt
+          docker run --rm --network none --entrypoint python "$image" -m pip freeze > release-image/runtime-requirements.txt
+          docker save "$image" | gzip -n -1 > "release-image/autostopcrm-${GITHUB_SHA}-linux-amd64.tar.gz"
+          cd release-image
+          sha256sum ./* > SHA256SUMS
+
+      - name: Preserve the exact tested post-merge image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: autostopcrm-image-${{ github.sha }}
+          path: release-image/
+          if-no-files-found: error
+          compression-level: 0
 
   checks:
     name: ${{ matrix.suite }}

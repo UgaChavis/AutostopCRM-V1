@@ -265,10 +265,16 @@ The first Windows bootstrap failed because the official
 has no Windows 3.12.15 payload. Windows therefore uses the latest available
 3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
 The workflow has no deployment, production probes or production credentials.
-It runs on an explicit dispatch or a push only to `codex/release-rehearsal/**`,
+It runs on an explicit dispatch or a push to `autostopcrm-v1` or
+`codex/release-rehearsal/**`,
 so a new workflow can be verified before it reaches the default branch.
 The final gate requires matching completion evidence from all three scenarios;
 a skipped, absent or failed scenario cannot produce a ready result.
+The main-branch quality run also exports the exact Docker image that passed
+its runtime checks, its image identity, installed dependency versions and
+SHA-256 checksums as a build artifact. This performs no registry push or
+server update. Use that image archive in the release kit; a later rebuild
+does not inherit the tested image's identity.
 
 Its SQLite 3.51.3 is private to the runner: Linux builds the runtime image's
 verified source; Windows preloads the verified official DLL through a private
