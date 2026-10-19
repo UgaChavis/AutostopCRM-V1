@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from scripts import j1_forward_cold_history as history
 from scripts import j1_forward_io as io
+from scripts import j1_forward_release_faults as faults
 from scripts import j1_forward_release_rehearsal as rehearsal
+from scripts import j1_forward_state as state
 
 
 @unittest.skipUnless(
@@ -85,8 +87,117 @@ class ReleaseRehearsalFilesystemTests(unittest.TestCase):
                             fixture.origin["origin_plan_ref"],
                             io.reference(public),
                         )
+                    separate = rehearsal.independent_restore(
+                        fixture,
+                        fixture.origin["origin_plan_ref"],
+                        captured,
+                        context,
+                        roots,
+                        custodian,
+                    )
+                    self.assertNotEqual(separate["pid"], os.getpid())
+                    self.assertTrue(separate["data_restore"]["provided_artifacts_restored_exactly"])
+                    self.assertIsNone(separate["control_restore"])
+                    separate_payload = rehearsal.signatures.verify_proof(
+                        separate["proof_ref"],
+                        "offhost_restore",
+                        fixture.origin["origin_plan_ref"],
+                        io.reference(public),
+                    )
+                    self.assertEqual(separate_payload["scope"], "private_data_restore_only")
+                    from scripts import j1_forward_release as release
+
+                    with self.assertRaisesRegex(io.Refusal, "proof_payload_binding"):
+                        release.validate_payload(
+                            "offhost_restore",
+                            separate_payload,
+                            fixture.control / "attempts" / old["attempt_id"],
+                            fixture.origin["origin_plan_ref"],
+                            old,
+                            io.document(io.referenced(old["baseline_ref"])),
+                        )
                 self.assertEqual(fixture.store.pending_path.read_bytes(), original_pending)
                 self.assertGreater(rehearsal.measure_private_bytes(fixture.root), 0)
+
+    def test_real_process_death_before_and_after_durable_store_boundaries(self):
+        cases = (
+            ("begin", "pending", "before"),
+            ("begin", "pending", "after"),
+            ("commit", "history", "before"),
+            ("commit", "history", "after"),
+            ("commit", "HEAD", "before"),
+            ("commit", "HEAD", "after"),
+            ("finish", "pending_unlink", "before"),
+            ("finish", "pending_unlink", "after"),
+            ("finish", "terminal_sync", "after"),
+        )
+        with rehearsal.TraceFixture() as fixture:
+            fixture.produce()
+            with fixture.custody:
+                plan_ref = fixture.origin["origin_plan_ref"]
+                plan = io.document(io.referenced(plan_ref))
+                original_pending = fixture.store.pending_path.read_bytes()
+                # These are deliberately non-acceptance artifacts. This test
+                # covers real Store durability, not proof or release admission.
+                proofs = {
+                    kind: fixture._write(
+                        fixture.root / "storage-only-artifacts" / (kind + ".json"),
+                        {"schema": "private.storage-only-not-release-acceptance", "kind": kind},
+                    )
+                    for kind in state.PROOF_FIELDS
+                }
+                for index, (operation, target, phase) in enumerate(cases):
+                    with self.subTest(operation=operation, target=target, phase=phase):
+                        directory = fixture.root / "state-faults" / str(index)
+                        directory.mkdir(mode=0o700, parents=True)
+                        store = state.Store(directory / "state", fixture.base_sha256)
+                        if operation != "begin":
+                            store.begin(plan)
+                        if operation == "finish":
+                            store.commit(plan, proofs)
+                        receipt = faults.crash(
+                            fixture,
+                            directory,
+                            plan_ref,
+                            operation=operation,
+                            target=target,
+                            phase=phase,
+                            proofs=proofs,
+                        )
+                        self.assertEqual(receipt["exit"], 77)
+                        if operation == "begin":
+                            if phase == "before":
+                                self.assertIsNone(store.pending())
+                            else:
+                                self.assertEqual(store.pending(), plan)
+                            store.begin(plan)
+                            committed = store.commit(plan, proofs)
+                        elif operation == "commit":
+                            if target == "history" and phase == "before":
+                                self.assertEqual(store.head()["sequence"], 0)
+                                committed = store.commit(plan, proofs)
+                            else:
+                                if target == "HEAD" and phase == "after":
+                                    self.assertEqual(store.head()["sequence"], 1)
+                                else:
+                                    with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
+                                        store.head()
+                                committed = store.recover(plan)
+                        else:
+                            if store.pending() is not None:
+                                store.finish(plan)
+                            committed = store.confirm_finished(plan)
+                        # A lost reply never allocates a second history record.
+                        self.assertEqual(len(list(store.history.iterdir())), 1)
+                        self.assertEqual(store.head()["sha256"], committed["sha256"])
+                        if store.pending() is not None:
+                            repeated = store.commit(plan, proofs)
+                            self.assertEqual(repeated, committed)
+                            store.finish(plan)
+                        self.assertEqual(store.confirm_finished(plan), committed)
+                        with self.assertRaisesRegex(io.Refusal, "state_attempt_replayed"):
+                            store.begin(plan)
+                self.assertEqual(fixture.store.pending_path.read_bytes(), original_pending)
 
 
 if __name__ == "__main__":

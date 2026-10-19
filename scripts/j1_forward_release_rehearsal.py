@@ -71,12 +71,10 @@ class PrivateFilesystem:
     def read(self, path, limit=128 * 1024**2):
         return cold_fixture._safe_file(path, self.root, limit=limit)
 
-    def __call__(self, path, operation):
-        if operation == "directory":
+    def __call__(self, path, *, directory=False):
+        if directory:
             return self.directory(path)
-        if operation == "read":
-            return self.read(path)
-        raise io.Refusal("rehearsal_custody_operation")
+        return self.read(path)
 
     def __enter__(self):
         self.depth += 1
@@ -316,6 +314,7 @@ class TemporaryCustodian:
         return result
 
     def sign(self, kind, plan_ref, payload, output):
+        io.read_protected(self.private, 4096)
         plan = io.document(io.referenced(plan_ref))
         public_ref = io.reference(self.public)
         body = {
@@ -382,3 +381,183 @@ def measure_private_bytes(root):
     return sum(
         path.lstat().st_size for path in Path(root).rglob("*") if stat.S_ISREG(path.lstat().st_mode)
     )
+
+
+def run_custodian_request(root, request_path):
+    """A separate private process restores first, then signs measured results."""
+    from scripts import j1_forward_archive as archive
+    from scripts import j1_forward_cold_native as native
+
+    root, request_path = Path(root), Path(request_path)
+    provider = cold_fixture.FixtureProvider(root)
+    io.require(request_path == root / "custodian-request.json", "rehearsal_request_path")
+    request = io.document(cold_fixture._safe_file(request_path, root))
+    io.require(
+        type(request) is dict
+        and set(request)
+        == {
+            "schema",
+            "package_ref",
+            "plan_ref",
+            "roots",
+            "backup",
+            "manifest_sha256",
+            "context",
+            "output",
+            "public_key",
+            "private_key",
+            "proof",
+            "control",
+        }
+        and request["schema"] == "autostop.j1.private-custodian-request.v1",
+        "rehearsal_request_fields",
+    )
+    for key in ("backup", "output", "public_key", "private_key", "proof"):
+        path = Path(request[key])
+        io.require(
+            path.is_absolute() and path.is_relative_to(root) and ".." not in path.parts,
+            "rehearsal_request_outside_custody",
+        )
+    roots = tuple(tuple(row) for row in request["roots"])
+    io.require(
+        all(
+            len(row) == 2 and Path(row[1]).is_relative_to(root) and ".." not in Path(row[1]).parts
+            for row in roots
+        ),
+        "rehearsal_source_roots",
+    )
+    io.require(
+        all(
+            Path(request["private_key"]) != Path(path)
+            and not Path(request["private_key"]).is_relative_to(path)
+            for _name, path in roots
+        ),
+        "rehearsal_private_signer_not_a_backup_source",
+    )
+    begin = time.perf_counter()
+    native.verify_package(
+        request["package_ref"], provider=provider, required_scope="native_fixture"
+    )
+    with PrivateFilesystem(root), patch.object(backup, "ROOTS", roots):
+        output = Path(request["output"])
+        output.mkdir(mode=0o700)
+        data_receipt = backup.verify_and_restore(
+            Path(request["backup"]),
+            request["manifest_sha256"],
+            output / "data",
+            request["context"],
+            timeout=60,
+        )
+        control_receipt = None
+        if request["control"] is not None:
+            spec = request["control"]
+            io.require(
+                type(spec) is dict
+                and set(spec)
+                == {
+                    "package",
+                    "manifest_sha256",
+                    "logical_root",
+                    "backup_manifest_ref",
+                    "stage",
+                    "closed_inspection_ref",
+                },
+                "rehearsal_control_request",
+            )
+            control_receipt = archive.verify_and_restore(
+                Path(spec["package"]),
+                spec["manifest_sha256"],
+                output / "control",
+                plan_ref=request["plan_ref"],
+                backup_manifest_ref=spec["backup_manifest_ref"],
+                stage=spec["stage"],
+                logical_root=spec["logical_root"],
+                custody=PrivateFilesystem(root),
+            )
+            payload = {
+                "plan_sha256": request["plan_ref"]["sha256"],
+                "baseline_sha256": io.document(io.referenced(request["plan_ref"]))["baseline_ref"][
+                    "sha256"
+                ],
+                "phase": "closed",
+                "actual_restore": data_receipt["provided_artifacts_restored_exactly"],
+                "manifest_sha256": request["manifest_sha256"],
+                "profile_sha256": request["context"]["scope_profile_sha256"],
+                "control_archive_manifest_sha256": spec["manifest_sha256"],
+                "control_graph_restored": control_receipt["semantic_graph_verified"],
+                "control_restore_receipt_sha256": io.sha(io.canonical(control_receipt)),
+                "closed_inspection_sha256": spec["closed_inspection_ref"]["sha256"],
+            }
+        else:
+            payload = {"scope": "private_data_restore_only", "data_restore": data_receipt}
+        native.verify_package(
+            request["package_ref"], provider=provider, required_scope="native_fixture"
+        )
+        signer = TemporaryCustodian.__new__(TemporaryCustodian)
+        signer.root, signer.private, signer.public = (
+            Path(request["private_key"]).parent,
+            Path(request["private_key"]),
+            Path(request["public_key"]),
+        )
+        proof = signer.sign("offhost_restore", request["plan_ref"], payload, request["proof"])
+        result = {
+            "schema": "autostop.j1.private-custodian-result.v1",
+            "pid": os.getpid(),
+            "wall_seconds": time.perf_counter() - begin,
+            "data_restore": data_receipt,
+            "control_restore": control_receipt,
+            "proof_ref": proof,
+            "same_host_private_fixture": True,
+        }
+        io.write_new(root / "custodian-result.json", result)
+
+
+def independent_restore(fixture, plan_ref, captured, context, roots, signer, *, control=None):
+    """Fixed child command; no shell, inherited credentials or effect commands."""
+    request = {
+        "schema": "autostop.j1.private-custodian-request.v1",
+        "package_ref": fixture.package_ref,
+        "plan_ref": plan_ref,
+        "roots": list(roots),
+        "backup": str(Path(captured["manifest"]["path"]).parent),
+        "manifest_sha256": captured["manifest_sha256"],
+        "context": context,
+        "output": str(fixture.root / "peer-restore"),
+        "public_key": str(signer.public),
+        "private_key": str(signer.private),
+        "proof": str(fixture.root / "peer-offhost-proof.json"),
+        "control": control,
+    }
+    path = fixture.root / "custodian-request.json"
+    fixture._write(path, request)
+    command = "\n".join(
+        (
+            "import sys",
+            "sys.path.insert(0, sys.argv[1])",
+            "from scripts.j1_forward_release_rehearsal import run_custodian_request",
+            "run_custodian_request(sys.argv[2], sys.argv[3])",
+        )
+    )
+    result = subprocess.run(
+        [
+            str(Path(os.sys.executable).resolve()),
+            "-I",
+            "-S",
+            "-B",
+            "-c",
+            command,
+            str(SOURCE),
+            str(fixture.root),
+            str(path),
+        ],
+        cwd=fixture.root,
+        env=cold_fixture.ENVIRONMENT,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    io.require(result.returncode == 0, "rehearsal_independent_custodian_failed")
+    receipt = io.document(io.read_protected(fixture.root / "custodian-result.json"))
+    io.require(receipt["pid"] != os.getpid(), "rehearsal_restore_process_not_independent")
+    return receipt
