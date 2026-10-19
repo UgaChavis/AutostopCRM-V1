@@ -23,6 +23,24 @@ MAX_FILE_BYTES = 32 * 1024**2
 SLOT_NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 
 
+def control_path(path, root):
+    """Only the four established controller areas use the plain control codec.
+
+    Cold epochs beneath the same physical root remain typed authorities. This
+    classification works on the logical Linux paths during off-host restore.
+    """
+    path, root = PurePosixPath(path), PurePosixPath(root)
+    if not path.is_relative_to(root):
+        return False
+    relative = path.relative_to(root)
+    return bool(relative.parts) and relative.parts[0] in {
+        "state",
+        "attempts",
+        "origins",
+        "launch-permits",
+    }
+
+
 def _references(document):
     pending = [document]
     count = 0
@@ -210,4 +228,4 @@ def collect(
         io.require(
             reader({"path": path, "sha256": io.sha(raw)}) == raw, "cold_archive_source_changed"
         )
-    return {path: raw for path, raw in seen.items() if not PurePosixPath(path).is_relative_to(root)}
+    return {path: raw for path, raw in seen.items() if not control_path(path, root)}
