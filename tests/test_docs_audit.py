@@ -266,6 +266,8 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
         self.assertIn("!docs/J1_RELEASE_BOUNDARY.md", rules)
+        self.assertIn("!docs/J1_FORWARD_LAUNCH_ADMISSION.md", rules)
+        self.assertIn("!docs/J1_MANAGER_AUTHORITY_TRANSITION.md", rules)
 
     @unittest.skipUnless(
         os.environ.get("AUTOSTOPCRM_DOCKER_CONTEXT_TESTS") == "1",
