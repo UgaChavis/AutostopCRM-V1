@@ -62,7 +62,9 @@ def build_plan(suite: unittest.TestSuite) -> RuntimePlan:
 def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     environment = os.environ.copy()
     previous = environment.get("PYTHONPATH", "")
-    environment["PYTHONPATH"] = str(root / "tests") + (os.pathsep + previous if previous else "")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [str(root / "src"), str(root / "tests"), *([previous] if previous else [])]
+    )
     environment["PYTHONUTF8"] = "1"
     coverage = [sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m"]
     commands = [
@@ -167,14 +169,23 @@ def main() -> int:
     parser.add_argument("--core-plan", type=Path)
     parser.add_argument("--plan-sha256")
     args = parser.parse_args()
+    # A cohort imports only its selected classes. Do not rely on a different
+    # discovery module having inserted this checkout's src directory first.
+    sys.path.insert(0, str(ROOT / "src"))
     cohort = None
     if args.core_cohort is not None:
         if args.core_plan is None or args.plan_sha256 is None:
             parser.error("a core cohort requires the immutable plan and its hash")
         _plan, selected = load_plan(args.core_plan, args.plan_sha256, args.core_cohort)
         suite = unittest.defaultTestLoader.loadTestsFromNames(selected)
-        if tuple(case.id() for case in iter_cases(suite)) != selected:
-            parser.error("loaded core test identities differ from the immutable plan")
+        actual = tuple(case.id() for case in iter_cases(suite))
+        if actual != selected:
+            missing = sorted(set(selected) - set(actual))[:3]
+            unexpected = sorted(set(actual) - set(selected))[:3]
+            parser.error(
+                "loaded core test identities differ from the immutable plan: "
+                f"missing={missing!r}; unexpected={unexpected!r}"
+            )
         if any(is_browser_case(case) for case in iter_cases(suite)):
             parser.error("a core cohort cannot contain browser tests")
         cohort = {"core_plan_sha256": args.plan_sha256, "core_cohort_index": args.core_cohort}

@@ -100,6 +100,49 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             self.assertFalse(result["successful"])
             self.assertFalse(result["exact_disjoint_id_receipts"])
 
+    def test_selected_application_import_does_not_depend_on_discovery_order(self):
+        identity = "tests.test_cold_manager.ColdManagerTests.test_sealed_source_calls_independent_manager_validator"
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            environment = self._environment(root)
+            environment.pop("PYTHONPATH", None)
+            self.assertEqual(
+                cohorts.run_core(
+                    (identity,),
+                    root=ROOT,
+                    environment=environment,
+                    budget=30,
+                    workers=1,
+                ),
+                0,
+            )
+            result = json.loads(next((root / "receipts").glob("core-result-*.json")).read_text())
+            self.assertTrue(result["exact_disjoint_id_receipts"])
+
+    def test_owned_socket_fixture_stays_bounded_under_long_ci_temp_parent(self):
+        identity = "tests.test_automation_center.AutomationControlClientTests.test_bounded_protocol_round_trip"
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            long_parent = root / ("long-ci-cache-" + "a" * 100) / "fixtures"
+            long_parent.mkdir(parents=True)
+            environment = self._environment(root) | {
+                "TEMP": str(long_parent),
+                "TMP": str(long_parent),
+            }
+            self.assertEqual(
+                cohorts.run_core(
+                    (identity,),
+                    root=ROOT,
+                    environment=environment,
+                    budget=30,
+                    workers=1,
+                ),
+                0,
+            )
+            receipt = json.loads(next((root / "receipts").glob("runtime-suite-*.json")).read_text())
+            self.assertLess(len(receipt["fixture_temp_root"].encode()), 80)
+            self.assertFalse(Path(receipt["fixture_temp_root"]).exists())
+
     def test_shared_deadline_stops_real_nested_worker_without_giving_each_a_new_budget(self):
         ids = (
             "tests.test_runtime_suite_runner.RuntimeSuiteRunnerTests.test_primary_failure_is_visible_before_cleanup_times_out",

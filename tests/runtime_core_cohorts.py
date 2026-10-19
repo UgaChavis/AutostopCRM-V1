@@ -142,7 +142,14 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
     digest = write_new(path, plan)
     controllers, statuses = [], []
     code = 1
-    with tempfile.TemporaryDirectory(prefix="autostopcrm-core-cohorts-") as temporary:
+    # AF_UNIX names include every ancestor. Keep the owned parent short instead
+    # of nesting it below the CI cache/fixtures tree (which can exceed 108 bytes).
+    temporary_parent = (
+        Path(environment.get("RUNNER_TEMP", tempfile.gettempdir())).resolve(strict=True)
+        if os.name == "nt"
+        else Path("/tmp")
+    )
+    with tempfile.TemporaryDirectory(prefix="ac-", dir=temporary_parent) as temporary:
         try:
             for index, group in enumerate(groups):
                 private = Path(temporary, str(index)).resolve()

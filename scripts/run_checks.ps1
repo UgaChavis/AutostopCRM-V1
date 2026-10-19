@@ -90,7 +90,7 @@ foreach ($environmentName in $managedEnvironmentNames) {
     )
 }
 
-$tempRoot = & $pythonExe -c 'import os, pathlib, tempfile; candidate = os.environ.get("RUNNER_TEMP") if os.name == "nt" and os.environ.get("GITHUB_ACTIONS") == "true" else tempfile.gettempdir(); print(pathlib.Path(candidate).resolve(strict=True))'
+$tempRoot = & $pythonExe -c 'import os, pathlib, tempfile; candidate = os.getenv("RUNNER_TEMP") if os.name == "nt" and os.getenv("GITHUB_ACTIONS") == "true" else tempfile.gettempdir(); print(pathlib.Path(candidate).resolve(strict=True))'
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tempRoot)) {
     throw "Cannot establish the canonical private CI temp parent."
 }

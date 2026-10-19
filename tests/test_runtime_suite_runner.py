@@ -78,7 +78,7 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             self.assertEqual(core.call_args.kwargs["environment"]["PYTHONUTF8"], "1")
             self.assertEqual(
                 second.kwargs["env"]["PYTHONPATH"],
-                str(Path.cwd() / "tests") + os.pathsep + "existing",
+                os.pathsep.join([str(Path.cwd() / "src"), str(Path.cwd() / "tests"), "existing"]),
             )
 
     def test_external_controller_has_core_and_browser_budgets_without_retries(self):
