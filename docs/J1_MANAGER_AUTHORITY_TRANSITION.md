@@ -172,8 +172,13 @@ through check/exec. Existing installed artifacts are never overwritten with
 different bytes. A failed or ambiguous publication keeps the same attempt and
 requires exact readback; no old-writer fallback is introduced.
 
-Staging verifies the original native warm authority and actual writer closure
-before its first publication. It verifies the offline source package, copies
+Closed-mode staging verifies the original native warm authority and actual
+writer closure before its first publication. The separate explicit
+`inert_before_prepare` mode instead requires the original six roles to be
+running under their unchanged accepted authority, before and after copying;
+it cannot accept an ownership argument or an expired recovery observation.
+This permits the next plan to bind the exact staged source inode. Both modes
+verify the offline source package and copy
 only its exact source inventory and stages inert v2 guard/native/config/runtime
 files. It does not publish a selector, systemd drop-in, admission or armed state.
 The v2 capsule is deterministically derived from the verified v1 capsule by
@@ -194,7 +199,8 @@ loads the same capture/restore engine in a separate namespace with the explicit
 `crm_manager_mcp_native_preserved_warm_v2` profile. It adds exact v2 code,
 configuration, state and physical candidate-source roots. Inert staging must
 precede that backup; it cannot be described as a complete snapshot of an
-installation performed later.
+installation performed later. Its separate `transport_engine` uses the exact
+same v2 profile on sender and worker without changing the v1 transport hash.
 
 Issuance requires a fresh, exact mixed plan, closure/Store ownership bindings,
 the protected backup reference and an independently signed off-host restore

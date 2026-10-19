@@ -85,6 +85,17 @@ class MixedPlanTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(old_backup.BackupRefusal):
                 mixed_backup.engine(path)
 
+    def test_mixed_transport_and_restore_share_the_typed_profile_without_mutating_v1(self):
+        from scripts import j1_forward_transport as old_transport
+
+        previous = old_transport.PROFILE_SHA256
+        transport = mixed_backup.transport_engine(guard.SOURCE_ROOT)
+        self.assertEqual(
+            transport.PROFILE_SHA256, mixed_backup.engine(guard.SOURCE_ROOT).profile_sha256()
+        )
+        self.assertIs(transport.core(), mixed_backup.engine(guard.SOURCE_ROOT))
+        self.assertEqual(old_transport.PROFILE_SHA256, previous)
+
 
 class VersionedConsumerTests(unittest.TestCase):
     def test_v2_reuses_a_separate_sealed_namespace_and_never_changes_v1(self):
@@ -193,6 +204,23 @@ class ProducerTests(unittest.TestCase):
         )
         self.stack.enter_context(patch.object(guard_tests, "guard", self.base))
         self.fixture = guard_tests.SyntheticAuthority()
+        self.fixture.baseline.update(
+            runtime_inventories=[],
+            deployment_lock="/synthetic/deploy.lock",
+            deployment_lock_identity=[1, 2],
+            maintenance_marker="/synthetic/marker",
+            desired_inbound=False,
+            manager_root="/old/manager",
+            work_root="/old/work",
+            legacy_crm_revision="a" * 40,
+            desired_units={
+                unit: {"active": unit in guard.UNITS, "enabled": True}
+                for unit in mixed.original.ALL_UNITS
+            },
+            libraries={},
+            cache_mounts={},
+        )
+        self.fixture.reseal()
         self.stack.enter_context(self.fixture.patches())
         self.stack.enter_context(patch.object(io, "referenced", self.referenced))
         self.stack.enter_context(
@@ -363,8 +391,8 @@ class ProducerTests(unittest.TestCase):
             self.events.append("closure")
             return {key: ownership[key] for key in ("attempt_id", "boot_id", "process_scope_ref")}
 
-        def preserve(self, *_args):
-            self.events.append("preserve")
+        def preserve(self, *_args, **kwargs):
+            self.events.append("preserve-running" if kwargs.get("running") else "preserve")
             if self.preserve_error:
                 raise self.preserve_error
 
@@ -514,7 +542,24 @@ class ProducerTests(unittest.TestCase):
                 deadline=time.monotonic() + 30,
                 backend=self.backend,
             )
-        verifier.assert_called_once_with(inputs["path"], inputs["sha256"], "/synthetic/package")
+            self.backend.events.clear()
+            self.assertEqual(
+                transition.stage_locked(
+                    inputs,
+                    "/synthetic/package",
+                    predecessor,
+                    None,
+                    deployment_fd=99,
+                    deadline=time.monotonic() + 30,
+                    backend=self.backend,
+                    mode="inert_before_prepare",
+                ),
+                staged,
+            )
+        self.assertEqual(verifier.call_count, 2)
+        verifier.assert_called_with(inputs["path"], inputs["sha256"], "/synthetic/package")
+        self.assertNotIn("closure", self.backend.events)
+        self.assertEqual(self.backend.events.count("preserve-running"), 3)
         receipt, binding = mixed.load_transition(staged)
         self.assertFalse(receipt["activation_authorized"])
         self.assertNotIn("selector", self.backend.events)
@@ -525,6 +570,18 @@ class ProducerTests(unittest.TestCase):
         runtime = self.base._profile(binding, derived, policy, reader)
         self.assertEqual(runtime["source_identity"], [1, 9])
         self.assertFalse(runtime["application_imported"])
+
+    def test_static_target_projection_keeps_predecessor_immutable_and_is_not_acceptance(self):
+        before = copy.deepcopy(self.fixture.baseline)
+        projected = mixed.project_baseline(self.transition_ref, before)
+        self.assertEqual(before, self.fixture.baseline)
+        self.assertEqual(projected["schema"], mixed.SCHEMA)
+        self.assertEqual(projected["profiles"][guard.UNIT]["manager_revision"], guard.REVISION)
+        self.assertEqual(projected["warm_actors"], before["warm_actors"])
+        self.assertEqual(projected["desired_units"], before["desired_units"])
+        changed = {**before, "desired_inbound": True}
+        with self.assertRaisesRegex(io.Refusal, "predecessor_digest"):
+            mixed.project_baseline(self.transition_ref, changed)
 
 
 if __name__ == "__main__":

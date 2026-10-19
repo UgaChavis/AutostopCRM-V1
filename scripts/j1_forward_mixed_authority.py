@@ -338,6 +338,59 @@ def prestart_baseline(transition_ref, *, owned_closure):
     return {**value, "sha256": io.sha(io.canonical(value))}
 
 
+def project_baseline(transition_ref, predecessor):
+    """Static target before installation; it is never post-start acceptance."""
+    receipt, binding = load_transition(transition_ref)
+    io.require(
+        io.sha(io.canonical(predecessor)) == receipt["predecessor_ref"]["sha256"]
+        and predecessor.get("schema") == original.SCHEMA,
+        "mixed_projection_predecessor_digest",
+    )
+    io.require(
+        io.sha(io.canonical({key: value for key, value in predecessor.items() if key != "sha256"}))
+        == predecessor["sha256"],
+        "mixed_projection_predecessor_digest",
+    )
+    policy = io.document(
+        io.referenced({"path": successor.POLICY, "sha256": successor.PINS[successor.POLICY]})
+    )
+    profiles = {
+        unit: {**profile, "binding_sha256": io.sha(io.canonical(profile))}
+        for unit, profile in {**policy["bindings"], successor.UNIT: binding["profile"]}.items()
+    }
+    immutable = {
+        "schema": SCHEMA,
+        "scope": SCOPE,
+        "manager_revision": successor.REVISION,
+        "daemon_mode": "accepted_original_warm",
+        "manager_transition_ref": transition_ref,
+        "predecessor_sha256": predecessor["sha256"],
+        "base_sha256": predecessor["base_sha256"],
+        "binding_sha256": receipt["binding_ref"]["sha256"],
+        "profiles": profiles,
+        **{
+            key: predecessor[key]
+            for key in (
+                "warm_actors",
+                "cache",
+                "runtime_inventories",
+                "deployment_lock",
+                "deployment_lock_identity",
+                "maintenance_marker",
+                "desired_inbound",
+                "manager_root",
+                "work_root",
+                "legacy_crm_revision",
+            )
+        },
+    }
+    value = {
+        **immutable,
+        **{key: predecessor[key] for key in ("desired_units", "libraries", "cache_mounts")},
+    }
+    return {**value, "sha256": io.sha(io.canonical(value))}
+
+
 def verify_preserved(baseline, *, running=False, owned_closure=None):
     io.require(type(baseline) is dict and baseline.get("schema") == SCHEMA, "mixed_baseline_schema")
     unsigned = {key: value for key, value in baseline.items() if key != "sha256"}

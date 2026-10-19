@@ -186,11 +186,13 @@ class NativeBackend:
         return closure.observe_closed(ownership, force_full=True)
 
     @staticmethod
-    def preserve(predecessor, ownership):
+    def preserve(predecessor, ownership, *, running=False):
         return authority.verify_preserved(
             predecessor,
-            running=False,
-            owned_closure={key: ownership[key] for key in ("dropins", "bytes_sha256")},
+            running=running,
+            owned_closure=None
+            if running
+            else {key: ownership[key] for key in ("dropins", "bytes_sha256")},
         )
 
     @staticmethod
@@ -199,16 +201,36 @@ class NativeBackend:
 
 
 def stage_locked(
-    inputs_ref, package, predecessor_ref, ownership, *, deployment_fd, deadline, backend=None
+    inputs_ref,
+    package,
+    predecessor_ref,
+    ownership,
+    *,
+    deployment_fd,
+    deadline,
+    backend=None,
+    mode="closed",
 ):
     """Inert staging only. Fresh original warm authority is checked before effects."""
     backend = NativeBackend() if backend is None else backend
+    io.require(
+        mode in {"closed", "inert_before_prepare"}
+        and (type(ownership) is dict if mode == "closed" else ownership is None),
+        "successor_staging_mode",
+    )
+    inert = mode == "inert_before_prepare"
     io.require(time.monotonic() < deadline, "successor_deadline")
     predecessor = io.document(io.referenced(predecessor_ref))
+
     # This is the compatibility STOP for exited accepted actors, unknown warm
     # ingress, source drift or cold replacement. No new file is published first.
-    backend.preserve(predecessor, ownership)
-    backend.closure(ownership)
+    def observe():
+        if inert:
+            return backend.preserve(predecessor, None, running=True)
+        backend.preserve(predecessor, ownership)
+        return backend.closure(ownership)
+
+    observe()
     source.verify(inputs_ref["path"], inputs_ref["sha256"], package)
     package = Path(package)
     capsule = derive_capsule(io.document(source.stable_read(package / "capsule.json")))
@@ -243,8 +265,7 @@ def stage_locked(
         )
     )
     with backend.locked(deployment_fd, deadline=deadline):
-        backend.preserve(predecessor, ownership)
-        backend.closure(ownership)
+        observe()
         mode_map = {row["path"]: int(row["mode"][-3:], 8) for row in index["files"]}
         for name, raw in files.items():
             backend.publish(Path(guard.SOURCE_ROOT) / name, raw, mode=mode_map.get(name, 0o644))
@@ -297,7 +318,7 @@ def stage_locked(
             "old_writer_allowed": False,
             "controller_files": controller_files,
         }
-        backend.closure(ownership)
+        observe()
         io.require(mixed.consumer_inventory() == controller_files, "successor_controller_changed")
         return backend.publish(INSTALL_RECEIPT, io.canonical(receipt))
 
