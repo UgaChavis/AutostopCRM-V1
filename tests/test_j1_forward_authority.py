@@ -105,6 +105,87 @@ class AuthorityContractTests(unittest.TestCase):
 
 
 class ClosureAndLoadedUnitTests(unittest.TestCase):
+    def observe_systemd(self, rows: list[tuple[str, str]]) -> dict[str, str]:
+        response = SimpleNamespace(
+            returncode=0, stdout="".join(f"{key}={value}\n" for key, value in rows).encode()
+        )
+        with patch.object(authority.subprocess, "run", return_value=response):
+            return authority._systemd("autostop-work-telegram.service", time.monotonic() + 10)
+
+    def test_repeated_systemd_conditions_preserve_the_guard_then_deny(self) -> None:
+        unit, fields, context = self.fixture(closed=True)
+        original, deny = fields["ExecCondition"].split(" " + loaded("/usr/bin/false"))
+        self.assertEqual("", deny)
+        rows = [(key, value) for key, value in fields.items() if key != "ExecCondition"]
+        rows += [("ExecCondition", original), ("ExecCondition", loaded("/usr/bin/false"))]
+        observed = self.observe_systemd(rows)
+        self.assertEqual(fields, observed)
+        authority._loaded(unit, observed, context, True)
+        for commands in (
+            [loaded("/usr/bin/false"), original],
+            [original, loaded("/usr/bin/false"), loaded("/usr/bin/false")],
+        ):
+            with self.subTest(commands=commands):
+                observed = self.observe_systemd(
+                    rows[:-2] + [("ExecCondition", command) for command in commands]
+                )
+                with self.assertRaisesRegex(Refusal, "loaded_guard_changed"):
+                    authority._loaded(unit, observed, context, True)
+
+    def test_repeated_systemd_commands_cannot_hide_start_or_hook_changes(self) -> None:
+        unit, fields, context = self.fixture(closed=True)
+        for key in (
+            "ExecStart",
+            "ExecStartPre",
+            "ExecStartPost",
+            "ExecStop",
+            "ExecStopPost",
+            "ExecReload",
+        ):
+            with self.subTest(key=key):
+                rows = [(name, value) for name, value in fields.items() if name != key]
+                first = fields.get(key) or loaded("/usr/bin/true")
+                rows += [(key, first), (key, loaded("/usr/bin/false"))]
+                observed = self.observe_systemd(rows)
+                self.assertEqual(first + " " + loaded("/usr/bin/false"), observed[key])
+                with self.assertRaises(Refusal):
+                    authority._loaded(unit, observed, context, True)
+
+    def test_duplicate_scalar_systemd_properties_remain_invalid(self) -> None:
+        _, fields, _ = self.fixture(closed=True)
+        for key in ("Id", "LoadState", "NeedDaemonReload", "MainPID", "UnitFileState", "Other"):
+            with self.subTest(key=key):
+                original = {**fields, key: fields.get(key, "enabled")}
+                with self.assertRaisesRegex(Refusal, "systemd_shape"):
+                    self.observe_systemd([*original.items(), (key, original[key])])
+
+    def test_empty_repeated_command_or_malformed_systemd_row_is_invalid(self) -> None:
+        _, fields, _ = self.fixture(closed=True)
+        for commands in (("", fields["ExecCondition"]), (fields["ExecCondition"], "")):
+            with self.subTest(commands=commands):
+                rows = [(key, value) for key, value in fields.items() if key != "ExecCondition"]
+                rows += [("ExecCondition", command) for command in commands]
+                with self.assertRaisesRegex(Refusal, "systemd_shape"):
+                    self.observe_systemd(rows)
+        response = SimpleNamespace(returncode=0, stdout=b"Id=unit\ninvalid-row\n")
+        with patch.object(authority.subprocess, "run", return_value=response):
+            with self.assertRaisesRegex(Refusal, "systemd_shape"):
+                authority._systemd("autostop-work-telegram.service", time.monotonic() + 10)
+
+    def test_unparsed_repeated_command_cannot_be_hidden_by_valid_commands(self) -> None:
+        _, fields, _ = self.fixture(closed=True)
+        for key in ("ExecCondition", "ExecStart"):
+            for invalid in ("unparsed-row", " ", "\t"):
+                for invalid_first in (False, True):
+                    with self.subTest(key=key, invalid=invalid, invalid_first=invalid_first):
+                        values = [fields[key], invalid]
+                        if invalid_first:
+                            values.reverse()
+                        rows = [(name, value) for name, value in fields.items() if name != key]
+                        rows += [(key, value) for value in values]
+                        with self.assertRaisesRegex(Refusal, "loaded_command_shape"):
+                            self.observe_systemd(rows)
+
     def test_denied_bootstrap_and_browser_keep_exact_dropin_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
