@@ -45,6 +45,7 @@ CLAIMS = {
     "writer_closure_proven": False,
     "external_dependencies_restored": False,
 }
+CONTROL_PREFIXES = {"state", "attempts", "origins", "launch-permits"}
 
 
 def _budget(deadline):
@@ -74,10 +75,24 @@ def _path(root, value):
         and ".." not in path.parts
         and path.is_relative_to(root)
         and len(path.relative_to(root).parts) >= 2
-        and path.relative_to(root).parts[0] in {"state", "attempts", "origins", "launch-permits"},
+        and path.relative_to(root).parts[0] in CONTROL_PREFIXES,
         "control_archive_path",
     )
     return path
+
+
+def _control_reference(root, reference, *, cold):
+    """Keep cold authorities with their typed collector, even below root.
+
+    A physical shared parent does not turn an epoch, request or kernel proof
+    into a Store state document. The cold collector authenticates those graphs;
+    the canonical Store graph retains its four existing namespaces.
+    """
+    path, logical_root = io.logical_path(reference["path"]), io.logical_path(root)
+    if not path.is_relative_to(logical_root):
+        return False
+    parts = path.relative_to(logical_root).parts
+    return not cold or len(parts) >= 2 and parts[0] in CONTROL_PREFIXES
 
 
 def _references(value):
@@ -558,7 +573,7 @@ def _write_bytes(path, raw, *, custody=None):
     )
 
 
-def _witness_files(root, witnesses, existing, end):
+def _witness_files(root, witnesses, existing, end, *, cold=False):
     pending, result = list(witnesses), {}
     while pending:
         _budget(end)
@@ -579,9 +594,7 @@ def _witness_files(root, witnesses, existing, end):
         )
         io.require(path.suffix == ".json", "control_archive_witness_document")
         doc = io.document(raw)
-        pending.extend(
-            ref for ref in _references(doc) if io.logical_path(ref["path"]).is_relative_to(root)
-        )
+        pending.extend(ref for ref in _references(doc) if _control_reference(root, ref, cold=cold))
         pending.extend(_implicit_references(root, doc))
     return result
 
@@ -616,6 +629,7 @@ def capture(
         "control_archive_new_external_destination_required",
     )
     end = time.monotonic() + timeout
+    cold = _cold(io.document(io.referenced(plan_ref)))
     witnesses = []
 
     def fence():
@@ -672,7 +686,7 @@ def capture(
         if refs:
             launch_refs[str(path)] = refs
             pending.extend(refs)
-        pending.extend(ref for ref in _references(doc) if Path(ref["path"]).is_relative_to(root))
+        pending.extend(ref for ref in _references(doc) if _control_reference(root, ref, cold=cold))
         pending.extend(_implicit_references(root, doc))
     documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
     required, consumers = _consumer_maps(documents), {}
@@ -757,7 +771,7 @@ def capture(
     fence()
     # The terminal fence is itself part of the recoverable proof graph. Include
     # those exact immutable documents, rather than leaving dangling native refs.
-    witnesses_raw = _witness_files(root, witnesses, files, end)
+    witnesses_raw = _witness_files(root, witnesses, files, end, cold=cold)
     for path, raw in sorted(witnesses_raw.items()):
         _budget(end)
         payload = f"{len(artifacts):06d}.bin"

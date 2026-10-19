@@ -17,6 +17,37 @@ from scripts import j1_forward_state as state
 from tests import test_j1_forward_recovery as recovery_tests
 
 
+class ControlReferenceRoutingTests(unittest.TestCase):
+    def test_cold_authorities_under_production_root_use_the_typed_collector(self):
+        root = PurePosixPath("/var/lib/autostop-crm-forward")
+        for suffix in (
+            "cold/v1/epochs/id/epoch.json",
+            "cold/v1/cuts/id/history.json",
+            "cold-requests/id/ticket.json",
+        ):
+            reference = {"path": str(root / suffix), "sha256": "a" * 64}
+            with self.subTest(suffix=suffix):
+                self.assertFalse(archive._control_reference(root, reference, cold=True))
+                self.assertTrue(archive._control_reference(root, reference, cold=False))
+                with self.assertRaises(io.Refusal):
+                    archive._path(root, reference["path"])
+
+    def test_canonical_store_namespaces_and_external_boundaries_remain_exact(self):
+        root = PurePosixPath("/var/lib/autostop-crm-forward")
+        for prefix in archive.CONTROL_PREFIXES:
+            reference = {"path": str(root / prefix / "proof.json"), "sha256": "a" * 64}
+            with self.subTest(prefix=prefix):
+                self.assertTrue(archive._control_reference(root, reference, cold=True))
+                self.assertEqual(
+                    archive._path(root, reference["path"]), root / prefix / "proof.json"
+                )
+        for name in (
+            "/etc/autostop-crm-forward/cold/v1/authority.json",
+            str(root) + "-other/state/x",
+        ):
+            self.assertFalse(archive._control_reference(root, {"path": name}, cold=True))
+
+
 class ControlArchiveTests(unittest.TestCase):
     def setUp(self):
         self.origin = recovery_tests.OriginTests()
