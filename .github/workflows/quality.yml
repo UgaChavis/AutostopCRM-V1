@@ -169,7 +169,7 @@ jobs:
           docker run --rm --network none --entrypoint python "$image" -m pip freeze > release-image/runtime-requirements.txt
           docker save "$image" | gzip -n -1 > "release-image/autostopcrm-${GITHUB_SHA}-linux-amd64.tar.gz"
           cd release-image
-          sha256sum ./* > SHA256SUMS
+          sha256sum autostopcrm-*.tar.gz image-identity.txt runtime-requirements.txt > SHA256SUMS
 
       - name: Preserve the exact tested post-merge image
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}

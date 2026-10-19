@@ -627,7 +627,7 @@ QUALITY_WORKFLOW_REQUIRED_TEXT = (
         "GitHub quality workflow does not run docs audit",
     ),
     (
-        "coverage run -m unittest discover -s tests -v",
+        "python -m tests.runtime_suite_runner",
         "GitHub quality workflow does not collect full-suite branch coverage",
     ),
     (
