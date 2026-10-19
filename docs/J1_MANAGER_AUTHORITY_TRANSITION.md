@@ -49,11 +49,13 @@ private configuration.
 
 The checkout must be byte-clean, including line endings. On Windows, a checkout
 normalized to CRLF can have a clean Git status and still be refused. Prepare a
-separate source worktree with `git -c core.autocrlf=false worktree add --detach
+separate source worktree with `git -c core.autocrlf=false -c core.eol=lf worktree add --detach
 ABSOLUTE_NEW_SOURCE_PATH bfbe58823a11f84fef23fef291f690559d989af0` when needed;
 do not rewrite an existing working checkout to satisfy this check.
 Both the Manager and CRM controller checkouts must be byte-clean. Execute the
 entrypoint from the matching LF CRM checkout bound in the inputs package.
+Use both Git flags for CRM too: its `* text=auto` attributes otherwise select
+native Windows line endings even when `core.autocrlf=false`.
 
 The consumer binds the complete Git file index and source bytes, the exact
 candidate revision/tree, separate Manager/CRM CI evidence, predecessor references
