@@ -23,6 +23,74 @@ MAX_FILE_BYTES = 32 * 1024**2
 SLOT_NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 
 
+def _version(path):
+    info = Path(path).lstat()
+    return tuple(
+        getattr(info, key)
+        for key in (
+            "st_dev",
+            "st_ino",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+            "st_mode",
+            "st_uid",
+            "st_gid",
+            "st_nlink",
+        )
+    )
+
+
+class _ReadSnapshot:
+    """One capture's bytes, with mandatory full source revalidation at exit.
+
+    The protected reader owns one descriptor per actual read. We retain no
+    descriptor per graph entry. Pure restore supplies no version callback and
+    never stats a logical native path or asserts current native authority.
+    """
+
+    def __init__(self, reader, version=None):
+        self.reader, self.version = reader, version
+        self.files, self.references, self.versions = {}, {}, {}
+        self.total = 0
+
+    def read(self, reference):
+        cold.reference(reference)
+        path = reference["path"]
+        if path in self.files:
+            io.require(self.references[path] == reference, "cold_archive_reference_alias")
+            return self.files[path]
+        before = self.version(path) if self.version is not None else None
+        raw = self.reader(reference)
+        io.require(
+            type(raw) is bytes and io.sha(raw) == reference["sha256"],
+            "cold_archive_reference_changed",
+        )
+        if self.version is not None:
+            io.require(self.version(path) == before, "cold_archive_source_version_changed")
+            self.versions[path] = before
+        self.total += len(raw)
+        io.require(
+            len(self.files) < MAX_FILES and len(raw) <= MAX_FILE_BYTES and self.total <= MAX_BYTES,
+            "cold_archive_budget",
+        )
+        self.files[path], self.references[path] = raw, dict(reference)
+        return raw
+
+    def recheck(self):
+        for path, raw in self.files.items():
+            if self.version is not None:
+                io.require(
+                    self.version(path) == self.versions[path], "cold_archive_source_version_changed"
+                )
+            observed = self.reader(self.references[path])
+            io.require(observed == raw, "cold_archive_source_changed")
+            if self.version is not None:
+                io.require(
+                    self.version(path) == self.versions[path], "cold_archive_source_version_changed"
+                )
+
+
 def control_path(path, root):
     """Only the four established controller areas use the plain control codec.
 
@@ -87,7 +155,11 @@ def collect(
     plan, *, root, stage, capture_clock, read_reference=None, read_file=None, list_directory=None
 ):
     """Pure byte semantics when supplied restored readers; no live permits."""
-    reader = io.referenced if read_reference is None else read_reference
+    reader = (
+        (lambda reference: io.read_protected(reference["path"], MAX_FILE_BYTES))
+        if read_reference is None
+        else read_reference
+    )
     file_reader = io.read_protected if read_file is None else read_file
     listing = (
         (lambda path: sorted(str(item) for item in Path(path).iterdir()))
@@ -103,8 +175,9 @@ def collect(
         and type(capture_clock["monotonic_ns"]) is int,
         "cold_archive_capture_clock",
     )
+    snapshot = _ReadSnapshot(reader, _version if list_directory is None else None)
     seen, pending = (
-        {},
+        snapshot.files,
         [
             plan["cold_authority_package_ref"],
             plan["dispatch_epoch_ref"],
@@ -114,22 +187,7 @@ def collect(
     )
 
     def read(reference):
-        cold.reference(reference)
-        path = reference["path"]
-        raw = reader(reference)
-        io.require(
-            type(raw) is bytes and io.sha(raw) == reference["sha256"],
-            "cold_archive_reference_changed",
-        )
-        io.require(path not in seen or seen[path] == raw, "cold_archive_reference_alias")
-        seen[path] = raw
-        io.require(
-            len(seen) <= MAX_FILES
-            and len(raw) <= MAX_FILE_BYTES
-            and sum(map(len, seen.values())) <= MAX_BYTES,
-            "cold_archive_budget",
-        )
-        return raw
+        return snapshot.read(reference)
 
     def walk():
         visited = set()
@@ -251,8 +309,5 @@ def collect(
         )
     # Old origin and public review key are part of this same bounded graph.
     cold_state.validate_origin(io.document(read(plan["baseline_ref"])), read_reference=read)
-    for path, raw in seen.items():
-        io.require(
-            reader({"path": path, "sha256": io.sha(raw)}) == raw, "cold_archive_source_changed"
-        )
+    snapshot.recheck()
     return {path: raw for path, raw in seen.items() if not control_path(path, root)}
