@@ -330,7 +330,7 @@ def verify_checkpoint(reference, *, provider, binding):
         "catalog_checkpoint_binding",
     )
     policy = _reference(provider, checkpoint["policy_ref"])
-    from scripts import j1_forward_cold_history, j1_forward_cold_producer_native
+    from scripts import j1_forward_cold_catalog_native, j1_forward_cold_history
 
     history = j1_forward_cold_history.load(
         policy["predecessor_ref"],
@@ -343,13 +343,13 @@ def verify_checkpoint(reference, *, provider, binding):
         binding,
         provider=provider,
         verify_path_binding=lambda unit, source, policy: (
-            j1_forward_cold_producer_native.verify_catalog_path(
+            j1_forward_cold_catalog_native.verify_catalog_path(
                 unit, source, policy, provider=provider, history=history
             )
         ),
     )
     cold.need(actual == checkpoint["measurement"], "catalog_checkpoint_changed")
-    j1_forward_cold_producer_native.verify_old_crm_ingress(
+    j1_forward_cold_catalog_native.verify_old_crm_ingress(
         checkpoint["old_crm_ingress_ref"], provider=provider, binding=binding
     )
     return {**actual, "old_crm_ingress_ref": checkpoint["old_crm_ingress_ref"]}

@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from scripts import j1_forward_cold_catalog_native as catalog_native
 from scripts import j1_forward_cold_kernel_supervisor as supervisor
 from scripts import j1_forward_cold_producer as producer
 from scripts import j1_forward_cold_producer_inputs as inputs
@@ -196,7 +197,7 @@ class ProducerTests(unittest.TestCase):
             "path_binding_ref": profile["input"],
         }
         with patch.object(
-            effectors,
+            catalog_native,
             "accepted_original_inputs",
             return_value=(profile, original, {"AUTOSTOP_MANAGER_DB": "/accepted/actual.sqlite3"}),
         ):
