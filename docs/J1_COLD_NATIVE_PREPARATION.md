@@ -97,6 +97,11 @@ actual current guarded process; the producer cannot manufacture these future
 receipts from source policy. Fresh Telegram credentials and an authenticated
 owned kernel thread remain required future-window inputs.
 
+Production Telegram policy v2 requires both expected account-self hashes from
+separately qualified staged authorization. The shared parser rejects v1 before
+any fresh credential installation. A cut's observed account hash is compared
+with those expectations; it never supplies its own authorization.
+
 The focused tests exercise synthetic SQL/files, explicit OS/GitHub doubles,
 single-submit unknown outcomes, source-index binding and custody denial. They
 are not native production acceptance. Before any production window the exact

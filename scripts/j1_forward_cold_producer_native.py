@@ -896,6 +896,14 @@ class NativeBackend:
         return origin.verify_artifact(self, document, runtime)
 
     def install_fresh_role_material(self, document, binding, staged):
+        from scripts import j1_forward_cold_telegram as telegram
+
+        # The expected identities come from separately qualified staged-auth
+        # inputs. A current process cut may only be compared with this policy;
+        # it cannot authorize itself. Refuse v1 before installing any material.
+        telegram.parse_frontier_policy(
+            _read(self.provider, document["telegram_frontier_policy_ref"]), binding=binding
+        )
         material = _read(self.provider, document["fresh_role_material_ref"])
         cold.fields(material, {"schema", "scope", "binding", "files"}, "producer_material_fields")
         cold.need(
@@ -979,26 +987,6 @@ class NativeBackend:
             credentials == {"work-telegram", "personal-telegram"}
             and ("work-telegram", "owner", "owner.json") in seen,
             "producer_fresh_telegram_material_missing",
-        )
-        # These are source qualification expectations only. Actual authenticated
-        # provider frontier receipts are read after each guarded actor starts.
-        frontier = _read(self.provider, document["telegram_frontier_policy_ref"])
-        cold.fields(
-            frontier,
-            {"schema", "scope", "binding", "source_revision", "roles", "cut"},
-            "producer_frontier_policy_fields",
-        )
-        cold.need(
-            frontier
-            == {
-                "schema": "autostop.j1.cold-telegram-frontier-policy.v1",
-                "scope": self.scope,
-                "binding": binding,
-                "source_revision": binding["candidate_manager_sha"],
-                "roles": ["personal-telegram", "work-telegram"],
-                "cut": "same_owned_process_getme_getstate_before_ingress_pts_strictly_greater_no_history_replay",
-            },
-            "producer_frontier_policy",
         )
         return self.evidence(
             "fresh-role-material-installed",

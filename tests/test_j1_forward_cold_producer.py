@@ -98,6 +98,28 @@ class ProducerTests(unittest.TestCase):
             with self.assertRaises(io.Refusal):
                 inputs.environment(raw)
 
+    def test_production_v1_telegram_policy_refuses_before_material_installation(self):
+        from scripts import j1_forward_cold_telegram as telegram
+
+        policy = {
+            "schema": "autostop.j1.cold-telegram-frontier-policy.v1",
+            "scope": "production_native",
+            "binding": self.binding,
+            "source_revision": self.binding["candidate_manager_sha"],
+            "roles": list(telegram.ROLES),
+            "cut": telegram.FRONTIER_CUT,
+        }
+        raw = io.canonical(policy)
+        ref = {"path": "/private/frontier-policy.json", "sha256": io.sha(raw)}
+        backend = effectors.NativeBackend({}, self.request, 9)
+        backend.provider = SimpleNamespace(read_reference=lambda _ref: raw)
+        backend.publish = Mock()
+        with self.assertRaisesRegex(io.Refusal, "telegram_policy_fields"):
+            backend.install_fresh_role_material(
+                {"telegram_frontier_policy_ref": ref}, self.binding, {}
+            )
+        backend.publish.assert_not_called()
+
     def test_fresh_crm_uses_image_runtime_while_manager_uses_pinned_python_library(self):
         documents = {}
 
