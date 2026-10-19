@@ -371,6 +371,31 @@ and does not grant permission to skip a prerequisite. Receipts cannot supply
 shell commands or select an alternate executable, signing key or production
 restore target.
 
+For an existing attempt, `inspect --stage barriers` is a separate, read-only
+diagnostic. It can inspect installed barriers after the attempt's release
+window has expired; it does not readmit that attempt or bypass the window for
+`closed`, `activated`, or any release operation. Run it from the reviewed source:
+
+```bash
+python3 -I -S -B scripts/j1_forward_release.py inspect \
+  --attempt ATTEMPT_UUID --stage barriers
+```
+
+It checks the historical ownership/scope binding and current boot, the eight
+exact protected deny files, pinned guard/capsule/policy files, loaded original
+guard then deny conditions (executable, arguments, order, and error handling),
+empty hooks, inactive triggers, and no queued owned jobs. Two reads must agree
+on file hashes and identities and sampled unit state. The two denied roles
+must stay inactive; the six native units may already be running. No guard is
+executed, services controlled, or attempt files written. Output goes to stdout.
+
+The separate `autostop.j1.crm-forward-barrier-inspection.v1` result always sets
+`writer_closure_confirmed`, `ownership_adopted`, `native_acceptance`, and
+`activation_authorized` to false. It is a diagnostic snapshot, not continuous
+writer fencing, process identity or launch-command preservation, a new native
+baseline, or a signed acceptance. The workstation proof validator rejects it.
+It must never substitute for the existing `closed` or `activated` inspections.
+
 ## Activate, accept and commit
 
 The restore proof must be verified before activation. The orchestrator removes
