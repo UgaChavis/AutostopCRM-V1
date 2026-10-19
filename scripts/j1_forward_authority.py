@@ -32,6 +32,8 @@ REVISION = "89af29082e0a6f72c5d85ae448acb6d4deec5d94"
 HOST = "vps26457.mnogoweb.in"
 SCOPE = "production_quiet_window"
 SCHEMA = "autostop.crm.j1-forward-native-baseline.v1"
+RECOVERY_SCHEMA = "autostop.j1.crm-forward-native-recovery.v2"
+WARM_RECOVERY_SEMANTICS = "historical_origin_plus_observed_continuation"
 GUARD = Path("/usr/local/libexec/autostop-j1-candidate-guard/guard.py")
 ORIGINAL = GUARD.with_name("guard.original15-d5275167987434df.py")
 CAPSULE = Path("/etc/autostop-j1-candidate-guard/forward21.json")
@@ -340,7 +342,7 @@ def _unsupported_units(authority: dict, closed: bool) -> None:
                 )
 
 
-def _loaded(unit: str, fields: dict, authority: dict, closed: bool) -> None:
+def _loaded(unit: str, fields: dict, authority: dict, closed: bool, *, preclose=False) -> None:
     policy_hash = authority["capsule"]["policy"]["sha256"]
     prefix = f"/usr/bin/python3 -I -S {GUARD}"
     conditions = [f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"]
@@ -362,7 +364,7 @@ def _loaded(unit: str, fields: dict, authority: dict, closed: bool) -> None:
     if unit in NATIVE_UNITS:
         context = authority["capsule"]["profiles"][unit]["unit_context"]
         require({key: fields.get(key) for key in context} == context, "native_unit_context_changed")
-    if closed or unit not in NATIVE_UNITS:
+    if (closed and not preclose) or unit not in NATIVE_UNITS:
         require(
             fields.get("ActiveState") == "inactive"
             and fields.get("SubState") == "dead"
@@ -762,18 +764,75 @@ def _runtime_inventory(authority: dict, full: bool, deadline: float) -> list[dic
     return sorted(results, key=lambda item: item["root"])
 
 
-def _observe(*, running: bool, owned_closure: dict | None, full_runtime: bool) -> dict:
+def _recovery_warm(authority, recovery_origin, deadline):
+    """Observe live writers separately from immutable historical acceptance."""
+    from scripts.j1_forward_recovery import validate_origin
+
+    origin = validate_origin(recovery_origin)
+    historical = origin["baseline"]["native"]["warm_actors"]
+    require(
+        [
+            {
+                key: row[key]
+                for key in ("pid", "start_ticks", "argv_sha256", "cgroup", "exe", "mount_namespace")
+            }
+            for row in historical
+        ]
+        == [
+            {
+                key: row[key]
+                for key in ("pid", "start_ticks", "argv_sha256", "cgroup", "exe", "mount_namespace")
+            }
+            for row in authority["warm"]["actors"]
+        ],
+        "recovery_historical_warm_changed",
+    )
+    require(_absent(PROC / "538314"), "recovery_departed_transport_reappeared")
+    current = {
+        **authority,
+        "warm": {
+            **authority["warm"],
+            "actors": [row for row in authority["warm"]["actors"] if row["pid"] != 538314],
+        },
+    }
+    observed = _warm_actors(current, deadline)
+    require([row["pid"] for row in observed] == [538285, 538487], "recovery_warm_live_set")
+    require(
+        observed == [row for row in historical if row["pid"] != 538314],
+        "recovery_live_warm_changed",
+    )
+    require(_absent(PROC / "538314"), "recovery_departed_transport_reappeared")
+    return historical, observed
+
+
+def _observe(
+    *,
+    running: bool,
+    owned_closure: dict | None,
+    full_runtime: bool,
+    recovery_origin=None,
+    preclose=False,
+) -> dict:
     started = time.monotonic()
     deadline = started + (180 if full_runtime else 60)
     authority = _load_authority(deadline)
     guard, wrapper, policy = (authority[key] for key in ("guard", "wrapper", "policy"))
     owned = _closure_record(owned_closure)
-    require(not (running and owned), "native_running_and_closed_conflict")
+    require(
+        not (running and owned) or (preclose and recovery_origin is not None),
+        "native_running_and_closed_conflict",
+    )
+    require(
+        not preclose or (running and owned and recovery_origin is not None), "native_preclose_scope"
+    )
     _unsupported_units(authority, bool(owned))
     profiles, units, processes = {}, {}, {}
     for unit in ALL_UNITS:
         fields = _systemd(unit, deadline)
-        _loaded(unit, fields, authority, bool(owned))
+        if preclose:
+            _loaded(unit, fields, authority, bool(owned), preclose=True)
+        else:
+            _loaded(unit, fields, authority, bool(owned))
         require(fields["UnitFileState"] in {"enabled", "disabled"}, "native_enablement_unknown")
         units[unit] = {
             "enabled": fields["UnitFileState"] == "enabled",
@@ -828,6 +887,11 @@ def _observe(*, running: bool, owned_closure: dict | None, full_runtime: bool) -
         "daemon_mode": "accepted_warm",
         "authority": sorted(authority["refs"].values(), key=lambda item: item["path"]),
     }
+    historical, observed_warm = (
+        _recovery_warm(authority, recovery_origin, deadline)
+        if recovery_origin is not None
+        else (_warm_actors(authority, deadline), None)
+    )
     immutable = {
         "schema": SCHEMA,
         **base,
@@ -841,9 +905,17 @@ def _observe(*, running: bool, owned_closure: dict | None, full_runtime: bool) -
         "maintenance_marker": intent["maintenance_marker"],
         "desired_inbound": intent["inbound_enabled"],
         "cache": _cache(authority),
-        "warm_actors": _warm_actors(authority, deadline),
+        "warm_actors": historical,
         "runtime_inventories": _runtime_inventory(authority, full_runtime, deadline),
     }
+    if recovery_origin is not None:
+        immutable.update(
+            schema=RECOVERY_SCHEMA,
+            warm_identity_semantics=WARM_RECOVERY_SEMANTICS,
+            historical_warm_actors=historical,
+            observed_warm_actors=observed_warm,
+            recovery_origin=recovery_origin,
+        )
     _expired(deadline)
     return {
         "immutable": immutable,
@@ -867,14 +939,77 @@ def snapshot_native(*, full_runtime: bool = True) -> dict:
     return {**baseline, "sha256": sha(canonical(baseline))}
 
 
+def snapshot_recovery(original: dict, recovery_origin: dict, owned_closure: dict) -> dict:
+    """Fresh preclose readback; historical acceptance never becomes fresh proof."""
+    from scripts.j1_forward_recovery import validate_origin
+
+    require(
+        original == validate_origin(recovery_origin)["baseline"]["native"], "recovery_native_origin"
+    )
+    observed = _observe(
+        running=True,
+        owned_closure=owned_closure,
+        full_runtime=True,
+        recovery_origin=recovery_origin,
+        preclose=True,
+    )
+    baseline = {
+        **observed["immutable"],
+        "desired_units": observed["units"],
+        "libraries": {unit: row["libraries"] for unit, row in observed["processes"].items()},
+        "cache_mounts": {unit: row["cache_mount"] for unit, row in observed["processes"].items()},
+    }
+    original_fields = {
+        key: value
+        for key, value in baseline.items()
+        if key
+        not in {
+            "historical_warm_actors",
+            "observed_warm_actors",
+            "warm_identity_semantics",
+            "recovery_origin",
+        }
+    }
+    original_fields["schema"] = SCHEMA
+    require(
+        original_fields == {key: value for key, value in original.items() if key != "sha256"},
+        "recovery_native_inputs_changed",
+    )
+    return {**baseline, "sha256": sha(canonical(baseline))}
+
+
 def verify_preserved(
-    baseline: dict, *, running: bool = False, owned_closure: dict | None = None
+    baseline: dict, *, running: bool = False, owned_closure: dict | None = None, preclose=False
 ) -> dict:
     """Reobserve preserved inputs; closure permits only the exact owned barrier."""
-    require(type(baseline) is dict and baseline.get("schema") == SCHEMA, "native_baseline_schema")
+    require(
+        type(baseline) is dict and baseline.get("schema") in {SCHEMA, RECOVERY_SCHEMA},
+        "native_baseline_schema",
+    )
     unsigned = {key: value for key, value in baseline.items() if key != "sha256"}
     require(sha(canonical(unsigned)) == baseline.get("sha256"), "native_baseline_digest")
-    observed = _observe(running=running, owned_closure=owned_closure, full_runtime=False)
+    recovery_origin = (
+        baseline.get("recovery_origin") if baseline["schema"] == RECOVERY_SCHEMA else None
+    )
+    if baseline["schema"] == RECOVERY_SCHEMA:
+        require(
+            type(recovery_origin) is dict
+            and baseline.get("warm_identity_semantics") == WARM_RECOVERY_SEMANTICS,
+            "recovery_native_semantics",
+        )
+    require(not preclose or recovery_origin is not None, "native_preclose_scope")
+    preclose_options = {"preclose": True} if preclose else {}
+    observed = (
+        _observe(
+            running=running,
+            owned_closure=owned_closure,
+            full_runtime=False,
+            recovery_origin=recovery_origin,
+            **preclose_options,
+        )
+        if recovery_origin is not None
+        else _observe(running=running, owned_closure=owned_closure, full_runtime=False)
+    )
     expected = {
         key: value
         for key, value in unsigned.items()
@@ -898,7 +1033,7 @@ def verify_preserved(
             == baseline["cache_mounts"],
             "native_loaded_cache_mount_changed",
         )
-    return {
+    result = {
         "ok": True,
         "baseline_sha256": baseline["sha256"],
         "running": running,
@@ -906,3 +1041,17 @@ def verify_preserved(
         "processes": observed["processes"],
         "elapsed_ms": observed["elapsed_ms"],
     }
+    if recovery_origin is not None:
+        result.update(
+            {
+                key: observed["immutable"][key]
+                for key in (
+                    "schema",
+                    "warm_identity_semantics",
+                    "historical_warm_actors",
+                    "observed_warm_actors",
+                    "recovery_origin",
+                )
+            }
+        )
+    return result

@@ -39,14 +39,16 @@ def actor(pid):
 
 
 class FakeRunner:
-    def __init__(self):
+    def __init__(self, *, freeze_pids=FREEZE_PIDS, transport_pids=TRANSPORT_PIDS):
+        self.freeze_pids = freeze_pids
+        self.transport_pids = transport_pids
         self.events = []
         self.saved = {}
         self.scopes = {}
         self.drains = {}
         self.barriers = {}
         self.actors = {
-            pid: {**actor(pid), "stopped": False} for pid in (*FREEZE_PIDS, *TRANSPORT_PIDS)
+            pid: {**actor(pid), "stopped": False} for pid in (*freeze_pids, *transport_pids)
         }
         self.procs = {
             pid: {
@@ -116,16 +118,16 @@ class FakeRunner:
             "original_actors": sorted(
                 copy.deepcopy(native["warm_actors"]), key=lambda row: row["pid"]
             ),
-            "freeze_actors": [actor(pid) for pid in FREEZE_PIDS],
-            "transport_actors": [actor(pid) for pid in TRANSPORT_PIDS],
+            "freeze_actors": [actor(pid) for pid in self.freeze_pids],
+            "transport_actors": [actor(pid) for pid in self.transport_pids],
             "observation": {
                 "roles": {
                     str(pid): "daemon"
                     if pid == 538285
                     else "proxy"
-                    if pid in FREEZE_PIDS[1:4]
+                    if pid in self.freeze_pids[1:4]
                     else "helper"
-                    for pid in (*FREEZE_PIDS, *TRANSPORT_PIDS)
+                    for pid in (*self.freeze_pids, *self.transport_pids)
                 }
             },
         }
@@ -193,7 +195,7 @@ class FakeRunner:
         for expected in scope["freeze_actors"] + scope["transport_actors"]:
             actual = self.actors[expected["pid"]]
             closure._same_actor(expected, actual, full=True)
-            wanted = expected["pid"] in FREEZE_PIDS[1:]
+            wanted = expected["pid"] in self.freeze_pids[1:]
             closure.io.require(actual["stopped"] is wanted, "scope_actor_stop_state")
         return {
             "schema": "autostop.j1.crm-forward-process-scope-staging.v1",
@@ -220,7 +222,7 @@ class FakeRunner:
         self.idle_observed_at = closure.datetime.now(closure.UTC).isoformat()
         closure.io.require(
             not self.actors[538285]["stopped"]
-            and all(self.actors[pid]["stopped"] for pid in FREEZE_PIDS[1:]),
+            and all(self.actors[pid]["stopped"] for pid in self.freeze_pids[1:]),
             "idle_callback_order",
         )
         return copy.deepcopy(self.idle_ref)
@@ -364,6 +366,305 @@ class FakeRunner:
         if self.scan_error:
             raise Refusal("unexpected_source_write_descriptor")
         return {"frozen_owned_write_fds": 2, "owned_sqlite_coordination_fds": 0}
+
+
+class RecoveryRunner(FakeRunner):
+    def __init__(self):
+        super().__init__(
+            freeze_pids=closure.recovery_scope.FREEZE,
+            transport_pids=closure.recovery_scope.TRANSPORTS,
+        )
+        self.pending_ingress = True
+        self.native_peer_live = True
+        for pid in self.freeze_pids:
+            self.actors[pid]["stopped"] = True
+            self.procs[pid]["state"] = "T"
+
+    def capture_scope(self, native, owned):
+        result = super().capture_scope(native, owned)
+        result["schema"] = closure.recovery_scope.SCHEMA
+        return result
+
+    def verify_scope(self, scope, *, frozen):
+        result = super().verify_scope(scope, frozen=True)
+        self.events[-1] = ("scope_verify", frozen)
+        if frozen:
+            closure.io.require(not self.pending_ingress, "queued_proxy_ingress")
+            closure.io.require(not self.native_peer_live, "native_control_peer_present")
+        return {**result, "frozen": frozen}
+
+    def stop(self, deadline):
+        super().stop(deadline)
+        self.native_peer_live = False
+
+    def idle_observer(self):
+        result = super().idle_observer()
+        self.pending_ingress = False
+        return result
+
+    def staging_scope(self, scope):
+        result = super().staging_scope(scope)
+        closure.io.require(not self.pending_ingress, "queued_proxy_ingress")
+        return {
+            **result,
+            "schema": "autostop.j1.crm-forward-process-scope-staging.v2",
+            "retired_transports_absent": list(closure.recovery_scope.RETIRED),
+            "disposition": closure.recovery_scope.DISPOSITION,
+            "original_liveness": [
+                row
+                for row in result["freeze_actors"]
+                if row["pid"] in closure.recovery_scope.ORIGINAL
+            ],
+            "retained_frozen": list(closure.recovery_scope.ORPHANS),
+        }
+
+    def activation_scope(self, scope, *, released=False):
+        self.events.append(("activation_verify", released))
+        if self.scope_error:
+            raise Refusal(self.scope_error)
+        closure.io.require(self.native_peer_live, "activation_native_peer_missing")
+        closure.io.require(not self.pending_ingress, "queued_proxy_ingress")
+        for expected in scope["freeze_actors"] + scope["transport_actors"]:
+            actual = self.actors[expected["pid"]]
+            closure._same_actor(expected, actual, full=True)
+            wanted = expected["pid"] in closure.recovery_scope.ORPHANS or (
+                not released and expected["pid"] in self.freeze_pids[1:]
+            )
+            closure.io.require(actual["stopped"] is wanted, "scope_actor_stop_state")
+        return {
+            "auxiliary_released": released,
+            "retained_frozen": list(closure.recovery_scope.ORPHANS),
+        }
+
+
+class RecoveryClosureTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = RecoveryRunner()
+        runner_patch = patch.object(closure, "RUNNER", self.runner)
+        runner_patch.start()
+        self.addCleanup(runner_patch.stop)
+        closure._CACHE.clear()
+        self.directory = Path.cwd() / ATTEMPT
+        native = {"warm_actors": [actor(pid) for pid in sorted(closure.ACCEPTED_PIDS)]}
+        self.owned = {
+            "schema": closure.SCHEMA,
+            "attempt_id": ATTEMPT,
+            "attempt_dir": str(self.directory),
+            "boot_id": self.runner.boot_id(),
+            "dropins": closure._paths(),
+            "bytes_sha256": closure.io.sha(closure.DENY_BYTES),
+            "warm_actors": native["warm_actors"],
+            "baseline_sha256": closure.io.sha(closure.io.canonical(native)),
+            "source_roots": self.runner.source_roots(),
+            "consumer_sha256": "c" * 64,
+        }
+        scope = self.runner.capture_scope(native, self.owned)
+        self.owned["freeze_actors"] = scope["freeze_actors"]
+        self.owned["process_scope_ref"] = self.runner.save_scope(self.directory, scope)
+        self.runner.save(self.directory, self.owned)
+        for entry in self.owned["dropins"]:
+            self.runner.barriers[entry["path"]] = closure.DENY_BYTES
+        self.runner.events.clear()
+
+    def close(self, *, idle_observer=None):
+        return closure.close_recovery(
+            self.owned,
+            deadline=time.monotonic() + 30,
+            idle_observer=idle_observer or self.runner.idle_observer,
+        )
+
+    def assert_frozen(self):
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in self.runner.freeze_pids))
+        self.assertFalse(
+            any(self.runner.actors[pid]["stopped"] for pid in self.runner.transport_pids)
+        )
+        self.assertFalse(
+            any(
+                event == ("signal", pid, False)
+                for event in self.runner.events
+                for pid in self.runner.freeze_pids[1:]
+            )
+        )
+
+    def test_recovery_checks_full_fence_then_daemon_only_fresh_drain(self):
+        original = copy.deepcopy(self.owned["warm_actors"])
+        self.assertNotIn(538314, self.runner.actors)
+        self.assertEqual(self.close(), self.owned)
+        events = self.runner.events
+        for earlier, later in (
+            ("units", "stop"),
+            ("stop", "fds"),
+            ("fds", ("signal", 538285, False)),
+            (("signal", 538285, False), "idle_observer"),
+            ("idle_observer", "staging_verify"),
+            ("staging_verify", "save_drain"),
+            ("save_drain", ("signal", 538285, True)),
+        ):
+            self.assertLess(events.index(earlier), events.index(later))
+        self.assertEqual(
+            [event for event in events if isinstance(event, tuple) and event[0] == "signal"],
+            [("signal", 538285, False), ("signal", 538285, True)],
+        )
+        self.assertEqual(self.owned["warm_actors"], original)
+        self.assert_frozen()
+        observed = closure.observe_closed(self.owned, force_full=True)
+        self.assertIsNotNone(observed["ingress_drain_ref"])
+        self.assertEqual(len(observed["freeze_actors"]), 13)
+        self.assertEqual(len(observed["transport_actors"]), 2)
+        self.assertEqual(observed["full_scan_count"], 2)
+
+    def test_predrain_is_not_cached_or_accepted_as_quiet(self):
+        self.runner.stop(time.monotonic() + 30)
+        closure._recovery_preclose(self.owned, time.monotonic() + 30)
+        self.assertEqual(closure._CACHE, {})
+        self.assertEqual(self.runner.drains, {})
+        self.assertFalse(
+            any(isinstance(event, tuple) and event[0] == "signal" for event in self.runner.events)
+        )
+        with self.assertRaisesRegex(Refusal, "ingress_drain_missing"):
+            closure.observe_closed(self.owned, force_full=True)
+        with self.assertRaisesRegex(Refusal, "queued_proxy_ingress"):
+            closure._observe(self.owned, force_full=True)
+
+    def test_loaded_fence_failure_never_stops_units_or_resumes_daemon(self):
+        self.runner.bad_loaded_hook = True
+        with self.assertRaisesRegex(Refusal, "loaded_barrier_invalid"):
+            self.close()
+        self.assertNotIn("stop", self.runner.events)
+        self.assertNotIn(("signal", 538285, False), self.runner.events)
+        self.assert_frozen()
+
+    def test_full_source_descriptor_failure_prevents_daemon_resume(self):
+        self.runner.scan_error = True
+        with self.assertRaisesRegex(Refusal, "unexpected_source_write_descriptor"):
+            self.close()
+        self.assertNotIn(("signal", 538285, False), self.runner.events)
+        self.assert_frozen()
+
+    def test_failures_after_resume_refreeze_all_owned_writers(self):
+        for phase in ("idle", "staging", "save", "final"):
+            with self.subTest(phase=phase):
+                self.setUp()
+                if phase == "idle":
+                    self.runner.idle_valid = False
+                elif phase == "staging":
+                    self.runner.staging_scope = Mock(side_effect=Refusal("bad_staging"))
+                elif phase == "save":
+                    self.runner.save_drain = Mock(side_effect=OSError("write failed"))
+                else:
+
+                    def after_stop(expected, stop):
+                        if expected["pid"] == 538285 and stop:
+                            self.runner.scope_error = "changed_final_scope"
+
+                    self.runner.on_signal = after_stop
+                with self.assertRaises((Refusal, OSError)):
+                    self.close()
+                self.assertIn(("signal", 538285, False), self.runner.events)
+                self.assert_frozen()
+
+    def test_expired_identity_check_cannot_resume_daemon(self):
+        with patch.object(closure, "_recovery_preclose", side_effect=Refusal("closure_deadline")):
+            with self.assertRaisesRegex(Refusal, "closure_deadline"):
+                self.close()
+        self.assertNotIn(("signal", 538285, False), self.runner.events)
+        self.assert_frozen()
+
+    def test_idle_receipt_cannot_replace_zero_queue_staging_proof(self):
+        with self.assertRaisesRegex(Refusal, "queued_proxy_ingress"):
+            self.close(idle_observer=lambda: self.runner.idle_ref)
+        self.assertNotIn("save_drain", self.runner.events)
+        self.assert_frozen()
+
+    def test_existing_drain_is_not_replayed_to_resume_recovery(self):
+        self.close()
+        self.runner.events.clear()
+        with self.assertRaisesRegex(Refusal, "recovery_drain_already_exists"):
+            self.close()
+        self.assertNotIn(("signal", 538285, False), self.runner.events)
+        self.assert_frozen()
+
+    def test_release_retains_exact_orphan_proxies_and_live_transports(self):
+        self.close()
+        closure.reopen_native(self.owned)
+        self.runner.native_peer_live = True
+        self.runner.commit_ready = True
+        self.runner.events.clear()
+        result = closure.release_auxiliary(self.owned, {"commit": "owned"})
+        self.assertEqual(result["disposition"], closure.recovery_scope.DISPOSITION)
+        self.assertEqual(result["retained_frozen"], list(closure.recovery_scope.ORPHANS))
+        continued = {
+            event[1]
+            for event in self.runner.events
+            if isinstance(event, tuple) and event[0] == "signal" and event[2] is False
+        }
+        self.assertEqual(continued, set(closure.recovery_scope.HELPERS))
+        for row in result["freeze_actors"]:
+            self.assertEqual(row["stopped"], row["pid"] in closure.recovery_scope.ORPHANS)
+        self.assertTrue(all(not row["stopped"] for row in result["transport_actors"]))
+
+    def test_partial_helper_release_failure_refreezes_and_never_releases_orphans(self):
+        self.close()
+        closure.reopen_native(self.owned)
+        self.runner.native_peer_live = True
+        self.runner.commit_ready = True
+        self.runner.fail_thaw = closure.recovery_scope.HELPERS[0]
+        self.runner.events.clear()
+        with self.assertRaisesRegex(OSError, "thaw failed"):
+            closure.release_auxiliary(self.owned, {"commit": "owned"})
+        self.assertTrue(all(self.runner.actors[pid]["stopped"] for pid in self.runner.freeze_pids))
+        for pid in closure.recovery_scope.ORPHANS:
+            self.assertNotIn(("signal", pid, False), self.runner.events)
+
+    def test_recovery_drain_cannot_claim_live_retired_authority(self):
+        self.close()
+        path = str(self.directory / "ingress-drain.json")
+        self.runner.drains[path]["staging_observation"]["original_liveness"].append(
+            {**actor(538314), "stopped": False, "thread_states": ["S"]}
+        )
+        with self.assertRaisesRegex(Refusal, "ingress_recovery_disposition"):
+            closure.observe_closed(self.owned)
+
+
+class ScopeDispatchTests(unittest.TestCase):
+    def test_exact_schema_routes_every_backend_to_same_module(self):
+        runner = closure.LinuxRunner()
+        for module in (closure.process_scope, closure.recovery_scope):
+            with self.subTest(schema=module.SCHEMA):
+                scope = {"schema": module.SCHEMA}
+                with (
+                    patch.object(module, "actor_sets", return_value=([], [])) as actors,
+                    patch.object(module, "verify", return_value="verified") as verify,
+                    patch.object(module, "verify_staging", return_value="staged") as stage,
+                    patch.object(module, "verify_activation", return_value="active") as active,
+                    patch.object(module, "verify_released", return_value="released") as released,
+                    patch.object(
+                        closure.io, "referenced", return_value=closure.io.canonical(scope)
+                    ),
+                ):
+                    self.assertEqual(runner.load_scope({}), scope)
+                    self.assertEqual(runner.scope_actors(scope), ([], []))
+                    self.assertEqual(runner.verify_scope(scope, frozen=False), "verified")
+                    self.assertEqual(runner.staging_scope(scope), "staged")
+                    self.assertEqual(runner.activation_scope(scope), "active")
+                    self.assertEqual(runner.activation_scope(scope, released=True), "released")
+                    self.assertEqual(actors.call_count, 2)
+                    verify.assert_called_once_with(scope, frozen=False)
+                    stage.assert_called_once_with(scope)
+                    active.assert_called_once_with(scope)
+                    released.assert_called_once_with(scope)
+
+    def test_unknown_schema_never_falls_back_to_existing_scope(self):
+        runner = closure.LinuxRunner()
+        scope = {"schema": closure.recovery_scope.SCHEMA + ".other"}
+        for call in (
+            runner.scope_actors,
+            lambda value: runner.verify_scope(value, frozen=True),
+            runner.staging_scope,
+            runner.activation_scope,
+        ):
+            with self.subTest(call=call), self.assertRaisesRegex(Refusal, "closure_scope_schema"):
+                call(scope)
 
 
 class ClosureTests(unittest.TestCase):
@@ -1031,7 +1332,7 @@ class ClosureTests(unittest.TestCase):
             closure.sample_closed(owned)
         self.runner.boot = owned["boot_id"]
         with patch.object(self.runner, "load_scope", return_value={}):
-            with self.assertRaisesRegex(Refusal, "closure_scope_binding"):
+            with self.assertRaisesRegex(Refusal, "closure_scope_schema"):
                 closure.sample_closed(owned)
 
     def test_sample_rechecks_barriers_after_actor_reads(self):
@@ -1352,6 +1653,62 @@ class LinuxBackendTests(unittest.TestCase):
         units = runner.units(time.monotonic() + 30)
         self.assertTrue(all(row["ExecCondition"] == guard + " " + deny for row in units.values()))
         closure._unit_policy(units)
+
+    def test_loaded_guard_and_owned_deny_use_two_systemctl_condition_rows(self):
+        guard = (
+            "{ path=/usr/bin/python3 ; argv[]=/usr/bin/python3 -I -S "
+            "/usr/local/libexec/autostop-j1-candidate-guard/guard.py check "
+            "--policy-sha256 " + "a" * 64 + " --unit fixture.service ; ignore_errors=no ; "
+            "start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+        )
+        deny = (
+            "{ path=/usr/bin/false ; argv[]=/usr/bin/false ; ignore_errors=no ; "
+            "start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+        )
+        runner = self.units_fixture(
+            values={"ExecCondition": guard, "ActiveState": "active", "MainPID": "123"},
+            extra=("ExecCondition=" + deny + "\n").encode(),
+        )
+        units = runner.units(time.monotonic() + 30)
+        self.assertEqual(set(units), set(closure.UNITS))
+        self.assertTrue(all(row["ExecCondition"] == guard + " " + deny for row in units.values()))
+        self.assertTrue(all(not row[hook] for row in units.values() for hook in closure.HOOKS))
+        self.assertEqual(
+            sum(
+                call.args[0][0] == "/usr/bin/busctl" and call.args[0][3] == "get-property"
+                for call in runner.command.call_args_list
+            ),
+            8,
+        )
+        # This is the loaded-policy admission before stopping currently active units.
+        closure._unit_policy(units, stopped=False)
+
+    def test_repeated_conditions_preserve_order_with_the_shared_strict_command_parser(self):
+        second, first = loaded("second"), loaded("first")
+        raw = f"ExecCondition={second}\nExecCondition={first}\n".encode()
+        self.assertEqual(
+            closure._show_fields(raw, ("ExecCondition",)),
+            {"ExecCondition": second + " " + first},
+        )
+
+    def test_condition_array_does_not_allow_duplicate_scalars_or_stop_hooks(self):
+        for field in (
+            "LoadState",
+            "ActiveState",
+            "SubState",
+            "NeedDaemonReload",
+            "MainPID",
+            "Job",
+            "TriggeredBy",
+            *closure.HOOKS,
+        ):
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(Refusal, "unit_status_incomplete"),
+            ):
+                self.units_fixture(missing=(), extra=(field + "=\n").encode()).units(
+                    time.monotonic() + 30
+                )
 
     def test_nonempty_original_hook_and_guard_are_preserved_and_not_accepted_closed(self):
         condition = loaded("/original/guard") + " " + loaded("/usr/bin/false")

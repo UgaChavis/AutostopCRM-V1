@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from scripts import j1_forward_io as io
+from scripts import j1_forward_recovery_state as recovery_state
 
 PLAN_SCHEMA = "autostop.j1.crm-forward-plan.v1"
 COMMIT_SCHEMA = "autostop.j1.crm-forward-commit.v1"
@@ -150,7 +151,15 @@ def _sync_directory(path):
         os.close(fd)
 
 
-class Store:
+def record_attempts(records):
+    return {
+        plan["attempt_id"]
+        for record, _ in records
+        for plan in (record["plan"], *([record["origin_plan"]] if "origin_plan" in record else []))
+    }
+
+
+class Store(recovery_state.RecoveryStateMixin):
     def __init__(self, root, base_sha256):
         self.root = Path(root)
         io.require(self.root.is_absolute() and ".." not in self.root.parts, "state_root_absolute")
@@ -241,12 +250,17 @@ class Store:
             match = HISTORY_NAME.fullmatch(path.name)
             io.require(match is not None and int(match[1]) == sequence, "state_history_gap")
             record, ref = self._read(path)
+            fields = {"schema", "plan", "proofs", "previous_sha256", "sequence"}
+            is_recovery = (
+                type(record) is dict and record.get("schema") == recovery_state.COMMIT_SCHEMA
+            )
+            if is_recovery:
+                fields |= {"origin_plan", "recovery_ref"}
             io.require(
-                type(record) is dict
-                and set(record) == {"schema", "plan", "proofs", "previous_sha256", "sequence"},
+                type(record) is dict and set(record) == fields,
                 "commit_fields",
             )
-            io.require(record["schema"] == COMMIT_SCHEMA, "commit_schema")
+            io.require(record["schema"] == COMMIT_SCHEMA or is_recovery, "commit_schema")
             validate_plan(record["plan"], self.base_sha256)
             _proofs(record["proofs"])
             io.require(
@@ -258,8 +272,11 @@ class Store:
                 "state_history_chain",
             )
             attempt = record["plan"]["attempt_id"]
-            io.require(attempt not in attempts, "state_attempt_replayed")
-            attempts.add(attempt)
+            current_attempts = {attempt}
+            if is_recovery:
+                current_attempts.add(self._recovery_record(record))
+            io.require(not current_attempts & attempts, "state_attempt_replayed")
+            attempts.update(current_attempts)
             records.append((record, ref))
             previous = ref["sha256"]
         return records
@@ -337,6 +354,7 @@ class Store:
     def begin(self, plan):
         validate_plan(plan, self.base_sha256)
         with self._locked(create=True):
+            self._no_recovery()
             head, records = self._snapshot()
             pending = self._pending()
             if pending is not None:
@@ -351,7 +369,7 @@ class Store:
                 )
                 return self._durable(io.reference(self.pending_path))
             io.require(
-                all(record["plan"]["attempt_id"] != plan["attempt_id"] for record, _ in records),
+                plan["attempt_id"] not in record_attempts(records),
                 "state_attempt_replayed",
             )
             io.require(len(records) < MAX_HISTORY, "state_history_limit")
@@ -376,6 +394,7 @@ class Store:
         validate_plan(plan, self.base_sha256)
         _proofs(proofs)
         with self._locked(create=True):
+            self._no_recovery()
             self._matching_pending(plan)
             head, records = self._snapshot()
             if head["record"] is not None and head["record"]["plan"] == plan:
@@ -387,7 +406,7 @@ class Store:
                 return records[-1][1]
             io.require(len(records) < MAX_HISTORY, "state_history_limit")
             io.require(
-                all(record["plan"]["attempt_id"] != plan["attempt_id"] for record, _ in records),
+                plan["attempt_id"] not in record_attempts(records),
                 "state_attempt_replayed",
             )
             io.require(
@@ -414,11 +433,15 @@ class Store:
         """Finish only one already-published commit belonging to exact pending."""
         validate_plan(plan, self.base_sha256)
         with self._locked():
+            self._no_recovery()
             self._matching_pending(plan)
             records = self._records()
             io.require(bool(records), "state_recovery_commit_missing")
             record, ref = records[-1]
-            io.require(record["plan"] == plan, "state_recovery_plan_mismatch")
+            io.require(
+                record["schema"] == COMMIT_SCHEMA and record["plan"] == plan,
+                "state_recovery_plan_mismatch",
+            )
             head = self._head_record()
             current = {"sequence": record["sequence"], "sha256": ref["sha256"]}
             predecessor = {"sequence": record["sequence"] - 1, "sha256": record["previous_sha256"]}
@@ -437,10 +460,13 @@ class Store:
     def finish(self, plan):
         validate_plan(plan, self.base_sha256)
         with self._locked():
+            self._no_recovery()
             self._matching_pending(plan)
             head, records = self._snapshot()
             io.require(
-                head["record"] is not None and head["record"]["plan"] == plan,
+                head["record"] is not None
+                and head["record"]["schema"] == COMMIT_SCHEMA
+                and head["record"]["plan"] == plan,
                 "state_finish_uncommitted",
             )
             self._durable(records[-1][1])
@@ -453,10 +479,13 @@ class Store:
         """Confirm terminal durability after an interrupted acknowledgement."""
         validate_plan(plan, self.base_sha256)
         with self._locked():
+            self._no_recovery()
             io.require(self._pending() is None, "state_terminal_pending_present")
             head, records = self._snapshot()
             io.require(
-                head["record"] is not None and head["record"]["plan"] == plan,
+                head["record"] is not None
+                and head["record"]["schema"] == COMMIT_SCHEMA
+                and head["record"]["plan"] == plan,
                 "state_terminal_head_mismatch",
             )
             self._durable(records[-1][1])

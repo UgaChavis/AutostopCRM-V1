@@ -1,4 +1,4 @@
-# CRM-only release after J1 arm — v1
+# CRM-only release after J1 arm
 
 This runbook describes the versioned `--forward-j1` release path on
 `vps26457.mnogoweb.in`. Its scope is `crm_only_native_preserved`: replace the
@@ -450,11 +450,11 @@ that every recovery effect succeeded.
 Inspect the matching pending attempt before taking any continuation action.
 `apply` does not resume a pending or failed attempt: it refuses before replaying
 deployment effects. This version has no `recover-commit` or general resume
-command. A pre-commit failure requires a separately reviewed
-forward-recovery action, retaining the current facts and closure. A future
-recovery must bind the same UUID, exact predecessor, candidate and baseline,
-re-observe current state, and establish the required closure before dependent
-work. A matching filename alone does not establish those facts. An expired,
+command. A pre-commit failure requires an explicit forward-recovery
+transaction retaining the current facts and closure. Recovery v2 below binds
+the original UUID, predecessor, candidate and baseline as historical evidence
+and creates a new bounded plan for fresh acceptance. A matching filename alone
+does not establish those facts. An expired,
 conflicting or uncertain attempt cannot be repaired by editing its plan,
 head, pending state, timestamps, signatures or old native receipts.
 
@@ -471,14 +471,112 @@ native authority; bind the new candidate's successful merged push CI run, and
 obtain fresh baseline, closure, backup, restore and runtime
 proofs for the new CRM candidate. Previous proofs remain historical evidence.
 
+## Explicit failed-attempt recovery v2
+
+`prepare-recovery` is a separate eligibility path for the reviewed failed
+attempt `236d5cef-6c87-4bf1-a977-a36e70bdf90b`. It does not resume an expired
+plan. A new UUID, nonce, merged commit/image, successful exact push CI, baseline
+and 600-second window bind every new proof. The original native policy, armed
+state, wrappers, source/runtime bindings, duty intent and deployment-lock inode
+retain their accepted bytes and identities.
+
+Before changing the production checkout, execute the published, independently
+reviewed recovery consumer from a protected Git source bundle to retain the
+old consumer files:
+
+```bash
+/usr/bin/python3 -I -S -B /PROTECTED_REVIEWED_SOURCE/scripts/j1_forward_release.py \
+  seal-origin --attempt 236d5cef-6c87-4bf1-a977-a36e70bdf90b
+```
+
+This finite operation holds the original lock, refuses a surviving old
+controller, verifies the actual original consumer digest, and retains identical
+pending and source bytes below `/var/lib/autostop-crm-forward/origins/`. It does
+not change the running container, native services, marker, Scheduler hold or
+process states. Do not fast-forward first and then patch the old baseline's
+consumer hashes to make it load.
+
+After the new source and image pass the usual publication gates:
+
+```bash
+./deploy.sh --forward-j1 prepare-recovery --image sha256:IMAGE_ID_64_HEX \
+  --ci-run-id QUALITY_RUN_ID \
+  --origin-attempt 236d5cef-6c87-4bf1-a977-a36e70bdf90b
+```
+
+The first scope observation happens before a new attempt directory, active
+recovery pointer, marker, Work pause, service stop or process signal. A failed
+observation grants no continuation effects. A successful preparation returns
+the new UUID; `apply`, inspection, the finite off-host worker, real disposable
+restore and signed acceptance then use that UUID through the normal dispatcher.
+
+The immutable recovery envelope binds the original plan, pending, closure,
+scope, failure and saved consumers; the new plan, code and CI; the original
+owned Scheduler hold and deployment-lock identity. The original pending stays
+byte-identical while a separate active-recovery pointer excludes competing
+attempts. A v2 history record explicitly names both plans. Five new substantive
+proofs and a durable matching HEAD precede removal of the original pending;
+the active pointer is removed and synchronized last. An interrupted finish is
+retryable only for that exact committed recovery. A reference or an earlier
+success receipt cannot substitute for fresh acceptance.
+
+The recovery process profile preserves all 13 original writer incarnations
+and the two surviving tunnel processes. Three exited SSH identities remain
+historical; they are never represented as live or replaced with another PID.
+The three orphan proxies retain their exact original program, birth, socket
+and pipe identities and stay frozen after commit. Nine helpers may resume only
+after durable acceptance. Native evidence explicitly distinguishes the three
+historical warm actors from the two actually observed original actors. The
+ordinary v1 profile still requires its original 18 live actors.
+
+Current host eligibility is **blocked**. Passive observation after the failed
+attempt found a growing appserver listener backlog (201 connections in the
+recorded observation), a disconnected historical native peer with buffered
+input, and queued proxy data. Some client processes have exited, so available
+kernel socket metadata cannot establish their PID birth and source. The v2
+observer refuses these facts before new recovery effects. A daemon with its
+ordinary writable authority cannot be declared a metadata-only drain merely by
+calling a phase "drain". No unknown-peer exemption, synthetic empty queue,
+bootstrap replacement, native authority edit or timeout waiver is provided.
+Resuming this host requires a separately reviewed lifecycle mechanism that can
+dispose of or isolate the unattributed ingress under actual native acceptance.
+Until then, do not report quiet closure, a completed new backup/restore, a new
+running CRM image, or a successful rollout.
+
+## Marker and loaded systemd observations
+
+The fixed data directory legitimately belongs to UID/GID `10001:10001`, mode
+`0700`. Preparation pins its device, inode, owner and mode while checking its
+root-owned physical ancestors. A separate anchored, no-follow marker adapter
+creates only the fixed root-owned `0600`, single-link operational gate and
+checks exact canonical attempt bytes and stored file identity. It never
+changes directory ownership or permissions. The root-private transaction and
+original deployment lock remain authority; the app-owned directory means the
+marker itself is not immutable authority. Removal requires exact durable
+committed HEAD, identity readback and the caller's exclusion of marker-name
+writers. General protected-file checks remain strict.
+
+`systemctl show` can emit one `ExecCondition=` line per command. Both the
+closure observer and native preservation observer retain the ordered original
+guard followed by the owned false condition. Duplicate scalar properties and
+lifecycle hooks remain refusals. Typed verification of omitted empty hook
+arrays is unchanged. Every native stop still requires the actual loaded deny
+condition, cleared hooks and `NeedDaemonReload=no`; file presence alone is
+insufficient.
+
 ## Implementation and verification map
 
 | Module | Responsibility |
 | --- | --- |
 | `j1_forward_release.py` | Published-image build, bounded preparation, service lifecycle, inspection, proof dispatch and release ordering |
 | `j1_forward_io.py` | Protected physical files, strict JSON and durable publication |
+| `j1_forward_marker.py` | Pinned legacy app-owned marker directory and exact owned marker operations |
 | `j1_forward_authority.py` | Original native authority and actual runtime preservation |
 | `j1_forward_state.py` | Exact predecessor, pending attempt and append-only successor history |
+| `j1_forward_recovery.py` | Immutable original consumer retention and explicit recovery orchestration |
+| `j1_forward_recovery_state.py` | Original pending retention and separate durable v2 recovery transactions |
+| `j1_forward_recovery_scope.py` | Fixed surviving cohort, historical transport exits and strict ingress refusal |
+| `j1_forward_recovery_worker.py` | Independent recovery provenance and hold validation before real restore/signing |
 | `j1_forward_proofs.py` | Ed25519 envelope verification and plan/time binding |
 | `j1_forward_host.py` | Fixed host commands, Work/Scheduler draining, duty and native starts |
 | `j1_forward_closure.py` | Owned barriers, exact writer freeze/thaw and closure observations |
