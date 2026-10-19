@@ -208,6 +208,23 @@ try {
         "-o", "coverage-manager-authority.json"
     )
 
+    $managerSuccessorCoverage = Join-Path $ciPycachePath "manager-successor.coverage"
+    Invoke-Python -StepName "Manager successor guard branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $managerSuccessorCoverage,
+        "--source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native", "-m", "unittest",
+        "tests.test_j1_manager_successor_guard", "tests.test_j1_manager_successor_native", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Manager successor guard coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $managerSuccessorCoverage
+    )
+    Invoke-Python -StepName "Report Manager successor guard coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $managerSuccessorCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Manager successor guard coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $managerSuccessorCoverage,
+        "-o", "coverage-manager-successor.json"
+    )
+
     Invoke-Python -StepName "Repository code health" -Arguments @(
         "scripts/code_health_audit.py", "--format", "text"
     )
