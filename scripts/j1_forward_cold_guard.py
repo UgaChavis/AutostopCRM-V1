@@ -35,7 +35,9 @@ BOOTSTRAP_HASHES = {
     "j1_forward_cold_kernel_rpc": "db9c5069c635976d399bcbb82ac5894492f66ef0f3b3a7ee464b6fb62b969b4c",
     "j1_forward_cold_kernel": "79849d7af5cb036869b5160a5d7db8a4f7ef72188297d37d69b5f064e07aa4bb",
     "j1_forward_cold_kernel_bootstrap": "dff9c7f34d4945cc64dfa5dd2d6297f0ce96b743b870c0fdb6407f4c061fbeda",
-    "j1_forward_cold_kernel_supervisor": "a89da39ecc2f46a2c6756fc4a20dd02e10abb6fff50963b1dc7e7451c9b90004",
+    "j1_forward_cold_kernel_supervisor": "d07f245f1ec4b793b9ab34498d87c3e6aaea8a3fd43b4bf4aeadd35c4132abb8",
+    "j1_forward_cold_catalog_native": "bd488d5cfd1c54d7e3b83678c90c4211a7ca5b00f9b9fe42bd698bcf7652c4af",
+    "j1_forward_cold_catalog": "bfbae926ec6bfaf0074af28c850b7b4541071333aa30fbc7ab141ce43be0a0f9",
 }
 
 
