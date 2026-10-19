@@ -69,7 +69,7 @@ def digest(value):
     return io.sha(io.canonical(value))
 
 
-def runtime_bytes(reference, raw):
+def runtime_bytes(reference, raw, *, capsule=False):
     """Large v4 leaves are opaque native executables, never JSON/source code."""
     path = reference["path"].lower()
     need(type(raw) is bytes and len(raw) <= MAX_RUNTIME_BYTES, "runtime_blob_limit")
@@ -78,16 +78,17 @@ def runtime_bytes(reference, raw):
             not path.endswith(
                 (".json", ".py", ".pyw", ".ps1", ".sh", ".md", ".yml", ".yaml", ".toml")
             )
-            and raw.startswith((b"\x7fELF", b"MZ")),
+            and (raw.startswith(b"\x1f\x8b") if capsule else raw.startswith((b"\x7fELF", b"MZ"))),
             "runtime_blob_kind",
         )
     return raw
 
 
-def opaque_reader(reader):
-    direct = getattr(reader, "read_opaque_reference", None)
+def opaque_reader(reader, *, capsule=False):
+    name = "read_runtime_capsule" if capsule else "read_opaque_reference"
+    direct = getattr(reader, name, None)
     owner = getattr(reader, "__self__", None)
-    return direct or getattr(owner, "read_opaque_reference", None) or reader
+    return direct or getattr(owner, name, None) or reader
 
 
 def identity(value):
@@ -169,7 +170,7 @@ class Reader:
     def __init__(self, read_reference):
         self.read = read_reference
         self.seen = {}
-        self.opaque = set()
+        self.opaque, self.capsules = set(), set()
 
     def raw(self, ref, *, opaque=False):
         reference(ref)
@@ -209,6 +210,18 @@ class Reader:
         return value
 
     def index(self, ref, name, binding, scope):
+        header = self.doc(ref)
+        if (
+            name == "runtime-index"
+            and type(header) is dict
+            and header.get("schema") == "autostop.j1.cold-runtime-index.v2"
+        ):
+            from scripts import j1_forward_cold_runtime_capsule
+
+            j1_forward_cold_runtime_capsule.validate(
+                header, binding=binding, scope=scope, read_reference=self.raw
+            )
+            return header
         value = self.bound(ref, name, binding, scope, {"files"})
         files = value["files"]
         need(type(files) is list and files and len(files) <= 10000, name + "_files")
@@ -221,8 +234,24 @@ class Reader:
 
     def recheck(self):
         for ref, raw in self.seen.values():
-            read = opaque_reader(self.read) if ref["path"] in self.opaque else self.read
+            if ref["path"] in self.capsules:
+                read = opaque_reader(self.read, capsule=True)
+            else:
+                read = opaque_reader(self.read) if ref["path"] in self.opaque else self.read
             need(read(ref) == raw, "reference_changed")
+
+    def read_runtime_capsule(self, reference):
+        reference_path = reference["path"]
+        if reference_path in self.seen:
+            old, raw = self.seen[reference_path]
+            need(old == reference, "reference_alias")
+        else:
+            raw = opaque_reader(self.read, capsule=True)(reference)
+            need(type(raw) is bytes and io.sha(raw) == reference["sha256"], "reference_bytes")
+            self.seen[reference_path] = (dict(reference), raw)
+        runtime_bytes(reference, raw, capsule=True)
+        self.capsules.add(reference_path)
+        return raw
 
 
 def compile_policy(binding, scope, unit, inputs, source_package, *, read_reference):
@@ -324,6 +353,7 @@ def compile_package(
         return read_reference(reference)
 
     read.read_opaque_reference = opaque_reader(read_reference)
+    read.read_runtime_capsule = opaque_reader(read_reference, capsule=True)
     validate_package(ref, read_reference=read, required_scope=scope)
     return raw
 

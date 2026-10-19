@@ -255,3 +255,28 @@ no native runtime or startup authority. Warm transport budgets are unchanged.
 
 Closure preparation, a fixture probe, a package hash or a passing source test
 is not production acceptance or proof that an external request may be replayed.
+
+The cold-v4 runtime capsule is a data format, not another launch authority.
+`j1_forward_cold_runtime_capsule` builds a deterministic gzip/tar of the complete
+Python base and one shared six-role venv. Runtime-index v2 retains every regular
+file, directory and internal relative symlink with its exact mode, size and
+SHA-256. Its entries use relative names rather than controller reference
+objects, so the control graph stores the compressed artifact once. Codex stays
+a separately typed native executable; it is not copied into the capsule.
+
+The current bounds are 32,768 indexed entries, 1.5 GiB expanded and 192 MiB
+compressed, within the cold-v4 512 MiB total control budget. These are hard
+acceptance bounds, not claims that a measured release fits them. Independent
+restore streams every member, rejects extra entries, links outside either
+runtime root, unsafe tar metadata and expansion beyond the index, and hashes
+every output without importing or executing archived Python. Live admission
+separately hashes the complete installed tree and rejects additional files.
+
+Production roots are fixed to the selected Manager revision's `python` and
+`venv` directories. Physical Python executables and `pyvenv.cfg` must refer to
+these exact final prefixes. Installation uses private inert staging and never
+rewrites prefixes or replaces an existing conflicting runtime. A crash after
+one root rename permits only reconciliation against the identical full index.
+Publication, materialization and restore receipts grant no activation or
+business permission. Actual artifact size, process-tree RSS, off-host restore
+and six-role startup remain measured release qualifications.

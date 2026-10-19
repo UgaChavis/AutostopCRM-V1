@@ -426,11 +426,23 @@ def _observe_process(pid, context, provider, *, started):
     return {"pid": pid, "start_ticks": before["start_ticks"]}
 
 
+def _index_references(provider, reference):
+    document = io.document(provider.read_reference(reference))
+    if document.get("schema") == "autostop.j1.cold-runtime-index.v2":
+        from scripts import j1_forward_cold_runtime_capsule
+
+        return [
+            {"path": path, "sha256": digest}
+            for path, digest in j1_forward_cold_runtime_capsule.allowed_paths(document).items()
+        ]
+    return document["files"]
+
+
 def _loaded_libraries(pid, context, provider):
     policy = io.document(provider.read_reference(context["policy_ref"]))
     accepted = {}
     for key in ("source_index_ref", "runtime_index_ref", "startup_index_ref"):
-        for reference in io.document(provider.read_reference(policy[key]))["files"]:
+        for reference in _index_references(provider, policy[key]):
             accepted[reference["path"]] = reference
     for line in (Path("/proc") / str(pid) / "maps").read_text().splitlines():
         fields = line.split(None, 5)
@@ -441,7 +453,7 @@ def _loaded_libraries(pid, context, provider):
         ):
             path = fields[5]
             contract.need(path in accepted, "slot_unaccepted_loaded_library")
-            provider.read_reference(accepted[path])
+            contract.opaque_reader(provider.read_reference)(accepted[path])
 
 
 class FixtureBackend:
@@ -554,15 +566,13 @@ class Controller:
             )
             accepted_runtime = []
             for key in ("runtime_index_ref", "startup_index_ref"):
-                accepted_runtime.extend(
-                    io.document(self.provider.read_reference(policy[key]))["files"]
-                )
+                accepted_runtime.extend(_index_references(self.provider, policy[key]))
             refs = [reference for reference in accepted_runtime if reference["path"] == bootstrap]
             contract.need(
                 refs and all(reference == refs[0] for reference in refs),
                 "slot_bootstrap_runtime_unaccepted",
             )
-            self.provider.read_reference(refs[0])
+            contract.opaque_reader(self.provider.read_reference)(refs[0])
             guard = (
                 str(native.INSTALL / "guard.py")
                 if self.provider.scope == "production_native"

@@ -122,6 +122,12 @@ class ColdStore(state.Store):
         io.require(io.sha(raw) == reference["sha256"], "cold_state_reference_hash")
         return cold.runtime_bytes(reference, raw)
 
+    def read_runtime_capsule(self, reference):
+        cold.reference(reference)
+        raw = io.read_protected(reference["path"], 192 * 1024**2)
+        io.require(io.sha(raw) == reference["sha256"], "cold_state_reference_hash")
+        return cold.runtime_bytes(reference, raw, capsule=True)
+
     def _mutation(self, method, *args):
         from scripts import j1_forward_cold_projection
 

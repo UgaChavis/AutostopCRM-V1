@@ -244,6 +244,11 @@ class FixtureProvider(native.NativeProvider):
     def read_opaque_reference(self, reference):
         return contract.runtime_bytes(reference, self.read_reference(reference))
 
+    def read_runtime_capsule(self, reference):
+        raw = _safe_file(reference["path"], self.root, limit=192 * 1024**2)
+        contract.need(io.sha(raw) == reference["sha256"], "fixture_reference_digest")
+        return contract.runtime_bytes(reference, raw, capsule=True)
+
     def boundary(self, reference):
         contract.need(
             sys.platform.startswith("linux")

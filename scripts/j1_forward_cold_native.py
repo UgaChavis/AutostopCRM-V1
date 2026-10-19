@@ -271,6 +271,12 @@ class NativeProvider:
         contract.need(io.sha(raw) == reference["sha256"], "native_reference_hash")
         return contract.runtime_bytes(reference, raw)
 
+    def read_runtime_capsule(self, reference):
+        contract.reference(reference)
+        raw = io.read_protected(reference["path"], limit=192 * 1024**2)
+        contract.need(io.sha(raw) == reference["sha256"], "native_reference_hash")
+        return contract.runtime_bytes(reference, raw, capsule=True)
+
     def boundary(self, reference):
         contract.need(
             os.name == "posix"
@@ -359,6 +365,11 @@ class NativeProvider:
         )
         for unit, policy in policies.items():
             self._exact_source_tree(policy)
+            runtime = io.document(self.read_reference(policy["runtime_index_ref"]))
+            if runtime.get("schema") == "autostop.j1.cold-runtime-index.v2":
+                from scripts import j1_forward_cold_runtime_capsule
+
+                j1_forward_cold_runtime_capsule.verify_installed(runtime)
             unit_doc = io.document(self.read_reference(policy["unit_ref"]))
             actual = self.systemd(unit)
             expected = unit_doc["properties"]

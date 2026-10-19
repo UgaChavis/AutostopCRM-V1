@@ -8,6 +8,7 @@ inputs; a staging receipt is not an execution permission.
 from __future__ import annotations
 
 import os
+import re
 import stat
 import time
 from pathlib import Path, PurePosixPath
@@ -120,6 +121,7 @@ def inert_stage(
     credentials,
     deployment_fd,
     backend=None,
+    controller_source=None,
 ):
     """Stage exact immutable bytes and genuinely empty per-role state/run roots.
 
@@ -142,6 +144,38 @@ def inert_stage(
     for mapping in (runtime_bindings, runtime_env, credentials):
         cold.fields(mapping, epochs.CONSUMERS, "install_seven_consumers")
     expected_controller = {*guard.BOOTSTRAP_HASHES, "j1_forward_cold_guard"}
+    if backend.scope == "production_native" or controller_source is not None:
+        cold.fields(
+            controller_source,
+            {"revision", "tree", "consumers"},
+            "install_qualified_controller_source",
+        )
+        cold.need(
+            controller_source["revision"] == binding["candidate_crm_sha"]
+            and type(controller_source["consumers"]) is dict,
+            "install_qualified_controller_revision",
+        )
+        expected_controller = set()
+        for path, digest in controller_source["consumers"].items():
+            cold.need(
+                type(path) is str
+                and re.fullmatch(r"scripts/j1_(?:forward|manager)_[a-z0-9_]+\.py", path)
+                and type(digest) is str
+                and cold.HEX.fullmatch(digest),
+                "install_qualified_controller_member",
+            )
+            expected_controller.add(PurePosixPath(path).stem)
+        cold.need(
+            {
+                *guard.BOOTSTRAP_HASHES,
+                "j1_forward_cold_guard",
+                "j1_forward_cold_kernel_supervisor",
+                "j1_forward_cold_kernel_bootstrap",
+            }
+            <= expected_controller
+            and len(expected_controller) <= 80,
+            "install_controller_closure_required",
+        )
     cold.fields(controller_files, expected_controller, "install_controller_inventory")
     manager_raw, controller_raw, env_raw = {}, {}, {}
     total = 0
@@ -168,7 +202,12 @@ def inert_stage(
         raw = backend.read(reference)
         expected = (SOURCE / (name + ".py")).read_bytes()
         cold.need(
-            raw == expected and io.sha(raw) == reference["sha256"],
+            raw == expected
+            and io.sha(raw) == reference["sha256"]
+            and (
+                controller_source is None
+                or reference["sha256"] == controller_source["consumers"]["scripts/" + name + ".py"]
+            ),
             "install_controller_source_changed",
         )
         controller_raw[name] = raw

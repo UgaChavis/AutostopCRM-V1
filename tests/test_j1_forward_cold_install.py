@@ -93,7 +93,7 @@ class InertInstallerTests(unittest.TestCase):
 
         self.backend = Backend()
 
-    def stage(self):
+    def stage(self, **options):
         return install.inert_stage(
             self.binding,
             manager_files=self.manager,
@@ -103,7 +103,35 @@ class InertInstallerTests(unittest.TestCase):
             credentials=self.credentials,
             deployment_fd=42,
             backend=self.backend,
+            **options,
         )
+
+    def test_qualified_controller_closure_includes_fixed_kernel_bootstrap_and_every_consumer(self):
+        for name in ("j1_forward_cold_kernel_supervisor", "j1_forward_cold_kernel_bootstrap"):
+            raw = (install.SOURCE / (name + ".py")).read_bytes()
+            path = "/input/" + name + ".py"
+            self.raw[path] = raw
+            self.controllers[name] = {"path": path, "sha256": io.sha(raw)}
+        source = {
+            "revision": self.binding["candidate_crm_sha"],
+            "tree": "4" * 40,
+            "consumers": {
+                "scripts/" + name + ".py": reference["sha256"]
+                for name, reference in self.controllers.items()
+            },
+        }
+        self.stage(controller_source=source)
+        self.assertTrue(
+            any(
+                path.endswith("/j1_forward_cold_kernel_supervisor.py")
+                for path, _raw, _permissions in self.effects
+            )
+        )
+        self.effects.clear()
+        source["consumers"]["scripts/j1_forward_missing_dependency.py"] = "0" * 64
+        with self.assertRaisesRegex(io.Refusal, "controller_inventory"):
+            self.stage(controller_source=source)
+        self.assertEqual(self.effects, [])
 
     def test_seven_fresh_bindings_and_exact_bytes_without_units_or_authority(self):
         receipt = self.stage()

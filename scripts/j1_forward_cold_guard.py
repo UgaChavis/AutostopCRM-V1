@@ -17,8 +17,9 @@ from pathlib import Path
 BOOTSTRAP_HASHES = {
     "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
     "j1_forward_authority": "98bf737d3a3cca4482ee8ae6158fde3b85034fba4587321e818b9c84eea32e08",
-    "j1_forward_cold_authority": "f829c150a139e4ac5548f6f676f67406aa186c7f3a8e5057206ed3ec00a627fa",
-    "j1_forward_cold_native": "d5fc254d601b1f42378b91effe4129fb88f81bf46faa97a988e071c1b6e41553",
+    "j1_forward_cold_authority": "b66c2b2fef2b94ce20020d824e89f0cc7126b91e0ecbc5ef6c39a8d6e1491776",
+    "j1_forward_cold_runtime_capsule": "8d44da7cab98b51ad4ba5aca9748907c3300b728de24d41f4792eb9de92ed54f",
+    "j1_forward_cold_native": "ab332a9db4027d3dddba210ec5fb5853fe37e2028da215d15466f6ac9ba5b932",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
     "j1_forward_cold_history": "8786ee7b8f4688763eb68a1bc4d9910d181bef566dfad7eea8a509d82409b509",
     "j1_forward_cold_hold": "2f158f5a2158e2f8ed178ad7f9c0bfd56ddc70028ba6f3e968320ef723926d60",
@@ -26,9 +27,9 @@ BOOTSTRAP_HASHES = {
     "j1_forward_launch_permission": "8b6c3ae925cbf97b8fb047949ab4f86f19af7cd035d9026b0cdbc4dd16d00544",
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
-    "j1_forward_cold_state": "57e8bc1c28a7cdb67e5aa3b932910ee52d08531c744e31a59ad52e5ba8f8d7bc",
-    "j1_forward_cold_lifecycle": "5ba74ef9e9a71b092348ca670d388df1aae009db36ded2fe42d3c951df636157",
-    "j1_forward_cold_fixture": "59cec062568a99e5bc3b79ac5826ecb2c579e552c56c829b390b4c0b098ae512",
+    "j1_forward_cold_state": "9c3a1c18de5c90e4cd56a0a2c4f443ef328ce013ed295a3b0dd54c47126c7541",
+    "j1_forward_cold_lifecycle": "931a65d172106a1f79904cf88cadd6ed2f6077add447517736c97447dfdc16d1",
+    "j1_forward_cold_fixture": "191ca86745ef706abee6e8b1143a04688df54feb53c447a229ca76852c014113",
 }
 
 

@@ -40,6 +40,8 @@ class _ProtectedReader:
     def read_opaque_reference(self, reference):
         return io.read_protected(reference["path"], V4_MAX_RUNTIME_BYTES)
 
+    read_runtime_capsule = read_opaque_reference
+
 
 def _version(path):
     info = Path(path).lstat()
@@ -72,21 +74,21 @@ class _ReadSnapshot:
         self.reader, self.version = reader, version
         self.codec, self.kernel_v2 = codec, False
         self.files, self.references, self.versions = {}, {}, {}
-        self.opaque, self.runtime_blob_paths = set(), {}
+        self.opaque, self.capsules, self.runtime_blob_paths = set(), set(), {}
         self.total = 0
 
-    def read(self, reference, *, opaque=False):
+    def read(self, reference, *, opaque=False, capsule=False):
         cold.reference(reference)
         path = reference["path"]
         if path in self.files:
             io.require(self.references[path] == reference, "cold_archive_reference_alias")
-            self._kind(reference, self.files[path], opaque=opaque)
+            self._kind(reference, self.files[path], opaque=opaque, capsule=capsule)
             return self.files[path]
         before = self.version(path) if self.version is not None else None
         # Only a v2 kernel in this package enables the separate large reader.
         # Ordinary references cannot opt into a larger source/JSON budget.
-        large = opaque and self.codec == 4 and self.kernel_v2
-        read = cold.opaque_reader(self.reader) if large else self.reader
+        large = (opaque or capsule) and self.codec == 4 and self.kernel_v2
+        read = cold.opaque_reader(self.reader, capsule=capsule) if large else self.reader
         raw = read(reference)
         io.require(
             type(raw) is bytes and io.sha(raw) == reference["sha256"],
@@ -95,7 +97,7 @@ class _ReadSnapshot:
         if self.version is not None:
             io.require(self.version(path) == before, "cold_archive_source_version_changed")
             self.versions[path] = before
-        self._kind(reference, raw, opaque=opaque)
+        self._kind(reference, raw, opaque=opaque, capsule=capsule)
         self.total += len(raw)
         io.require(
             len(self.files) < MAX_FILES
@@ -105,13 +107,13 @@ class _ReadSnapshot:
         self.files[path], self.references[path] = raw, dict(reference)
         return raw
 
-    def _kind(self, reference, raw, *, opaque):
-        if opaque:
-            cold.runtime_bytes(reference, raw)
-            self.opaque.add(reference["path"])
+    def _kind(self, reference, raw, *, opaque, capsule=False):
+        if opaque or capsule:
+            cold.runtime_bytes(reference, raw, capsule=capsule)
+            (self.capsules if capsule else self.opaque).add(reference["path"])
         if len(raw) > MAX_FILE_BYTES:
             io.require(
-                opaque and self.codec == 4 and self.kernel_v2,
+                (opaque or capsule) and self.codec == 4 and self.kernel_v2,
                 "cold_archive_large_runtime_untyped",
             )
             self.runtime_blob_paths[reference["path"]] = {
@@ -122,9 +124,17 @@ class _ReadSnapshot:
     def read_opaque_reference(self, reference):
         return self.read(reference, opaque=True)
 
+    def read_runtime_capsule(self, reference):
+        io.require(self.codec == 4, "cold_archive_capsule_codec")
+        return self.read(reference, capsule=True)
+
     def captured(self, reference):
         """Walk an already typed leaf without converting it into source code."""
-        return self.read(reference, opaque=reference["path"] in self.opaque)
+        return self.read(
+            reference,
+            opaque=reference["path"] in self.opaque,
+            capsule=reference["path"] in self.capsules,
+        )
 
     def recheck(self):
         for path, raw in self.files.items():
@@ -132,8 +142,12 @@ class _ReadSnapshot:
                 io.require(
                     self.version(path) == self.versions[path], "cold_archive_source_version_changed"
                 )
-            large = path in self.opaque and self.codec == 4 and self.kernel_v2
-            read = cold.opaque_reader(self.reader) if large else self.reader
+            large = path in self.opaque | self.capsules and self.codec == 4 and self.kernel_v2
+            read = (
+                cold.opaque_reader(self.reader, capsule=path in self.capsules)
+                if large
+                else self.reader
+            )
             observed = read(self.references[path])
             io.require(observed == raw, "cold_archive_source_changed")
             if self.version is not None:

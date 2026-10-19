@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import os
 import tempfile
 import unittest
@@ -95,6 +96,20 @@ class ColdArchiveLogicalPaths(unittest.TestCase):
         saved[reference["path"]] = raw + b"changed"
         with self.assertRaisesRegex(io.Refusal, "source_changed"):
             snapshot.recheck()
+
+    def test_capsule_has_separate_v4_capability_and_cannot_be_relabelled_native_binary(self):
+        self.limits()
+        raw = gzip.compress(b"bounded fixture capsule", mtime=0)
+        reference = {"path": "/saved/runtime.tar.gz", "sha256": io.sha(raw)}
+        old = archive._ReadSnapshot(lambda ref: raw, codec=3)
+        with self.assertRaisesRegex(io.Refusal, "capsule_codec"):
+            old.read_runtime_capsule(reference)
+        current = archive._ReadSnapshot(lambda ref: raw, codec=4)
+        current.kernel_v2 = True
+        self.assertEqual(current.read_runtime_capsule(reference), raw)
+        self.assertIn(reference["path"], current.runtime_blob_paths)
+        with self.assertRaisesRegex(io.Refusal, "runtime_blob_kind"):
+            current.read_opaque_reference(reference)
 
     def test_capture_snapshot_reads_once_and_rechecks_actual_bytes_and_version(self):
         with tempfile.TemporaryDirectory() as temporary:
