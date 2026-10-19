@@ -111,11 +111,16 @@ try:
             if source != '2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618':
                 raise RuntimeError('fixture_native_sqlite_source_wrong')
             result['native_sqlite'] = True
-            fd = os.open(base / 'effect', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+            pending_effect = base / 'effect-publishing'
+            fd = os.open(pending_effect, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
             with os.fdopen(fd, 'wb') as stream:
                 stream.write(b'synthetic-effect-after-native-E')
                 stream.flush()
                 os.fsync(stream.fileno())
+            # Publish complete bytes without replacing an earlier effect. A
+            # reader can never observe the in-progress empty sentinel.
+            os.link(pending_effect, base / 'effect', follow_symlinks=False)
+            pending_effect.unlink()
             journal._sync(base)
             if config['mode'] == 'late_revoke':
                 wait(base / 'exit')
