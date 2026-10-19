@@ -158,7 +158,8 @@ class ModuleMapTests(unittest.TestCase):
         self.assertIn('href="/module-map"', BOARD_WEB_APP_CONTRACT_TEXT)
         self.assertIn("ОТКРЫТЬ ИНФРАСТРУКТУРУ МЕНЕДЖЕРА", BOARD_WEB_APP_CONTRACT_TEXT)
         self.assertIn(
-            "window.open('/module-map', 'autostop-module-map')", BOARD_WEB_APP_CONTRACT_TEXT
+            "window.open(autostopBoardUrl('/module-map'), 'autostop-module-map')",
+            BOARD_WEB_APP_CONTRACT_TEXT,
         )
         self.assertNotIn("ОТКРЫТЬ СТРУКТУРУ IT", BOARD_WEB_APP_CONTRACT_TEXT)
 

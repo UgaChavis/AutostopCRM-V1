@@ -119,8 +119,10 @@ def _accepted(plan, controller):
     ready = controller.ready()
     accepted = ready["accepted"]
     raw = io.canonical(ready["crm"])
-    return {
-        "schema": "autostop.j1.cold-seven-runtime-observation.v1",
+    result = {
+        "schema": "autostop.j1.cold-seven-runtime-observation.v2"
+        if controller.provider.scope == "production_native"
+        else "autostop.j1.cold-seven-runtime-observation.v1",
         "attempt_id": plan["attempt_id"],
         "package_ref": plan["cold_authority_package_ref"],
         "epoch_ref": plan["dispatch_epoch_ref"],
@@ -133,6 +135,9 @@ def _accepted(plan, controller):
         "crm": ready["crm"],
         "execution_acceptance_sha256": ready["acceptance_sha256"],
     }
+    if controller.provider.scope == "production_native":
+        result["telegram_frontiers"] = ready["telegram_frontiers"]
+    return result
 
 
 class Coordinator:
@@ -405,6 +410,10 @@ class Coordinator:
         markers.require(self.marker_ref, self.plan_ref)
         report = self.host.http_cut(self.plan["candidate"], self.plan["attempt_id"])
         markers.require(self.marker_ref, self.plan_ref)
+        # The marker callback and pre-OPEN cut each require current transport
+        # receipts from the same accepted Telegram process incarnations.
+        ready = self.controller.ready()
+        cold.need("telegram_frontiers" in ready, "fresh_telegram_frontiers_required")
         forward.save(self.directory, "cold-http-ingress-cut", report)
         return report
 

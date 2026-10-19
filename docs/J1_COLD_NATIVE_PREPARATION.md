@@ -94,8 +94,17 @@ authentication on new paths. Fresh public and local cut probes, process/source
 identity and marker ownership are required again immediately before OPEN and
 marker removal. Provider-authenticated Telegram PTS cuts must come from each
 actual current guarded process; the producer cannot manufacture these future
-receipts from source policy. Fresh Telegram credentials and an authenticated
-owned kernel thread remain required future-window inputs.
+receipts from source policy. Production frontier policy v2 requires the two
+separately qualified expected account hashes. `Controller.ready()` independently
+reads both actual process cuts and quarantine ledgers, brackets all four files
+with fresh process observations and repeats source/native verification before
+returning. The signed acceptance uses seven-runtime observation v2 and binds
+the policy through package/source/producer-input hashes. Missing receipts,
+different accounts or process incarnations, expiry and quarantine overflow deny
+acceptance. Historical rows remain held and never imply complete provider
+inventory. COMMIT, pre-OPEN and marker removal repeat readiness. Fresh Telegram
+credentials and an authenticated owned kernel thread remain required
+future-window inputs.
 
 Production Telegram policy v2 requires both expected account-self hashes from
 separately qualified staged authorization. The shared parser rejects v1 before

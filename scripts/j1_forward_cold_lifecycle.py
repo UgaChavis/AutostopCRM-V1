@@ -928,6 +928,73 @@ class Controller:
             self.root,
         )
 
+    def telegram_frontiers(self, accepted):
+        """Read both actual transport cuts; a started guard alone is insufficient."""
+        from scripts import j1_forward_cold_telegram as telegram
+
+        contract.need(self.provider.scope == "production_native", "telegram_native_scope")
+        value, _fence = self.verify()
+        package, binding = value["package"], value["package"]["binding"]
+        source = io.document(self.provider.read_reference(package["source_package_ref"]))
+        inputs = io.document(self.provider.read_reference(source["producer_inputs_ref"]))
+        policy_ref = inputs["telegram_frontier_policy_ref"]
+        policy = io.document(self.provider.read_reference(policy_ref))
+        actors = {}
+        for role, unit in telegram.UNITS.items():
+            observation = io.document(self.provider.read_reference(accepted[unit]))
+            contract.need(
+                observation["package_ref"] == self.package_ref
+                and observation["epoch_ref"] == self.epoch_ref
+                and observation["policy_ref"] == package["policies"][unit],
+                "telegram_slot_binding",
+            )
+            actors[role] = {key: observation[key] for key in telegram.ACTOR_FIELDS}
+
+        def sample(role):
+            unit = telegram.UNITS[role]
+            _store, snapshot, context = self.context(unit)
+            observed = self.backend.observe(snapshot["ticket"], context, started=True)
+            contract.need(
+                snapshot["state"]["execution_possible"] is True, "telegram_slot_not_entered"
+            )
+            return {
+                **actors[role],
+                **observed,
+                "boot_id": self.provider.boot(),
+                "source_revision": binding["candidate_manager_sha"],
+                "started_monotonic_ns": observed["start_ticks"] * 10**9 // os.sysconf("SC_CLK_TCK"),
+            }
+
+        def publish(name, document):
+            return _publish(
+                self.root / (name + "-" + contract.digest(document) + ".json"), document, self.root
+            )
+
+        until = min(time.monotonic() + 10, binding["deadline_ns"] / 1e9)
+        while True:
+            try:
+                result = telegram.observe(
+                    binding,
+                    policy_ref=policy_ref,
+                    policy=policy,
+                    actors_by_role=actors,
+                    sample_process=sample,
+                    publish=publish,
+                    now_ns=time.monotonic_ns(),
+                )
+                break
+            except FileNotFoundError:
+                contract.need(time.monotonic() < until, "telegram_transport_not_ready")
+                time.sleep(0.1)
+        self.verify()
+        result["source"] = {
+            "source_package_ref": package["source_package_ref"],
+            "source_package": source,
+            "producer_inputs_ref": source["producer_inputs_ref"],
+            "producer_inputs": inputs,
+        }
+        return result
+
     def ready(self):
         self.verify()
         accepted = {unit: self.accept(unit) for unit in contract.ALLOWED}
@@ -939,13 +1006,16 @@ class Controller:
             crm["epoch_ref"] == self.epoch_ref and crm["package_ref"] == self.package_ref,
             "slot_crm_acceptance_required",
         )
-        return {
+        result = {
             "ok": True,
             "accepted": accepted,
             "crm": crm,
             "acceptance_sha256": contract.digest(accepted),
             "activation_authorized": False,
         }
+        if self.provider.scope == "production_native":
+            result["telegram_frontiers"] = self.telegram_frontiers(accepted)
+        return result
 
     def accept_crm(self, evidence_ref):
         # The native container observer is deliberately a separate boundary from

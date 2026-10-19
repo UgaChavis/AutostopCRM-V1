@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from pathlib import PurePosixPath
 
 from scripts import j1_forward_cold_authority as contract
@@ -21,7 +22,7 @@ from scripts import j1_forward_worker as worker
 
 REMOTE = "/opt/autostopcrm/scripts/j1_forward_cold_release.py"
 NATIVE_SCHEMA = "autostop.j1.cold-native-observation.v1"
-ACCEPTED_SCHEMA = "autostop.j1.cold-seven-runtime-observation.v1"
+ACCEPTED_SCHEMA = "autostop.j1.cold-seven-runtime-observation.v2"
 
 
 def native_observation(value, response, *, phase):
@@ -174,6 +175,7 @@ def _accepted(document, response):
             "crm_ref",
             "crm",
             "execution_acceptance_sha256",
+            "telegram_frontiers",
         },
         "worker_accepted_fields",
     )
@@ -275,6 +277,45 @@ def _accepted(document, response):
         candidate={key: plan["candidate"][key] for key in ("image", "revision", "tree")},
         attempt=plan["attempt_id"],
         phase="closed",
+    )
+    from scripts import j1_forward_cold_telegram as telegram
+
+    frontiers = document["telegram_frontiers"]
+    contract.fields(
+        frontiers, {"reference", "digest", "document", "source"}, "worker_telegram_fields"
+    )
+    worker._bound(frontiers["document"], frontiers["reference"])
+    contract.need(frontiers["digest"] == frontiers["reference"]["sha256"], "worker_telegram_digest")
+    observation = frontiers["document"]
+    source = frontiers["source"]
+    contract.fields(
+        source,
+        {"source_package_ref", "source_package", "producer_inputs_ref", "producer_inputs"},
+        "worker_telegram_source_fields",
+    )
+    worker._bound(source["source_package"], source["source_package_ref"])
+    worker._bound(source["producer_inputs"], source["producer_inputs_ref"])
+    contract.need(
+        source["source_package_ref"] == package["source_package_ref"]
+        and source["source_package"]["schema"] == "autostop.j1.cold-source-package.v2"
+        and source["source_package"]["producer_inputs_ref"] == source["producer_inputs_ref"]
+        and source["producer_inputs"]["schema"] == "autostop.j1.cold-producer-inputs.v1"
+        and source["producer_inputs"]["scope"] == "production_native"
+        and source["producer_inputs"]["binding"] == package["binding"]
+        and source["producer_inputs"]["telegram_frontier_policy_ref"] == observation["policy_ref"],
+        "worker_telegram_source_binding",
+    )
+    actors = {
+        role: {key: document["observations"][unit][key] for key in telegram.ACTOR_FIELDS}
+        for role, unit in telegram.UNITS.items()
+    }
+    telegram.validate_document(
+        observation,
+        binding=package["binding"],
+        policy_ref=observation["policy_ref"],
+        policy=observation["policy"],
+        actors_by_role=actors,
+        now_ns=time.monotonic_ns(),
     )
 
 

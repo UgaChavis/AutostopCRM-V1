@@ -6,9 +6,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from scripts import j1_forward_cold_authority as contract
+from scripts import j1_forward_cold_lifecycle as lifecycle
 from scripts import j1_forward_cold_state as state
+from scripts import j1_forward_cold_telegram as telegram
 from scripts import j1_forward_cold_worker as cold
 from scripts import j1_forward_io as io
 from scripts import j1_forward_worker as worker
@@ -38,7 +42,7 @@ class ColdWorkerTests(unittest.TestCase):
             "candidate_manager_sha": "a" * 40,
             "deployment_lock_identity": [1, 2],
             "not_before_ns": time.monotonic_ns() - 10**9,
-            "deadline_ns": time.monotonic_ns() + 600 * 10**9,
+            "deadline_ns": time.monotonic_ns() + 590 * 10**9,
         }
         package = {
             name: self.fixture.ref(name + ".json", {"synthetic": name})
@@ -55,6 +59,34 @@ class ColdWorkerTests(unittest.TestCase):
             },
             permanent_denied_units=list(contract.DENIED),
         )
+        self.telegram_policy = {
+            "schema": telegram.FRONTIER_SCHEMA,
+            "scope": "production_native",
+            "binding": binding,
+            "source_revision": binding["candidate_manager_sha"],
+            "roles": list(telegram.ROLES),
+            "cut": telegram.FRONTIER_CUT,
+            "account_self_sha256": {
+                role: letter * 64 for role, letter in zip(telegram.ROLES, "ab")
+            },
+        }
+        self.telegram_policy_ref = self.fixture.ref("telegram-policy.json", self.telegram_policy)
+        inputs = {
+            "schema": "autostop.j1.cold-producer-inputs.v1",
+            "scope": "production_native",
+            "binding": binding,
+            "telegram_frontier_policy_ref": self.telegram_policy_ref,
+        }
+        inputs_ref = self.fixture.ref("producer-inputs.json", inputs)
+        source = {"schema": "autostop.j1.cold-source-package.v2", "producer_inputs_ref": inputs_ref}
+        source_ref = self.fixture.ref("source-package.json", source)
+        package["source_package_ref"] = source_ref
+        self.telegram_source = {
+            "source_package_ref": source_ref,
+            "source_package": source,
+            "producer_inputs_ref": inputs_ref,
+            "producer_inputs": inputs,
+        }
         package_ref = {
             "path": "/etc/autostop-crm-forward/cold/v1/authority.json",
             "sha256": contract.digest(package),
@@ -230,6 +262,7 @@ class ColdWorkerTests(unittest.TestCase):
             "crm_ref": crm_ref,
             "crm": crm,
             "execution_acceptance_sha256": contract.digest(refs),
+            "telegram_frontiers": self.telegram_observation(package["binding"], observations),
         }
         runtime = runtime_tests.report(
             {key: plan["candidate"][key] for key in ("image", "revision", "tree")},
@@ -244,6 +277,80 @@ class ColdWorkerTests(unittest.TestCase):
             crm_ref=crm_ref,
             runtime_ref=self.fixture.ref("runtime.json", runtime),
         )
+
+    def telegram_observation(self, binding, observations):
+        actors = {
+            role: {key: observations[unit][key] for key in telegram.ACTOR_FIELDS}
+            for role, unit in telegram.UNITS.items()
+        }
+        observed = time.monotonic_ns()
+        rows = {}
+        for role, actor in actors.items():
+            process = {
+                **actor,
+                "boot_id": binding["boot_id"],
+                "source_revision": binding["candidate_manager_sha"],
+                "started_monotonic_ns": binding["not_before_ns"] + 1,
+            }
+            cut_path, quarantine_path = telegram._paths(binding, role, actor)
+            cut = {
+                "schema": telegram.CUT_SCHEMA,
+                **{key: binding[key] for key in ("attempt_id", "boot_id", "generation")},
+                "epoch_id": binding["generation"],
+                "source_revision": binding["candidate_manager_sha"],
+                "role": role,
+                "main_pid": actor["pid"],
+                "start_ticks": actor["start_ticks"],
+                "observed_monotonic_ns": observed,
+                "account_self_sha256": self.telegram_policy["account_self_sha256"][role],
+                "pts": 1,
+                "qts": 0,
+                "seq": 1,
+                "supported_updates": "private_account_global_pts_only",
+                "historical_replay": "denied",
+                "observation_only": True,
+                "release_authority": False,
+                "quarantine_path": quarantine_path,
+            }
+            rows[role] = {
+                "process_before": process,
+                "process_after": process,
+                "cut": cut,
+                "cut_path": cut_path,
+                "cut_sha256": contract.digest(cut),
+                "quarantine_path": quarantine_path,
+                "quarantine_sha256": "9" * 64,
+                "quarantine": {
+                    "status": "clear",
+                    "record_count": 0,
+                    "overflow_count": 0,
+                    "overflow_chain_sha256": "0" * 64,
+                    "complete_observation_log": True,
+                    "historical_inventory_complete": False,
+                    "replay": "forbidden",
+                    "record_fingerprints_sha256": contract.digest([]),
+                },
+            }
+        body = {
+            "schema": telegram.SCHEMA,
+            "scope": "production_native",
+            "binding": binding,
+            "policy_ref": self.telegram_policy_ref,
+            "policy": self.telegram_policy,
+            "actors_by_role": actors,
+            "observed_monotonic_ns": observed,
+            "roles": rows,
+            "historical_inventory_complete": False,
+            "native_acceptance": False,
+            "release_authority": False,
+        }
+        reference = self.fixture.ref("telegram-observation.json", body)
+        return {
+            "reference": reference,
+            "digest": reference["sha256"],
+            "document": body,
+            "source": self.telegram_source,
+        }
 
     def rebind(self, response):
         for name in response["evidence"]:
@@ -313,6 +420,105 @@ class ColdWorkerTests(unittest.TestCase):
         arguments = instance._ssh("inspect", self.fixture.attempt, stage="closed")
         self.assertIn(cold.REMOTE, arguments)
         self.assertNotIn(worker.REMOTE, arguments)
+
+    def test_hash_valid_frontier_with_unbound_account_or_policy_cannot_be_signed(self):
+        for failure in ("missing", "wrong_account", "unbound_policy", "overflow"):
+            response = self.response("activated")
+            accepted = response["evidence"]["accepted"]
+            frontier = accepted["telegram_frontiers"]
+            body = frontier["document"]
+            row = body["roles"][telegram.ROLES[0]]
+            if failure == "missing":
+                del accepted["telegram_frontiers"]
+            elif failure == "wrong_account":
+                row["cut"]["account_self_sha256"] = "f" * 64
+                row["cut_sha256"] = contract.digest(row["cut"])
+            elif failure == "unbound_policy":
+                body["policy"] = {
+                    **body["policy"],
+                    "account_self_sha256": dict.fromkeys(telegram.ROLES, "f" * 64),
+                }
+                body["policy_ref"] = self.fixture.ref("other-policy.json", body["policy"])
+            else:
+                row["quarantine"]["overflow_count"] = 1
+            frontier["reference"] = self.fixture.ref("changed-frontiers.json", body)
+            frontier["digest"] = frontier["reference"]["sha256"]
+            self.rebind(response)
+            with self.subTest(failure=failure), self.assertRaises(io.Refusal):
+                cold.validate_response(response, attempt=self.fixture.attempt, stage="activated")
+
+    def test_ready_seam_rechecks_both_receipts_with_explicit_native_io_doubles(self):
+        response = self.response("activated")
+        evidence, package = response["evidence"], response["evidence"]["package"]
+        accepted = evidence["accepted"]
+        frontier = accepted["telegram_frontiers"]
+        sources = frontier["source"]
+        documents = {
+            package["source_package_ref"]["path"]: sources["source_package"],
+            sources["producer_inputs_ref"]["path"]: sources["producer_inputs"],
+            self.telegram_policy_ref["path"]: self.telegram_policy,
+            **{
+                ref["path"]: accepted["observations"][unit]
+                for unit, ref in accepted["accepted"].items()
+            },
+        }
+        instance = object.__new__(lifecycle.Controller)
+        instance.root = self.fixture.root / "telegram-ready"
+        instance.root.mkdir(mode=0o700)
+        instance.provider = SimpleNamespace(
+            scope="production_native",
+            boot=lambda: package["binding"]["boot_id"],
+            read_reference=lambda ref: io.canonical(documents[ref["path"]]),
+        )
+        instance.package_ref = response["plan"]["cold_authority_package_ref"]
+        instance.epoch_ref = response["plan"]["dispatch_epoch_ref"]
+        instance.verify = Mock(return_value=({"package": package}, {}))
+        instance.context = lambda unit: (
+            None,
+            {"ticket": unit, "state": {"execution_possible": True}},
+            {},
+        )
+        instance.backend = SimpleNamespace(
+            observe=lambda unit, _context, **_kw: {
+                k: accepted["observations"][unit][k]
+                for k in ("pid", "start_ticks", "invocation_id")
+            }
+        )
+        raw = {}
+        for row in frontier["document"]["roles"].values():
+            raw[row["cut_path"]] = io.canonical(row["cut"])
+            quarantine = {k: v for k, v in row["cut"].items() if k != "quarantine_path"}
+            quarantine.update(
+                schema=telegram.QUARANTINE_SCHEMA,
+                status="clear",
+                records=[],
+                overflow_count=0,
+                overflow_chain_sha256="0" * 64,
+                complete_observation_log=True,
+                historical_inventory_complete=False,
+                replay="forbidden",
+            )
+            raw[row["quarantine_path"]] = io.canonical(quarantine)
+        observe = telegram.observe
+
+        def publish(path, body, _root):
+            path.write_bytes(io.canonical(body))
+            return {"path": str(path), "sha256": contract.digest(body)}
+
+        with (
+            patch.object(
+                telegram,
+                "observe",
+                side_effect=lambda *a, **kw: observe(*a, **kw, read_bytes=raw.__getitem__),
+            ),
+            patch.object(lifecycle, "_publish", side_effect=publish),
+            patch.object(lifecycle.os, "sysconf", return_value=100, create=True),
+        ):
+            result = instance.telegram_frontiers(accepted["accepted"])
+        self.assertEqual(result["source"], sources)
+        self.assertEqual(instance.verify.call_count, 2)
+        self.assertEqual(io.sha(Path(result["reference"]["path"]).read_bytes()), result["digest"])
+        self.assertEqual(set(result["document"]["roles"]), set(telegram.ROLES))
 
     def test_seven_runtime_identities_require_distinct_positive_integer_pids(self):
         for failure in (
