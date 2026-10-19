@@ -401,13 +401,34 @@ class NativeProvider:
             and source["native_ref"]["sha256"] == io.sha(Path(__file__).read_bytes()),
             "native_consumer_source",
         )
+        trees = _SharedTrees()
         for unit, policy in policies.items():
-            self._exact_source_tree(policy)
+            root = self._source_tree_root(policy)
+            trees.measure(
+                (
+                    "source",
+                    contract.digest(policy["source_index_ref"]),
+                    contract.digest(policy["binding"]),
+                ),
+                (root,),
+                lambda: self._exact_source_tree(policy),
+            )
             runtime = io.document(self.read_reference(policy["runtime_index_ref"]))
             if runtime.get("schema") == "autostop.j1.cold-runtime-index.v2":
                 from scripts import j1_forward_cold_runtime_capsule
 
-                j1_forward_cold_runtime_capsule.verify_installed(runtime)
+                j1_forward_cold_runtime_capsule.validate_index(
+                    runtime, binding=policy["binding"], scope=package["scope"]
+                )
+                trees.measure(
+                    (
+                        "runtime",
+                        contract.digest(policy["runtime_index_ref"]),
+                        contract.digest(policy["binding"]),
+                    ),
+                    tuple(runtime["runtime_roots"].values()),
+                    lambda: j1_forward_cold_runtime_capsule.verify_installed(runtime),
+                )
             unit_doc = io.document(self.read_reference(policy["unit_ref"]))
             actual = self.systemd(unit)
             expected = unit_doc["properties"]
@@ -442,8 +463,9 @@ class NativeProvider:
                 and actual["MainPID"] == "0",
                 "native_old_unit_active",
             )
+        trees.finish()
 
-    def _exact_source_tree(self, policy):
+    def _source_tree_root(self, policy):
         root = Path(policy["source_root"])
         contract.need(
             root
@@ -452,6 +474,11 @@ class NativeProvider:
             / "source",
             "native_source_location",
         )
+        io.protected_directory(root)
+        return root
+
+    def _exact_source_tree(self, policy):
+        root = self._source_tree_root(policy)
         index = io.document(self.read_reference(policy["source_index_ref"]))
         expected = {row["path"] for row in index["files"]}
         actual = set()
@@ -1176,6 +1203,43 @@ class NativeProvider:
                 )
                 actual.add(logical)
         contract.need(actual == set(expected), "cache_checkpoint_inventory_incomplete")
+
+
+def _tree_versions(roots):
+    versions = {}
+
+    def fail(error):
+        raise error
+
+    for root in roots:
+        root = io.protected_directory(root)
+        versions[str(root)] = _executable_version(root.lstat())
+        for directory, folders, files in os.walk(root, followlinks=False, onerror=fail):
+            for name in (*folders, *files):
+                path = Path(directory) / name
+                contract.need(len(versions) < 32768, "native_tree_inventory_limit")
+                versions[str(path)] = _executable_version(path.lstat())
+    return versions
+
+
+class _SharedTrees:
+    """A shared physical tree is measured once, with a complete version exit cut."""
+
+    def __init__(self):
+        self.measured = {}
+
+    def measure(self, key, roots, operation):
+        roots = tuple(sorted(str(Path(path)) for path in roots))
+        if key in self.measured:
+            contract.need(self.measured[key][0] == roots, "native_tree_root_alias")
+            return
+        versions = _tree_versions(roots)
+        operation()
+        self.measured[key] = (roots, versions)
+
+    def finish(self):
+        for roots, before in self.measured.values():
+            contract.need(_tree_versions(roots) == before, "native_installed_tree_changed")
 
 
 class _ObservationSources:

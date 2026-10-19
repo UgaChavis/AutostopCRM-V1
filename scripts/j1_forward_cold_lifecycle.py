@@ -443,17 +443,47 @@ def _loaded_libraries(pid, context, provider):
     accepted = {}
     for key in ("source_index_ref", "runtime_index_ref", "startup_index_ref"):
         for reference in _index_references(provider, policy[key]):
+            contract.need(
+                reference["path"] not in accepted or accepted[reference["path"]] == reference,
+                "slot_loaded_library_alias",
+            )
             accepted[reference["path"]] = reference
-    for line in (Path("/proc") / str(pid) / "maps").read_text().splitlines():
-        fields = line.split(None, 5)
-        if (
-            len(fields) == 6
-            and fields[5].startswith("/")
-            and ("x" in fields[1] or ".so" in fields[5])
-        ):
-            path = fields[5]
-            contract.need(path in accepted, "slot_unaccepted_loaded_library")
+    maps = Path("/proc") / str(pid) / "maps"
+    observed, checked = _library_mappings(maps.read_text()), {}
+    for fields in observed:
+        path = fields[5]
+        contract.need(path in accepted, "slot_unaccepted_loaded_library")
+        info = Path(path).lstat()
+        try:
+            device = [int(part, 16) for part in fields[3].split(":")]
+            inode = int(fields[4])
+        except ValueError:
+            raise io.Refusal("cold_slot_loaded_library_identity") from None
+        contract.need(
+            stat.S_ISREG(info.st_mode)
+            and device == [os.major(info.st_dev), os.minor(info.st_dev)]
+            and inode == info.st_ino,
+            "slot_loaded_library_identity",
+        )
+        version = native._executable_version(info)
+        if path not in checked:
             contract.opaque_reader(provider.read_reference)(accepted[path])
+            checked[path] = version
+        contract.need(checked[path] == version, "slot_loaded_library_changed")
+    for path, version in checked.items():
+        contract.need(
+            native._executable_version(Path(path).lstat()) == version, "slot_loaded_library_changed"
+        )
+    contract.need(_library_mappings(maps.read_text()) == observed, "slot_loaded_mappings_changed")
+
+
+def _library_mappings(raw):
+    rows = [line.split(None, 5) for line in raw.splitlines()]
+    return [
+        row
+        for row in rows
+        if len(row) == 6 and row[5].startswith("/") and ("x" in row[1] or ".so" in row[5])
+    ]
 
 
 class FixtureBackend:
