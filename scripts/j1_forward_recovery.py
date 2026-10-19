@@ -10,7 +10,7 @@ import os
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_io as io
 from scripts import j1_forward_recovery_state as recovery_state
@@ -43,26 +43,37 @@ def _document(reference):
     return io.document(io.referenced(reference))
 
 
-def _origin_documents(origin):
+def _origin_documents(origin, *, root=None, read_reference=None, read_file=None):
+    read_reference = io.referenced if read_reference is None else read_reference
+    read_file = io.read_protected if read_file is None else read_file
+    attempts, origins, state_root = (
+        (ATTEMPTS, ORIGINS, STATE)
+        if root is None
+        else (
+            PurePosixPath(root) / "attempts",
+            PurePosixPath(root) / "origins",
+            PurePosixPath(root) / "state",
+        )
+    )
     io.require(type(origin) is dict and set(origin) == ORIGIN_FIELDS, "recovery_origin_fields")
     io.require(state._hash(origin["nonce"]), "recovery_origin_nonce")
-    plan = _document(origin["origin_plan_ref"])
+    plan = io.document(read_reference(origin["origin_plan_ref"]))
     state.validate_plan(plan, plan["base_sha256"])
-    directory = ATTEMPTS / plan["attempt_id"]
+    directory = attempts / plan["attempt_id"]
     paths = {
-        "origin_pending_ref": STATE / "pending.json",
+        "origin_pending_ref": state_root / "pending.json",
         "origin_plan_ref": directory / "plan.json",
         "origin_closure_ref": directory / "closure-owned.json",
         "origin_scope_ref": directory / "process-scope.json",
         "origin_failure_ref": directory / "failure.json",
-        "origin_bundle_ref": ORIGINS / plan["attempt_id"] / "bundle.json",
+        "origin_bundle_ref": origins / plan["attempt_id"] / "bundle.json",
     }
     io.require(
         all(origin[key]["path"] == str(path) for key, path in paths.items())
         and plan["baseline_ref"]["path"] == str(directory / "baseline.json"),
         "recovery_origin_paths",
     )
-    retained = io.read_protected(ORIGINS / plan["attempt_id"] / "pending.json")
+    retained = read_file(origins / plan["attempt_id"] / "pending.json")
     io.require(
         io.sha(retained)
         == origin["origin_pending_ref"]["sha256"]
@@ -72,19 +83,23 @@ def _origin_documents(origin):
     )
     return plan, {
         "plan": plan,
-        "baseline": _document(plan["baseline_ref"]),
-        "closure": _document(origin["origin_closure_ref"]),
-        "scope": _document(origin["origin_scope_ref"]),
-        "failure": _document(origin["origin_failure_ref"]),
-        "bundle": _document(origin["origin_bundle_ref"]),
+        "baseline": io.document(read_reference(plan["baseline_ref"])),
+        "closure": io.document(read_reference(origin["origin_closure_ref"])),
+        "scope": io.document(read_reference(origin["origin_scope_ref"])),
+        "failure": io.document(read_reference(origin["origin_failure_ref"])),
+        "bundle": io.document(read_reference(origin["origin_bundle_ref"])),
     }
 
 
-def validate_origin(origin):
+def validate_origin(origin, *, root=None, read_reference=None, read_file=None):
     """Validate retained provenance without depending on consumed live pending."""
     from scripts import j1_forward_process_scope as process_scope
 
-    plan, result = _origin_documents(origin)
+    read_reference = io.referenced if read_reference is None else read_reference
+    origins = ORIGINS if root is None else PurePosixPath(root) / "origins"
+    plan, result = _origin_documents(
+        origin, root=root, read_reference=read_reference, read_file=read_file
+    )
     baseline, closure, scope, bundle = (
         result[key] for key in ("baseline", "closure", "scope", "bundle")
     )
@@ -139,10 +154,10 @@ def validate_origin(origin):
         reference = bundle["files"][name]
         io.require(
             reference
-            == {"path": str(ORIGINS / plan["attempt_id"] / "consumers" / name), "sha256": digest},
+            == {"path": str(origins / plan["attempt_id"] / "consumers" / name), "sha256": digest},
             "recovery_origin_consumer_binding",
         )
-        io.referenced(reference)
+        read_reference(reference)
     return result
 
 

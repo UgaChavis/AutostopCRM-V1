@@ -615,6 +615,30 @@ insufficient.
 
 ## Implementation and verification map
 
+The fixed data-backup profile is supplemented by a separate bounded control
+archive (`j1_forward_archive.py`). Capture requires the caller to retain the
+deployment lock and repeatedly observe closure. It follows pinned references
+from state, HEAD/history, the current attempt, retained origins and recovery
+envelopes, including derived retained-pending paths and exact consumer bytes.
+It does not recursively copy the changing attempts directory. Count, byte,
+graph-depth and time limits apply; sources and state are reread before publishing
+the immutable manifest. Output is outside the logical control root.
+
+Off-host verification reconstructs only disposable private copies and runs the
+normal Store HEAD/pending/recovery validators against an explicit read-only map
+of original logical paths. It never resolves missing evidence from production
+or imports archived Python. A terminal archive also requires the committed
+five-proof graph, completion/progress, auxiliary release and recovery cohort
+receipts. Windows verification uses the worker's accepted ACL-custody checker;
+the native protected-file policy is not relaxed. A successful disposable
+control restore does not grant native admission, prove writer closure, restore
+external dependencies or authorize a production restore. Data-backup and
+independent native/closure proof gates remain required.
+
+Recovery stop uses the same ownership-bound Store-worker drain as ordinary
+closure. The archived original pending, original writer ban and exact cohort
+bindings survive the new recovery; an unknown warm ingress is still a refusal.
+
 | Module | Responsibility |
 | --- | --- |
 | `j1_forward_release.py` | Published-image build, bounded preparation, service lifecycle, inspection, proof dispatch and release ordering |
@@ -631,6 +655,7 @@ insufficient.
 | `j1_forward_closure.py` | Owned barriers, exact writer freeze/thaw and closure observations |
 | `j1_forward_process_scope.py` | Attempt-bound helper/proxy ownership, live SSH transport proofs and process topology |
 | `j1_forward_backup.py` | Fixed-profile capture and real disposable restore verification |
+| `j1_forward_archive.py` | Bounded control graph, retained consumer bytes and independent read-only semantic restore |
 | `j1_forward_transport.py` | Private online transport cache and final-manifest assembly |
 | `j1_forward_runtime.py` | Bounded candidate authentication/read/runtime probes |
 | `j1_forward_worker.py` | Finite Windows inspection, disposable restore and private Ed25519 signing |

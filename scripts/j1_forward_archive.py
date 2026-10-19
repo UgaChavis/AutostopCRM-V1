@@ -1,0 +1,637 @@
+"""Bounded control-evidence copies and independent, read-only semantic restore.
+
+This supplements the fixed data-backup profile. It copies only the referenced
+forward state/attempt/origin graph and pinned consumer bytes, never an entire
+changing attempts tree. Restored evidence is inspected through normal Store
+readers; archived Python is never imported or executed. No production restore,
+native admission, writer closure or signature truth is supplied by this module.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import stat
+import time
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
+
+from scripts import j1_forward_io as io
+from scripts import j1_forward_recovery as recovery
+from scripts import j1_forward_recovery_state as recovery_state
+from scripts import j1_forward_state as state
+
+SCHEMA = "autostop.j1.crm-forward-control-archive.v1"
+RESTORE_SCHEMA = "autostop.j1.crm-forward-control-restore.v1"
+ROOT = Path("/var/lib/autostop-crm-forward")
+SOURCE = Path("/opt/autostopcrm")
+MAX_FILES = 8192
+MAX_FILE_BYTES = 8 * 1024**2
+MAX_TOTAL_BYTES = 128 * 1024**2
+MAX_NODES = 250_000
+CONSUMER = re.compile(r"scripts/j1_forward_[a-z_]+\.py\Z")
+CLAIMS = {
+    "production_restore_authorized": False,
+    "native_acceptance_granted": False,
+    "writer_closure_proven": False,
+    "external_dependencies_restored": False,
+}
+
+
+def _budget(deadline):
+    io.require(time.monotonic() < deadline, "control_archive_deadline")
+
+
+def _path(root, value):
+    io.require(type(value) is str and "\x00" not in value, "control_archive_path")
+    path = PurePosixPath(value)
+    io.require(
+        path.is_absolute()
+        and str(path) == value
+        and ".." not in path.parts
+        and path.is_relative_to(root)
+        and len(path.relative_to(root).parts) >= 2
+        and path.relative_to(root).parts[0] in {"state", "attempts", "origins"},
+        "control_archive_path",
+    )
+    return path
+
+
+def _references(value):
+    pending, count = [(value, None, 0)], 0
+    while pending:
+        item, key, depth = pending.pop()
+        count += 1
+        io.require(count <= MAX_NODES and depth <= 64, "control_archive_graph_limit")
+        if type(item) is dict:
+            # This historical reference deliberately names live pending. Its
+            # bytes are retained under origins and recoveries after consumption.
+            if key != "origin_pending_ref" and {"path", "sha256"} <= set(item):
+                reference = {name: item[name] for name in ("path", "sha256")}
+                state._reference(reference)
+                yield reference
+            pending.extend((child, name, depth + 1) for name, child in item.items())
+        elif type(item) is list:
+            pending.extend((child, None, depth + 1) for child in item)
+
+
+def _consumer_maps(documents):
+    result = {}
+    for doc in documents.values():
+        if type(doc) is not dict or "source_consumers" not in doc:
+            continue
+        files = doc["source_consumers"]
+        io.require(
+            type(files) is dict
+            and 0 < len(files) <= 128
+            and all(
+                type(name) is str and CONSUMER.fullmatch(name) and state._hash(digest)
+                for name, digest in files.items()
+            ),
+            "control_archive_consumer_inventory",
+        )
+        digest = io.sha(io.canonical(files))
+        if "consumer_sha256" in doc:
+            io.require(doc["consumer_sha256"] == digest, "control_archive_consumer_binding")
+        result[digest] = files
+    return result
+
+
+def _implicit_references(root, document):
+    """Retained bytes derived by Store instead of serialized as references."""
+    if type(document) is not dict:
+        return []
+    if document.get("schema") == recovery.BUNDLE_SCHEMA:
+        origin = PurePosixPath(document["origin_plan_ref"]["path"]).parent.name
+        return [
+            {
+                "path": str(root / "origins" / origin / "pending.json"),
+                "sha256": document["origin_plan_ref"]["sha256"],
+            }
+        ]
+    if document.get("schema") == recovery_state.RECOVERY_SCHEMA:
+        return [
+            {
+                "path": str(
+                    root / "state/recoveries" / (document["recovery_id"] + ".pending.json")
+                ),
+                "sha256": document["origin_pending_ref"]["sha256"],
+            }
+        ]
+    return []
+
+
+class _RestoredStore(state.Store):
+    """Use the production state validators against explicit restored bytes only."""
+
+    def __init__(self, root, base_sha256, files):
+        self.root, self.base_sha256 = PurePosixPath(root), base_sha256
+        io.require(self.root.is_absolute() and ".." not in self.root.parts, "state_root_absolute")
+        io.require(state._hash(base_sha256), "state_base_invalid")
+        self.history = self.root / "history"
+        self.head_path = self.root / "HEAD.json"
+        self.pending_path = self.root / "pending.json"
+        self.files = files
+
+    def _logical_path(self, value):
+        return PurePosixPath(value)
+
+    @contextmanager
+    def _locked(self, *, create=False):
+        io.require(not create, "control_archive_read_only")
+        yield True
+
+    def _contains(self, path):
+        path = str(path)
+        return path in self.files or any(name.startswith(path + "/") for name in self.files)
+
+    def _raw(self, path):
+        io.require(str(path) in self.files, "control_archive_reference_missing")
+        return self.files[str(path)]
+
+    def _read(self, path):
+        raw = self._raw(path)
+        return io.document(raw), {"path": str(path), "sha256": io.sha(raw)}
+
+    def _reference(self, path):
+        return {"path": str(path), "sha256": io.sha(self._raw(path))}
+
+    def _read_reference(self, reference):
+        state._reference(reference)
+        raw = self._raw(reference["path"])
+        io.require(io.sha(raw) == reference["sha256"], "control_archive_reference_changed")
+        return raw
+
+    def _history_paths(self):
+        return sorted(
+            PurePosixPath(name) for name in self.files if PurePosixPath(name).parent == self.history
+        )
+
+    def _durable(self, reference):
+        # The enclosing restore copied/fsynced bytes. A read-only semantic
+        # reader must never open the logical production paths or claim fsync.
+        self._read_reference(reference)
+        return reference
+
+    def _mutation_denied(self, *_args, **_kwargs):
+        raise io.Refusal("control_archive_read_only")
+
+    begin = commit = recover = finish = _mutation_denied
+    begin_recovery = commit_recovery = recover_recovery = finish_recovery = _mutation_denied
+
+
+def _semantic(root, files, consumers, plan_ref, backup_ref, stage):
+    root = PurePosixPath(root)
+    io.require(stage in {"closed", "terminal"}, "control_archive_stage")
+    _path(root, plan_ref["path"])
+    raw_plan = files.get(plan_ref["path"])
+    io.require(
+        raw_plan is not None and io.sha(raw_plan) == plan_ref["sha256"],
+        "control_archive_plan_binding",
+    )
+    plan = io.document(raw_plan)
+    state.validate_plan(plan, plan["base_sha256"])
+    store = _RestoredStore(root / "state", plan["base_sha256"], files)
+    directory = PurePosixPath(plan_ref["path"]).parent
+    captured, _ = store._read(directory / "backup-evidence.json")
+    io.require(
+        backup_ref["path"] == str(directory / "backup/manifest.json")
+        and captured.get("manifest") == backup_ref
+        and captured.get("manifest_sha256") == backup_ref["sha256"],
+        "control_archive_backup_binding",
+    )
+    head, active = store.head(), store.active_plan()
+    if stage == "closed":
+        io.require(
+            active is not None and active["plan"] == plan,
+            "control_archive_active_plan_required",
+        )
+    else:
+        io.require(
+            active is None and head["record"] is not None and head["record"]["plan"] == plan,
+            "control_archive_terminal_commit_required",
+        )
+        completed, completion_ref = store._read(directory / "completion.json")
+        progress, _ = store._read(directory / "progress.json")
+        io.require(
+            completed.get("ok") is True
+            and completed.get("plan_ref") == plan_ref
+            and completed.get("commit")
+            == store._reference(store.history / f"{plan['sequence']:020d}.json")
+            and progress.get("phase") == "complete"
+            and progress.get("completion") == completion_ref,
+            "control_archive_terminal_receipt_binding",
+        )
+        for field in (
+            "auxiliary_release_ref",
+            *(("released_cohort_ref",) if "recovery_ref" in head["record"] else ()),
+        ):
+            io.require(field in completed, "control_archive_terminal_evidence_missing")
+            reference = completed[field]
+            state._reference(reference)
+            io.require(
+                PurePosixPath(reference["path"]).parent == directory,
+                "control_archive_terminal_evidence_path",
+            )
+            store._read_reference(reference)
+    documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
+    for doc in documents.values():
+        for reference in _references(doc):
+            if PurePosixPath(reference["path"]).is_relative_to(root):
+                store._read_reference(reference)
+        for reference in _implicit_references(root, doc):
+            store._read_reference(reference)
+        if type(doc) is dict and "recovery_origin" in doc:
+            recovery.validate_origin(
+                doc["recovery_origin"],
+                root=root,
+                read_reference=store._read_reference,
+                read_file=store._raw,
+            )
+    required = _consumer_maps(documents)
+    io.require(set(consumers) == set(required), "control_archive_consumer_bundle_missing")
+    for digest, inventory in required.items():
+        io.require(set(consumers[digest]) == set(inventory), "control_archive_consumer_files")
+        io.require(
+            all(io.sha(consumers[digest][name]) == value for name, value in inventory.items()),
+            "control_archive_consumer_bytes_changed",
+        )
+    return {
+        "attempt_id": plan["attempt_id"],
+        "head_sequence": head["sequence"],
+        "head_sha256": head["sha256"],
+        "pending_present": store.pending() is not None,
+        "active_recovery_present": store._active_recovery() is not None,
+        "consumer_bundle_count": len(consumers),
+    }
+
+
+def _seed(root, plan_ref, backup_ref, stage):
+    seeds = [plan_ref, backup_ref]
+    directory = Path(plan_ref["path"]).parent
+    required = (
+        "closure-owned.json",
+        "process-scope.json",
+        "ingress-drain.json",
+        "backup-evidence.json",
+    )
+    if stage == "terminal":
+        required += ("completion.json", "progress.json")
+    seeds.extend(io.reference(directory / name) for name in required)
+    for path in (
+        *(root / "state" / name for name in ("HEAD.json", "pending.json", "active-recovery.json")),
+    ):
+        if path.exists() or path.is_symlink():
+            seeds.append(io.reference(path))
+    history = root / "state/history"
+    if history.exists():
+        io.protected_directory(history)
+        paths = sorted(history.iterdir())
+        io.require(len(paths) <= state.MAX_HISTORY, "state_history_limit")
+        seeds.extend(io.reference(path) for path in paths)
+    return seeds
+
+
+def _package_directory(path, custody):
+    if custody is None:
+        io.protected_directory(path, private=True)
+    else:
+        custody(path, directory=True)
+
+
+def _package_read(path, custody):
+    if custody is None:
+        return io.read_protected(path, MAX_FILE_BYTES)
+    custody(path)
+    before = path.lstat()
+    io.require(
+        stat.S_ISREG(before.st_mode)
+        and before.st_nlink == 1
+        and not getattr(before, "st_file_attributes", 0) & 0x400
+        and 0 <= before.st_size <= MAX_FILE_BYTES,
+        "control_archive_physical_payload_required",
+    )
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        opened = os.fstat(descriptor)
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(MAX_FILE_BYTES + 1)
+        after, final = os.fstat(descriptor), path.lstat()
+        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+        io.require(
+            len(raw) == before.st_size <= MAX_FILE_BYTES
+            and all(
+                getattr(before, key)
+                == getattr(opened, key)
+                == getattr(after, key)
+                == getattr(final, key)
+                for key in fields
+            ),
+            "control_archive_payload_changed_during_read",
+        )
+    finally:
+        os.close(descriptor)
+    custody(path)
+    return raw
+
+
+def _sync_directory(path):
+    # Disposable workstation restore has no native crash-durability claim.
+    # Windows file bytes are flushed; ACL custody is supplied by its worker.
+    if os.name != "nt":
+        io.fsync_directory(path)
+
+
+def _write_bytes(path, raw, *, custody=None):
+    _package_directory(path.parent, custody)
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+    )
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+    _sync_directory(path.parent)
+    io.require(_package_read(path, custody) == raw, "control_archive_copy_changed")
+
+
+def capture(
+    root,
+    plan_ref,
+    backup_manifest_ref,
+    output,
+    *,
+    stage,
+    observer,
+    consumer_roots=None,
+    timeout=60,
+):
+    """Copy one fenced control graph; caller retains the deployment lock."""
+    root, output = Path(root), Path(output)
+    io.require(root.is_absolute() and ".." not in root.parts, "control_archive_root")
+    for reference in (plan_ref, backup_manifest_ref):
+        state._reference(reference)
+        _path(root, reference["path"])
+    io.require(
+        stage in {"closed", "terminal"} and callable(observer) and 0 < timeout <= 300,
+        "control_archive_context",
+    )
+    io.protected_directory(root, private=True)
+    io.protected_directory(output.parent, private=True)
+    io.require(
+        not output.exists() and not output.is_symlink() and not output.is_relative_to(root),
+        "control_archive_new_external_destination_required",
+    )
+    end = time.monotonic() + timeout
+    witnesses = []
+
+    def fence():
+        _budget(end)
+        observed = observer()
+        io.require(
+            type(observed) is dict
+            and set(observed) in ({"path", "sha256"}, {"attempt_id", "path", "sha256"}),
+            "control_archive_observer_reference",
+        )
+        if "attempt_id" in observed:
+            io.require(
+                observed["attempt_id"] == io.document(io.referenced(plan_ref))["attempt_id"],
+                "control_archive_observer_attempt",
+            )
+        reference = {name: observed[name] for name in ("path", "sha256")}
+        state._reference(reference)
+        io.referenced(reference)
+        witnesses.append(dict(reference))
+
+    fence()
+    seeds = _seed(root, plan_ref, backup_manifest_ref, stage)
+    pending, files = list(seeds), {}
+    while pending:
+        _budget(end)
+        reference = pending.pop()
+        path = _path(root, reference["path"])
+        if str(path) in files:
+            io.require(
+                io.sha(files[str(path)]) == reference["sha256"], "control_archive_reference_changed"
+            )
+            continue
+        io.require(len(files) < MAX_FILES, "control_archive_file_limit")
+        raw = io.read_protected(Path(path), MAX_FILE_BYTES)
+        io.require(io.sha(raw) == reference["sha256"], "control_archive_reference_changed")
+        files[str(path)] = raw
+        io.require(sum(map(len, files.values())) <= MAX_TOTAL_BYTES, "control_archive_total_limit")
+        if path.suffix != ".json":
+            io.require(
+                path.is_relative_to(root / "origins")
+                and CONSUMER.fullmatch("/".join(path.parts[-2:])),
+                "control_archive_unexpected_binary",
+            )
+            continue
+        doc = io.document(raw)
+        pending.extend(ref for ref in _references(doc) if Path(ref["path"]).is_relative_to(root))
+        pending.extend(_implicit_references(root, doc))
+    documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
+    required, consumers = _consumer_maps(documents), {}
+    for digest, inventory in required.items():
+        roots = [Path((consumer_roots or {}).get(digest, SOURCE))]
+        consumers[digest] = {}
+        for name, expected in inventory.items():
+            retained = [
+                raw
+                for path, raw in files.items()
+                if path.endswith("/consumers/" + name) and io.sha(raw) == expected
+            ]
+            raw = retained[0] if retained else io.read_protected(roots[0] / name, MAX_FILE_BYTES)
+            io.require(io.sha(raw) == expected, "control_archive_consumer_bytes_unavailable")
+            consumers[digest][name] = raw
+    semantic = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage)
+    fence()
+    io.require(
+        _seed(root, plan_ref, backup_manifest_ref, stage) == seeds, "control_archive_state_changed"
+    )
+    for path, raw in files.items():
+        io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
+    output.mkdir(mode=0o700)
+    io.fsync_directory(output.parent)
+    artifacts = []
+    payloads = [
+        ("control/" + str(Path(path).relative_to(root)), raw) for path, raw in sorted(files.items())
+    ]
+    payloads += [
+        ("code/" + digest + "/" + name, raw)
+        for digest, inventory in sorted(consumers.items())
+        for name, raw in sorted(inventory.items())
+    ]
+    io.require(len(payloads) <= MAX_FILES, "control_archive_file_limit")
+    io.require(
+        sum(len(raw) for _, raw in payloads) <= MAX_TOTAL_BYTES, "control_archive_total_limit"
+    )
+    for index, (logical, raw) in enumerate(payloads):
+        _budget(end)
+        payload = f"{index:06d}.bin"
+        _write_bytes(output / payload, raw)
+        artifacts.append(
+            {"logical_name": logical, "payload": payload, "bytes": len(raw), "sha256": io.sha(raw)}
+        )
+    fence()
+    io.require(
+        _seed(root, plan_ref, backup_manifest_ref, stage) == seeds, "control_archive_state_changed"
+    )
+    for path, raw in files.items():
+        _budget(end)
+        io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
+    manifest = {
+        "schema": SCHEMA,
+        "stage": stage,
+        "root": str(root),
+        "plan_ref": plan_ref,
+        "backup_manifest_ref": backup_manifest_ref,
+        "artifacts": artifacts,
+        "semantic": semantic,
+        "witnesses": witnesses,
+        **CLAIMS,
+    }
+    reference = io.write_new(output / "manifest.json", manifest)
+    return {"manifest": reference, "manifest_sha256": reference["sha256"], "stage": stage, **CLAIMS}
+
+
+def verify_and_restore(
+    package,
+    manifest_sha256,
+    output,
+    *,
+    plan_ref,
+    backup_manifest_ref,
+    stage,
+    logical_root=ROOT,
+    timeout=60,
+    custody=None,
+):
+    """Restore private copies; Windows worker supplies its accepted ACL custody."""
+    package, output, root = Path(package), Path(output), PurePosixPath(logical_root)
+    io.require(state._hash(manifest_sha256) and 0 < timeout <= 300, "control_archive_context")
+    io.require(custody is None or callable(custody), "control_archive_custody_required")
+    _package_directory(package, custody)
+    _package_directory(output.parent, custody)
+    io.require(
+        not output.exists() and not output.is_symlink(), "control_archive_new_restore_required"
+    )
+    io.require(
+        not PurePosixPath(output.as_posix()).is_relative_to(root),
+        "control_archive_production_restore_refused",
+    )
+    end = time.monotonic() + timeout
+    raw = _package_read(package / "manifest.json", custody)
+    io.require(io.sha(raw) == manifest_sha256, "control_archive_manifest_changed")
+    manifest = io.document(raw)
+    io.require(
+        type(manifest) is dict
+        and set(manifest)
+        == {
+            "schema",
+            "stage",
+            "root",
+            "plan_ref",
+            "backup_manifest_ref",
+            "artifacts",
+            "semantic",
+            "witnesses",
+            *CLAIMS,
+        }
+        and manifest["schema"] == SCHEMA
+        and manifest["stage"] == stage
+        and manifest["root"] == str(root)
+        and manifest["plan_ref"] == plan_ref
+        and manifest["backup_manifest_ref"] == backup_manifest_ref
+        and all(manifest[key] is False for key in CLAIMS),
+        "control_archive_manifest_binding",
+    )
+    entries = manifest["artifacts"]
+    io.require(
+        type(manifest["witnesses"]) is list and len(manifest["witnesses"]) == 3,
+        "control_archive_witness_inventory",
+    )
+    for reference in manifest["witnesses"]:
+        state._reference(reference)
+    io.require(
+        type(entries) is list and 0 < len(entries) <= MAX_FILES, "control_archive_file_limit"
+    )
+    io.require(
+        {path.name for path in package.iterdir()}
+        == {"manifest.json", *(f"{index:06d}.bin" for index in range(len(entries)))},
+        "control_archive_exact_inventory_required",
+    )
+    files, consumers, names, total = {}, {}, set(), 0
+    output.mkdir(mode=0o700)
+    _package_directory(output, custody)
+    _sync_directory(output.parent)
+    for index, entry in enumerate(entries):
+        _budget(end)
+        io.require(
+            type(entry) is dict and set(entry) == {"logical_name", "payload", "bytes", "sha256"},
+            "control_archive_entry",
+        )
+        name = entry["logical_name"]
+        io.require(
+            type(name) is str and name not in names and "\\" not in name,
+            "control_archive_logical_name",
+        )
+        parts = PurePosixPath(name).parts
+        io.require(
+            parts
+            and not PurePosixPath(name).is_absolute()
+            and ".." not in parts
+            and str(PurePosixPath(name)) == name,
+            "control_archive_logical_name",
+        )
+        names.add(name)
+        io.require(
+            entry["payload"] == f"{index:06d}.bin"
+            and type(entry["bytes"]) is int
+            and 0 <= entry["bytes"] <= MAX_FILE_BYTES
+            and state._hash(entry["sha256"]),
+            "control_archive_entry",
+        )
+        raw = _package_read(package / entry["payload"], custody)
+        io.require(
+            len(raw) == entry["bytes"] and io.sha(raw) == entry["sha256"],
+            "control_archive_payload_changed",
+        )
+        total += len(raw)
+        io.require(total <= MAX_TOTAL_BYTES, "control_archive_total_limit")
+        _write_bytes(output / entry["payload"], raw, custody=custody)
+        restored = _package_read(output / entry["payload"], custody)
+        if parts[0] == "control":
+            path = _path(root, str(root.joinpath(*parts[1:])))
+            io.require(str(path) not in files, "control_archive_duplicate_path")
+            files[str(path)] = restored
+        else:
+            io.require(
+                len(parts) == 4
+                and parts[0] == "code"
+                and state._hash(parts[1])
+                and CONSUMER.fullmatch("/".join(parts[2:])),
+                "control_archive_consumer_path",
+            )
+            consumers.setdefault(parts[1], {})["/".join(parts[2:])] = restored
+    actual = _semantic(root, files, consumers, plan_ref, backup_manifest_ref, stage)
+    io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
+    io.require(
+        backup_manifest_ref["path"] in files
+        and io.sha(files[backup_manifest_ref["path"]]) == backup_manifest_ref["sha256"],
+        "control_archive_backup_binding",
+    )
+    receipt = {
+        "schema": RESTORE_SCHEMA,
+        "stage": stage,
+        "manifest_sha256": manifest_sha256,
+        "plan_ref": plan_ref,
+        "backup_manifest_ref": backup_manifest_ref,
+        "actual_disposable_restore": True,
+        "semantic_graph_verified": True,
+        "file_count": len(entries),
+        "semantic": actual,
+        **CLAIMS,
+    }
+    _write_bytes(output / "restore.json", io.canonical(receipt), custody=custody)
+    return receipt

@@ -14,7 +14,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_io as io
 from scripts import j1_forward_recovery_state as recovery_state
@@ -66,8 +66,9 @@ def _reference(value):
         type(path) is str
         and 0 < len(path) <= 4096
         and "\0" not in path
-        and Path(path).is_absolute()
+        and (Path(path).is_absolute() or PurePosixPath(path).is_absolute())
         and ".." not in Path(path).parts
+        and ".." not in PurePosixPath(path).parts
         and _hash(value["sha256"]),
         "reference_invalid",
     )
@@ -237,11 +238,26 @@ class Store(recovery_state.RecoveryStateMixin):
         raw = io.read_protected(path)
         return io.document(raw), {"path": str(path), "sha256": io.sha(raw)}
 
-    def _records(self):
-        if not _exists(self.history):
+    def _contains(self, path):
+        return _exists(path)
+
+    def _logical_path(self, value):
+        return Path(value)
+
+    def _reference(self, path):
+        return io.reference(path)
+
+    def _read_reference(self, reference):
+        return io.referenced(reference)
+
+    def _history_paths(self):
+        if not self._contains(self.history):
             return []
         _directory(self.history)
-        paths = sorted(self.history.iterdir())
+        return sorted(self.history.iterdir())
+
+    def _records(self):
+        paths = self._history_paths()
         io.require(len(paths) <= MAX_HISTORY, "state_history_limit")
         previous = self.base_sha256
         attempts = set()
@@ -282,7 +298,7 @@ class Store(recovery_state.RecoveryStateMixin):
         return records
 
     def _head_record(self):
-        if not _exists(self.head_path):
+        if not self._contains(self.head_path):
             return {"sequence": 0, "sha256": self.base_sha256}
         value, _ = self._read(self.head_path)
         io.require(
@@ -309,7 +325,7 @@ class Store(recovery_state.RecoveryStateMixin):
             return self._snapshot()[0]
 
     def _pending(self):
-        if not _exists(self.pending_path):
+        if not self._contains(self.pending_path):
             return None
         plan, _ = self._read(self.pending_path)
         validate_plan(plan, self.base_sha256)

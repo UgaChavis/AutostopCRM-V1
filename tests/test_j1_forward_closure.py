@@ -393,8 +393,8 @@ class RecoveryRunner(FakeRunner):
             closure.io.require(not self.native_peer_live, "native_control_peer_present")
         return {**result, "frozen": frozen}
 
-    def stop(self, deadline):
-        super().stop(deadline)
+    def stop(self, deadline, *, ownership):
+        super().stop(deadline, ownership=ownership)
         self.native_peer_live = False
 
     def idle_observer(self):
@@ -514,7 +514,7 @@ class RecoveryClosureTests(unittest.TestCase):
         self.assertEqual(observed["full_scan_count"], 2)
 
     def test_predrain_is_not_cached_or_accepted_as_quiet(self):
-        self.runner.stop(time.monotonic() + 30)
+        self.runner.stop(time.monotonic() + 30, ownership=self.owned)
         closure._recovery_preclose(self.owned, time.monotonic() + 30)
         self.assertEqual(closure._CACHE, {})
         self.assertEqual(self.runner.drains, {})

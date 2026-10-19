@@ -38,10 +38,11 @@ ORIGIN_FIELDS = (REFERENCE_FIELDS - {"plan_ref"}) | {"nonce", "deployment_lock_i
 MAX_WINDOW = 600
 
 
-def validate_envelope(envelope, base_sha256):
+def validate_envelope(envelope, base_sha256, *, read_reference=None):
     """Read retained evidence, never the possibly consumed live pending file."""
     from scripts import j1_forward_state as state
 
+    read_reference = io.referenced if read_reference is None else read_reference
     io.require(type(envelope) is dict and set(envelope) == FIELDS, "recovery_fields")
     io.require(envelope["schema"] == RECOVERY_SCHEMA, "recovery_schema")
     io.require(state._hash(envelope["nonce"]), "recovery_nonce")
@@ -57,7 +58,7 @@ def validate_envelope(envelope, base_sha256):
     for name in REFERENCE_FIELDS:
         state._reference(envelope[name])
         if name != "origin_pending_ref":
-            documents[name] = io.referenced(envelope[name])
+            documents[name] = read_reference(envelope[name])
     origin, plan = (io.document(documents[name]) for name in ("origin_plan_ref", "plan_ref"))
     for value in (origin, plan):
         state.validate_plan(value, base_sha256)
@@ -78,8 +79,8 @@ def validate_envelope(envelope, base_sha256):
         and 0 < (end - start).total_seconds() <= MAX_WINDOW,
         "recovery_window_invalid",
     )
-    io.referenced(origin["baseline_ref"])
-    baseline = io.document(io.referenced(plan["baseline_ref"]))
+    read_reference(origin["baseline_ref"])
+    baseline = io.document(read_reference(plan["baseline_ref"]))
     io.require(
         type(baseline) is dict
         and baseline.get("recovery_origin") == {key: envelope[key] for key in ORIGIN_FIELDS},
@@ -111,12 +112,12 @@ class RecoveryStateMixin:
         return self.root / "active-recovery.json"
 
     def _no_recovery(self):
-        from scripts.j1_forward_state import _exists
-
-        io.require(not _exists(self.recovery_path), "state_recovery_active")
+        io.require(not self._contains(self.recovery_path), "state_recovery_active")
 
     def _envelope(self, envelope):
-        origin, plan = validate_envelope(envelope, self.base_sha256)
+        origin, plan = validate_envelope(
+            envelope, self.base_sha256, read_reference=self._read_reference
+        )
         attempts = self.root.parent / "attempts"
         old = attempts / origin["attempt_id"]
         new = attempts / plan["attempt_id"]
@@ -136,14 +137,17 @@ class RecoveryStateMixin:
             and plan["baseline_ref"]["path"] == str(new / "baseline.json"),
             "recovery_fixed_paths",
         )
-        io.referenced(
+        self._read_reference(
             {
                 "path": str(retained / "pending.json"),
                 "sha256": envelope["origin_pending_ref"]["sha256"],
             }
         )
         for name in ("recovery_code_ref", "ci_ref", "hold_ref"):
-            io.require(Path(envelope[name]["path"]).is_relative_to(new), "recovery_evidence_path")
+            io.require(
+                self._logical_path(envelope[name]["path"]).is_relative_to(new),
+                "recovery_evidence_path",
+            )
         return origin, plan
 
     def _recovery_ref(self, envelope):
@@ -161,27 +165,27 @@ class RecoveryStateMixin:
     def _retained_recovery(self, envelope):
         origin, plan = self._envelope(envelope)
         io.require(
-            io.document(io.referenced(self._recovery_ref(envelope))) == envelope,
+            io.document(self._read_reference(self._recovery_ref(envelope))) == envelope,
             "recovery_record_changed",
         )
         io.require(
-            io.document(io.referenced(self._archive_ref(envelope))) == origin,
+            io.document(self._read_reference(self._archive_ref(envelope))) == origin,
             "recovery_pending_archive_changed",
         )
         return origin, plan
 
     def _active_recovery(self):
-        from scripts.j1_forward_state import _exists, _reference
+        from scripts.j1_forward_state import _reference
 
-        if not _exists(self.recovery_path):
+        if not self._contains(self.recovery_path):
             return None
-        reference = io.document(io.read_protected(self.recovery_path))
+        reference = self._read(self.recovery_path)[0]
         _reference(reference)
-        path = Path(reference["path"])
+        path = self._logical_path(reference["path"])
         io.require(
             path.parent == self.recoveries and path.suffix == ".json", "recovery_pointer_path"
         )
-        envelope = io.document(io.referenced(reference))
+        envelope = io.document(self._read_reference(reference))
         self._envelope(envelope)
         io.require(self._recovery_ref(envelope) == reference, "recovery_pointer_binding")
         self._retained_recovery(envelope)
@@ -193,13 +197,13 @@ class RecoveryStateMixin:
         if pending:
             self._matching_pending(origin)
             io.require(
-                io.reference(self.pending_path) == envelope["origin_pending_ref"],
+                self._reference(self.pending_path) == envelope["origin_pending_ref"],
                 "recovery_pending_bytes_changed",
             )
         return origin, plan
 
     def _recovery_record(self, record):
-        envelope = io.document(io.referenced(record["recovery_ref"]))
+        envelope = io.document(self._read_reference(record["recovery_ref"]))
         origin, plan = self._retained_recovery(envelope)
         io.require(
             record["recovery_ref"] == self._recovery_ref(envelope)
@@ -229,7 +233,7 @@ class RecoveryStateMixin:
             else:
                 io.require(
                     pending == origin
-                    and io.reference(self.pending_path) == envelope["origin_pending_ref"],
+                    and self._reference(self.pending_path) == envelope["origin_pending_ref"],
                     "recovery_pending_bytes_changed",
                 )
             return {
@@ -239,7 +243,7 @@ class RecoveryStateMixin:
             }
 
     def begin_recovery(self, envelope):
-        from scripts.j1_forward_state import MAX_HISTORY, _exists, _sync_directory, record_attempts
+        from scripts.j1_forward_state import MAX_HISTORY, _sync_directory, record_attempts
 
         origin, plan = self._envelope(envelope)
         _live(plan)
@@ -247,7 +251,7 @@ class RecoveryStateMixin:
             _live(plan)
             self._matching_pending(origin)
             io.require(
-                io.reference(self.pending_path) == envelope["origin_pending_ref"],
+                self._reference(self.pending_path) == envelope["origin_pending_ref"],
                 "recovery_pending_bytes_changed",
             )
             head, records = self._snapshot()
@@ -260,7 +264,7 @@ class RecoveryStateMixin:
             )
             active = self._active_recovery()
             io.require(active is None or active == envelope, "state_recovery_mismatch")
-            if not _exists(self.recoveries):
+            if not self._contains(self.recoveries):
                 self.recoveries.mkdir(mode=0o700)
                 _sync_directory(self.root)
             self._durable(envelope["origin_pending_ref"])
@@ -268,13 +272,13 @@ class RecoveryStateMixin:
                 (self._archive_ref(envelope), origin),
                 (self._recovery_ref(envelope), envelope),
             ):
-                if not _exists(Path(reference["path"])):
+                if not self._contains(Path(reference["path"])):
                     io.write_new(Path(reference["path"]), value)
                 self._durable(reference)
             if active is None:
                 _live(plan)
                 io.write_new(self.recovery_path, self._recovery_ref(envelope))
-            self._durable(io.reference(self.recovery_path))
+            self._durable(self._reference(self.recovery_path))
             self._matching_recovery(envelope)
             _live(plan)
             return self._recovery_ref(envelope)
@@ -298,7 +302,7 @@ class RecoveryStateMixin:
             self._durable(reference)
 
     def commit_recovery(self, envelope, proofs):
-        from scripts.j1_forward_state import MAX_HISTORY, _exists, _sync_directory, record_attempts
+        from scripts.j1_forward_state import MAX_HISTORY, _sync_directory, record_attempts
 
         with self._locked():
             origin, plan = self._matching_recovery(envelope)
@@ -323,10 +327,10 @@ class RecoveryStateMixin:
                 envelope["origin_pending_ref"],
                 self._archive_ref(envelope),
                 self._recovery_ref(envelope),
-                io.reference(self.recovery_path),
+                self._reference(self.recovery_path),
             ):
                 self._durable(reference)
-            if not _exists(self.history):
+            if not self._contains(self.history):
                 self.history.mkdir(mode=0o700)
                 _sync_directory(self.root)
             record = {
@@ -360,7 +364,7 @@ class RecoveryStateMixin:
             self._archive_ref(envelope),
             self._recovery_ref(envelope),
             records[-1][1],
-            io.reference(self.head_path),
+            self._reference(self.head_path),
         ):
             self._durable(reference)
         io.require(self._snapshot()[0] == head, "state_recovery_head_changed")
@@ -388,7 +392,7 @@ class RecoveryStateMixin:
                 envelope["origin_pending_ref"],
                 self._archive_ref(envelope),
                 self._recovery_ref(envelope),
-                io.reference(self.recovery_path),
+                self._reference(self.recovery_path),
                 reference,
             ):
                 self._durable(ref)
@@ -397,13 +401,13 @@ class RecoveryStateMixin:
 
     def finish_recovery(self, envelope):
         """Consume old pending last; interrupted cleanup is exact and retryable."""
-        from scripts.j1_forward_state import _exists, _sync_directory
+        from scripts.j1_forward_state import _sync_directory
 
         with self._locked():
             active = self._active_recovery()
             io.require(active is None or active == envelope, "state_recovery_mismatch")
             reference = self._committed_recovery(envelope)
-            if _exists(self.pending_path):
+            if self._contains(self.pending_path):
                 io.require(active == envelope, "state_recovery_mismatch")
                 self._matching_recovery(envelope)
                 self._durable(envelope["origin_pending_ref"])

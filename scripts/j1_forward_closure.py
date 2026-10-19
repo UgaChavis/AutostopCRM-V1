@@ -1790,7 +1790,7 @@ def close_recovery(closure: dict, *, deadline: float, idle_observer) -> dict:
             # Read the loaded fence before allowing any native stop hooks to run.
             _barriers(closure)
             _unit_policy(RUNNER.units(deadline), stopped=False)
-            RUNNER.stop(deadline)
+            RUNNER.stop(deadline, ownership=closure)
             _recovery_preclose(closure, min(deadline, time.monotonic() + 30))
             _remaining(deadline)
             daemon = closure["freeze_actors"][0]
