@@ -15,7 +15,7 @@ from pathlib import Path
 # Generated from this reviewed controller source; no application module belongs
 # to this allowlist. The guard's own digest is bound by the cold package.
 BOOTSTRAP_HASHES = {
-    "j1_forward_io": "1468da15de5b5d11e58d42de336bfc00ee041b6aac399622520b576c32c1de15",
+    "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
     "j1_forward_cold_authority": "762de70cde3f8b002c6c3fb31528f62c347cdcb685c3517fd397bfff631eb3ed",
     "j1_forward_cold_native": "e56f39afc37401a956cb72763b7f8f63b22ea00aef7c91b17028969b2b8b5a2c",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
