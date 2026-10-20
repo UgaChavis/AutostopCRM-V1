@@ -6,6 +6,10 @@ restoring machine's clock. It grants no freshness, native or dispatch authority.
 
 from __future__ import annotations
 
+import os
+import threading
+from contextlib import contextmanager
+
 from scripts import j1_forward_cold_authority as cold
 from scripts import j1_forward_io as io
 from scripts import j1_forward_recovery_state as recovery
@@ -20,6 +24,95 @@ PLAN_FIELDS = state.PLAN_FIELDS | {
     "candidate_manager_sha",
     "cold_crm_spec_ref",
 }
+# One existing archive-sized runtime graph, never a growing history cache.
+MAX_HISTORICAL_BYTES = cold.MAX_RUNTIME_BYTES + 192 * 1024**2
+MAX_HISTORICAL_REFERENCES = 10000
+
+
+class _HistoricalValidation:
+    """One public Store operation's pure graph, with fresh typed reads on reuse."""
+
+    def __init__(self, store, plan_ref, plan):
+        self.owner = (os.getpid(), threading.get_ident())
+        self.plan_ref = dict(plan_ref)
+        self.package_ref = dict(plan["cold_authority_package_ref"])
+        package = io.document(store._read_reference(self.package_ref))
+        cold.fields(package, cold.PACKAGE_FIELDS, "history_package_fields")
+        binding = cold.fields(package["binding"], cold.BINDING_FIELDS, "history_binding_fields")
+        self.clock = {"boot_id": binding["boot_id"], "monotonic_ns": binding["not_before_ns"]}
+        self.memo = cold._CapturedPackages(self.clock)
+        self.active = True
+        self.store, self.current = store, None
+        self.references, self.bytes = {}, 0
+
+    def check(self, plan_ref=None):
+        io.require(
+            self.active
+            and self.owner == (os.getpid(), threading.get_ident())
+            and (plan_ref is None or plan_ref == self.plan_ref),
+            "cold_history_operation_owner_or_plan",
+        )
+
+    def _read(self, reference, reader):
+        self.check()
+        cold.reference(reference)
+        raw = reader(reference)
+        io.require(type(raw) is bytes and io.sha(raw) == reference["sha256"], "cold_history_bytes")
+        identity = (reference["sha256"], len(raw))
+        previous = self.references.get(reference["path"])
+        io.require(previous is None or previous == identity, "cold_history_reference_alias")
+        if previous is None:
+            io.require(
+                len(self.references) < MAX_HISTORICAL_REFERENCES
+                and self.bytes + len(raw) <= MAX_HISTORICAL_BYTES,
+                "cold_history_operation_budget",
+            )
+            self.references[reference["path"]] = identity
+            self.bytes += len(raw)
+        return raw
+
+    def read_reference(self, reference):
+        io.require(self.current is not None, "cold_history_reader_inactive")
+        return self._read(reference, self.current)
+
+    def read_opaque_reference(self, reference):
+        io.require(self.current is not None, "cold_history_reader_inactive")
+        return self._read(reference, cold.opaque_reader(self.current))
+
+    def read_runtime_capsule(self, reference):
+        io.require(self.current is not None, "cold_history_reader_inactive")
+        return self._read(reference, cold.opaque_reader(self.current, capsule=True))
+
+    def validate(self, reference, read_reference, now_ns):
+        self.check()
+        io.require(
+            reference == self.package_ref and now_ns == self.clock["monotonic_ns"],
+            "cold_history_operation_binding",
+        )
+        io.require(self.current is None, "cold_history_reader_active")
+        self.current = read_reference
+        try:
+            return self.memo.validate(
+                reference,
+                read_reference=self.read_reference,
+                required_scope=None,
+                now_ns=now_ns,
+            )
+        finally:
+            self.current = None
+
+    def recheck(self):
+        self.check()
+        self.validate(self.package_ref, self.store._read_reference, self.clock["monotonic_ns"])
+
+    def close(self):
+        self.active = False
+        self.current = self.store = None
+        self.memo._reader.seen.clear()
+        self.memo._results.clear()
+        self.memo = None
+        self.references.clear()
+        self.bytes = 0
 
 
 def is_cold(plan):
@@ -51,6 +144,13 @@ def historical_package(reference, *, read_reference):
         type(package) is dict and type(package.get("binding")) is dict, "cold_history_package"
     )
     # This is a captured-clock structural check, not a lease-renewal operation.
+    operation = getattr(getattr(read_reference, "__self__", None), "_historical_validation", None)
+    if operation is not None:
+        operation.check()
+        if reference == operation.package_ref:
+            return operation.validate(
+                reference, read_reference, package["binding"].get("not_before_ns")
+            )
     return cold.validate_package(
         reference,
         read_reference=read_reference,
@@ -121,6 +221,52 @@ def envelope(store, document):
 
 
 class ColdStore(state.Store):
+    def _history_owner(self):
+        operation = getattr(self, "_historical_validation", None)
+        if operation is not None:
+            operation.check()
+
+    @contextmanager
+    def _locked(self, *, create=False):
+        self._history_owner()
+        with super()._locked(create=create) as present:
+            yield present
+
+    @contextmanager
+    def historical_validation(self, plan_ref):
+        """Share only immutable historical semantics inside one public call.
+
+        Mutable State/HEAD/proofs retain their actual reads and fsync barriers.
+        No current native observation receives this memo or a historical clock.
+        """
+        self._history_owner()
+        operation = getattr(self, "_historical_validation", None)
+        if operation is not None:
+            operation.check(plan_ref)
+            yield
+            return
+        plan = io.document(self._read_reference(plan_ref))
+        self._validate_plan(plan)
+        if not is_cold(plan):
+            yield
+            return
+        operation = _HistoricalValidation(self, plan_ref, plan)
+        self._historical_validation = operation
+        try:
+            try:
+                yield
+            except BaseException:
+                try:
+                    operation.recheck()
+                except BaseException:
+                    pass  # Preserve the original refusal; it cannot return success.
+                raise
+            else:
+                operation.recheck()
+        finally:
+            operation.close()
+            self.__dict__.pop("_historical_validation", None)
+
     def _read_reference(self, reference):
         cold.reference(reference)
         raw = io.read_protected(reference["path"], cold.MAX_SOURCE_BYTES)
@@ -157,11 +303,28 @@ class ColdStore(state.Store):
     def begin_recovery(self, envelope):
         return self._mutation(super().begin_recovery, envelope)
 
+    @staticmethod
+    def _recovery_plan_ref(envelope):
+        io.require(
+            type(envelope) is dict and set(envelope) == recovery.FIELDS,
+            "cold_recovery_fields",
+        )
+        return envelope["plan_ref"]
+
+    def _historical_recovery(self, method, envelope, *args):
+        with self.historical_validation(self._recovery_plan_ref(envelope)):
+            return method(envelope, *args)
+
     def commit_recovery(self, envelope, proofs):
-        return self._mutation(super().commit_recovery, envelope, proofs)
+        return self._mutation(self._historical_recovery, super().commit_recovery, envelope, proofs)
 
     def recover_recovery(self, envelope):
-        return self._mutation(super().recover_recovery, envelope)
+        return self._mutation(self._historical_recovery, super().recover_recovery, envelope)
+
+    def finish_recovery(self, envelope):
+        # Finishing consumes pending pointers, never mutates HEAD or closes OPEN.
+        with self.historical_validation(self._recovery_plan_ref(envelope)):
+            return super().finish_recovery(envelope)
 
     def _validate_plan(self, plan):
         from scripts import j1_forward_variant
@@ -169,6 +332,7 @@ class ColdStore(state.Store):
         return j1_forward_variant.validate_plan(plan, self.base_sha256)
 
     def _envelope(self, document):
+        self._history_owner()
         return envelope(self, document)
 
     def _records(self):

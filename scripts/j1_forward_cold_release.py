@@ -468,7 +468,6 @@ class Coordinator:
             "runtime_acceptance": runtime_proof,
         }
         commit = self.store.commit_recovery(self.envelope, proofs)
-        self.controller.commit(commit, store=self.store)
         if self.provider.scope == "production_native":
             self._fresh_http_cut()
         self.controller.open_ingress(commit, store=self.store)

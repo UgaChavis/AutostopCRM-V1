@@ -14,6 +14,7 @@ from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_projection as projection
 from scripts import j1_forward_cold_state as cold
 from scripts import j1_forward_io as io
+from scripts import j1_forward_recovery_state as recovery
 from tests import test_j1_forward_state as state_tests
 
 
@@ -157,6 +158,44 @@ class ColdProjectionTests(unittest.TestCase):
                 epochs.locked_fence(self.fence, exclusive=False)
         self.assertEqual(before, self.store.head_path.read_bytes())
         self.assertEqual(self.closed, io.document(io.read_protected(self.fence["state_path"])))
+
+    def test_recovery_refusal_closes_actual_published_open_before_validation(self):
+        descriptor = epochs.locked_fence(self.fence, exclusive=True)
+        try:
+            admission = self.publish(descriptor)
+        finally:
+            os.close(descriptor)
+        opened = {
+            **self.closed,
+            "state": "open",
+            "plan_ref": self.plan_ref,
+            "commit_ref": self.commit_ref,
+            "admission_ref": admission,
+        }
+        changed_plan = {
+            **{name: dict(self.plan_ref) for name in recovery.REFERENCE_FIELDS},
+            "schema": cold.RECOVERY_SCHEMA,
+            "recovery_id": str(uuid.uuid4()),
+            "nonce": "c" * 64,
+            "deployment_lock_identity": [1, 123],
+            "plan_ref": {**self.plan_ref, "sha256": "f" * 64},
+        }
+        head = self.store.head_path.read_bytes()
+        for method in ("commit_recovery", "recover_recovery"):
+            for envelope, reason in (
+                ({}, "cold_recovery_fields"),
+                (changed_plan, "cold_state_reference_hash"),
+            ):
+                with self.subTest(method=method, refusal=reason):
+                    io.atomic_replace(self.fence["state_path"], opened)
+                    arguments = (envelope, {}) if method == "commit_recovery" else (envelope,)
+                    with self.assertRaisesRegex(io.Refusal, reason):
+                        getattr(self.store, method)(*arguments)
+                    self.assertEqual(
+                        self.closed, io.document(io.read_protected(self.fence["state_path"]))
+                    )
+                    self.assertEqual(head, self.store.head_path.read_bytes())
+                    self.assertNotIn("_historical_validation", self.store.__dict__)
 
     def test_recovery_of_history_before_head_closes_unpublished_epoch(self):
         # Actual durable commit is present, but simulate process death before

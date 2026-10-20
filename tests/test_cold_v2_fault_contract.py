@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+import select
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -85,6 +89,34 @@ def _recover(attempt, signer):
     }
 
 
+def _inherited_scope_denied(store):
+    io.require(threading.active_count() == 1, "private_owner_fork_requires_one_thread")
+    child = os.fork()
+    if child == 0:
+        try:
+            store.head()
+        except io.Refusal as error:
+            os._exit(0 if str(error) == "cold_history_operation_owner_or_plan" else 78)
+        os._exit(79)
+    descriptor, reaped = os.pidfd_open(child), False
+    try:
+        io.require(bool(select.select([descriptor], [], [], 15)[0]), "private_owner_fork_timeout")
+        waited, status = os.waitpid(child, 0)
+        reaped = True
+        io.require(
+            waited == child and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0,
+            "private_inherited_scope_not_denied",
+        )
+    finally:
+        if not reaped:
+            try:
+                signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(child, 0)
+        os.close(descriptor)
+
+
 def _finish(store, provider, receipt):
     controller = lifecycle.Controller(
         receipt["package_ref"],
@@ -161,17 +193,23 @@ def _isolated_check(case, root):
             }
             if case == "recover":
                 receipt.update(_recover(attempt, signer))
+            elif case == "owner":
+                with attempt["store"].historical_validation(attempt["plan_ref"]):
+                    attempt["store"]._envelope(attempt["envelope"])
+                    _inherited_scope_denied(attempt["store"])
+                receipt["inherited_scope_denied"] = True
             else:
-                io.require(case == "miss", "unknown_private_case")
-                try:
-                    _crash_after_history(attempt["store"], attempt["plan"], lambda: None)
-                except io.Refusal as error:
-                    io.require(
-                        str(error) == "private_recovery_crash_missed", "wrong_missed_boundary"
-                    )
-                else:
-                    raise AssertionError("a missed write must fail")
-                receipt["missed_boundary_denied"] = True
+                io.require(case in {"miss", "prepare"}, "unknown_private_case")
+                if case == "miss":
+                    try:
+                        _crash_after_history(attempt["store"], attempt["plan"], lambda: None)
+                    except io.Refusal as error:
+                        io.require(
+                            str(error) == "private_recovery_crash_missed", "wrong_missed_boundary"
+                        )
+                    else:
+                        raise AssertionError("a missed write must fail")
+                    receipt["missed_boundary_denied"] = True
     finally:
         _retire_preserving_bytes(fixture, root)
     with rehearsal.PrivateFilesystem(root):
@@ -182,7 +220,7 @@ def _isolated_check(case, root):
     sys.platform.startswith("linux") and hasattr(os, "pidfd_open"),
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
-class RecoveryCrashContractTests(unittest.TestCase):
+class _ColdFixtureTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="cf-")
         self.addCleanup(temporary.cleanup)
@@ -221,6 +259,8 @@ class RecoveryCrashContractTests(unittest.TestCase):
         with rehearsal.PrivateFilesystem(self.root):
             return io.document(io.read_protected(self.root / "result.json"))
 
+
+class RecoveryCrashContractTests(_ColdFixtureTests):
     def test_real_history_crash_reopens_and_recovers_same_recovery_transaction(self):
         receipt = self.isolated("recover")
         self.assertEqual(receipt["history_crash_exit"], 77)
@@ -262,6 +302,150 @@ class RecoveryCrashContractTests(unittest.TestCase):
             self.assertEqual(store.active_plan()["plan"]["schema"], transactions.PLAN_SCHEMA)
             self.assertEqual(store._active_recovery()["schema"], transactions.RECOVERY_SCHEMA)
             self.assertFalse(store.pending()["old_writer_allowed"])
+
+
+class HistoricalValidationTests(_ColdFixtureTests):
+    def test_each_public_finish_decodes_once_and_preserves_open_dispatch(self):
+        receipt = self.isolated("recover")
+        with rehearsal.PrivateFilesystem(self.root):
+            store, provider = _private_store(receipt)
+            dispatch = Path(receipt["fixture_root"]) / "execution/dispatch/state.json"
+            opened = {
+                **io.document(io.read_protected(dispatch)),
+                "state": "open",
+                "commit_ref": receipt["commit"],
+                "plan_ref": receipt["plan_ref"],
+                "admission_ref": receipt["plan_ref"],
+            }
+            io.atomic_replace(dispatch, opened)
+            before = dispatch.read_bytes()
+            with patch.object(
+                authority, "_decode_package", wraps=authority._decode_package
+            ) as decode:
+                _finish(store, provider, receipt)  # Actual first and idempotent Controller.finish.
+                self.assertEqual(decode.call_count, 2)
+            self.assertEqual(dispatch.read_bytes(), before)
+            self.assertIsNone(store.pending())
+            self.assertFalse(hasattr(store, "_historical_validation"))
+
+    def test_same_call_reuses_semantics_but_rereads_and_next_call_is_fresh(self):
+        receipt = self.isolated("prepare")
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            envelope = io.document(io.referenced(receipt["recovery_ref"]))
+            with patch.object(
+                authority, "_decode_package", wraps=authority._decode_package
+            ) as decode:
+                with store.historical_validation(receipt["plan_ref"]):
+                    operation = store._historical_validation
+                    with patch.object(
+                        operation.memo._reader, "recheck", wraps=operation.memo._reader.recheck
+                    ) as recheck:
+                        store._envelope(envelope)
+                        store._envelope(envelope)
+                        self.assertGreaterEqual(recheck.call_count, 3)
+                    self.assertEqual(decode.call_count, 1)
+                    self.assertLessEqual(operation.bytes, transactions.MAX_HISTORICAL_BYTES)
+                self.assertFalse(hasattr(store, "_historical_validation"))
+                self.assertFalse(operation.active)
+                self.assertIsNone(operation.memo)
+                self.assertEqual(operation.bytes, 0)
+                with self.assertRaisesRegex(io.Refusal, "cold_history_operation_owner_or_plan"):
+                    operation.recheck()
+                with store.historical_validation(receipt["plan_ref"]):
+                    store._envelope(envelope)
+                self.assertEqual(decode.call_count, 2)
+
+    def test_source_tamper_on_reuse_or_exit_is_denied_and_scope_is_discarded(self):
+        receipt = self.isolated("prepare")
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            envelope = io.document(io.referenced(receipt["recovery_ref"]))
+            source = Path(receipt["fixture_root"]) / "source/worker.py"
+            original = source.read_bytes()
+            for at_exit in (False, True):
+                with self.subTest(at_exit=at_exit):
+                    try:
+                        with self.assertRaises(io.Refusal):
+                            with store.historical_validation(receipt["plan_ref"]):
+                                store._envelope(envelope)
+                                source.write_bytes(original + b"\n# late source drift\n")
+                                if not at_exit:
+                                    store._envelope(envelope)
+                        self.assertFalse(hasattr(store, "_historical_validation"))
+                    finally:
+                        source.write_bytes(original)
+            with store.historical_validation(receipt["plan_ref"]):
+                store._envelope(envelope)
+
+    def test_mutable_head_pending_and_proofs_are_never_cached(self):
+        receipt = self.isolated("recover")
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            envelope = io.document(io.referenced(receipt["recovery_ref"]))
+            with store.historical_validation(receipt["plan_ref"]):
+                store._envelope(envelope)
+                original = store.head_path.read_bytes()
+                try:
+                    io.atomic_replace(
+                        store.head_path,
+                        {
+                            "schema": "autostop.j1.crm-forward-head.v1",
+                            "sequence": io.document(original)["sequence"],
+                            "sha256": "f" * 64,
+                        },
+                    )
+                    with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
+                        store.head()
+                finally:
+                    io.atomic_replace(store.head_path, io.document(original))
+                original = store.pending_path.read_bytes()
+                try:
+                    changed = io.document(original)
+                    changed["candidate"]["tree"] = "e" * 40
+                    io.atomic_replace(store.pending_path, changed)
+                    with self.assertRaisesRegex(io.Refusal, "state_pending_mismatch"):
+                        store._matching_recovery(envelope)
+                finally:
+                    io.atomic_replace(store.pending_path, io.document(original))
+                proof = Path(receipt["proofs"]["backup"]["path"])
+                original = proof.read_bytes()
+                try:
+                    proof.write_bytes(original + b"\n")
+                    with self.assertRaises(io.Refusal):
+                        store._committed_recovery(envelope)
+                finally:
+                    proof.write_bytes(original)
+            self.assertEqual(store.head()["sha256"], receipt["commit"]["sha256"])
+
+    def test_other_thread_and_inherited_pid_cannot_use_active_scope(self):
+        receipt = self.isolated("owner")
+        self.assertTrue(receipt["inherited_scope_denied"])
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            with store.historical_validation(receipt["plan_ref"]):
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    with self.assertRaisesRegex(io.Refusal, "cold_history_operation_owner_or_plan"):
+                        executor.submit(store.head).result(timeout=5)
+            self.assertFalse(hasattr(store, "_historical_validation"))
+
+    def test_operation_byte_bound_and_exception_never_leave_reusable_scope(self):
+        receipt = self.isolated("prepare")
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            envelope = io.document(io.referenced(receipt["recovery_ref"]))
+            with patch.object(transactions, "MAX_HISTORICAL_BYTES", 1):
+                with self.assertRaisesRegex(io.Refusal, "cold_history_operation_budget"):
+                    with store.historical_validation(receipt["plan_ref"]):
+                        store._envelope(envelope)
+            self.assertFalse(hasattr(store, "_historical_validation"))
+            with self.assertRaisesRegex(io.Refusal, "original_test_refusal"):
+                with store.historical_validation(receipt["plan_ref"]):
+                    store._envelope(envelope)
+                    raise io.Refusal("original_test_refusal")
+            self.assertFalse(hasattr(store, "_historical_validation"))
+            with store.historical_validation(receipt["plan_ref"]):
+                store._envelope(envelope)
 
 
 if __name__ == "__main__":

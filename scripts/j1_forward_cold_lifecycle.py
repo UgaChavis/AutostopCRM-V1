@@ -1815,6 +1815,11 @@ class Controller:
 
     def finish(self, *, store=None):
         admission = self.admitted(fresh=False)
+        contract.need(store is not None, "slot_finish_store_required")
+        with store.historical_validation(admission["plan_ref"]):
+            return self._finish(admission, store)
+
+    def _finish(self, admission, store):
         committed = io.document(_read(self.root / "commit.json", self.root))
         opened = io.document(_read(self.root / "opened.json", self.root))
         contract.need(opened["commit_ref"] == committed["commit_ref"], "slot_finish_commit_binding")

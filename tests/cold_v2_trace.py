@@ -472,9 +472,6 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 self.assertEqual(store.head()["sha256"], committed["sha256"])
                 self.assertEqual(len(list(store.history.iterdir())), 1)
                 mark("actual_durable_head_committed")
-                with _phase("controller_commit"):
-                    controller.commit(committed, store=store)
-                mark("controller_commit_accepted")
                 with _phase("open_ingress"):
                     controller.open_ingress(committed, store=store)
                 mark("new_ingress_opened")
