@@ -222,9 +222,24 @@ class ColdNativeLifecycleTests(unittest.TestCase):
                     controller.issue(plan_ref, backup, spec)
                 closed = Path(provider.root / "execution/dispatch/state.json").read_bytes()
                 for unit in authority.ALLOWED:
-                    controller.submit(unit)
                     try:
-                        reference = controller.accept(unit)
+                        with (
+                            patch.object(
+                                authority, "_decode_package", wraps=authority._decode_package
+                            ) as decode,
+                            patch.object(
+                                provider, "verify_files", wraps=provider.verify_files
+                            ) as files,
+                            patch.object(
+                                lifecycle.native,
+                                "_mutable_package",
+                                wraps=lifecycle.native._mutable_package,
+                            ) as mutable,
+                        ):
+                            reference = controller.submit_and_accept(unit)
+                        self.assertEqual(decode.call_count, 1)
+                        self.assertEqual(files.call_count, 2)
+                        self.assertEqual(mutable.call_count, 2)
                     except Exception:
                         details = {
                             name: child.stderr.read(4096).decode(errors="replace")

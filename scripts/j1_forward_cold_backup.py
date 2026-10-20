@@ -730,6 +730,7 @@ class CaptureInterval:
         self.plan_ref, self.directory, self.gate = plan_ref, Path(directory), gate
         self.witnesses, self.kernel, self.completion_ref = [], None, None
         self.entry_ref, self.status = None, "new"
+        self._qualification = None
 
     def _common(self):
         binding = self.value["package"]["binding"]
@@ -784,11 +785,17 @@ class CaptureInterval:
     def __enter__(self):
         cold.need(self.status == "new", "capture_interval_already_used")
         self.status = "entering"
-        self.gate()
-        self.value, self.sources = native._observe_package(
-            self.controller.package_ref, provider=self.provider, required_scope=self.provider.scope
-        )
         try:
+            self.gate()
+            self._qualification = native.PackageRequalification(
+                self.controller.package_ref,
+                provider=self.provider,
+                required_scope=self.provider.scope,
+                max_calls=2,
+            )
+            self._qualification.__enter__()
+            self.value = self._qualification.observe(self.controller.package_ref, self.provider)
+            self.sources = self._qualification.sources
             plan = io.document(self.provider.read_reference(self.plan_ref))
             cold.need(
                 Path(self.plan_ref["path"]).parent == self.directory
@@ -828,8 +835,14 @@ class CaptureInterval:
             self.status = "active"
             return self
         except BaseException:
-            if self.kernel is not None:
-                self.kernel.close()
+            qualification, self._qualification = self._qualification, None
+            try:
+                if qualification is not None:
+                    qualification.__exit__(*sys.exc_info())
+            finally:
+                if self.kernel is not None:
+                    self.kernel.close()
+                self.status = "closed"
             raise
 
     def observe(self):
@@ -889,15 +902,15 @@ class CaptureInterval:
                 self.gate()
                 cold.need(len(self.witnesses) >= 2, "capture_boundaries_missing")
                 self._versions()
-                value = native.verify_package(
-                    self.controller.package_ref,
-                    provider=self.provider,
-                    required_scope=self.provider.scope,
-                )
+                value = self._qualification.observe(self.controller.package_ref, self.provider)
                 cold.need(value == self.value, "capture_package_changed")
                 self._closed()
                 self.kernel.verify()
                 self._versions()
+                self.gate()
+                qualification, self._qualification = self._qualification, None
+                qualification.__exit__(None, None, None)
+                self.kernel.close()
                 self.gate()
                 proof = self._save("cold-capture-exit-native", full_native(value, self.controller))
                 self.completion_ref = self._save(
@@ -912,10 +925,21 @@ class CaptureInterval:
                         "witnesses_sha256": cold.digest(self.witnesses),
                     },
                 )
+                self.gate()
         finally:
-            if self.kernel is not None:
-                self.kernel.close()
-            self.status = "closed"
+            try:
+                if self._qualification is not None:
+                    qualification, self._qualification = self._qualification, None
+                    failure = sys.exc_info()
+                    qualification.__exit__(
+                        *(failure if failure[0] is not None else (error_type, _error, _trace))
+                    )
+            finally:
+                try:
+                    if self.kernel is not None:
+                        self.kernel.close()
+                finally:
+                    self.status = "closed"
 
 
 def _document(read_reference, reference):

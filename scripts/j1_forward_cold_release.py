@@ -90,8 +90,8 @@ def _load(attempt, *, fresh=True):
     return directory, plan_ref, plan, baseline, host, controller
 
 
-def _native_observation(plan, controller, phase):
-    value, _fence = controller.verify()
+def _native_observation(plan, controller, phase, *, _observation=None):
+    value, _fence = controller.verify() if _observation is None else controller.verify(_observation)
     if phase == "closed":
         controller._closed_slots()
     binding = value["package"]["binding"]
@@ -320,12 +320,12 @@ class Coordinator:
         _progress(self.directory, "cold-prepared", plan_ref=plan_ref)
         return plan_ref
 
-    def observe(self):
+    def observe(self, *, _observation=None):
         self._capture_gate()
         return forward.save(
             self.directory,
             "cold-native",
-            _native_observation(self.plan, self.controller, self.phase),
+            _native_observation(self.plan, self.controller, self.phase, _observation=_observation),
         )
 
     def _capture_gate(self):
@@ -371,15 +371,25 @@ class Coordinator:
             io.protected_directory(target.parent, private=True)
             target.mkdir(mode=0o700)
             io.fsync_directory(target.parent)
-        control = archive.capture(
-            self.root,
-            self.plan_ref,
-            captured["manifest"],
-            target / "closed",
-            stage="closed",
-            observer=self.observe,
-            codec=5,
-        )
+        control_deadline = time.monotonic() + min(60, forward.remaining(self.plan))
+        with native.PackageRequalification(
+            self.controller.package_ref,
+            provider=self.provider,
+            required_scope=self.provider.scope,
+            max_calls=3,
+        ) as observation:
+            control = archive.capture(
+                self.root,
+                self.plan_ref,
+                captured["manifest"],
+                target / "closed",
+                stage="closed",
+                observer=lambda: self.observe(_observation=observation),
+                timeout=min(control_deadline - time.monotonic(), forward.remaining(self.plan)),
+                codec=5,
+            )
+        forward.remaining(self.plan)
+        io.require(time.monotonic() < control_deadline, "cold_control_capture_deadline")
         archive.verify_and_restore(
             target / "closed",
             control["manifest_sha256"],
@@ -446,8 +456,7 @@ class Coordinator:
         offhost = self.await_proof("offhost_restore")
         self.controller.issue(self.plan_ref, backup_ref, offhost)
         for unit in cold.ALLOWED:
-            self.controller.submit(unit)
-            self.controller.accept(unit)
+            self.controller.submit_and_accept(unit)
         self.host.configure_cold(
             self.plan["dispatch_epoch_ref"],
             self.plan["cold_authority_package_ref"],
@@ -512,6 +521,7 @@ class Coordinator:
     def _terminal_archive(self):
         captured = io.document(io.read_protected(self.directory / "backup-evidence.json"))
         target = self.archive_root / self.plan["attempt_id"]
+        deadline = time.monotonic() + min(60, forward.remaining(self.plan))
 
         def terminal_observer():
             # The marker was independently removed after COMMIT. A terminal
@@ -526,18 +536,35 @@ class Coordinator:
             return forward.save(
                 self.directory,
                 "cold-terminal-native",
-                _native_observation(self.plan, self.controller, "activated"),
+                _native_observation(
+                    self.plan, self.controller, "activated", _observation=observation
+                ),
             )
 
-        terminal = archive.capture(
-            self.root,
-            self.plan_ref,
-            captured["manifest"],
-            target / "terminal",
-            stage="terminal",
-            observer=terminal_observer,
-            codec=5,
-        )
+        with (
+            native.PackageRequalification(
+                self.controller.package_ref,
+                provider=self.provider,
+                required_scope=self.provider.scope,
+                max_calls=4,
+            ) as observation,
+            self.store.historical_validation(self.plan_ref),
+        ):
+            terminal = archive.capture(
+                self.root,
+                self.plan_ref,
+                captured["manifest"],
+                target / "terminal",
+                stage="terminal",
+                observer=terminal_observer,
+                codec=5,
+                timeout=min(deadline - time.monotonic(), forward.remaining(self.plan)),
+            )
+            # The archive's final source byte/version rereads precede this
+            # fourth live cut. Historical restore below grants no authority.
+            terminal_observer()
+        forward.remaining(self.plan)
+        io.require(time.monotonic() < deadline, "cold_terminal_capture_deadline")
         archive.verify_and_restore(
             target / "terminal",
             terminal["manifest_sha256"],

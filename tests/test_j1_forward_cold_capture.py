@@ -216,13 +216,21 @@ class NativeCaptureIntervalTests(unittest.TestCase):
         began = time.monotonic()
         with (
             patch.object(cold, "_decode_package", wraps=cold._decode_package) as decode,
+            patch.object(
+                fixture.provider, "verify_files", wraps=fixture.provider.verify_files
+            ) as files,
+            patch.object(
+                lifecycle.native, "_mutable_package", wraps=lifecycle.native._mutable_package
+            ) as mutable,
             backup.CaptureInterval(controller, plan_ref, directory, gate=lambda: None) as interval,
         ):
             self.assertEqual(decode.call_count, 1)
             for _index in range(4):
                 interval.observe()
             self.assertEqual(decode.call_count, 1)
-        self.assertEqual(decode.call_count, 2)
+        self.assertEqual(decode.call_count, 1)
+        self.assertEqual(files.call_count, 2)
+        self.assertEqual(mutable.call_count, 2)
         self.assertIsNotNone(interval.completion_ref)
         self.assertEqual(list((fixture.root / "probe-effects").iterdir()), [])
         response = {
@@ -257,6 +265,38 @@ class NativeCaptureIntervalTests(unittest.TestCase):
                 interval.observe()
         self.assertIsNone(interval.completion_ref)
         self.assertEqual(len(interval.witnesses), 1)
+
+    def test_entry_gate_refusal_closes_interval_without_publishing_completion(self):
+        _fixture, controller, plan_ref, directory = self.fixture()
+
+        def refuse():
+            raise io.Refusal("private_capture_gate_refusal")
+
+        interval = backup.CaptureInterval(controller, plan_ref, directory, gate=refuse)
+        with self.assertRaisesRegex(io.Refusal, "private_capture_gate_refusal"):
+            with interval:
+                self.fail("An entry refusal cannot expose an active interval")
+        self.assertEqual(interval.status, "closed")
+        self.assertIsNone(interval._qualification)
+        self.assertIsNone(interval.kernel)
+        self.assertIsNone(interval.completion_ref)
+        self.assertFalse((directory / "cold-capture-completed.json").exists())
+
+    def test_lost_hold_after_last_boundary_refuses_completion_and_closes_handles(self):
+        import fcntl
+
+        fixture, controller, plan_ref, directory = self.fixture()
+        interval = backup.CaptureInterval(controller, plan_ref, directory, gate=lambda: None)
+        with self.assertRaisesRegex(io.Refusal, "hold_lock_not_owned"):
+            with interval:
+                interval.observe()
+                interval.observe()
+                fcntl.flock(fixture.dispatch_fd, fcntl.LOCK_UN)
+        self.assertEqual(interval.status, "closed")
+        self.assertIsNone(interval._qualification)
+        self.assertEqual(interval.kernel.descriptors, [])
+        self.assertIsNone(interval.completion_ref)
+        self.assertFalse((directory / "cold-capture-completed.json").exists())
 
     def test_lost_original_descriptor_or_hold_refuses_a_new_receipt(self):
         import fcntl

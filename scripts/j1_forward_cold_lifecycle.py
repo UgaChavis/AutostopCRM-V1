@@ -1077,7 +1077,10 @@ class Controller:
                 self.package_ref, provider=self.provider, required_scope=self.provider.scope
             )
         else:
-            contract.need(type(observation) is native.PackageObservation, "slot_observation_type")
+            contract.need(
+                type(observation) in {native.PackageObservation, native.PackageRequalification},
+                "slot_observation_type",
+            )
             value = observation.observe(self.package_ref, self.provider)
         return self._verify_epoch(value)
 
@@ -1349,7 +1352,7 @@ class Controller:
             )
         return admission
 
-    def submit(self, unit):
+    def submit(self, unit, *, _observation=None):
         store, snapshot, context = self.context(unit)
         ticket = snapshot["ticket"]
         if snapshot["state"]["acceptance"] is not None:
@@ -1360,7 +1363,7 @@ class Controller:
                 "current_state_asserted": False,
                 "native_acceptance": snapshot["state"]["acceptance"]["evidence_ref"],
             }
-        self.verify()
+        self.verify() if _observation is None else self.verify(_observation)
         self.admitted()
         owner = snapshot["state"]["submit_owner"] or native.controller(os.getpid())
         result = _transition(store, ticket, "submit", {"owner": owner})
@@ -1401,6 +1404,18 @@ class Controller:
             "historical": result["historical"],
             "native_acceptance": reference,
         }
+
+    def submit_and_accept(self, unit):
+        """One role operation; both original full native cuts still execute."""
+        with native.PackageRequalification(
+            self.package_ref,
+            provider=self.provider,
+            required_scope=self.provider.scope,
+            max_calls=2,
+        ) as observation:
+            self.submit(unit, _observation=observation)
+            result = self.accept(unit, _observation=observation)
+        return result
 
     def revoke(self, unit):
         store, snapshot, _context = self.context(unit)

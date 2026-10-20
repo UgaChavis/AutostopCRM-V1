@@ -24,6 +24,7 @@ from scripts import j1_forward_cold_backup as cold_backup
 from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_lifecycle as lifecycle
+from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_cold_release as coordinator
 from scripts import j1_forward_io as io
 from scripts import j1_forward_rehearsal_crm as crm_boundary
@@ -95,9 +96,9 @@ def _crash_after_history(store, plan, perform):
             os.close(descriptor)
 
 
-def _accept(controller, unit):
+def _accept(controller, unit, *, submit=False):
     try:
-        return controller.accept(unit)
+        return controller.submit_and_accept(unit) if submit else controller.accept(unit)
     except Exception:
         ticket_unit = "autostop-crm-forward-" + controller.epoch["slots"][unit] + ".service"
         try:
@@ -399,8 +400,7 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 mark("actual_signed_restore_issued")
                 accepted = {}
                 for unit in authority.ALLOWED:
-                    controller.submit(unit)
-                    accepted[unit] = _accept(controller, unit)
+                    accepted[unit] = _accept(controller, unit, submit=True)
                     snapshot = controller.store(unit).read()
                     self.assertTrue(snapshot["state"]["execution_possible"])
                     mark("actual_native_entry_accepted:" + unit)
@@ -519,33 +519,48 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 def terminal_observer():
                     self.assertEqual(store.head()["sha256"], committed["sha256"])
                     observed = coordinator._native_observation(
-                        attempt["plan"], controller, "activated"
+                        attempt["plan"], controller, "activated", _observation=observation
                     )
                     terminal_cuts.append(observed["observed_monotonic_ns"])
                     return release.save(attempt["directory"], "cold-terminal-native", observed)
 
-                with _phase("terminal_control_capture"):
-                    terminal = archive.capture(
-                        fixture.control,
-                        attempt["plan_ref"],
-                        captured["captured"]["manifest"],
-                        fixture.root / "control-terminal-package",
-                        stage="terminal",
-                        codec=5,
-                        observer=terminal_observer,
-                        consumer_roots={
-                            attempt["plan"]["candidate"]["consumer_sha256"]: attempt[
-                                "consumer_root"
-                            ]
-                        },
-                        authority_reader=fixture.provider.read_reference,
-                        authority_file_reader=fixture.custody.read,
-                    )
-                # Final live cut uses the real clock, after every captured
-                # source byte/version reread. Historical restore below grants
-                # no permission and uses its own bounded deadline.
-                with _phase("terminal_capture_exit_freshness"):
-                    terminal_observer()
+                terminal_deadline = time.monotonic() + min(60, release.remaining(attempt["plan"]))
+                with (
+                    native.PackageRequalification(
+                        controller.package_ref,
+                        provider=fixture.provider,
+                        required_scope=fixture.provider.scope,
+                        max_calls=4,
+                    ) as observation,
+                    store.historical_validation(attempt["plan_ref"]),
+                ):
+                    with _phase("terminal_control_capture"):
+                        terminal = archive.capture(
+                            fixture.control,
+                            attempt["plan_ref"],
+                            captured["captured"]["manifest"],
+                            fixture.root / "control-terminal-package",
+                            stage="terminal",
+                            codec=5,
+                            observer=terminal_observer,
+                            consumer_roots={
+                                attempt["plan"]["candidate"]["consumer_sha256"]: attempt[
+                                    "consumer_root"
+                                ]
+                            },
+                            authority_reader=fixture.provider.read_reference,
+                            authority_file_reader=fixture.custody.read,
+                            timeout=min(
+                                terminal_deadline - time.monotonic(),
+                                release.remaining(attempt["plan"]),
+                            ),
+                        )
+                    # Final live cut follows every captured source byte/version
+                    # reread. Captured-clock restore grants no permission.
+                    with _phase("terminal_capture_exit_freshness"):
+                        terminal_observer()
+                release.remaining(attempt["plan"])
+                io.require(time.monotonic() < terminal_deadline, "cold_terminal_capture_deadline")
                 print(
                     "PRIVATE_COLD_CAPTURE_FRESHNESS "
                     + io.canonical(

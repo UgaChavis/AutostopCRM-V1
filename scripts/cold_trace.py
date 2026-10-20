@@ -224,6 +224,7 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
     """Run the actual bounded capture protocol, then its typed control archive."""
     from scripts import j1_forward_archive as archive
     from scripts import j1_forward_cold_backup as backup
+    from scripts import j1_forward_cold_native as native
     from scripts import j1_forward_cold_release as coordinator
     from scripts import j1_forward_release as forward
 
@@ -317,23 +318,32 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
         forward.remaining(plan)
         return fixture._write(
             directory / ("archive-native-" + str(time.monotonic_ns()) + ".json"),
-            coordinator._native_observation(plan, controller, "closed"),
+            coordinator._native_observation(plan, controller, "closed", _observation=observation),
         )
 
     control_started = time.perf_counter()
-    archived = archive.capture(
-        fixture.control,
-        plan_ref,
-        captured["manifest"],
-        fixture.root / "control-closed-package",
-        stage="closed",
-        observer=observer,
-        codec=codec,
-        consumer_roots={plan["candidate"]["consumer_sha256"]: attempt["consumer_root"]},
-        authority_reader=fixture.provider.read_reference,
-        authority_file_reader=fixture.custody.read,
-        timeout=min(60, forward.remaining(plan)),
-    )
+    control_deadline = time.monotonic() + min(60, forward.remaining(plan))
+    with native.PackageRequalification(
+        controller.package_ref,
+        provider=fixture.provider,
+        required_scope=fixture.provider.scope,
+        max_calls=3,
+    ) as observation:
+        archived = archive.capture(
+            fixture.control,
+            plan_ref,
+            captured["manifest"],
+            fixture.root / "control-closed-package",
+            stage="closed",
+            observer=observer,
+            codec=codec,
+            consumer_roots={plan["candidate"]["consumer_sha256"]: attempt["consumer_root"]},
+            authority_reader=fixture.provider.read_reference,
+            authority_file_reader=fixture.custody.read,
+            timeout=min(control_deadline - time.monotonic(), forward.remaining(plan)),
+        )
+    forward.remaining(plan)
+    io.require(time.monotonic() < control_deadline, "cold_control_capture_deadline")
     print(
         "PRIVATE_COLD_CAPTURE_TIMING "
         + io.canonical(
