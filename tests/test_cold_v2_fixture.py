@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import contextlib
 import copy
+import io as text_io
 import os
 import sys
+import tempfile
 import unittest
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts import cold_trace
 from scripts import j1_forward_cold_authority as cold
+from scripts import j1_forward_cold_backup as backup
 from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_kernel as kernel
 from scripts import j1_forward_io as io
+from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts.cold_v2_rehearsal import TypedFixture
 from tests import test_j1_forward_cold_kernel as preparation
 
@@ -106,6 +115,59 @@ class FixtureBoundaryTests(unittest.TestCase):
         production["scope"] = "production_native"
         with self.assertRaisesRegex(io.Refusal, "fresh_home_manifest"):
             kernel._fresh_home(production, fixture.binding, "production_native")
+
+    @unittest.skipUnless(
+        os.name == "posix", "Release checks require POSIX ownership and permissions"
+    )
+    def test_drift_diagnostic_preserves_actual_capture_refusal_and_source_version_check(self):
+        attempt, generation = str(uuid.uuid4()), str(uuid.uuid4())
+        engine = backup.engine("2" * 40, generation, attempt)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir(mode=0o700)
+            leaf = source / "private.fixture"
+            leaf.write_bytes(b"first private bytes")
+            fence = root / "fence.json"
+            fence.write_bytes(b"{}\n")
+            count = 0
+
+            def observe():
+                nonlocal count
+                count += 1
+                if count == 2:
+                    leaf.write_bytes(b"changed private bytes")
+                return {
+                    "attempt_id": attempt,
+                    "path": str(fence),
+                    "sha256": io.sha(fence.read_bytes()),
+                }
+
+            fixture = SimpleNamespace(root=root, provider=SimpleNamespace(scope="native_fixture"))
+            before = engine.build_profile
+            output = text_io.StringIO()
+            with (
+                patch.object(engine, "ROOTS", (("fixture", str(source)),)),
+                patch.object(engine, "OPTIONAL_ROOTS", ()),
+                patch.object(engine, "SELECTORS", ()),
+                rehearsal.PrivateFilesystem(root, engines=(engine,)),
+                contextlib.redirect_stdout(output),
+            ):
+                context = {
+                    "attempt_id": attempt,
+                    "predecessor_sha256": "0" * 64,
+                    "candidate_crm_sha": "1" * 40,
+                    "candidate_manager_sha": "2" * 40,
+                    "scope_profile_sha256": engine.profile_sha256(),
+                }
+                with self.assertRaisesRegex(engine.BackupRefusal, "inventory_changed"):
+                    cold_trace._capture_data(
+                        fixture, engine, root / "backup", context, observe, timeout=10
+                    )
+            self.assertIs(engine.build_profile, before)
+            self.assertIn('"logical_name":"private.fixture"', output.getvalue())
+            self.assertNotIn("changed private bytes", output.getvalue())
+            self.assertFalse((root / "backup/manifest.json").exists())
 
 
 if __name__ == "__main__":

@@ -15,6 +15,47 @@ from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 
 
+def _capture_data(fixture, engine, output, context, observer, *, timeout):
+    """Keep actual capture unchanged and report private inventory drift on refusal."""
+    io.require(fixture.provider.scope == "native_fixture", "trace_private_provider_required")
+    original, initial = engine.build_profile, None
+
+    def profile(*args, **kwargs):
+        nonlocal initial
+        result = original(*args, **kwargs)
+        if initial is None:
+            initial = result
+        return result
+
+    engine.build_profile = profile
+    try:
+        return engine.capture(output, context, observer, timeout=timeout)
+    except engine.BackupRefusal as error:
+        if str(error) in {"inventory_changed", "final_inventory_changed"}:
+            changed = []
+            for item in initial or ():
+                io.require(item.source.is_relative_to(fixture.root), "trace_private_inventory")
+                try:
+                    actual = tuple(engine.version(item.source.lstat()))
+                except FileNotFoundError:
+                    actual = ()
+                if actual != item.source_version:
+                    changed.append(
+                        {
+                            "component": item.component,
+                            "logical_name": item.logical_name,
+                            "expected_version": item.source_version,
+                            "actual_version": actual,
+                        }
+                    )
+                    if len(changed) == 16:
+                        break
+            print("PRIVATE_BACKUP_DRIFT " + io.canonical(changed).decode().strip(), flush=True)
+        raise
+    finally:
+        engine.build_profile = original
+
+
 def private_profile(fixture, engine, business_roots):
     """Materialize all real v3 root types using only artificial private data."""
     aliases = dict(business_roots)
@@ -243,7 +284,9 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
         io.require(time.monotonic() < deadline, "cold_capture_deadline")
 
     with backup.CaptureInterval(controller, plan_ref, directory, gate=gate) as interval:
-        captured = engine.capture(
+        captured = _capture_data(
+            fixture,
+            engine,
             directory / "backup",
             context,
             interval.observe,
