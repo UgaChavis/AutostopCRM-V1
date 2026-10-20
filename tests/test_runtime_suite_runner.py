@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -9,7 +10,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.runtime_suite_runner import RuntimePlan, build_plan, iter_cases, load_selected, run_plan
+from tests.runtime_suite_runner import (
+    RuntimePlan,
+    build_plan,
+    complete_browser_coverage,
+    iter_cases,
+    load_selected,
+    run_plan,
+)
 
 
 def case(module: str, name: str):
@@ -18,6 +26,47 @@ def case(module: str, name: str):
 
 
 class RuntimeSuiteRunnerTests(unittest.TestCase):
+    def test_browser_coverage_requires_current_exact_unskipped_receipts(self):
+        groups = (("browser.one", "browser.two"),)
+        good = {
+            "browser_run_id": "current",
+            "selected_ids": list(groups[0]),
+            "executed_ids": list(groups[0]),
+            "successful": True,
+            "exact_identity_coverage": True,
+            "run": 2,
+            "skipped": [],
+        }
+        variants = (
+            ({}, True),
+            ({"browser_run_id": "stale"}, False),
+            ({"executed_ids": ["browser.one"]}, False),
+            ({"selected_ids": ["browser.unknown"]}, False),
+            ({"skipped": [{"test": "browser.one", "reason": "missing browser"}]}, False),
+            ({"successful": False}, False),
+            ({"exact_identity_coverage": False}, False),
+            ({"run": 1}, False),
+        )
+        for changes, expected in variants:
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                (output / "runtime-suite-one.json").write_text(json.dumps({**good, **changes}))
+                self.assertEqual(
+                    complete_browser_coverage(groups, output=output, run_id="current"), expected
+                )
+                if expected:
+                    receipt = json.loads((output / "browser-coverage-current.json").read_text())
+                    self.assertEqual(receipt["planned_ids"], receipt["passed_ids"])
+                    self.assertEqual(receipt["skipped"], [])
+                    (output / "runtime-suite-two.json").write_text(json.dumps(good))
+                    self.assertFalse(
+                        complete_browser_coverage(groups, output=output, run_id="current")
+                    )
+        with tempfile.TemporaryDirectory() as temporary:
+            self.assertFalse(
+                complete_browser_coverage(groups, output=Path(temporary), run_id="current")
+            )
+
     def test_module_level_platform_skip_keeps_real_reason_and_exact_discovered_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -84,6 +133,13 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         ):
             self.assertEqual(run_plan(plan), 124)
             run.assert_not_called()
+        with (
+            patch("tests.runtime_suite_runner.run_core", return_value=0),
+            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.complete_browser_coverage", return_value=False),
+        ):
+            run.return_value = subprocess.CompletedProcess([], 0)
+            self.assertEqual(run_plan(plan), 1)
 
     def test_success_uses_parallel_coverage_for_all_groups_and_preserves_environment(self):
         plan = RuntimePlan(("native.test",), (("browser.one", "browser.two"),))
@@ -93,6 +149,9 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             ),
             patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
             patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch(
+                "tests.runtime_suite_runner.complete_browser_coverage", return_value=True
+            ) as proof,
         ):
             run.return_value = subprocess.CompletedProcess([], 0)
             self.assertEqual(run_plan(plan, root=Path.cwd()), 0)
@@ -106,6 +165,11 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             self.assertEqual(second.kwargs["env"]["COVERAGE_FILE"], "isolated-coverage")
             self.assertEqual(core.call_args.kwargs["budget"], 1800)
             self.assertEqual(core.call_args.kwargs["environment"]["PYTHONUTF8"], "1")
+            self.assertEqual(proof.call_args.args[0], plan.browser_groups)
+            self.assertEqual(
+                proof.call_args.kwargs["run_id"],
+                second.kwargs["env"]["AUTOSTOP_RUNTIME_BROWSER_RUN_ID"],
+            )
             self.assertEqual(
                 second.kwargs["env"]["PYTHONPATH"],
                 os.pathsep.join([str(Path.cwd() / "src"), str(Path.cwd() / "tests"), "existing"]),
@@ -116,6 +180,7 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         with (
             patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
             patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.complete_browser_coverage", return_value=True),
         ):
             run.return_value = subprocess.CompletedProcess([], 0)
             self.assertEqual(run_plan(plan), 0)
@@ -153,11 +218,6 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         self.assertNotIn("--label core -- python -m coverage run -m unittest discover", workflow)
         for name, seconds in (
             ("Release backup and restore branch coverage", "1800"),
-            ("Manager infrastructure map browser regression", "300"),
-            ("Manager structure constructor browser regression", "300"),
-            ("Card hydration and print browser regression", "300"),
-            ("Card and client save browser regressions", "300"),
-            ("Client search browser regression", "300"),
             ("Mandatory core browser smoke", "300"),
             ("Optional full browser smoke", "300"),
         ):
@@ -165,6 +225,7 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             matches = re.findall(pattern, workflow, re.MULTILINE | re.DOTALL)
             self.assertEqual(1, len(matches), name)
             self.assertIn(f"tests.runtime_process --timeout-seconds {seconds}", matches[0], name)
+        self.assertIn("output/runtime-process/browser-coverage-*.json", workflow)
         self.assertIn("path: output/runtime-process/", workflow)
         self.assertRegex(workflow, r"name: runtime-process-.*github\.run_attempt")
         diagnostics_position = workflow.index("- name: Upload runtime process diagnostics")

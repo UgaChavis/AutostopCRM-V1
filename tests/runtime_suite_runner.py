@@ -16,7 +16,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.runtime_core_cohorts import load_plan, run_core
+from tests.runtime_core_cohorts import load_plan, run_core, write_new
 from tests.runtime_skip_contract import unexpected_skips
 from tests.runtime_test_result import ImmediateTracebackResult
 
@@ -84,6 +84,52 @@ def build_plan(suite: unittest.TestSuite) -> RuntimePlan:
     return RuntimePlan(tuple(core), tuple(tuple(ids) for ids in browsers.values()))
 
 
+def complete_browser_coverage(groups, *, output: Path, run_id: str) -> bool:
+    """Require one successful, unskipped receipt for every discovered browser ID."""
+    planned = [identity for group in groups for identity in group]
+    if len(set(planned)) != len(planned):
+        return False
+    expected = set(groups)
+    receipts = {}
+    for path in output.glob("runtime-suite-*.json"):
+        raw = path.read_bytes()
+        if len(raw) > 8 * 1024**2:
+            continue
+        value = json.loads(raw)
+        if value.get("browser_run_id") != run_id:
+            continue
+        selected = tuple(value.get("selected_ids", ()))
+        if selected not in expected or selected in receipts:
+            return False
+        if not (
+            value.get("successful") is True
+            and value.get("exact_identity_coverage") is True
+            and value.get("executed_ids") == list(selected)
+            and value.get("run") == len(selected)
+            and value.get("skipped") == []
+        ):
+            return False
+        receipts[selected] = value
+    if not expected or set(receipts) != expected:
+        return False
+    passed = [identity for group in groups for identity in receipts[group]["executed_ids"]]
+    write_new(
+        output / f"browser-coverage-{run_id}.json",
+        {
+            "schema": "autostopcrm.browser-coverage.v1",
+            "browser_run_id": run_id,
+            "source_revision": os.environ.get("GITHUB_SHA", ""),
+            "groups": len(groups),
+            "planned_ids": planned,
+            "passed_ids": passed,
+            "skipped": [],
+            "successful": True,
+        },
+    )
+    print(f"Browser coverage receipt: {len(passed)} exact passed IDs; no skips.", flush=True)
+    return True
+
+
 def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     environment = os.environ.copy()
     previous = environment.get("PYTHONPATH", "")
@@ -91,6 +137,11 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
         [str(root / "src"), str(root / "tests"), *([previous] if previous else [])]
     )
     environment["PYTHONUTF8"] = "1"
+    output = Path(
+        environment.get("AUTOSTOP_REHEARSAL_RECEIPT_DIR") or root / "output/runtime-process"
+    )
+    environment["AUTOSTOP_REHEARSAL_RECEIPT_DIR"] = str(output)
+    environment["AUTOSTOP_RUNTIME_BROWSER_RUN_ID"] = uuid.uuid4().hex
     coverage = [sys.executable, "-m", "coverage", "run", "--parallel-mode", "-m"]
     commands = [
         [*coverage, "tests.runtime_suite_runner", "--browser-group", *group]
@@ -121,6 +172,13 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
         result = subprocess.run(controlled, cwd=root, env=environment, check=False)
         if result.returncode:
             return result.returncode
+    if not complete_browser_coverage(
+        plan.browser_groups,
+        output=output,
+        run_id=environment["AUTOSTOP_RUNTIME_BROWSER_RUN_ID"],
+    ):
+        print("Browser coverage receipts differ from the current unskipped plan.", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -218,6 +276,7 @@ def main() -> int:
         suite = unittest.defaultTestLoader.loadTestsFromNames(args.browser_group)
         if not all(is_browser_case(case) for case in iter_cases(suite)):
             parser.error("browser group must resolve only to browser tests")
+        cohort = {"browser_run_id": os.environ.get("AUTOSTOP_RUNTIME_BROWSER_RUN_ID", "")}
     else:
         suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"))
         if args.core_only:
