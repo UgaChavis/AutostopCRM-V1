@@ -10,7 +10,7 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -120,7 +120,7 @@ class ProducerTests(unittest.TestCase):
                 }
             },
             "manager": {
-                "checkout": "/private/qualified-manager",
+                "checkout": str(Path(__file__).resolve().parents[1]),
                 "revision": "2" * 40,
                 "tree": "4" * 40,
                 "ci_ref": ref,
@@ -366,6 +366,7 @@ class ProducerTests(unittest.TestCase):
         backend.stop_owned_kernel_unit.assert_not_called()
         self.assertEqual({40, 41, 42}, {call.args[0] for call in close.call_args_list})
 
+    @patch.object(effectors.native, "STATE", PurePosixPath("/private/cold-state"))
     def test_kernel_custody_needs_actual_public_open_not_only_head_and_complete(self):
         documents = {}
 
@@ -389,7 +390,7 @@ class ProducerTests(unittest.TestCase):
             "cold_authority_package_ref": package_ref,
         }
         commit = {"schema": "autostop.j1.crm-forward-commit.v2", "plan": plan}
-        history = Path("/private/history")
+        history = PurePosixPath("/private/history")
         commit_ref = reference(history / "00000000000000000001.json", commit)
         complete_ref = reference(
             effectors.native.STATE / "epochs" / self.binding["generation"] / "complete.json",
