@@ -59,6 +59,16 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         self.assertEqual(plan.core_ids, ())
         self.assertEqual(plan.browser_groups, ((item.id(),),))
 
+    def test_actual_mobile_draft_runs_in_a_required_browser_group_on_both_os(self):
+        from tests.test_mobile_client_search_draft import MobileClientSearchDraftTests
+
+        item = MobileClientSearchDraftTests(
+            "test_input_survives_rerender_and_empty_query_fetches_list"
+        )
+        plan = build_plan(unittest.TestSuite([item]))
+        self.assertEqual(plan.core_ids, ())
+        self.assertEqual(plan.browser_groups, ((item.id(),),))
+
     def test_child_failure_propagates_without_retry_or_later_groups(self):
         plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
         with (

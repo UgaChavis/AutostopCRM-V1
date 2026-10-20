@@ -3,19 +3,10 @@
 from __future__ import annotations
 
 import json
-import sys
 import unittest
-from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-if __package__:
-    from tests.source_path_support import prepend_scripts_path
-else:
-    from source_path_support import prepend_scripts_path
-
-prepend_scripts_path()
-
-from browser_smoke_runtime import start_temp_runtime  # noqa: E402
+from tests.browser_ui_support import UiBrowserTestCase
 
 
 def _query(url: str) -> str | None:
@@ -25,24 +16,7 @@ def _query(url: str) -> str | None:
     return parse_qs(parsed.query).get("query", [None])[0]
 
 
-class MobileClientSearchDraftTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        if sys.platform == "win32":
-            raise unittest.SkipTest("POSIX disposable browser runtime required")
-        try:
-            from playwright.sync_api import sync_playwright
-        except ImportError as exc:
-            raise unittest.SkipTest("Playwright is not installed") from exc
-        cls.runtime = start_temp_runtime(start_port=46881)
-        cls.addClassCleanup(cls.runtime.close)
-        cls.playwright = sync_playwright().start()
-        cls.addClassCleanup(cls.playwright.stop)
-        if not Path(cls.playwright.chromium.executable_path).exists():
-            raise unittest.SkipTest("Playwright Chromium is not installed")
-        cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
-        cls.addClassCleanup(cls.browser.close)
-
+class MobileClientSearchDraftTests(UiBrowserTestCase):
     def test_input_survives_rerender_and_empty_query_fetches_list(self) -> None:
         context = self.browser.new_context(
             viewport={"width": 390, "height": 844},
@@ -60,6 +34,7 @@ class MobileClientSearchDraftTests(unittest.TestCase):
             "localStorage.setItem('kanban-operator-session', " + json.dumps(session) + ");"
         )
         page = context.new_page()
+        page.on("pageerror", lambda error: self.page_errors.append(str(error)))
         page.goto(self.runtime.browser_url, wait_until="domcontentloaded")
         page.wait_for_function("window.__AUTOSTOP_UI_BOUND__ === true")
         page.wait_for_function("document.body.classList.contains('is-mobile-lite')")

@@ -472,7 +472,9 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
-        run: python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest tests.test_mobile_clients_search_browser -v
+        run: |
+          python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest \
+            tests.test_mobile_clients_search_browser tests.test_mobile_client_search_draft -v
 
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}
