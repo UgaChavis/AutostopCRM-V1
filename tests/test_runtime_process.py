@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
 import os
 import subprocess
 import sys
@@ -36,12 +37,7 @@ while not (root / 'release').exists():
 """
 
 
-def alive(pid):
-    if os.name != "nt":
-        try:
-            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-        except FileNotFoundError:
-            return False
+def _windows_process_kernel():
     from ctypes import wintypes
 
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -51,6 +47,16 @@ def alive(pid):
     kernel.WaitForSingleObject.restype = wintypes.DWORD
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.CloseHandle.restype = wintypes.BOOL
+    return kernel
+
+
+def alive(pid):
+    if os.name != "nt":
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+        except FileNotFoundError:
+            return False
+    kernel = _windows_process_kernel()
     handle = kernel.OpenProcess(0x00100000, False, pid)
     if not handle:
         if ctypes.get_last_error() == 87:
@@ -383,17 +389,46 @@ class RuntimeProcessTests(unittest.TestCase):
             directory = Path(name)
             script = self.fixture(directory)
             controller = self.launch(directory, [script, directory, "wait"])
+            kernel = _windows_process_kernel()
+            handles = []
             try:
                 worker = self.wait_json(directory / "worker.json")
                 grandchild = self.wait_json(directory / "grandchild.json")
+                for pid in (worker["pid"], grandchild["pid"]):
+                    handle = kernel.OpenProcess(0x00100000, False, pid)
+                    if not handle:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    handles.append((pid, handle))
+                    self.assertEqual(0x102, kernel.WaitForSingleObject(handle, 0))
+                # Job close initiates asynchronous TerminateProcess calls.
+                # Pin both actual live processes before the controller dies:
+                # its own exit is not proof that descendants have exited, and
+                # a new OpenProcess(pid) could observe a reused PID instead.
+                # Share finish()'s original 20s across controller and both
+                # process-handle waits; no child gets an additional budget.
+                deadline = time.monotonic() + 20
                 controller.kill()
-                code, output, report = self.finish(controller, directory)
+                code, output, report = self.finish(
+                    controller, directory, timeout=max(0.001, deadline - time.monotonic())
+                )
                 self.assertNotEqual(0, code, output)
                 self.assertEqual("running", report["state"])
+                for pid, handle in handles:
+                    immediate = kernel.WaitForSingleObject(handle, 0)
+                    remaining_ms = math.ceil(max(0, deadline - time.monotonic()) * 1000)
+                    status = kernel.WaitForSingleObject(handle, remaining_ms)
+                    print(
+                        f"Killed-controller owned PID {pid}: immediate={immediate}, "
+                        f"final_wait={status}; original shared cleanup deadline.",
+                        flush=True,
+                    )
+                    self.assertEqual(0, status, f"Owned PID {pid} survived Job close")
                 self.assertFalse(alive(worker["pid"]))
                 self.assertFalse(alive(grandchild["pid"]))
             finally:
                 (directory / "release").touch()
+                for _, handle in handles:
+                    kernel.CloseHandle(handle)
 
     @unittest.skipUnless(os.name == "nt", "Windows native wait cancellation")
     def test_cancellation_interrupts_native_wait_before_the_group_deadline(self):
