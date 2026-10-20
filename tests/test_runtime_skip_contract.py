@@ -141,3 +141,20 @@ class RuntimeSkipContractTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(record_result(result), 1)
+
+    def test_installed_barrier_file_cases_require_the_exact_windows_exclusion(self):
+        from tests.runtime_skip_contract import WINDOWS_INSTALLED_BARRIER_CASES
+
+        reason = "Linux installed-barrier files"
+        methods = {name: lambda self: None for name in WINDOWS_INSTALLED_BARRIER_CASES}
+        family = type(
+            "BarrierInspectionTests",
+            (unittest.TestCase,),
+            {"__module__": "tests.test_j1_forward_barrier_inspection", **methods},
+        )
+        for name in WINDOWS_INSTALLED_BARRIER_CASES:
+            test = family(name)
+            self.assertEqual(unexpected_skips([(test, reason)], "win32"), [])
+            self.assertEqual(len(unexpected_skips([(test, reason)], "linux")), 1)
+            self.assertEqual(len(unexpected_skips([(test, reason + " changed")], "win32")), 1)
+        self.assertEqual(len(unexpected_skips([(self, reason)], "win32")), 1)

@@ -57,6 +57,17 @@ WINDOWS_LINUX_STORAGE_CASES = {
 WINDOWS_UNIX_SOCKET_CASES = frozenset(
     {"test_bounded_protocol_round_trip", "test_command_metadata_is_only_sent_in_protocol_envelope"}
 )
+WINDOWS_INSTALLED_BARRIER_CASES = frozenset(
+    {
+        "test_six_active_and_two_denied_units_are_diagnostic_without_effects",
+        "test_missing_modified_and_unsafely_writable_barrier_are_refused",
+        "test_same_bytes_replacement_between_samples_is_refused",
+        "test_changed_scope_record_or_loaded_units_is_refused",
+        "test_wrong_guard_path_ignored_errors_order_extra_and_malformed_conditions_refused",
+        "test_reloaded_hook_queued_job_and_active_denied_role_are_refused",
+        "test_incomplete_observation_and_wrong_host_are_refused",
+    }
+)
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -78,6 +89,14 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
         ):
             continue
         if platform == "win32" and cold_family and reason == PRIVATE_COLD_REASON:
+            continue
+        if (
+            platform == "win32"
+            and type(test).__module__.removeprefix("tests.") == "test_j1_forward_barrier_inspection"
+            and type(test).__name__ == "BarrierInspectionTests"
+            and getattr(test, "_testMethodName", None) in WINDOWS_INSTALLED_BARRIER_CASES
+            and reason == "Linux installed-barrier files"
+        ):
             continue
         if (
             platform == "win32"
