@@ -294,11 +294,16 @@ class CaptureInterval:
             inventory = io.document(
                 self.provider.read_reference(self.value["pending"]["inventory_ref"])
             )
-            j1_forward_cold_catalog_native.verify_old_crm_ingress(
-                inventory["old_crm_ingress_ref"],
-                provider=self.provider,
-                binding=self.value["package"]["binding"],
-            )
+            if self.provider.scope == "native_fixture":
+                self.provider.verify_old_crm_ingress(
+                    inventory["old_crm_ingress_ref"], binding=self.value["package"]["binding"]
+                )
+            else:
+                j1_forward_cold_catalog_native.verify_old_crm_ingress(
+                    inventory["old_crm_ingress_ref"],
+                    provider=self.provider,
+                    binding=self.value["package"]["binding"],
+                )
 
     def __exit__(self, error_type, _error, _trace):
         try:

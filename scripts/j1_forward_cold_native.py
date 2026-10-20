@@ -1241,10 +1241,10 @@ class NativeProvider:
         contract.need(actual == set(expected), "cache_checkpoint_inventory_incomplete")
 
 
-def _tree_versions(roots):
+def _tree_versions(roots, *, protect=None):
     versions = {}
     for root in roots:
-        root = io.protected_directory(root)
+        root = (io.protected_directory if protect is None else protect)(root)
         version = _executable_version(root.lstat())
         versions[str(root)] = version
         pending = [(str(root), version)]
@@ -1279,21 +1279,25 @@ def _tree_versions(roots):
 class _SharedTrees:
     """A shared physical tree is measured once, with a complete version exit cut."""
 
-    def __init__(self):
+    def __init__(self, *, protect=None):
         self.measured = {}
+        self.protect = protect
 
     def measure(self, key, roots, operation):
         roots = tuple(sorted(str(Path(path)) for path in roots))
         if key in self.measured:
             contract.need(self.measured[key][0] == roots, "native_tree_root_alias")
             return
-        versions = _tree_versions(roots)
+        versions = _tree_versions(roots, protect=self.protect)
         operation()
         self.measured[key] = (roots, versions)
 
     def finish(self):
         for roots, before in self.measured.values():
-            contract.need(_tree_versions(roots) == before, "native_installed_tree_changed")
+            contract.need(
+                _tree_versions(roots, protect=self.protect) == before,
+                "native_installed_tree_changed",
+            )
 
 
 class _ObservationSources:

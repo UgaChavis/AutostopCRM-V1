@@ -395,3 +395,31 @@ custodian. The physical control transport stays within 512 MiB and its typed
 large leaves within 384 MiB. The receipt distinguishes source Unix permissions
 from the restoring operating system's file custody. Alias metadata grants no
 native acceptance or permission to replay an operation.
+
+### Opt-in typed-runtime private rehearsal
+
+`scripts/rehearse_cold_v2.py` runs the full cold trace with an actual sealed
+runtime capsule, its complete independent installed tree, kernel v2 and pending
+v2. Invoke it with that sealed Python using `-B`; the fixture refuses bytecode
+writes into the measured runtime. `--artifact-dir`, `--installed-dir`, `--codex`
+and a fresh `--output-dir` are required. This large Linux-only rehearsal is
+opt-in; ordinary test discovery runs its small contract regressions instead.
+
+The runner checks the pinned Manager 5bf9570c capsule and alpha.11 executable.
+The fixture creates its own offline appserver and supervisor, performs actual
+socket/RPC/owned-thread measurements, and reads all six private durable catalog
+families. Its account response is an explicit synthetic assumption: the actual
+socket must first report that it has no credentials. Unit observations use an
+explicit private process mapping, and cache observations use owned file
+permissions. The seven applications are source-pinned private stand-ins.
+Receipts record `native_fixture`, false production authority and false real
+account authentication. Each original request stays unknown with replay
+forbidden; original pending bytes, eight barriers and scheduler hold remain.
+
+The trace uses the actual capture interval (300 seconds), a 600-second plan,
+codec-5 control archives (60 seconds per capture), real Ed25519 proofs and a
+separate restore process. It exercises all seven one-shot entries, corrupt and
+expired proofs, duplicate entry, an actual child crash after history write,
+HEAD recovery, commit, OPEN, finish and independent terminal graph restore.
+A deadline failure remains a failed receipt. Archive restore validates opaque
+runtime bytes and reconstructs interpreter aliases without executing them.

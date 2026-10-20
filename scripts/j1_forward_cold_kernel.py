@@ -237,7 +237,7 @@ def _fresh_home(home, binding, scope):
         type(home["prestart_files"]) is dict
         and set(home["prestart_files"])
         <= {"config.toml", "auth.json", "app-server-daemon/settings.json"}
-        and "auth.json" in home["prestart_files"]
+        and (scope == "native_fixture" or "auth.json" in home["prestart_files"])
         and home["codex_home"] == str(Path(home["home"]) / ".codex")
         and home["created_ns"] >= binding["not_before_ns"],
         "kernel_fresh_home_manifest",

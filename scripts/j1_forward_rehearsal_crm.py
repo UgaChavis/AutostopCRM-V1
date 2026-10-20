@@ -82,7 +82,7 @@ with UnixStreamServer(str(root / "private-crm.sock"), Handler) as server:
 
 
 class PrivateCRM:
-    def __init__(self, fixture, *, revision, image):
+    def __init__(self, fixture, *, revision, image, start=True):
         io.require(fixture.provider.scope == "native_fixture", "trace_crm_fixture_scope")
         self.fixture, self.root = fixture, fixture.root
         self.revision, self.image = revision, image
@@ -90,7 +90,7 @@ class PrivateCRM:
         self.attachment = self.root / "business-fixture/crm/attachment.bin"
         self.database_ref = io.reference(self.database)
         self.attachment_ref = io.reference(self.attachment)
-        fixture._write(
+        self.config_ref = fixture._write(
             self.root / "private-crm-config.json",
             {
                 "database": str(self.database),
@@ -100,6 +100,45 @@ class PrivateCRM:
             },
         )
         self.worker_ref = fixture._copy(self.root / "private-crm.py", WORKER.encode())
+        self.process = self.actor = self.spec_ref = None
+        if start:
+            self.start()
+
+    def publish_spec(self, epoch_ref, package_ref):
+        io.require(self.spec_ref is None, "trace_crm_spec_already_published")
+        binding_ref = self.fixture._write(
+            self.root / "private-crm-binding.json",
+            {
+                "schema": "autostop.j1.private-crm-instance-binding.v1",
+                "scope": "native_fixture",
+                "epoch_ref": epoch_ref,
+                "package_ref": package_ref,
+                "binding": self.fixture.binding,
+                "worker_ref": self.worker_ref,
+                "config_ref": self.config_ref,
+                "sqlite_ref": self.database_ref,
+                "attachment_ref": self.attachment_ref,
+            },
+        )
+        self.spec_ref = self.fixture._write(
+            self.root / "private-crm-spec.json",
+            {
+                "schema": "autostop.j1.cold-crm-container-spec.v1",
+                "scope": "native_fixture",
+                "role": "crm-embedded",
+                "epoch_ref": epoch_ref,
+                "package_ref": package_ref,
+                "binding_ref": binding_ref,
+                "boundary": "artificial_business_http",
+                "production_container_created": False,
+            },
+        )
+        return self.spec_ref
+
+    def start(self):
+        io.require(self.process is None, "trace_crm_start_already_consumed")
+        io.referenced(self.worker_ref)
+        io.referenced(self.config_ref)
         process = subprocess.Popen(
             [
                 str(Path(os.sys.executable).resolve()),
@@ -115,8 +154,8 @@ class PrivateCRM:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        fixture.children.append(process)
-        fixture.pidfds[process.pid] = os.pidfd_open(process.pid)
+        self.fixture.children.append(process)
+        self.fixture.pidfds[process.pid] = os.pidfd_open(process.pid)
         self.process, self.actor = process, native.actor(process.pid)
         deadline = time.monotonic() + 5
         while not (self.root / "private-crm-ready").exists():
@@ -129,6 +168,7 @@ class PrivateCRM:
         )
 
     def measure(self, epoch_ref, package_ref):
+        io.require(self.process is not None, "trace_crm_not_started")
         io.require(native.actor(self.process.pid) == self.actor, "trace_crm_actor_changed")
         io.referenced(self.worker_ref)
         io.referenced(self.database_ref)
@@ -169,7 +209,7 @@ class PrivateCRM:
         io.referenced(self.database_ref)
         io.referenced(self.attachment_ref)
         io.require(native.actor(self.process.pid) == self.actor, "trace_crm_actor_raced")
-        return {
+        result = {
             "role": "crm-embedded",
             "scope": "native_fixture",
             "epoch_ref": epoch_ref,
@@ -181,12 +221,19 @@ class PrivateCRM:
             "attachment_ref": self.attachment_ref,
             "production_crm_application_executed": False,
         }
+        if self.spec_ref is not None:
+            io.referenced(self.spec_ref)
+            result["spec_ref"] = self.spec_ref
+        return result
 
 
 def fixture_backend(fixture, crm):
     from scripts import j1_forward_cold_lifecycle
 
     class Backend(j1_forward_cold_lifecycle.FixtureBackend):
+        def parent_executor(self, request_ref):
+            return fixture.parent.observe(request_ref)
+
         def observe_crm(self, reference, epoch_ref, package_ref):
             measured = crm.measure(epoch_ref, package_ref)
             io.require(

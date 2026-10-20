@@ -700,48 +700,7 @@ def _decode_package(package_ref, reader, *, required_scope=None, now_ns=None):
         and type(quarantine["pipe_inodes"]) is list,
         "quarantine_endpoints",
     )
-    pending = reader.bound(
-        package["pending_ref"],
-        "pending-disposition",
-        binding,
-        scope,
-        {"quarantine_ref", "inventory_ref", "scope", "requests"},
-        version=2 if scope == "production_native" else 1,
-    )
-    need(pending["quarantine_ref"] == package["quarantine_ref"], "pending_quarantine")
-    reader.raw(pending["inventory_ref"])
-    need(pending["scope"] == scope, "pending_scope")
-    need(type(pending["requests"]) is list and len(pending["requests"]) <= 8192, "pending_requests")
-    ids = []
-    for row in pending["requests"]:
-        identity_key = "fingerprint" if scope == "production_native" else "payload_sha256"
-        fields(
-            row,
-            {"op_id", identity_key, "outcome", "evidence_refs", "retry"},
-            "pending_request_fields",
-        )
-        if scope == "production_native":
-            fingerprint(row["fingerprint"], outcome=row["outcome"])
-        else:
-            need(
-                type(row["payload_sha256"]) is str and HEX.fullmatch(row["payload_sha256"]),
-                "pending_request_payload",
-            )
-        need(
-            operation_id(row["op_id"]),
-            "pending_request_identity",
-        )
-        need(
-            row["outcome"] in {"applied_readback", "not_applied_terminal", "unknown"}
-            and row["retry"] == "forbidden"
-            and type(row["evidence_refs"]) is list,
-            "pending_no_implicit_replay",
-        )
-        need(row["outcome"] == "unknown" or row["evidence_refs"], "pending_positive_evidence")
-        for ref in row["evidence_refs"]:
-            reader.raw(ref)
-        ids.append(row["op_id"])
-    need(len(ids) == len(set(ids)), "pending_duplicate_identity")
+    pending = _pending(reader, package, binding, scope)
     kernel_header = reader.doc(package["kernel_ref"])
     need(type(kernel_header) is dict, "kernel_document")
     kernel_version = 2 if kernel_header.get("schema") == "autostop.j1.cold-kernel.v2" else 1
@@ -885,3 +844,57 @@ def fingerprint(value, *, outcome):
         "record_fingerprint_is_not_positive_outcome",
     )
     return value
+
+
+def _pending(reader, package, binding, scope):
+    pending_header = reader.doc(package["pending_ref"])
+    pending_version = (
+        2
+        if type(pending_header) is dict
+        and pending_header.get("schema") == "autostop.j1.cold-pending-disposition.v2"
+        else 1
+    )
+    need(scope != "production_native" or pending_version == 2, "production_pending_v2_required")
+    pending = reader.bound(
+        package["pending_ref"],
+        "pending-disposition",
+        binding,
+        scope,
+        {"quarantine_ref", "inventory_ref", "scope", "requests"},
+        version=pending_version,
+    )
+    need(pending["quarantine_ref"] == package["quarantine_ref"], "pending_quarantine")
+    reader.raw(pending["inventory_ref"])
+    need(pending["scope"] == scope, "pending_scope")
+    need(type(pending["requests"]) is list and len(pending["requests"]) <= 8192, "pending_requests")
+    ids = []
+    for row in pending["requests"]:
+        identity_key = "fingerprint" if pending_version == 2 else "payload_sha256"
+        fields(
+            row,
+            {"op_id", identity_key, "outcome", "evidence_refs", "retry"},
+            "pending_request_fields",
+        )
+        if pending_version == 2:
+            fingerprint(row["fingerprint"], outcome=row["outcome"])
+        else:
+            need(
+                type(row["payload_sha256"]) is str and HEX.fullmatch(row["payload_sha256"]),
+                "pending_request_payload",
+            )
+        need(
+            operation_id(row["op_id"]),
+            "pending_request_identity",
+        )
+        need(
+            row["outcome"] in {"applied_readback", "not_applied_terminal", "unknown"}
+            and row["retry"] == "forbidden"
+            and type(row["evidence_refs"]) is list,
+            "pending_no_implicit_replay",
+        )
+        need(row["outcome"] == "unknown" or row["evidence_refs"], "pending_positive_evidence")
+        for ref in row["evidence_refs"]:
+            reader.raw(ref)
+        ids.append(row["op_id"])
+    need(len(ids) == len(set(ids)), "pending_duplicate_identity")
+    return pending

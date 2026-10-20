@@ -12,6 +12,7 @@ import os
 import stat
 import subprocess
 import time
+import zlib
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,12 +25,18 @@ from scripts import j1_forward_proofs as signatures
 from scripts import j1_forward_state as state
 
 SOURCE = Path(__file__).resolve().parents[1]
+# A genuine locally retained source snapshot before the native launch-journal
+# protocol existed. This is a synthetic historical attempt, not the current
+# candidate's source or a claim about an installed production revision.
+PREDECESSOR_SOURCE = "30d872e2b7c5659b53b260092773f81e7b8adb6f"
+PREDECESSOR_TREE = "d99adcf1ba473d7a3671c0453f6c84e48134799f"
+PREDECESSOR_CAPSULE_SHA256 = "363edefaba5f26074844adb8c774be85644b4a76abfd847f559d697110402be4"
 
 
 class PrivateFilesystem:
     """Custodian for one captured private directory, not a global root waiver."""
 
-    def __init__(self, root):
+    def __init__(self, root, *, engines=()):
         self.root = Path(root)
         info = self.root.lstat()
         io.require(
@@ -41,6 +48,7 @@ class PrivateFilesystem:
         self.identity = (info.st_dev, info.st_ino, info.st_uid)
         self.stack = ExitStack()
         self.depth = 0
+        self.engines = tuple(dict.fromkeys((backup, *engines)))
 
     def directory(self, path, *, private=False):
         path = Path(path)
@@ -85,8 +93,11 @@ class PrivateFilesystem:
         self.stack.enter_context(patch.object(io, "ROOT_UID", os.geteuid()))
         # This is the private OS custody boundary. Capture/restore themselves
         # are actual functions, including SQLite backup and content inspection.
-        self.stack.enter_context(patch.object(backup, "protected_parent", self.directory))
-        self.stack.enter_context(patch.object(backup, "native_root", lambda: os.name == "posix"))
+        for engine in self.engines:
+            self.stack.enter_context(patch.object(engine, "protected_parent", self.directory))
+            self.stack.enter_context(
+                patch.object(engine, "native_root", lambda: os.name == "posix")
+            )
         return self
 
     def __exit__(self, *args):
@@ -131,11 +142,63 @@ def checkout_identity():
     return {"revision": git("HEAD"), "tree": git("HEAD^{tree}")}
 
 
+def predecessor_source():
+    """Load a pinned full historical capsule; never execute its source.
+
+    The fixture contains all scripts/j1_forward_*.py entries of the exact
+    PREDECESSOR_SOURCE Git tree. Its bytes travel with shallow/offline clones.
+    """
+    packed = (SOURCE / "tests/fixtures/j1-forward-predecessor-capsule.json.gz").read_bytes()
+    io.require(
+        len(packed) <= 256 * 1024 and io.sha(packed) == PREDECESSOR_CAPSULE_SHA256,
+        "rehearsal_predecessor_capsule_digest",
+    )
+    decoder = zlib.decompressobj(31)
+    raw = decoder.decompress(packed, 2 * 1024**2 + 1)
+    io.require(
+        len(raw) <= 2 * 1024**2
+        and decoder.eof
+        and not decoder.unused_data
+        and not decoder.unconsumed_tail,
+        "rehearsal_predecessor_capsule_bound",
+    )
+    document = io.document(raw)
+    io.require(
+        type(document) is dict
+        and set(document) == {"schema", "revision", "tree", "files"}
+        and document["schema"] == "autostop.j1.private-predecessor-source-capsule.v1"
+        and document["revision"] == PREDECESSOR_SOURCE
+        and document["tree"] == PREDECESSOR_TREE,
+        "rehearsal_predecessor_capsule_schema",
+    )
+    files = document["files"]
+    io.require(
+        type(files) is dict
+        and len(files) == 20
+        and "scripts/j1_forward_launch_native.py" not in files
+        and all(
+            type(name) is str
+            and type(value) is str
+            and name.startswith("scripts/j1_forward_")
+            and name.endswith(".py")
+            and len(Path(name).parts) == 2
+            and ".." not in Path(name).parts
+            for name, value in files.items()
+        ),
+        "rehearsal_predecessor_source_protocol",
+    )
+    return {"revision": PREDECESSOR_SOURCE, "tree": PREDECESSOR_TREE}, {
+        name: value.encode("utf-8") for name, value in files.items()
+    }
+
+
 class TraceFixture(cold_fixture.Fixture):
     """Full failed Store attempt anchored to the same real six-process cohort."""
 
     def __init__(self, **kwargs):
         self.origin = None
+        self.source = checkout_identity()
+        kwargs.setdefault("candidate_crm_sha", self.source["revision"])
         super().__init__(**kwargs)
         try:
             self.control = self._mkdir("forward")
@@ -143,11 +206,14 @@ class TraceFixture(cold_fixture.Fixture):
             self.custody = PrivateFilesystem(self.root)
             self.source_bytes = source_inventory()
             self.consumers = {name: io.sha(raw) for name, raw in self.source_bytes.items()}
-            self.source = checkout_identity()
-            from scripts.rehearsal_parent import PrivateParent
+            self.predecessor_source, self.predecessor_bytes = predecessor_source()
+            self.predecessor_consumers = {
+                name: io.sha(raw) for name, raw in self.predecessor_bytes.items()
+            }
+            from scripts import rehearsal_parent
 
             with self.custody:
-                self.parent = PrivateParent(self)
+                self.parent = rehearsal_parent.PrivateParent(self)
         except BaseException:
             self.close()
             raise
@@ -168,8 +234,10 @@ class TraceFixture(cold_fixture.Fixture):
         io.fsync_directory(path.parent)
         return io.reference(path)
 
-    def _plan(self, attempt, *, created=None):
+    def _plan(self, attempt, *, created=None, source=None, consumers=None):
         now = datetime.now(UTC)
+        source = self.source if source is None else source
+        consumers = self.consumers if consumers is None else consumers
         return {
             "schema": state.PLAN_SCHEMA,
             "scope": state.SCOPE,
@@ -179,10 +247,10 @@ class TraceFixture(cold_fixture.Fixture):
             "predecessor_sha256": self.base_sha256,
             "base_sha256": self.base_sha256,
             "candidate": {
-                "revision": self.source["revision"],
-                "tree": self.source["tree"],
+                "revision": source["revision"],
+                "tree": source["tree"],
                 "image": "sha256:" + "4" * 64,
-                "consumer_sha256": io.sha(io.canonical(self.consumers)),
+                "consumer_sha256": io.sha(io.canonical(consumers)),
             },
             "created_at": (created or now - timedelta(seconds=1)).isoformat(),
             "deadline_utc": (now + timedelta(seconds=500)).isoformat(),
@@ -211,13 +279,15 @@ class TraceFixture(cold_fixture.Fixture):
                 "desired_inbound": True,
                 "scope": "native_fixture_historical_cohort",
             },
-            "source_consumers": self.consumers,
+            "source_consumers": self.predecessor_consumers,
             "deployment_lock_identity": self.binding["deployment_lock_identity"],
             "host": {},
             "previous_container": {"image": "synthetic-original", "running": False},
         }
         baseline_ref = self._write(directory / "baseline.json", baseline)
-        plan = self._plan(attempt)
+        plan = self._plan(
+            attempt, source=self.predecessor_source, consumers=self.predecessor_consumers
+        )
         plan["baseline_ref"] = baseline_ref
         plan_ref = self._write(directory / "plan.json", plan)
         self.store = state.Store(self.control / "state", self.base_sha256)
@@ -238,7 +308,7 @@ class TraceFixture(cold_fixture.Fixture):
         )
         files = {
             name: self._copy(retained / "consumers" / name, raw)
-            for name, raw in self.source_bytes.items()
+            for name, raw in self.predecessor_bytes.items()
         }
         bundle_ref = self._write(
             retained / "bundle.json",
@@ -249,7 +319,7 @@ class TraceFixture(cold_fixture.Fixture):
                 "origin_baseline_ref": baseline_ref,
                 "source_revision": plan["candidate"]["revision"],
                 "source_tree": plan["candidate"]["tree"],
-                "source_consumers": self.consumers,
+                "source_consumers": self.predecessor_consumers,
                 "consumer_sha256": plan["candidate"]["consumer_sha256"],
                 "files": files,
             },
@@ -387,12 +457,26 @@ def measure_private_bytes(root):
     )
 
 
+def backup_settings(engine, roots, root):
+    """Translate OS paths while preserving every cold profile component name."""
+    aliases = dict(roots)
+    components = {path: name for name, path in engine.ROOTS}
+    return {
+        "ROOTS": roots,
+        "SELECTORS": tuple(aliases[components[path]] for path in engine.SELECTORS),
+        "OPTIONAL_ROOTS": tuple((name, aliases[name]) for name, _path in engine.OPTIONAL_ROOTS),
+        "J1_ALIAS": Path(root) / "business-fixture/research.sqlite3",
+    }
+
+
 def run_custodian_request(root, request_path):
     """A separate private process restores first, then signs measured results."""
     import sqlite3
 
     from scripts import j1_forward_archive as archive
     from scripts import j1_forward_cold_native as native
+
+    io.require(sqlite3.sqlite_version_info >= (3, 51, 3), "rehearsal_restore_sqlite_runtime")
 
     root, request_path = Path(root), Path(request_path)
     provider = cold_fixture.FixtureProvider(root)
@@ -414,6 +498,7 @@ def run_custodian_request(root, request_path):
             "private_key",
             "proof",
             "control",
+            "backup_profile",
             "sqlite_runtime_ref",
         }
         and request["schema"] == "autostop.j1.private-custodian-request.v1",
@@ -443,13 +528,33 @@ def run_custodian_request(root, request_path):
         "rehearsal_private_signer_not_a_backup_source",
     )
     begin = time.perf_counter()
-    native.verify_package(
+    verified = native.verify_package(
         request["package_ref"], provider=provider, required_scope="native_fixture"
     )
-    with PrivateFilesystem(root), patch.object(backup, "ROOTS", roots):
+    engine = backup
+    if request["backup_profile"] != backup.PROFILE:
+        from scripts import j1_forward_cold_backup
+
+        io.require(
+            request["backup_profile"] == j1_forward_cold_backup.PROFILE, "rehearsal_backup_profile"
+        )
+        binding = verified["package"]["binding"]
+        engine = j1_forward_cold_backup.engine(
+            binding["candidate_manager_sha"], binding["generation"], binding["attempt_id"]
+        )
+        io.require(
+            [name for name, _path in roots] == [name for name, _path in engine.ROOTS],
+            "rehearsal_cold_backup_exact_alias_inventory",
+        )
+    settings = {"ROOTS": roots}
+    if engine is not backup:
+        settings = backup_settings(engine, roots, root)
+    with PrivateFilesystem(root, engines=(engine,)), ExitStack() as aliases:
+        for name, value in settings.items():
+            aliases.enter_context(patch.object(engine, name, value))
         output = Path(request["output"])
         output.mkdir(mode=0o700)
-        data_receipt = backup.verify_and_restore(
+        data_receipt = engine.verify_and_restore(
             Path(request["backup"]),
             request["manifest_sha256"],
             output / "data",
@@ -522,8 +627,11 @@ def run_custodian_request(root, request_path):
         io.write_new(root / "custodian-result.json", result)
 
 
-def independent_restore(fixture, plan_ref, captured, context, roots, signer, *, control=None):
+def independent_restore(
+    fixture, plan_ref, captured, context, roots, signer, *, control=None, proof_path=None
+):
     """Fixed child command; no shell, inherited credentials or effect commands."""
+    runtime_ref = private_sqlite_runtime(fixture)
     request = {
         "schema": "autostop.j1.private-custodian-request.v1",
         "package_ref": fixture.package_ref,
@@ -535,9 +643,10 @@ def independent_restore(fixture, plan_ref, captured, context, roots, signer, *, 
         "output": str(fixture.root / "peer-restore"),
         "public_key": str(signer.public),
         "private_key": str(signer.private),
-        "proof": str(fixture.root / "peer-offhost-proof.json"),
+        "proof": str(proof_path or fixture.root / "peer-offhost-proof.json"),
         "control": control,
-        "sqlite_runtime_ref": private_sqlite_runtime(fixture),
+        "backup_profile": io.document(io.referenced(captured["manifest"]))["profile"]["name"],
+        "sqlite_runtime_ref": runtime_ref,
     }
     path = fixture.root / "custodian-request.json"
     fixture._write(path, request)

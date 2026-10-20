@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 from scripts import j1_forward_cold_authority as contract
@@ -218,12 +219,73 @@ class FixtureProvider(native.NativeProvider):
             and self.manifest["root"] == str(self.root),
             "fixture_manifest",
         )
+        self.typed = None
+        self.external = {}
+        typed = self.root / "typed-fixture.json"
+        if typed.exists():
+            from scripts import j1_forward_cold_runtime_capsule as capsule
+
+            self.typed = io.document(_safe_file(typed, self.root))
+            contract.fields(
+                self.typed,
+                {"schema", "scope", "binding", "runtime_index_ref", "external_refs"},
+                "fixture_typed_fields",
+            )
+            contract.need(
+                self.typed["schema"] == "autostop.j1.private-typed-cold-fixture.v1"
+                and self.typed["scope"] == self.scope,
+                "fixture_typed_scope",
+            )
+            ref = self.typed["runtime_index_ref"]
+            raw = _safe_file(ref["path"], self.root)
+            contract.need(io.sha(raw) == ref["sha256"], "fixture_runtime_index_changed")
+            runtime = io.document(raw)
+            capsule.validate_index(runtime, binding=self.typed["binding"], scope=self.scope)
+            contract.need(
+                type(self.typed["external_refs"]) is list
+                and len(self.typed["external_refs"]) <= 128,
+                "fixture_external_limit",
+            )
+            self.external = capsule.allowed_paths(runtime)
+            for row in self.typed["external_refs"]:
+                contract.reference(row)
+                contract.need(
+                    row["path"] not in self.external or self.external[row["path"]] == row["sha256"],
+                    "fixture_external_alias",
+                )
+                self.external[row["path"]] = row["sha256"]
 
     def reference(self, path):
         raw = self.read_path(path)
         return {"path": str(path), "sha256": io.sha(raw)}
 
     def read_path(self, path):
+        if not Path(path).is_relative_to(self.root) and str(path) in self.external:
+            from scripts import j1_forward_cold_kernel as kernel
+
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                before = os.fstat(descriptor)
+                contract.need(
+                    stat.S_ISREG(before.st_mode)
+                    and before.st_nlink == 1
+                    and not before.st_mode & 0o022
+                    and before.st_size <= 384 * 1024**2,
+                    "fixture_external_protection",
+                )
+                with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                    raw = stream.read(384 * 1024**2 + 1)
+                contract.need(
+                    len(raw) == before.st_size
+                    and kernel.file_version(before)
+                    == kernel.file_version(os.fstat(descriptor))
+                    == kernel.file_version(Path(path).lstat())
+                    and io.sha(raw) == self.external[str(path)],
+                    "fixture_external_changed",
+                )
+            finally:
+                os.close(descriptor)
+            return raw
         if str(path) == self.manifest["interpreter"]["path"]:
             before = Path(path).stat()
             raw = Path(path).read_bytes()
@@ -245,7 +307,11 @@ class FixtureProvider(native.NativeProvider):
         return contract.runtime_bytes(reference, self.read_reference(reference))
 
     def read_runtime_capsule(self, reference):
-        raw = _safe_file(reference["path"], self.root, limit=192 * 1024**2)
+        raw = (
+            self.read_path(reference["path"])
+            if reference["path"] in self.external
+            else _safe_file(reference["path"], self.root, limit=192 * 1024**2)
+        )
         contract.need(io.sha(raw) == reference["sha256"], "fixture_reference_digest")
         return contract.runtime_bytes(reference, raw, capsule=True)
 
@@ -300,6 +366,51 @@ class FixtureProvider(native.NativeProvider):
                 },
                 "fixture_effective_dispatch",
             )
+        if self.typed is not None:
+            from scripts import j1_forward_cold_runtime_capsule as capsule
+
+            trees = native._SharedTrees(protect=self._typed_read_directory)
+            reference = self.typed["runtime_index_ref"]
+            contract.need(
+                all(
+                    row["runtime_index_ref"] == reference for row in validated["policies"].values()
+                ),
+                "fixture_shared_runtime_required",
+            )
+            runtime = io.document(self.read_reference(reference))
+            trees.measure(
+                ("runtime", contract.digest(reference)),
+                tuple(runtime["runtime_roots"].values()),
+                lambda: capsule.verify_installed(runtime),
+            )
+            trees.measure(("source",), (self.root / "source",), lambda: None)
+            trees.finish()
+            return trees
+
+    def _typed_read_directory(self, path):
+        if Path(path).is_relative_to(self.root):
+            cursor = self.root
+            for parts in ((), *((name,) for name in Path(path).relative_to(self.root).parts)):
+                if parts:
+                    cursor /= parts[0]
+                info = cursor.lstat()
+                contract.need(
+                    stat.S_ISDIR(info.st_mode)
+                    and info.st_uid == os.geteuid()
+                    and not info.st_mode & 0o022,
+                    "fixture_runtime_read_boundary",
+                )
+            return Path(path)
+        runtime = io.document(self.read_reference(self.typed["runtime_index_ref"]))
+        info = Path(path).lstat()
+        contract.need(
+            str(path) in runtime["runtime_roots"].values()
+            and stat.S_ISDIR(info.st_mode)
+            and not Path(path).is_symlink()
+            and not info.st_mode & 0o022,
+            "fixture_runtime_read_boundary",
+        )
+        return Path(path)
 
     def verify_closure(self, validated):
         hold, binding = validated["hold"], validated["package"]["binding"]
@@ -388,6 +499,8 @@ class FixtureProvider(native.NativeProvider):
 
     def verify_pending(self, validated):
         pending = validated["pending"]
+        if self.typed is not None:
+            return self._typed_pending(validated)
         inventory = io.document(self.read_reference(pending["inventory_ref"]))
         contract.need(
             inventory
@@ -444,6 +557,8 @@ class FixtureProvider(native.NativeProvider):
             )
 
     def verify_kernel(self, validated):
+        if self.typed is not None:
+            return self._typed_kernel(validated)
         kernel, binding = validated["kernel"], validated["package"]["binding"]
         policy = self.kernel_profile(validated)
         expected = kernel["actor"]
@@ -489,6 +604,257 @@ class FixtureProvider(native.NativeProvider):
             contract.need(native.actor(expected["pid"]) == expected, "fixture_kernel_raced")
         finally:
             os.close(descriptor)
+
+    def _typed_pending(self, validated):
+        from scripts import j1_forward_cold_catalog as catalog
+
+        pending, binding = validated["pending"], validated["package"]["binding"]
+        contract.need(
+            pending["schema"] == "autostop.j1.cold-pending-disposition.v2",
+            "fixture_pending_v2_required",
+        )
+        inventory = io.document(self.read_reference(pending["inventory_ref"]))
+        checkpoint_ref = inventory["source_checkpoint_ref"]
+        checkpoint = io.document(self.read_reference(checkpoint_ref))
+        policy = io.document(self.read_reference(checkpoint["policy_ref"]))
+        actual = catalog.measure(
+            policy, binding, provider=self, verify_path_binding=self._typed_catalog_path
+        )
+        contract.need(actual == checkpoint["measurement"], "fixture_catalog_changed")
+        self.verify_old_crm_ingress(checkpoint["old_crm_ingress_ref"], binding=binding)
+        requests = [{**row, "evidence_refs": [checkpoint_ref]} for row in actual["rows"]]
+        contract.need(
+            pending["requests"] == requests
+            and inventory
+            == {
+                "schema": "autostop.j1.cold-pending-inventory.v2",
+                "scope": self.scope,
+                "binding": binding,
+                "coverage": "source_defined_durable_catalogs_with_retired_unenumerated_ram",
+                "payload_semantics": "observed_record_fingerprint_unknown_only",
+                "source_checkpoint_ref": checkpoint_ref,
+                "old_crm_ingress_ref": checkpoint["old_crm_ingress_ref"],
+                "rows": [
+                    {
+                        "request": {key: row[key] for key in ("op_id", "fingerprint")},
+                        "evidence_refs": [checkpoint_ref],
+                    }
+                    for row in requests
+                ],
+            },
+            "fixture_pending_measurement_mismatch",
+        )
+
+    def _typed_catalog_path(self, unit, source, policy):
+        contract.need(unit in contract.ALLOWED, "fixture_catalog_unit")
+        directory = self.root / "legacy-catalog" / unit
+        path = directory / (
+            source["kind"] + (".json" if source["kind"] == "idempotency_json" else ".sqlite3")
+        )
+        binding = io.document(self.read_reference(source["path_binding_ref"]))
+        contract.need(
+            source["path"] == str(path)
+            and binding
+            == {
+                "schema": "autostop.j1.private-catalog-path.v1",
+                "scope": self.scope,
+                "binding": policy["binding"],
+                "unit": unit,
+                "kind": source["kind"],
+                "source_ref": self.reference(path),
+                "predecessor_ref": policy["predecessor_ref"],
+            },
+            "fixture_catalog_path_binding",
+        )
+
+    def verify_old_crm_ingress(self, reference, *, binding):
+        body = io.document(self.read_reference(reference))
+        contract.fields(
+            body, {"schema", "scope", "binding", "actor", "source_ref"}, "fixture_old_crm_fields"
+        )
+        contract.need(
+            body["schema"] == "autostop.j1.private-old-crm-retired.v1"
+            and body["scope"] == self.scope
+            and body["binding"] == binding,
+            "fixture_old_crm_binding",
+        )
+        self.read_reference(body["source_ref"])
+        expected = body["actor"]
+        try:
+            same = native.birth(expected["pid"]) == expected["start_ticks"]
+        except (FileNotFoundError, ProcessLookupError):
+            same = False
+        contract.need(not same, "fixture_old_crm_alive")
+
+    def systemd(self, unit):
+        contract.need(self.typed is not None, "fixture_no_systemd")
+        body = io.document(self.read_path(self.root / "typed-kernel-state.json"))
+        expected = body["actor"]
+        contract.need(
+            unit == body["unit"] and native.actor(expected["pid"]) == expected,
+            "fixture_kernel_unit_changed",
+        )
+        return {"boundary": "private_process_without_systemd", "unit": unit, "actor": expected}
+
+    def _verify_kernel_cache(self, validated, *, check_tree=None):
+        if self.typed is None:
+            return super()._verify_kernel_cache(validated, check_tree=check_tree)
+        view = io.document(self.read_reference(validated["kernel"]["cache_view_ref"]))
+        checkpoint = io.document(self.read_reference(view["checkpoint_ref"]))
+        base = (
+            self.root
+            / "execution/packages"
+            / validated["package"]["binding"]["attempt_id"]
+            / "kernel"
+        )
+        contract.need(
+            view["kind"] == "private_permission_checkpoint_directories"
+            and view["binding"] == checkpoint["binding"] == validated["package"]["binding"]
+            and checkpoint["root"] == str(base / "cache-source")
+            and view["path"] == str(base / "cache-view"),
+            "fixture_cache_binding",
+        )
+        for root in (checkpoint["root"], view["path"]):
+            if check_tree is not None:
+                check_tree(checkpoint, root)
+            else:
+                actual = []
+                for path in sorted(Path(root).rglob("*")):
+                    contract.need(
+                        path.is_file()
+                        and not path.is_symlink()
+                        and stat.S_IMODE(path.stat().st_mode) == 0o400,
+                        "fixture_cache_protection",
+                    )
+                    actual.append(
+                        {
+                            "name": str(path.relative_to(root)),
+                            "sha256": io.sha(self.read_path(path)),
+                            "bytes": path.stat().st_size,
+                        }
+                    )
+                contract.need(actual == checkpoint["files"], "fixture_cache_changed")
+
+    @contextmanager
+    def _runtime_kernel_admitted(self, validated):
+        # A fixture must not consult the production STATE namespace, even for
+        # an absent random epoch. The actual private HEAD/projection is checked.
+        from scripts import j1_forward_cold_epoch as epochs
+        from scripts import j1_forward_cold_state as cold_state
+
+        path = self.root / "execution/epoch.json"
+        if self.typed is None or not path.exists():
+            yield False
+            return
+        epoch = io.document(self.read_path(path))
+        contract.need(
+            epoch["package_ref"] == self.reference(self.root / "authority.json"),
+            "fixture_runtime_package",
+        )
+        fence = epochs.verify(epoch, validated["package"], self)
+        if io.document(self.read_path(fence["state_path"])) == epochs.closed_state(epoch):
+            yield False
+            return
+        descriptor = epochs.locked_fence(fence, exclusive=False)
+        try:
+            state = io.document(self.read_path(fence["state_path"]))
+            contract.need(
+                state["state"] == "open" and state["admission_ref"] is not None,
+                "fixture_runtime_not_open",
+            )
+            plan = io.document(self.read_reference(state["plan_ref"]))
+            store = cold_state.ColdStore(self.root / "forward/state", plan["base_sha256"])
+            head = store.head()
+            contract.need(
+                state["commit_ref"]["path"] == str(store.history / f"{head['sequence']:020d}.json")
+                and state["commit_ref"]["sha256"] == head["sha256"]
+                and head["record"]["plan"] == plan
+                and plan["cold_authority_package_ref"] == epoch["package_ref"],
+                "fixture_runtime_actual_head",
+            )
+            projection = io.document(self.read_reference(state["admission_ref"]))
+            contract.need(
+                projection["source_refs"]["plan"] == state["plan_ref"]
+                and projection["source_refs"]["commit"] == state["commit_ref"]
+                and projection["source_refs"]["head"] == self.reference(store.head_path),
+                "fixture_runtime_projection",
+            )
+            for name, reference in projection["source_refs"].items():
+                contract.need(
+                    self.read_reference(reference)
+                    == self.read_reference(projection["projected_refs"][name]),
+                    "fixture_runtime_projection_changed",
+                )
+            yield True
+            contract.need(
+                store.head() == head and io.document(self.read_path(fence["state_path"])) == state,
+                "fixture_runtime_head_raced",
+            )
+        finally:
+            os.close(descriptor)
+
+    def kernel_rpc_factory(self, path, deadline):
+        contract.need(self.typed is not None, "fixture_artificial_auth_scope")
+        return _ArtificialAccountRPC(path, deadline)
+
+    def _typed_kernel(self, validated):
+        from scripts import j1_forward_cold_kernel as kernel
+
+        body, binding = validated["kernel"], validated["package"]["binding"]
+        contract.need(body["schema"] == "autostop.j1.cold-kernel.v2", "fixture_kernel_v2_required")
+        policy = self.kernel_profile(validated)
+        unit = io.document(self.read_reference(policy["unit_ref"]))
+        contract.need(self.systemd(body["unit"]) == unit["properties"], "fixture_kernel_unit")
+        ready = io.document(self.read_reference(body["ready_ref"]))
+        proof = io.document(self.read_reference(body["empty_thread_ref"]))
+        contract.need(
+            ready
+            == {
+                "schema": "autostop.j1.cold-kernel-ready.v2",
+                "binding": binding,
+                "phase": "ready",
+                "actor": body["actor"],
+                "supervisor_actor": body["supervisor_actor"],
+                "preparation_ref": body["preparation_ref"],
+                "empty_thread_ref": body["empty_thread_ref"],
+                "thread_id": proof["thread_id"],
+            },
+            "fixture_kernel_ready_v2",
+        )
+        self._verify_kernel_cache(validated)
+        with self._runtime_kernel_admitted(validated) as admitted:
+            if admitted:
+                kernel.verify_runtime_identity(validated, self)
+            else:
+                kernel.verify_preparation(validated, self)
+            self._verify_kernel_libraries(validated)
+        contract.need(self.systemd(body["unit"]) == unit["properties"], "fixture_kernel_raced")
+
+
+class _ArtificialAccountRPC:
+    """Actual offline socket/protocol; only account truth is an explicit fixture assumption."""
+
+    def __init__(self, path, deadline):
+        from scripts import j1_forward_cold_kernel_rpc
+
+        self.actual = j1_forward_cold_kernel_rpc.RPC(path, deadline)
+        self.peer, self.initialized = self.actual.peer, self.actual.initialized
+
+    def call(self, method, params):
+        value = self.actual.call(method, params)
+        if method == "account/read":
+            contract.need(
+                value.get("account") is None and value.get("requiresOpenaiAuth") is True,
+                "fixture_unexpected_real_auth",
+            )
+            return {"account": {"type": "chatgpt"}, "requiresOpenaiAuth": True}
+        return value
+
+    def _exchange(self, method, params):
+        return self.actual._exchange(method, params)
+
+    def close(self):
+        self.actual.close()
 
 
 class Fixture:
@@ -807,31 +1173,7 @@ class Fixture:
             from scripts import j1_forward_cold_epoch
 
             j1_forward_cold_epoch.fixture_inputs(self, pending)
-        _kernel_process, kernel_actor = self._spawn("kernel", "private-cold-kernel")
-        self.publish("private-cache", b"synthetic-only", raw=True, mode=0o400)
-        view = self.publish(
-            "evidence/cache-view.json",
-            {
-                "schema": "autostop.j1.cold-cache-view.v1",
-                "binding": self.binding,
-                "kind": "private_read_only_file",
-                "path": str(self.root / "private-cache"),
-                "mount_id": None,
-            },
-        )
-        source, policies = self._policies()
-        kernel_policy = self._kernel_policy()
-        kernel = self.publish(
-            "evidence/kernel.json",
-            self.doc(
-                "kernel",
-                actor=kernel_actor,
-                unit="private-cold-kernel",
-                policy_ref=kernel_policy,
-                ready_ref=self.provider.reference(self.root / "kernel-ready.json"),
-                cache_view_ref=view,
-            ),
-        )
+        source, policies, kernel = self._produce_kernel(predecessor, closure, hold)
         lifecycle = self.publish(
             "evidence/lifecycle.json",
             self.doc(
@@ -869,6 +1211,34 @@ class Fixture:
             self.package_ref, provider=self.provider, required_scope="native_fixture"
         )
         return dict(self.package_ref)
+
+    def _produce_kernel(self, _predecessor, _closure, _hold):
+        _kernel_process, kernel_actor = self._spawn("kernel", "private-cold-kernel")
+        self.publish("private-cache", b"synthetic-only", raw=True, mode=0o400)
+        view = self.publish(
+            "evidence/cache-view.json",
+            {
+                "schema": "autostop.j1.cold-cache-view.v1",
+                "binding": self.binding,
+                "kind": "private_read_only_file",
+                "path": str(self.root / "private-cache"),
+                "mount_id": None,
+            },
+        )
+        source, policies = self._policies()
+        kernel_policy = self._kernel_policy()
+        kernel = self.publish(
+            "evidence/kernel.json",
+            self.doc(
+                "kernel",
+                actor=kernel_actor,
+                unit="private-cold-kernel",
+                policy_ref=kernel_policy,
+                ready_ref=self.provider.reference(self.root / "kernel-ready.json"),
+                cache_view_ref=view,
+            ),
+        )
+        return source, policies, kernel
 
     def _history(self, endpoints, pipes):
         import sqlite3
