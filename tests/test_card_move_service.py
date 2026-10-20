@@ -12,6 +12,9 @@ from minimal_kanban.services.card_service import ServiceError
 
 class CardMoveServiceTests(CardServiceCase):
     def test_column_patch_counts_events_once_without_changing_card_projection(self) -> None:
+        for clock_patch in self._patch_time(utc_now()):
+            self.enterContext(clock_patch)
+
         class CountedEvents(list):
             iterations = 0
 
