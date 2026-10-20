@@ -1511,6 +1511,19 @@ def _mutable_package(provider, validated):
         operation(validated)
 
 
+def _discard_package_material(sources, reader):
+    reader.seen.clear()
+    reader.opaque.clear()
+    reader.capsules.clear()
+    reader._validated_indexes.clear()
+    reader.read = None
+    sources.versions.clear()
+    sources.references.clear()
+    if sources.trees is not None:
+        sources.trees.measured.clear()
+    sources.trees = sources.provider = None
+
+
 def _qualify_package(reference, *, provider=None, required_scope="production_native"):
     provider = NativeProvider() if provider is None else provider
     provider.boundary(reference)
@@ -1518,20 +1531,144 @@ def _qualify_package(reference, *, provider=None, required_scope="production_nat
     # source is physically reread after the independent native measurements.
     sources = _ObservationSources(provider)
     reader = contract.Reader(sources.read_reference)
-    validated = contract._decode_package(reference, reader, required_scope=required_scope)
-    contract.need(
-        provider.scope == required_scope
-        and provider.boot() == validated["package"]["binding"]["boot_id"],
-        "native_scope_or_boot",
-    )
-    sources.trees = provider.verify_files(validated)
-    _mutable_package(provider, validated)
-    # Establish the same interval at exit, including source and proof rereads.
-    reader.recheck()
-    sources.check_versions()
-    provider.verify_closure(validated)
-    contract._binding(validated["package"]["binding"], now_ns=time.monotonic_ns())
-    return validated, sources, reader
+    try:
+        validated = contract._decode_package(reference, reader, required_scope=required_scope)
+        contract.need(
+            provider.scope == required_scope
+            and provider.boot() == validated["package"]["binding"]["boot_id"],
+            "native_scope_or_boot",
+        )
+        sources.trees = provider.verify_files(validated)
+        _mutable_package(provider, validated)
+        # Establish the same interval at exit, including source and proof rereads.
+        reader.recheck()
+        sources.check_versions()
+        provider.verify_closure(validated)
+        contract._binding(validated["package"]["binding"], now_ns=time.monotonic_ns())
+        return validated, sources, reader
+    except BaseException:
+        _discard_package_material(sources, reader)
+        raise
+
+
+class PackageRequalification:
+    """One explicit operation's original full cuts, without repeated decoding.
+
+    Entry is lazy. Every observe performs the original physical/native gates;
+    only byte-identical package and capsule semantics are shared. Neither the
+    ready operation's nine-cut contract nor its observation class is changed.
+    """
+
+    MAX_BYTES = contract.MAX_RUNTIME_BYTES + 192 * 1024**2
+    MAX_REFERENCES = 10000
+
+    def __init__(self, reference, *, provider, required_scope, max_calls):
+        contract.reference(reference)
+        contract.need(type(max_calls) is int and max_calls in {2, 3, 4}, "requalification_limit")
+        contract.need(
+            type(required_scope) is str
+            and required_scope in {"production_native", "native_fixture"},
+            "requalification_scope",
+        )
+        self.reference, self.provider, self.scope = dict(reference), provider, required_scope
+        self.max_calls, self.count = max_calls, 0
+        self.owner = (os.getpid(), threading.get_ident())
+        self.status, self.failed = "new", False
+        self.value = self.sources = self.reader = self.semantic_sha256 = None
+
+    def _active(self):
+        contract.need(
+            self.status == "active"
+            and not self.failed
+            and self.owner == (os.getpid(), threading.get_ident()),
+            "requalification_not_active",
+        )
+
+    def __enter__(self):
+        contract.need(
+            self.status == "new" and self.owner == (os.getpid(), threading.get_ident()),
+            "requalification_already_used_or_owner",
+        )
+        self.status = "active"
+        return self
+
+    def _semantics(self):
+        contract.need(
+            contract.digest(self.value) == self.semantic_sha256,
+            "requalification_semantics_changed",
+        )
+
+    def _clock(self):
+        contract.need(
+            self.provider.scope == self.scope
+            and self.provider.boot() == self.value["package"]["binding"]["boot_id"],
+            "native_scope_or_boot",
+        )
+        contract._binding(self.value["package"]["binding"], now_ns=time.monotonic_ns())
+
+    def _budget(self):
+        contract.need(
+            len(self.reader.seen) <= self.MAX_REFERENCES
+            and sum(len(raw) for _reference, raw in self.reader.seen.values()) <= self.MAX_BYTES,
+            "requalification_raw_budget",
+        )
+
+    def observe(self, reference, provider):
+        try:
+            self._active()
+            contract.need(
+                reference == self.reference and provider is self.provider,
+                "requalification_binding",
+            )
+            self.count += 1
+            contract.need(self.count <= self.max_calls, "requalification_limit")
+            if self.value is None:
+                self.value, self.sources, self.reader = _qualify_package(
+                    self.reference, provider=self.provider, required_scope=self.scope
+                )
+                self.semantic_sha256 = contract.digest(self.value)
+            else:
+                self.provider.boundary(self.reference)
+                self._semantics()
+                self._clock()
+                self.sources.check_versions()
+                self.reader.recheck()
+                # Remeasure installed bytes without replacing the ORIGINAL
+                # tree versions retained by this operation's sources.
+                self.provider.verify_files(self.value)
+                _mutable_package(self.provider, self.value)
+                self.reader.recheck()
+                self.sources.check_versions()
+                self.provider.verify_closure(self.value)
+                self._clock()
+                self._semantics()
+            self._budget()
+            self._active()
+            return self.value
+        except BaseException:
+            self.failed = True
+            raise
+
+    def _close(self):
+        self.status = "closed"
+        if self.reader is not None:
+            _discard_package_material(self.sources, self.reader)
+        self.value = self.sources = self.reader = self.semantic_sha256 = None
+
+    def __exit__(self, error_type, _error, _trace):
+        try:
+            if error_type is None:
+                self._active()
+                if self.value is not None:
+                    self._semantics()
+                    self._clock()
+                    self.sources.check_versions()
+                    self.reader.recheck()
+                    self.sources.check_versions()
+                    self._semantics()
+                    self._clock()
+        finally:
+            self._close()
 
 
 class PackageObservation:
