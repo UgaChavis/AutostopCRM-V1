@@ -295,19 +295,16 @@ def _actor(pid, measure_executable):
 
 
 def _executable_version(value):
-    return tuple(
-        getattr(value, key)
-        for key in (
-            "st_dev",
-            "st_ino",
-            "st_size",
-            "st_mtime_ns",
-            "st_ctime_ns",
-            "st_mode",
-            "st_uid",
-            "st_gid",
-            "st_nlink",
-        )
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+        value.st_mode,
+        value.st_uid,
+        value.st_gid,
+        value.st_nlink,
     )
 
 
