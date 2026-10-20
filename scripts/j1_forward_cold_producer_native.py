@@ -1053,12 +1053,16 @@ class NativeBackend:
             os.close(descriptor)
         self.continuity(binding)
 
-    def install_auth_session(self, raw, base, binding, *, role, account, uid, gid):
+    def install_auth_session(self, raw, base, binding, *, role, account, endpoint, uid, gid):
         from scripts import j1_forward_cold_producer_inputs as inputs
 
         self.continuity(binding)
         content = inputs.auth_session_bytes(
-            raw, binding=binding, role=role, expected_account_sha256=account
+            raw,
+            binding=binding,
+            role=role,
+            expected_account_sha256=account,
+            expected_endpoint=endpoint,
         )
         io.protected_directory(base.parent)
         before = base.lstat()
@@ -1171,8 +1175,15 @@ class NativeBackend:
         )
         seen, credentials, sessions = set(), set(), set()
         for row in material["files"]:
+            extra = (
+                {"authorized_endpoint"}
+                if type(row) is dict and row.get("kind") == "auth-session"
+                else set()
+            )
             cold.fields(
-                row, {"role", "kind", "name", "content_sha256", "bytes"}, "producer_material_entry"
+                row,
+                {"role", "kind", "name", "content_sha256", "bytes"} | extra,
+                "producer_material_entry",
             )
             role, kind, name = row["role"], row["kind"], row["name"]
             cold.need(
@@ -1212,6 +1223,7 @@ class NativeBackend:
                     binding,
                     role=role,
                     account=accounts[role],
+                    endpoint=row["authorized_endpoint"],
                     uid=document["credentials"][role]["uid"],
                     gid=document["credentials"][role]["gid"],
                 )

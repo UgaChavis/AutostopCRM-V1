@@ -126,6 +126,12 @@ graph reference and is never included in the public update kit. The input schema
 is `autostop.j1.cold-telegram-auth-material.v1`: scope, exact binding, role,
 independently qualified `account_self_sha256`, authorization UUID, creation and
 expiry monotonic times, provider-qualified DC/address/port and base64 auth key.
+The public material descriptor's auth entry must separately declare the exact
+`authorized_endpoint` object (`dc_id`, `server_address`, `port`). The secret
+material must match that approved tuple; another public IP also refuses. The
+literal-IP/public-address check is only shape validation, not a live Telegram
+endpoint lookup. The independently staged tuple must come from the authorized
+provider session, and its provenance is part of the release-window review.
 The issuer must obtain this auth-only material from a separately authorized fresh
 session during the future window. Artifact fields alone do not prove the age or
 provider authorization of a key; this remains an explicit provisioning premise.

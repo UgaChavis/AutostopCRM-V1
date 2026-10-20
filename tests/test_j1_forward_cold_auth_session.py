@@ -59,6 +59,7 @@ class AuthSessionContractTests(unittest.TestCase):
             binding=self.binding,
             role="work-telegram",
             expected_account_sha256="6" * 64,
+            expected_endpoint={"dc_id": 2, "server_address": "149.154.167.51", "port": 443},
             **kwargs,
         )
 
@@ -102,6 +103,7 @@ class AuthSessionContractTests(unittest.TestCase):
                 binding=self.binding,
                 role="work-telegram",
                 expected_account_sha256="6" * 64,
+                expected_endpoint={"dc_id": 2, "server_address": "149.154.167.51", "port": 443},
             )
 
     def test_invalid_endpoints_and_auth_keys_are_refused_without_network(self):
@@ -112,6 +114,7 @@ class AuthSessionContractTests(unittest.TestCase):
             ("port", 80),
             ("server_address", "localhost"),
             ("server_address", "127.0.0.1"),
+            ("server_address", "8.8.8.8"),
             ("auth_key_b64", base64.b64encode(bytes(256)).decode()),
             ("auth_key_b64", base64.b64encode(b"x" * 255).decode()),
             ("auth_key_b64", "!" * 344),
@@ -163,6 +166,7 @@ class NativeAuthSessionTests(unittest.TestCase):
             self.binding,
             role="work-telegram",
             account="6" * 64,
+            endpoint={"dc_id": 2, "server_address": "149.154.167.51", "port": 443},
             uid=self.uid,
             gid=self.gid,
         )

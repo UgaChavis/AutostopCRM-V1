@@ -124,7 +124,9 @@ def inspect_auth_session(raw):
         raise io.Refusal("cold_producer_auth_session_invalid") from error
 
 
-def auth_session_bytes(raw, *, binding, role, expected_account_sha256, now_ns=None):
+def auth_session_bytes(
+    raw, *, binding, role, expected_account_sha256, expected_endpoint, now_ns=None
+):
     """Build a NEW empty session from separately staged auth-only material.
 
     This accepts no old session/database, entity, update cursor or message. The
@@ -134,6 +136,13 @@ def auth_session_bytes(raw, *, binding, role, expected_account_sha256, now_ns=No
     current = time.monotonic_ns() if now_ns is None else now_ns
     cold._binding(binding, now_ns=current)
     cold.need(type(raw) is bytes and len(raw) <= 8192, "producer_auth_material_size")
+    cold.fields(expected_endpoint, {"dc_id", "server_address", "port"}, "producer_auth_endpoint")
+    cold.need(
+        type(expected_endpoint["dc_id"]) is int
+        and type(expected_endpoint["server_address"]) is str
+        and type(expected_endpoint["port"]) is int,
+        "producer_auth_endpoint",
+    )
     document = io.document(raw)
     cold.fields(
         document,
@@ -162,6 +171,7 @@ def auth_session_bytes(raw, *, binding, role, expected_account_sha256, now_ns=No
         and type(expected_account_sha256) is str
         and cold.HEX.fullmatch(expected_account_sha256)
         and document["account_self_sha256"] == expected_account_sha256
+        and all(document[key] == value for key, value in expected_endpoint.items())
         and cold._uuid(document["authorization_id"])
         and type(document["created_ns"]) is int
         and type(document["expires_ns"]) is int
