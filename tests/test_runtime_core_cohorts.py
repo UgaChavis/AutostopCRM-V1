@@ -53,6 +53,7 @@ class RuntimeCoreCohortTests(unittest.TestCase):
     def _environment(self, root):
         return {
             **os.environ,
+            "AUTOSTOP_REHEARSAL_STRICT_SKIPS": "1",
             "AUTOSTOP_REHEARSAL_RECEIPT_DIR": str(root / "receipts"),
             "COVERAGE_FILE": str(root / ".coverage"),
         }
@@ -140,6 +141,19 @@ class RuntimeCoreCohortTests(unittest.TestCase):
                 0,
             )
             receipt = json.loads(next((root / "receipts").glob("runtime-suite-*.json")).read_text())
+            self.assertTrue(receipt["strict_skip_contract"])
+            self.assertEqual(receipt["unexplained_skips"], [])
+            if receipt["skipped"]:
+                self.assertEqual(os.name, "nt")
+                self.assertEqual(
+                    receipt["skipped"],
+                    [{"test": identity, "reason": "Unix-domain sockets are unavailable"}],
+                )
+                print(
+                    "Owned short temp namespace verified; Unix socket protocol is "
+                    "unavailable on this Windows runtime and remains a Linux check.",
+                    flush=True,
+                )
             self.assertLess(len(receipt["fixture_temp_root"].encode()), 80)
             self.assertFalse(Path(receipt["fixture_temp_root"]).exists())
 

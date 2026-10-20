@@ -98,6 +98,32 @@ class RuntimeSkipContractTests(unittest.TestCase):
             receipt["unexplained_skips"], [{"test": self.id(), "reason": "new unknown exclusion"}]
         )
 
+    def test_missing_unix_sockets_requires_exact_windows_cases_and_reason(self):
+        from tests.runtime_skip_contract import WINDOWS_UNIX_SOCKET_CASES
+
+        reason = "Unix-domain sockets are unavailable"
+        methods = {name: lambda self: None for name in WINDOWS_UNIX_SOCKET_CASES}
+        for module in ("test_automation_center", "tests.test_automation_center"):
+            family = type(
+                "AutomationControlClientTests",
+                (unittest.TestCase,),
+                {"__module__": module, **methods},
+            )
+            for name in WINDOWS_UNIX_SOCKET_CASES:
+                test = family(name)
+                self.assertEqual(unexpected_skips([(test, reason)], "win32"), [])
+                self.assertEqual(len(unexpected_skips([(test, reason)], "linux")), 1)
+                self.assertEqual(len(unexpected_skips([(test, reason + " changed")], "win32")), 1)
+        for module, family_name, method in (
+            ("unrelated", "AutomationControlClientTests", "test_bounded_protocol_round_trip"),
+            ("test_automation_center", "AnotherClass", "test_bounded_protocol_round_trip"),
+            ("test_automation_center", "AutomationControlClientTests", "test_future_socket_case"),
+        ):
+            family = type(
+                family_name, (unittest.TestCase,), {"__module__": module, method: lambda self: None}
+            )
+            self.assertEqual(len(unexpected_skips([(family(method), reason)], "win32")), 1)
+
     def test_known_native_skip_cannot_turn_an_actual_failure_into_success(self):
         result = unittest.TestResult()
         result.addSkip(self, "Windows job handle lifetime")

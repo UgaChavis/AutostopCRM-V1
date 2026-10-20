@@ -54,6 +54,9 @@ WINDOWS_LINUX_STORAGE_CASES = {
     "test_failed_commit_rolls_back_registration_and_next_request_succeeds": "Reusable page failure cleanup is Linux only",
     "test_online_backup_includes_committed_wal_and_restore_discards_stale_sidecars": "Retained WAL fixture is enabled only on Linux",
 }
+WINDOWS_UNIX_SOCKET_CASES = frozenset(
+    {"test_bounded_protocol_round_trip", "test_command_metadata_is_only_sent_in_protocol_envelope"}
+)
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -75,6 +78,14 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
         ):
             continue
         if platform == "win32" and cold_family and reason == PRIVATE_COLD_REASON:
+            continue
+        if (
+            platform == "win32"
+            and type(test).__module__.removeprefix("tests.") == "test_automation_center"
+            and type(test).__name__ == "AutomationControlClientTests"
+            and getattr(test, "_testMethodName", None) in WINDOWS_UNIX_SOCKET_CASES
+            and reason == "Unix-domain sockets are unavailable"
+        ):
             continue
         if (
             platform == "win32"
