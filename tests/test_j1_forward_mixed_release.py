@@ -49,11 +49,13 @@ class MixedReleaseTests(unittest.TestCase):
         f.plan_ref = io.reference(f.directory / "plan.json")
         f.install(release, "store_for", lambda *_: f.store)
         f.install(variant, "verify_native", lambda _p, _b, **kw: f.verify_authority(None, **kw))
-        f.install(
-            variant,
-            "backup_engine",
-            lambda _p: SimpleNamespace(capture=f.capture, profile_sha256=engine.profile_sha256),
-        )
+
+        def backup_engine(_plan, *, profile_sha256=None):
+            if profile_sha256 is not None:
+                self.assertEqual(profile_sha256, engine.profile_sha256())
+            return SimpleNamespace(capture=f.capture, profile_sha256=engine.profile_sha256)
+
+        f.install(variant, "backup_engine", backup_engine)
         f.install(variant, "transport_engine", lambda _p: release.transport)
         self.issued = []
 

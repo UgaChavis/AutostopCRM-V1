@@ -4,6 +4,7 @@ import copy
 import time
 import unittest
 import uuid
+from pathlib import Path
 
 from scripts import j1_forward_cold_authority as authority
 from scripts import j1_forward_cold_epoch as epochs
@@ -127,7 +128,7 @@ class InertInstallerTests(unittest.TestCase):
         self.stage(controller_source=source)
         self.assertTrue(
             any(
-                path.endswith("/j1_forward_cold_kernel_supervisor.py")
+                Path(path).name == "j1_forward_cold_kernel_supervisor.py"
                 for path, _raw, _permissions in self.effects
             )
         )
