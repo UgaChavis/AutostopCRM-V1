@@ -369,6 +369,65 @@ class NativeLaunchTests(unittest.TestCase):
 
 
 class LaunchPortableValidationTests(unittest.TestCase):
+    def test_transition_retries_only_an_unacquired_lock_and_publishes_once(self):
+        attempts, effects = [], []
+
+        class Store:
+            @contextlib.contextmanager
+            def locked(inner):
+                attempts.append("lock")
+                if len(attempts) == 1:
+                    raise BlockingIOError()
+                yield
+
+            def _transition_locked(inner, event, **values):
+                effects.append((event, values))
+                return {"action_authorized": True}
+
+        ticket = {"boot_id": "boot", "owner_generation": 3}
+        with patch.object(native.time, "sleep") as sleeper:
+            result = native._transition(Store(), ticket, "submit", {"owner": "fixture"})
+        self.assertEqual(result, {"action_authorized": True})
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(len(effects), 1)
+        self.assertEqual(effects[0][1]["generation"], 3)
+        sleeper.assert_called_once_with(0.01)
+
+    def test_transition_never_retries_after_entering_a_failed_publication(self):
+        attempts = []
+
+        class Store:
+            @contextlib.contextmanager
+            def locked(inner):
+                attempts.append("lock")
+                yield
+
+            def _transition_locked(inner, *_args, **_values):
+                raise BlockingIOError("publication outcome unknown")
+
+        ticket = {"boot_id": "boot", "owner_generation": 3}
+        with self.assertRaisesRegex(BlockingIOError, "outcome unknown"):
+            native._transition(Store(), ticket, "submit", {})
+        self.assertEqual(attempts, ["lock"])
+
+    def test_transition_refuses_a_continuously_busy_lock_without_publication(self):
+        class Store:
+            @contextlib.contextmanager
+            def locked(inner):
+                raise BlockingIOError()
+                yield
+
+            def _transition_locked(inner, *_args, **_values):
+                raise AssertionError("busy lock cannot authorize mutation")
+
+        ticket = {"boot_id": "boot", "owner_generation": 3}
+        with (
+            patch.object(native.time, "monotonic", side_effect=[0.0, 0.1, 2.1]),
+            patch.object(native.time, "sleep"),
+            self.assertRaisesRegex(journal.Refusal, "launch_operation_lock_busy"),
+        ):
+            native._transition(Store(), ticket, "submit", {})
+
     def test_read_snapshot_serializes_with_publication_then_releases_short_lock(self):
         held, calls = False, []
 

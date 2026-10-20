@@ -387,13 +387,26 @@ def observe_worker(ticket, context, *, self_only=False):
 
 
 def _transition(store, ticket, event, payload):
-    return store.transition(
-        event,
-        request_id=str(uuid.uuid4()),
-        payload=payload,
-        boot_id=ticket["boot_id"],
-        generation=ticket["owner_generation"],
-    )
+    request_id, deadline = str(uuid.uuid4()), time.monotonic() + 2.0
+    while True:
+        entered = False
+        try:
+            with store.locked():
+                entered = True
+                return store._transition_locked(
+                    event,
+                    request_id=request_id,
+                    payload=payload,
+                    boot_id=ticket["boot_id"],
+                    generation=ticket["owner_generation"],
+                )
+        except BlockingIOError:
+            # A failed acquisition has no journal effect. Never replay a call
+            # which entered the publication boundary, even if its result is lost.
+            if entered:
+                raise
+            require(time.monotonic() < deadline, "launch_operation_lock_busy")
+            time.sleep(0.01)
 
 
 def publish_acceptance(store, snapshot, context):

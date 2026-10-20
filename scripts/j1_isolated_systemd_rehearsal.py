@@ -258,7 +258,23 @@ class Fixture:
         (root / "worker-results").mkdir(mode=0o700)
         self.attempt = str(uuid.uuid4())
         self.unit = "autostop-crm-forward-" + self.attempt + ".service"
-        self.wire_processes, self.threads = [], []
+        self.wire_processes, self.threads, self.submit_results = [], [], []
+        self.last_worker_observation = None
+        self.original_observe_worker = native.observe_worker
+
+        def observed_worker(*args, **kwargs):
+            try:
+                result = self.original_observe_worker(*args, **kwargs)
+            except BaseException as error:
+                self.last_worker_observation = {
+                    "error_type": type(error).__name__,
+                    "protocol_code": str(error) if isinstance(error, journal.Refusal) else None,
+                }
+                raise
+            self.last_worker_observation = {"ok": True}
+            return result
+
+        native.observe_worker = observed_worker
         native.CRM, native.FORWARD = self.crm, self.crm / "scripts/j1_forward_release.py"
         native.ATTEMPTS = self.attempts
         native.LOCK, native.MARKER = (
@@ -317,6 +333,20 @@ class Fixture:
             "wait_phase": self.wait_phase,
             "initialization_seconds": round(self.initialization_seconds, 3),
             "seconds_to_expiry": round(self.deadline.timestamp() - time.time(), 3),
+            "last_worker_observation": self.last_worker_observation,
+            "submit_results": [
+                {
+                    "ok": result.get("ok", False),
+                    "error_type": type(result["error"]).__name__ if "error" in result else None,
+                    "protocol_code": (
+                        str(result["error"])
+                        if isinstance(result.get("error"), self.journal.Refusal)
+                        else None
+                    ),
+                }
+                for result in self.submit_results
+            ],
+            "worker_results": self.workers(),
         }
         try:
             current = self.state()
@@ -347,6 +377,7 @@ class Fixture:
 
     def asynchronous_submit(self):
         result = {}
+        self.submit_results.append(result)
 
         def submit():
             try:
@@ -427,6 +458,7 @@ class Fixture:
         for thread in self.threads:
             thread.join(timeout=35)
             require(not thread.is_alive(), "fixture_thread_cleanup_unfinished")
+        self.native.observe_worker = self.original_observe_worker
         values = unit_status(self.unit)
         require(
             values["ActiveState"] not in {"active", "activating", "deactivating"}

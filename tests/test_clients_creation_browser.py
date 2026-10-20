@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from tests.browser_ui_support import UiBrowserTestCase
 
@@ -129,13 +130,19 @@ class ClientsCreationBrowserTests(UiBrowserTestCase):
         self.finish_save()
         self.assertEqual(self.stored_card(card_id)["title"], "Card draft before client link")
 
+    def wait_for_intercepted_creation(self, held: list) -> None:
+        deadline = time.monotonic() + 5.0
+        while not held and time.monotonic() < deadline:
+            self.page.wait_for_timeout(10)
+        self.assertEqual(len(held), 1, "creation request did not reach the held network boundary")
+
     def test_pending_creation_blocks_edits_and_duplicate_submit(self) -> None:
         self.open_creation("Client pending controls")
         held = []
         self.page.route("**/api/create_client", lambda route: held.append(route))
         self.page.locator("#cardClientCreateSaveButton").click()
         self.page.wait_for_function("state.cardClientCreateSaving === true")
-        self.page.wait_for_timeout(60)
+        self.wait_for_intercepted_creation(held)
         self.assertTrue(self.page.locator("#cardClientCreateNameInput").is_disabled())
         self.page.evaluate("els.cardClientCreateSaveButton.click()")
         self.assertEqual(len(held), 1)
@@ -149,7 +156,7 @@ class ClientsCreationBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/create_client", lambda route: held.append(route))
         self.page.locator("#cardClientCreateSaveButton").click()
         self.page.wait_for_function("state.cardClientCreateSaving === true")
-        self.page.wait_for_timeout(60)
+        self.wait_for_intercepted_creation(held)
         self.page.locator('[data-close="card-client-create"]').first.click()
         self.page.evaluate("openCardClientCreateModal()")
         self.page.locator("#cardClientCreateNameInput").fill("New client popup draft")
