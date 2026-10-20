@@ -30,7 +30,7 @@ class InterpreterAliasTests(unittest.TestCase):
         self.elf = b"\x7fELF" + b"synthetic immutable interpreter; never execute" * 3
         self.path = self.fixture.roots["venv"] + "/bin/python3.12"
         self.fixture.physical(self.path).write_bytes(self.elf)
-        self.document = self.fixture.produce()
+        self.document = self.produce_linux_capsule()
         self.index_path = "/private/index.json"
         self.files = {
             self.index_path: io.canonical(self.document),
@@ -50,6 +50,34 @@ class InterpreterAliasTests(unittest.TestCase):
             path = "/private/policy-" + unit + ".json"
             self.files[path] = io.canonical(policy)
             self.package["policies"][unit] = self.ref(path)
+
+    def produce_linux_capsule(self):
+        document = self.fixture.produce()
+        # The Windows custodian consumes Linux archives; chmod on its private
+        # NTFS input cannot capture Linux executable bits. Declare those two
+        # synthetic member modes explicitly and verify the actual new stream.
+        for row in document["entries"]:
+            if row["name"] in archive.INTERPRETER_MEMBERS:
+                row["mode"] = 0o755
+        self.fixture.artifact.unlink()
+        with (
+            self.fixture.artifact.open("xb") as output,
+            gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0) as compressed,
+            tarfile.open(fileobj=compressed, mode="w|", format=tarfile.PAX_FORMAT) as package,
+        ):
+            for row in document["entries"]:
+                header = capsule._tar_header(row)
+                if row["kind"] == "file":
+                    root, *parts = row["name"].split("/")
+                    source = self.fixture.physical(document["runtime_roots"][root]).joinpath(*parts)
+                    with source.open("rb") as stream:
+                        package.addfile(header, stream)
+                else:
+                    package.addfile(header)
+        document["capsule_ref"]["sha256"] = io.sha(self.fixture.artifact.read_bytes())
+        with self.fixture.artifact.open("rb") as stream:
+            capsule.verify_archive(document, stream)
+        return document
 
     def ref(self, path):
         return {"path": path, "sha256": io.sha(self.files[path])}
@@ -189,7 +217,7 @@ class InterpreterAliasTests(unittest.TestCase):
         with self.assertRaisesRegex(io.Refusal, "source_changed"):
             snapshot.recheck()
 
-    @unittest.skipUnless(os.name == "posix", "Actual inode/mode checks are POSIX")
+    @unittest.skipUnless(os.name == "posix", "POSIX file modes only")
     def test_actual_mode_hardlinks_and_final_source_version_are_checked(self):
         aliases = self.aliases()
         physical = self.fixture.physical(self.path)
@@ -290,7 +318,7 @@ class InterpreterAliasTests(unittest.TestCase):
     def test_non_elf_interpreter_cannot_be_reconstructed(self):
         self.fixture.physical(self.path).write_bytes(b"plain archived Python source")
         self.fixture.artifact.unlink()
-        self.document = self.fixture.produce()
+        self.document = self.produce_linux_capsule()
         self.files[self.document["capsule_ref"]["path"]] = self.fixture.artifact.read_bytes()
         self.files[self.path] = b"plain archived Python source"
         self.update_index(lambda d: d.update(**self.document))
@@ -320,7 +348,7 @@ class InterpreterAliasTests(unittest.TestCase):
         with self.assertRaisesRegex(io.Refusal, "alias_inventory"):
             transport._runtime_aliases(manifest)
 
-    @unittest.skipUnless(os.name == "posix", "Physical mode materialization is POSIX")
+    @unittest.skipUnless(os.name == "posix", "POSIX file modes only")
     def test_flat_transport_restores_exact_interpreter_before_semantic_replay(self):
         # Exercise the wire and physical restoration boundary. Full cold package
         # semantics have separate integration coverage, rather than a fake grant.
