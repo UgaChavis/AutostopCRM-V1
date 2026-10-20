@@ -157,6 +157,9 @@ def prepare_attempt(fixture, package_ref, epoch_ref, crm_spec_ref, signer, *, en
         def read_opaque_reference(self, reference):
             return fixture.provider.read_opaque_reference(reference)
 
+        def read_runtime_capsule(self, reference):
+            return fixture.provider.read_runtime_capsule(reference)
+
     store = PrivateColdStore(fixture.control / "state", fixture.base_sha256)
     reference = store.begin_recovery(envelope)
     io.require(store.pending() != plan, "trace_original_pending_replaced")
