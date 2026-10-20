@@ -159,6 +159,10 @@ def restore_interpreters(aliases, authorities, *, _captured_packages=None):
                 scope=index["scope"],
                 read_reference=read,
             )
+        # This independent restore retains a fresh full member traversal even
+        # when admission validation recognizes an approved immutable capsule.
+        if capsule._approved_archive(index):
+            capsule.verify_archive(index, streams.BytesIO(read(index["capsule_ref"])))
         wanted = {}
         for path, row in selected:
             entry = rows.get(row["member"])

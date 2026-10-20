@@ -114,6 +114,14 @@ class InterpreterAliasTests(unittest.TestCase):
         self.assertEqual(restored, {self.path: self.elf})
         self.assertEqual(io.sha(restored[self.path]), aliases[self.path]["sha256"])
 
+    def test_independent_restore_decodes_all_members_even_for_approved_content(self):
+        self.fixture.approve(self.document)
+        aliases = self.aliases()
+        with patch.object(capsule, "verify_archive", wraps=capsule.verify_archive) as verify:
+            restored = archive.restore_interpreters(aliases, self.restored_inputs())
+        self.assertEqual(restored, {self.path: self.elf})
+        self.assertEqual(verify.call_count, 1)
+
     def test_index_validation_reuse_is_local_and_both_observations_are_independent(self):
         with patch.object(capsule, "validate_index", wraps=capsule.validate_index) as validate:
             first = self.aliases()
@@ -297,6 +305,7 @@ class InterpreterAliasTests(unittest.TestCase):
             archive.restore_interpreters(original, self.files)
 
     def test_corrupt_unselected_capsule_member_is_not_skipped(self):
+        self.fixture.approve(self.document)
         raw = self.files[self.document["capsule_ref"]["path"]]
         destination = streams.BytesIO()
         with gzip.GzipFile(fileobj=destination, mode="wb", mtime=0) as compressed:

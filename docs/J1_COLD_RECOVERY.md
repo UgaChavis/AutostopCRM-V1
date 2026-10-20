@@ -20,6 +20,21 @@ embedded Manager library. No original unit/drop-in or historical pending bytes
 are rewritten or adopted. A terminal safety close permanently refuses reopening
 the same epoch. An unknown submitted outcome never permits another submission.
 
+The fixed517 runtime has a reviewed immutable content pin in
+`j1_forward_cold_runtime_capsule.py`: Manager revision, compressed capsule SHA256
+and canonical SHA256 of all indexed entries, unpacked bytes and capsule SHA256.
+The pin comes from builder `245b12308c9310a4a0cecaaeb2e052e9ac9d8b34`,
+run39360658568/artifact12237765252 and the independent full9570-member readback.
+Admission still reads and hashes the complete compressed bytes, validates the
+current binding/index/production roots, rereads sources, and measures the actual
+installed tree. Exact approved content avoids repeated pure decompression;
+unknown or mismatched content retains the full member verifier. No dynamic
+cache, native permission or expiry extension follows from this pin.
+Independent CONTROL interpreter restore explicitly decodes and hashes every
+member even for approved content; full runtime restore/materialize and their
+installed-file checks are unchanged. The final release rehearsal must exercise
+those independent restores on the published source.
+
 ## Public interfaces and versioned documents
 
 * `j1_forward_cold_authority.profile_input_template()` returns the exact fields

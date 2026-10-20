@@ -87,6 +87,86 @@ class RuntimeCapsuleTests(unittest.TestCase):
             self.artifact, roots=self.roots, binding=self.binding, scope="native_fixture"
         )
 
+    def approve(self, document):
+        # Explicit tiny content pin for this test process only. The release's
+        # real517 pins have separate sealed-artifact readback evidence.
+        projection = {
+            "entries": document["entries"],
+            "unpacked_bytes": document["unpacked_bytes"],
+            "capsule_sha256": document["capsule_ref"]["sha256"],
+        }
+        self.enterContext(
+            patch.dict(
+                capsule._APPROVED_CAPSULE_CONTENT,
+                {
+                    self.binding["candidate_manager_sha"]: (
+                        document["capsule_ref"]["sha256"],
+                        io.sha(io.canonical(projection)),
+                    )
+                },
+                clear=True,
+            )
+        )
+
+    def test_approved_exact_content_rereads_bytes_and_corruption_is_never_reused(self):
+        document = self.produce()
+        self.approve(document)
+        reads = []
+
+        def read(reference):
+            reads.append(reference)
+            return self.artifact.read_bytes()
+
+        with patch.object(
+            capsule, "verify_archive", side_effect=AssertionError("redundant archive decode")
+        ):
+            for _index in range(2):
+                proof = capsule.validate(
+                    document, binding=self.binding, scope="native_fixture", read_reference=read
+                )
+                self.assertEqual(proof["files"], 4)
+                self.assertEqual(proof["members"], len(document["entries"]))
+                self.assertFalse(proof["archived_code_executed"])
+            self.assertEqual(len(reads), 2)
+            with self.artifact.open("ab") as stream:
+                stream.write(b"changed after the approved read")
+            with self.assertRaisesRegex(io.Refusal, "runtime_capsule_reference"):
+                capsule.validate(
+                    document, binding=self.binding, scope="native_fixture", read_reference=read
+                )
+
+    def test_approved_capsule_with_forged_index_still_uses_full_member_verifier(self):
+        document = self.produce()
+        self.approve(document)
+        changed = copy.deepcopy(document)
+        row = next(row for row in changed["entries"] if row["kind"] == "file")
+        row["sha256"] = "0" * 64
+        with (
+            patch.object(capsule, "verify_archive", wraps=capsule.verify_archive) as verify,
+            self.assertRaisesRegex(io.Refusal, "tar_file_hash"),
+        ):
+            capsule.validate(
+                changed,
+                binding=self.binding,
+                scope="native_fixture",
+                read_reference=lambda _ref: self.artifact.read_bytes(),
+            )
+        self.assertEqual(verify.call_count, 1)
+
+    def test_unapproved_manager_retains_full_archive_verification(self):
+        document = self.produce()
+        self.approve(document)
+        changed = {**document, "binding": {"candidate_manager_sha": "2" * 40}}
+        with patch.object(capsule, "verify_archive", wraps=capsule.verify_archive) as verify:
+            proof = capsule.validate(
+                changed,
+                binding=changed["binding"],
+                scope="native_fixture",
+                read_reference=lambda _ref: self.artifact.read_bytes(),
+            )
+        self.assertEqual(verify.call_count, 1)
+        self.assertEqual(proof["files"], 4)
+
     def test_logical_posix_references_use_actual_private_files(self):
         fixture = RuntimeCapsuleTests()
         fixture.use_logical_paths = True

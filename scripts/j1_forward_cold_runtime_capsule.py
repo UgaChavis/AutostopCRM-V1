@@ -30,6 +30,19 @@ MAX_FILE_BYTES = 384 * 1024**2
 MAX_CAPSULE_BYTES = 192 * 1024**2
 CHUNK = 1024**2
 
+# Reviewed immutable content, not native or activation authority. Builder
+# 245b12308c9310a4a0cecaaeb2e052e9ac9d8b34, run39360658568/artifact12237765252
+# fully decoded this capsule; index180af0ed... and independent9570-member
+# readback bind its exact entries, modes, targets and final517 pyvenv.cfg.
+# Fresh compressed bytes and the complete index projection must BOTH match.
+# Unknown content retains the full decoder; independent restore still decodes.
+_APPROVED_CAPSULE_CONTENT = {
+    "51752bdb2048e0012e23b10bc770ff59f781874a": (
+        "6158d4a79c3d798fb9dc816053f67bc5b43343bb07069e61bef307c13360dfd5",
+        "0018e2b82c3bb1b0b8b8fe959912a4fbb429c228b45449bd28bec0b182179511",
+    ),
+}
+
 
 def _uid():
     return getattr(os, "geteuid", lambda: 0)()
@@ -584,7 +597,29 @@ def materialize(document, *, read_reference):
     return {**receipt, "runtime_roots": document["runtime_roots"], "activation_authorized": False}
 
 
+def _approved_archive(document):
+    binding = document["binding"]
+    if type(binding) is not dict or type(binding.get("candidate_manager_sha")) is not str:
+        return False
+    approved = _APPROVED_CAPSULE_CONTENT.get(binding["candidate_manager_sha"])
+    return (
+        approved is not None
+        and document["capsule_ref"]["sha256"] == approved[0]
+        and io.sha(
+            io.canonical(
+                {
+                    "entries": document["entries"],
+                    "unpacked_bytes": document["unpacked_bytes"],
+                    "capsule_sha256": document["capsule_ref"]["sha256"],
+                }
+            )
+        )
+        == approved[1]
+    )
+
+
 def validate(document, *, binding, scope, read_reference):
+    """Prove exact archive/index content; native facts remain separate checks."""
     validate_index(document, binding=binding, scope=scope)
     reader = cold.opaque_reader(read_reference, capsule=True)
     raw = reader(document["capsule_ref"])
@@ -594,6 +629,14 @@ def validate(document, *, binding, scope, read_reference):
         and io.sha(raw) == document["capsule_ref"]["sha256"],
         "runtime_capsule_reference",
     )
+    if _approved_archive(document):
+        return {
+            "schema": "autostop.j1.cold-runtime-restored.v1",
+            "members": len(document["entries"]),
+            "files": sum(row["kind"] == "file" for row in document["entries"]),
+            "bytes": document["unpacked_bytes"],
+            "archived_code_executed": False,
+        }
     return verify_archive(document, streams.BytesIO(raw))
 
 
