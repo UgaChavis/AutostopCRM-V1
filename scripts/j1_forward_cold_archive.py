@@ -460,6 +460,161 @@ def _references(document):
             pending.extend(value)
 
 
+def _fixture_parent_history(body, plan, baseline, package, read):
+    """Replay captured private S/A/C/E; never infer production admission."""
+    cold.fields(
+        body,
+        {
+            "schema",
+            "scope",
+            "request_ref",
+            "context_ref",
+            "acceptance_ref",
+            "journal_files",
+            "systemd_admission_claimed",
+        },
+        "archive_fixture_parent_fields",
+    )
+    binding = package["binding"]
+    io.require(
+        package["scope"] == body["scope"] == "native_fixture"
+        and body["systemd_admission_claimed"] is False
+        and body["request_ref"] == baseline["controller_request_ref"],
+        "cold_archive_fixture_parent_scope",
+    )
+    request = io.document(read(body["request_ref"]))
+    cold.fields(
+        request,
+        {"schema", "scope", "binding", "source", "consumer_sha256", "production_native_acceptance"},
+        "archive_fixture_request_fields",
+    )
+    io.require(
+        request["schema"] == "autostop.j1.private-parent-request.v1"
+        and request["scope"] == "native_fixture"
+        and request["production_native_acceptance"] is False
+        and request["binding"] == binding
+        and request["source"] == {key: plan["candidate"][key] for key in ("revision", "tree")}
+        and request["consumer_sha256"]
+        == plan["candidate"]["consumer_sha256"]
+        == cold.digest(baseline["source_consumers"]),
+        "cold_archive_fixture_request_binding",
+    )
+    context = io.document(read(body["context_ref"]))
+    cold.fields(
+        context,
+        {"schema", "request_ref", "actor", "identity", "deployment_lock_identity"},
+        "archive_fixture_parent_context_fields",
+    )
+    directory = PurePosixPath(body["request_ref"]["path"]).parent
+    io.require(
+        context["schema"] == "autostop.j1.private-parent-context.v1"
+        and context["request_ref"] == body["request_ref"]
+        and body["context_ref"]["path"] == str(directory / "context.json")
+        and body["acceptance_ref"]["path"] == str(directory / "native-acceptance.json")
+        and context["deployment_lock_identity"] == binding["deployment_lock_identity"]
+        and type(body["journal_files"]) is list
+        and 3 <= len(body["journal_files"]) <= 130,
+        "cold_archive_fixture_parent_context",
+    )
+    names = {}
+    for reference in body["journal_files"]:
+        cold.reference(reference)
+        path = PurePosixPath(reference["path"])
+        io.require(path.is_relative_to(directory / "journal"), "cold_archive_fixture_journal_path")
+        name = path.relative_to(directory / "journal").as_posix()
+        io.require(name not in names, "cold_archive_fixture_journal_duplicate")
+        names[name] = reference
+    io.require(
+        {"ticket.json", "state.json"} <= names.keys(), "cold_archive_fixture_journal_missing"
+    )
+    ticket_raw = read(names["ticket.json"])
+    ticket = launch.validate_ticket(io.document(ticket_raw))
+    current = launch._state(io.document(read(names["state.json"])), io.sha(ticket_raw))
+    io.require(
+        set(names)
+        == {
+            "ticket.json",
+            "state.json",
+            *("events/" + f"{number:020d}.json" for number in range(1, current["sequence"] + 1)),
+        }
+        and current["execution_possible"] is True
+        and ticket["plan_ref"] == body["request_ref"]
+        and ticket["context_sha256"] == body["context_ref"]["sha256"]
+        and ticket["source_sha256"] == request["consumer_sha256"]
+        and all(
+            ticket[key] == binding[other]
+            for key, other in (
+                ("attempt_id", "attempt_id"),
+                ("boot_id", "boot_id"),
+                ("owner_generation", "generation"),
+            )
+        ),
+        "cold_archive_fixture_parent_ticket",
+    )
+    previous = launch._initial(io.sha(ticket_raw))
+    for number in range(1, current["sequence"] + 1):
+        event = io.document(read(names["events/" + f"{number:020d}.json"]))
+        cold.fields(event, {"schema", "state"}, "archive_fixture_parent_event_fields")
+        io.require(
+            event["schema"] == "autostop.j1.forward-launch-event.v1",
+            "cold_archive_fixture_parent_event",
+        )
+        launch._successor(previous, event["state"], ticket=ticket)
+        previous = event["state"]
+    io.require(previous == current, "cold_archive_fixture_parent_history")
+    acceptance = current["acceptance"]
+    io.require(
+        acceptance["evidence_ref"] == body["acceptance_ref"]
+        and context["identity"]
+        == {key: acceptance[key] for key in ("pid", "start_ticks", "invocation_id")}
+        and type(context["actor"]) is dict
+        and all(context["actor"].get(key) == acceptance[key] for key in ("pid", "start_ticks")),
+        "cold_archive_fixture_parent_incarnation",
+    )
+    launch._verify_acceptance(
+        ticket,
+        io.sha(ticket_raw),
+        acceptance,
+        0,
+        reader=lambda path, _owner: (
+            read(body["acceptance_ref"]) if str(path) == body["acceptance_ref"]["path"] else b""
+        ),
+    )
+    return body["acceptance_ref"]
+
+
+def _controller_history(plan, baseline, package, read):
+    reference = baseline["controller_launch_ref"]
+    body = io.document(read(reference))
+    io.require(type(body) is dict, "cold_archive_controller_document")
+    if body.get("schema") == "autostop.j1.private-parent-execution.v1":
+        return _fixture_parent_history(body, plan, baseline, package, read)
+    from scripts import j1_forward_cold_controller_native
+
+    capsule = j1_forward_cold_controller_native.validate_capsule(reference, read_reference=read)
+    io.require(
+        capsule["request_ref"] == baseline["controller_request_ref"],
+        "cold_archive_controller_request",
+    )
+    return capsule["files"]["native-acceptance.json"]
+
+
+def _crm_parent(context, crm_state, baseline, parent_a, read):
+    io.require(
+        context["request_ref"] == baseline["controller_request_ref"]
+        and context["parent_acceptance_ref"]["sha256"] == parent_a["sha256"],
+        "cold_archive_crm_parent_acceptance",
+    )
+    accepted_parent = io.document(read(parent_a))
+    io.require(
+        all(
+            crm_state["acceptance"][key] == accepted_parent[key]
+            for key in ("pid", "start_ticks", "invocation_id")
+        ),
+        "cold_archive_crm_parent_incarnation",
+    )
+
+
 def collect(
     plan,
     *,
@@ -536,15 +691,7 @@ def collect(
         snapshot.runtime_aliases = _interpreter_aliases(package_header, read)
     baseline = io.document(read(plan["baseline_ref"]))
     if baseline.get("controller_launch_ref") is not None:
-        from scripts import j1_forward_cold_controller_native
-
-        capsule = j1_forward_cold_controller_native.validate_capsule(
-            baseline["controller_launch_ref"], read_reference=read
-        )
-        io.require(
-            capsule["request_ref"] == baseline["controller_request_ref"],
-            "cold_archive_controller_request",
-        )
+        parent_a = _controller_history(plan, baseline, package_header, read)
     value = cold.validate_package(
         plan["cold_authority_package_ref"],
         read_reference=read,
@@ -660,20 +807,7 @@ def collect(
         )
         pending.extend(_references(context))
         if baseline.get("controller_launch_ref") is not None:
-            parent_a = capsule["files"]["native-acceptance.json"]
-            io.require(
-                context["request_ref"] == baseline["controller_request_ref"]
-                and context["parent_acceptance_ref"]["sha256"] == parent_a["sha256"],
-                "cold_archive_crm_parent_acceptance",
-            )
-            accepted_parent = io.document(read(parent_a))
-            io.require(
-                all(
-                    crm_state["acceptance"][key] == accepted_parent[key]
-                    for key in ("pid", "start_ticks", "invocation_id")
-                ),
-                "cold_archive_crm_parent_incarnation",
-            )
+            _crm_parent(context, crm_state, baseline, parent_a, read)
         first = io.document(read(next(iter(epoch["runtime_bindings"].values()))))
         fence = io.document(read(first["ingress_fence_ref"]))
         raw = file_reader(fence["state_path"], MAX_FILE_BYTES)
