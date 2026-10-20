@@ -126,6 +126,26 @@ class DeploymentSecurityTests(unittest.TestCase):
 
         self.assertTrue(any("public base authority" in item for item in errors))
 
+    def test_partial_cold_ingress_cannot_fall_back_to_legacy_production_admission(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for field in (
+                "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG",
+                "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG_SHA256",
+                "AUTOSTOP_COLD_RUNTIME_BINDING",
+                "AUTOSTOP_COLD_RUNTIME_BINDING_SHA256",
+            ):
+                with self.subTest(field=field):
+                    env = valid_production_env(Path(temp_dir) / "maintenance")
+                    env[field] = "artificial-incomplete-binding"
+                    self.assertEqual(
+                        validate_production_environment(env),
+                        ["Cold HTTP ingress configuration must be physically validated"],
+                    )
+                    with self.assertRaisesRegex(
+                        DeploymentSecurityError, "Cold HTTP ingress configuration"
+                    ):
+                        assert_production_environment(env, require_production=True)
+
     def test_production_store_identity_is_internal_strong_and_split_by_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             env = valid_production_env(Path(temp_dir) / "maintenance")

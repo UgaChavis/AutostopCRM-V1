@@ -184,7 +184,9 @@ class BoardScripts(HTMLParser):
                     self.sources.append(value)
 
 
-def public_checks(client: Client, public_url: str, api_url: str) -> dict:
+def public_checks(
+    client: Client, public_url: str, api_url: str, *, mcp_url: str | None = None
+) -> dict:
     health = client.request(public_url + "/api/health")
     envelope(health, "public_health_failed")
     shell = client.request(public_url + "/")
@@ -194,13 +196,15 @@ def public_checks(client: Client, public_url: str, api_url: str) -> dict:
         parser.feed(shell.body.decode("utf-8"))
     except (UnicodeError, ValueError):
         raise ProbeError("public_ui_invalid") from None
+    prefix = urlsplit(public_url).path.rstrip("/")
     assets = [
         source
         for source in parser.sources
-        if re.fullmatch(r"/assets/board\.[0-9a-f]{64}\.js", source)
+        if re.fullmatch(re.escape(prefix) + r"/assets/board\.[0-9a-f]{64}\.js", source)
     ]
     require(len(assets) == 1, "public_board_asset_missing")
-    script = client.request(public_url + assets[0])
+    origin = public_url.removesuffix(prefix) if prefix else public_url
+    script = client.request(origin + assets[0])
     require(
         script.status == 200
         and script.content_type in {"application/javascript", "text/javascript"},
@@ -215,7 +219,7 @@ def public_checks(client: Client, public_url: str, api_url: str) -> dict:
     for name, url in (
         ("public_api", public_url + "/api/get_board_revision"),
         ("local_api", api_url + "/api/get_board_revision"),
-        ("public_mcp", public_url + "/mcp"),
+        ("public_mcp", mcp_url or public_url + "/mcp"),
     ):
         result = client.request(url)
         require(result.status == 401, "anonymous_guard_failed_" + name)

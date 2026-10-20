@@ -54,6 +54,9 @@ class McpServerRuntime:
         self.port = int(server.settings.port)
         path = str(server.settings.streamable_http_path or "/mcp").strip() or "/mcp"
         self.path = path if path.startswith("/") else f"/{path}"
+        ingress = getattr(server, "cold_http_ingress", None)
+        if ingress is not None:
+            self.path = ingress.prefix("mcp") + self.path
         self.auth_mode = auth_mode
 
     @property

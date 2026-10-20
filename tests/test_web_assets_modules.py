@@ -160,7 +160,13 @@ assert.equal(printRepairOrderDraft(unsaved), unsaved);
 assert.deepEqual(calls, [null, prepared, unsaved]);
 """
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -378,6 +384,7 @@ function claimMobileMorePanelIntent(){return {};}
 function isModalOpen(){return false;}
 """
             + functions("app_main_before_printing.js", "beginCashboxMoneyRequest")
+            + read_board_source("cold_board_url.js")
             + loader
             + "\nconst moduleSource = "
             + json.dumps(module)
@@ -417,7 +424,13 @@ function isModalOpen(){return false;}
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -549,7 +562,13 @@ const exported = auxiliaryFactory({{state, els, api, setStatus() {{}}, shared}})
 }})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
 """
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -573,6 +592,7 @@ function buildBoardModuleSharedContext(){return {};}
 function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
 function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
 """
+            + read_board_source("cold_board_url.js")
             + loader
             + """
 (async()=>{
@@ -614,7 +634,13 @@ function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -641,6 +667,7 @@ function setStatus(){}
 function buildBoardModuleSharedContext(){return {};}
 function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
 """
+            + read_board_source("cold_board_url.js")
             + loader
             + """
 (async()=>{
@@ -673,6 +700,12 @@ function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelInten
 """
         )
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

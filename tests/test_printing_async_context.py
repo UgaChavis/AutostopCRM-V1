@@ -33,7 +33,13 @@ def function_source(name: str) -> str:
 class PrintingAsyncContextTests(unittest.TestCase):
     def run_javascript(self, script: str) -> None:
         result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

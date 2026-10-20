@@ -800,6 +800,16 @@ class Host:
         return reports
 
 
+class MixedHost(Host):
+    """One MCP successor; shared scheduler/Work/hold operations stay preserved."""
+
+    def __init__(self, native, directory, **kwargs):
+        from scripts.j1_forward_mixed_authority import SCHEMA
+
+        require(native.get("schema") == SCHEMA, "mixed_host_native_schema")
+        super().__init__(native, directory, **kwargs)
+
+
 def check_container_preserved(previous: dict, current: dict, candidate: dict) -> None:
     require(
         current["image"] == candidate["image"]

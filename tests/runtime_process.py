@@ -37,9 +37,11 @@ def _write(path, record):
     temporary.replace(path)
 
 
-def run(command, *, timeout, label, diagnostics):
+def run(command, *, timeout, label, diagnostics, deadline_monotonic=None):
     started = time.monotonic()
     deadline = started + timeout
+    if deadline_monotonic is not None:
+        deadline = min(deadline, deadline_monotonic)
     diagnostics.mkdir(parents=True, exist_ok=True)
     identity = uuid.uuid4().hex
     report_path = diagnostics / f"{identity}.json"
@@ -51,6 +53,7 @@ def run(command, *, timeout, label, diagnostics):
         "cwd": str(Path.cwd()),
         "label": label,
         "timeout_seconds": timeout,
+        "deadline_monotonic": deadline,
         "started_at": datetime.now(UTC).isoformat(),
         "state": "starting",
         "stack_path": str(stack_path),
@@ -100,6 +103,11 @@ def run(command, *, timeout, label, diagnostics):
         report["controller_error"] = traceback.format_exc()
         exit_code, reason = CONTROLLER_ERROR_EXIT, "controller_error"
     finally:
+        # A shared-deadline coordinator can cancel just as this controller's
+        # own wait expires. A second signal must not interrupt owned cleanup.
+        for number in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGBREAK", None)):
+            if number is not None and signal.getsignal(number) is _cancel:
+                signal.signal(number, signal.SIG_IGN)
         if process is not None:
             try:
                 report["owned_before_cleanup"] = process.members()
@@ -144,6 +152,7 @@ def run(command, *, timeout, label, diagnostics):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeout-seconds", type=float, required=True)
+    parser.add_argument("--deadline-monotonic", type=float)
     parser.add_argument("--label", default="runtime")
     parser.add_argument("--diagnostics-dir", type=Path, default=ROOT / "output" / "runtime-process")
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -151,6 +160,8 @@ def main():
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
         parser.error("timeout must be a finite positive number")
+    if args.deadline_monotonic is not None and not math.isfinite(args.deadline_monotonic):
+        parser.error("shared deadline must be finite")
     if len(command) < 2:
         parser.error("a Python executable and entrypoint are required after --")
     for number in (signal.SIGINT, signal.SIGTERM):
@@ -162,6 +173,7 @@ def main():
         timeout=args.timeout_seconds,
         label=args.label,
         diagnostics=args.diagnostics_dir.resolve(),
+        deadline_monotonic=args.deadline_monotonic,
     )
     # Keep native Windows DWORD failures and POSIX signal failures nonzero.
     return code if code <= 0x7FFFFFFF else code - 0x100000000

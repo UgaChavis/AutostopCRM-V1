@@ -41,6 +41,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Bind the runtime image to the selected source tree
+        id: source_identity
+        run: echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
       - name: Build unpublishable runtime candidate
         uses: docker/build-push-action@v7
         with:
@@ -48,6 +52,9 @@ jobs:
           load: true
           push: false
           tags: autostopcrm-ci:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.autostop.crm.tree=${{ steps.source_identity.outputs.tree }}
           cache-from: type=gha,scope=crm-runtime
           cache-to: type=gha,scope=crm-runtime,mode=max
 
@@ -156,6 +163,30 @@ jobs:
                   browser.close()
           PY
 
+      - name: Seal the tested post-merge image without publishing a registry tag
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+        shell: bash
+        run: |
+          image="autostopcrm-ci:${GITHUB_SHA}"
+          test "$(docker image inspect --format '{{ .Architecture }}' "$image")" = amd64
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image")" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.autostop.crm.tree" }}' "$image")" = "$(git rev-parse 'HEAD^{tree}')"
+          mkdir -p release-image
+          docker image inspect --format '{{ json .Id }} {{ json .Architecture }} {{ json .Os }} {{ json .RootFS.Layers }}' "$image" > release-image/image-identity.txt
+          docker run --rm --network none --entrypoint python "$image" -m pip freeze > release-image/runtime-requirements.txt
+          docker save "$image" | gzip -n -1 > "release-image/autostopcrm-${GITHUB_SHA}-linux-amd64.tar.gz"
+          cd release-image
+          sha256sum autostopcrm-*.tar.gz image-identity.txt runtime-requirements.txt > SHA256SUMS
+
+      - name: Preserve the exact tested post-merge image
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: autostopcrm-image-${{ github.sha }}
+          path: release-image/
+          if-no-files-found: error
+          compression-level: 0
+
   checks:
     name: ${{ matrix.suite }}
     runs-on: ubuntu-latest
@@ -172,6 +203,10 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_DISABLE_SANDBOX: "1"
+      AUTOSTOP_REQUIRE_UI_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
+      AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
 
     steps:
       - name: Checkout
@@ -217,25 +252,76 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: "3.12.15"
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: |
+            requirements*.txt
+            .github/release-rehearsal-constraints.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install -r requirements-dev.txt -c .github/release-rehearsal-constraints.txt
+          python -m pip check
+
+      - name: Build the same private Linux SQLite as the runtime image
+        if: ${{ matrix.suite != 'static' }}
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/sqlite-src-3510300.zip"
+          curl --fail --location --retry 3 https://sqlite.org/2026/sqlite-src-3510300.zip --output "$archive"
+          printf '%s  %s\n' f8a67a1f5b5cae7c6d42f0994ca7bf1a4a5858868c82adc9fc1340bed5eb8cd2 "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/sqlite-src-3510300"
+          test "$(cat manifest.uuid)" = 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618
+          CFLAGS="-O2 -fno-strict-aliasing -DSQLITE_SECURE_DELETE \
+            -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_FTS3_PARENTHESIS \
+            -DSQLITE_ENABLE_FTS3_TOKENIZER -DSQLITE_SOUNDEX \
+            -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_ENABLE_DBSTAT_VTAB \
+            -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ALLOW_ROWID_IN_VIEW \
+            -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_URI \
+            -DSQLITE_MAX_SCHEMA_RETRY=25 -DSQLITE_ENABLE_STMTVTAB \
+            -DSQLITE_MAX_VARIABLE_NUMBER=250000 \
+            -DSQLITE_MAX_DEFAULT_PAGE_SIZE=32768" \
+            ./configure --prefix="$RUNNER_TEMP/quality-sqlite" --disable-static --soname=legacy \
+              --enable-threadsafe --enable-load-extension --enable-fts4 --enable-fts5 \
+              --enable-rtree --enable-session --enable-update-limit
+          make -j2 libsqlite3.so
+          install -D -m 755 libsqlite3.so "$RUNNER_TEMP/quality-sqlite/libsqlite3.so.0"
+          {
+            printf 'LD_LIBRARY_PATH=%s\n' "$RUNNER_TEMP/quality-sqlite${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            printf 'CRM_REHEARSAL_SQLITE_LIBRARY=%s\n' "$RUNNER_TEMP/quality-sqlite/libsqlite3.so.0"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify the selected SQLite before native unit tests
+        if: ${{ matrix.suite != 'static' }}
+        run: python -c 'import sqlite3; assert sqlite3.sqlite_version == "3.51.3", sqlite3.sqlite_version; print(sqlite3.sqlite_version)'
 
       - name: Cache Chromium
-        if: ${{ matrix.suite == 'browser-performance' }}
+        if: ${{ matrix.suite != 'static' }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
 
       - name: Install Chromium for mandatory browser smoke
-        if: ${{ matrix.suite == 'browser-performance' }}
+        if: ${{ matrix.suite != 'static' }}
         run: python -m playwright install --with-deps chromium
+
+      - name: Verify the actual Chromium before the required test groups
+        if: ${{ matrix.suite != 'static' }}
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as playwright:
+              browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+              try:
+                  page = browser.new_page()
+                  page.set_content("<title>Isolated Chromium preflight</title>")
+                  assert page.title() == "Isolated Chromium preflight"
+                  print("Required Chromium:", browser.version)
+              finally:
+                  browser.close()
+          PY
 
       - name: Validate production Compose configuration
         if: ${{ matrix.suite == 'static' }}
@@ -268,7 +354,7 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
-          python -m tests.runtime_process --timeout-seconds 1800 --label core -- python -m coverage run -m unittest discover -s tests -v
+          python -m tests.runtime_suite_runner
           coverage combine
           coverage report --show-missing | tee coverage-runtime.txt
           coverage json -o coverage-runtime.json
@@ -290,6 +376,38 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: python scripts/coverage_audit.py --format text
 
+      - name: Store pre-stop branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label store-drain -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/store-drain.coverage" --source=scripts.j1_forward_store -m unittest \
+            tests.test_j1_forward_store tests.test_j1_forward_store_wire tests.test_j1_forward_store_integration -v
+          coverage combine --data-file "$RUNNER_TEMP/store-drain.coverage"
+          coverage report --data-file "$RUNNER_TEMP/store-drain.coverage" --fail-under=90 | tee coverage-store-drain.txt
+          coverage json --data-file "$RUNNER_TEMP/store-drain.coverage" -o coverage-store-drain.json
+
+      - name: Manager authority preparation branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label manager-authority -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/manager-authority.coverage" \
+            --source=scripts.j1_manager_transition,scripts.j1_manager_transition_source -m unittest \
+            tests.test_j1_manager_transition tests.test_j1_manager_transition_source -v
+          coverage combine --data-file "$RUNNER_TEMP/manager-authority.coverage"
+          coverage report --data-file "$RUNNER_TEMP/manager-authority.coverage" --fail-under=90 | tee coverage-manager-authority.txt
+          coverage json --data-file "$RUNNER_TEMP/manager-authority.coverage" -o coverage-manager-authority.json
+
+      - name: Manager successor guard branch coverage
+        if: ${{ matrix.suite == 'unit' }}
+        run: |
+          python -m tests.runtime_process --timeout-seconds 180 --label manager-successor -- python -m coverage run \
+            --data-file "$RUNNER_TEMP/manager-successor.coverage" \
+            --source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native -m unittest \
+            tests.test_j1_manager_successor_guard tests.test_j1_manager_successor_native -v
+          coverage combine --data-file "$RUNNER_TEMP/manager-successor.coverage"
+          coverage report --data-file "$RUNNER_TEMP/manager-successor.coverage" --fail-under=90 | tee coverage-manager-successor.txt
+          coverage json --data-file "$RUNNER_TEMP/manager-successor.coverage" -o coverage-manager-successor.json
+
       - name: Upload coverage evidence
         if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
@@ -301,6 +419,12 @@ jobs:
             coverage-runtime.xml
             coverage-release.txt
             coverage-release.json
+            coverage-store-drain.txt
+            coverage-store-drain.json
+            coverage-manager-authority.txt
+            coverage-manager-authority.json
+            coverage-manager-successor.txt
+            coverage-manager-successor.json
             htmlcov/
           if-no-files-found: warn
 
@@ -368,7 +492,9 @@ jobs:
         if: ${{ matrix.suite == 'browser-performance' }}
         env:
           AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
-        run: python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest tests.test_mobile_clients_search_browser -v
+        run: |
+          python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest \
+            tests.test_mobile_clients_search_browser tests.test_mobile_client_search_draft -v
 
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}

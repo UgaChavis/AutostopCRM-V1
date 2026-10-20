@@ -34,7 +34,7 @@ function fixture(name = 'payroll', canManage = true) {
     modalKeyForElement:()=> 'inventory',modalOpenerSelector:()=> '#inventoryButton',
     modalElementForKey:()=>inventoryModal,restoreModalFocus:()=>renders.push('restore-focus'),
   });
-  for(const file of ['module_loader.js','employees_reference.js','inventory_reference.js']) {
+  for(const file of ['cold_board_url.js','module_loader.js','employees_reference.js','inventory_reference.js']) {
     if(fs.existsSync(source+file)) vm.runInContext(fs.readFileSync(source+file,'utf8'),context);
   }
   const modalSource=fs.readFileSync(source+'app_main_before_printing.js','utf8');

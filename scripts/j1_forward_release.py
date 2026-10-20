@@ -25,15 +25,22 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import j1_forward_archive as control_archive
 from scripts import j1_forward_authority as authority
 from scripts import j1_forward_backup as backup
 from scripts import j1_forward_closure as closure
 from scripts import j1_forward_io as io
+from scripts import j1_forward_launch_native as launch_native
+from scripts import j1_forward_marker as marker
 from scripts import j1_forward_proofs as signatures
+from scripts import j1_forward_recovery as recovery
 from scripts import j1_forward_transport as transport
+from scripts import j1_forward_variant as variant
 from scripts.j1_forward_host import CRM, DOCKER, Host, check_container_preserved, work_counts
 from scripts.j1_forward_monitor import ClosureMonitor
-from scripts.j1_forward_state import PLAN_SCHEMA, SCOPE, Store, validate_plan
+from scripts.j1_forward_state import PLAN_SCHEMA, SCOPE, Store
+
+validate_plan = variant.validate_plan
 
 ROOT = Path("/var/lib/autostop-crm-forward")
 ATTEMPTS = ROOT / "attempts"
@@ -42,6 +49,7 @@ LOCK = CRM / ".autostop-deploy.lock"
 MARKER = CRM / "data/.agent-gateway-maintenance"
 KEY = Path(signatures.REVIEW_KEY_PATH)
 CACHE_INVENTORY = ROOT / "transport-cache-inventory.json"
+CONTROL_ARCHIVES = Path("/var/lib/autostop-crm-forward-control-archives")
 MAX_WINDOW = 600
 SCHEMA = "autostop.j1.crm-forward-baseline.v1"
 INSPECTION = "autostop.j1.crm-forward-inspection.v1"
@@ -58,7 +66,7 @@ def attempt_directory(attempt):
     return directory
 
 
-def source_consumers():
+def source_consumers(*, mixed=False, cold=False):
     result = subprocess.run(
         ["/usr/bin/git", "-C", str(CRM), "ls-files", "scripts/j1_forward_*.py"],
         capture_output=True,
@@ -68,13 +76,17 @@ def source_consumers():
     )
     paths = result.stdout.decode().splitlines()
     io.require(
-        8 <= len(paths) <= 32 and "scripts/j1_forward_release.py" in paths,
+        8 <= len(paths) <= 64 and "scripts/j1_forward_release.py" in paths,
         "published_consumer_set_required",
     )
     io.require(
         all(re.fullmatch(r"scripts/j1_forward_[a-z_]+\.py", path) for path in paths),
         "consumer_path_invalid",
     )
+    if mixed:
+        paths += sorted(variant.SUPPLEMENTAL)
+    elif cold:
+        paths += sorted(variant.COLD_SUPPLEMENTAL)
     return {path: io.reference(CRM / path)["sha256"] for path in sorted(paths)}
 
 
@@ -85,20 +97,31 @@ def load_attempt(attempt, *, verify_published=True):
     validate_plan(plan, plan["base_sha256"])
     baseline = io.document(io.referenced(plan["baseline_ref"]))
     io.require(
-        baseline.get("schema") == SCHEMA
+        baseline.get("schema") == variant.baseline_schema(plan)
         and baseline["attempt_id"] == attempt
         and baseline["native"]["base_sha256"] == plan["base_sha256"]
         and plan["host"] == socket.gethostname(),
         "baseline_binding_invalid",
     )
-    consumers = source_consumers()
+    consumers = (
+        source_consumers(mixed=True)
+        if variant.is_mixed(plan)
+        else source_consumers(cold=True)
+        if variant._is_cold(plan)
+        else source_consumers()
+    )
     io.require(
         baseline["source_consumers"] == consumers
         and io.sha(io.canonical(consumers)) == plan["candidate"]["consumer_sha256"],
         "consumer_source_changed",
     )
     io.require(io.reference(KEY) == baseline["review_key_ref"], "review_key_changed")
-    host = Host(baseline["native"], directory, host_baseline=baseline["host"])
+    host_class = recovery.RecoveryHost if "recovery_origin" in baseline else Host
+    if variant.is_mixed(plan):
+        from scripts.j1_forward_host import MixedHost
+
+        host_class = MixedHost
+    host = host_class(baseline["native"], directory, host_baseline=baseline["host"])
     if verify_published:
         io.require(
             host.source() == {key: plan["candidate"][key] for key in ("revision", "tree")},
@@ -141,7 +164,7 @@ def deployment_lock(expected=None, *, on_failure=None):
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         io.require([LOCK.stat().st_dev, LOCK.stat().st_ino] == identity, "deployment_lock_replaced")
         try:
-            yield
+            yield descriptor
         except BaseException:
             if on_failure is not None:
                 on_failure()
@@ -150,13 +173,17 @@ def deployment_lock(expected=None, *, on_failure=None):
         os.close(descriptor)
 
 
-def context(plan):
+def context(plan, *, profile_sha256=None):
     return {
         "attempt_id": plan["attempt_id"],
         "predecessor_sha256": plan["predecessor_sha256"],
         "candidate_crm_sha": plan["candidate"]["revision"],
-        "candidate_manager_sha": "89af29082e0a6f72c5d85ae448acb6d4deec5d94",
-        "scope_profile_sha256": backup.profile_sha256(),
+        "candidate_manager_sha": plan.get(
+            "candidate_manager_sha", "89af29082e0a6f72c5d85ae448acb6d4deec5d94"
+        ),
+        "scope_profile_sha256": variant.backup_engine(
+            plan, profile_sha256=profile_sha256
+        ).profile_sha256(),
     }
 
 
@@ -226,22 +253,49 @@ def verify_ci(run_id, source):
     }
 
 
-def prepare(image, ci_run_id):
+def prepare(image, ci_run_id, *, manager_transition_ref=None):
     io.require(os.geteuid() == 0, "native_root_required")
+    manager_receipt = None
+    if manager_transition_ref is not None:
+        from scripts import j1_forward_mixed_authority as mixed
+
+        manager_receipt, _binding = mixed.load_transition(manager_transition_ref)
+        predecessor = io.document(io.referenced(manager_receipt["predecessor_ref"]))
+        # Compatibility is a native precondition, before creating any new
+        # attempt/state/marker/hold or invoking the candidate application.
+        authority.verify_preserved(predecessor, running=True)
     for path in (ROOT, ATTEMPTS, STATE):
         if not path.exists():
             path.mkdir(mode=0o700)
         io.protected_directory(path, private=True)
     io.require(not MARKER.exists(), "preexisting_maintenance_marker")
     with deployment_lock():
+        io.require(not os.path.lexists(STATE / "active-recovery.json"), "state_recovery_active")
+        maintenance_parent = marker.prepare()
         native = authority.snapshot_native(full_runtime=True)
-        store = Store(STATE, native["base_sha256"])
-        io.require(store.pending() is None, "pending_forward_requires_recovery")
+        if manager_receipt is not None:
+            io.require(
+                io.sha(io.canonical(native)) == manager_receipt["predecessor_ref"]["sha256"],
+                "mixed_predecessor_changed",
+            )
+            native = mixed.project_baseline(manager_transition_ref, native)
+        store = (
+            mixed.MixedStore(STATE, native["base_sha256"])
+            if manager_receipt is not None
+            else Store(STATE, native["base_sha256"])
+        )
+        io.require(store.active_plan() is None, "pending_forward_requires_recovery")
         head = store.head()
-        attempt = str(uuid.uuid4())
+        attempt = (
+            manager_receipt["attempt_id"] if manager_receipt is not None else str(uuid.uuid4())
+        )
         directory = ATTEMPTS / attempt
         directory.mkdir(mode=0o700)
         host = Host(native, directory)
+        if manager_receipt is not None:
+            from scripts.j1_forward_host import MixedHost
+
+            host = MixedHost(native, directory)
         source = host.source()
         ci = verify_ci(ci_run_id, source)
         candidate = host.image(image)
@@ -261,17 +315,27 @@ def prepare(image, ci_run_id):
             "current_generation_mismatch",
         )
         host_baseline = host.capture_baseline()
-        consumers = source_consumers()
+        consumers = (
+            source_consumers(mixed=True) if manager_receipt is not None else source_consumers()
+        )
+        profile = (
+            variant.backup_engine(
+                {"schema": variant.MIXED_PLAN, "candidate_manager_sha": mixed.successor.REVISION}
+            )
+            if manager_receipt is not None
+            else backup
+        )
         baseline = {
-            "schema": SCHEMA,
+            "schema": variant.MIXED_BASELINE if manager_receipt is not None else SCHEMA,
             "attempt_id": attempt,
             "native": native,
             "host": host_baseline,
             "previous_container": current,
             "source_consumers": consumers,
             "review_key_ref": io.reference(KEY),
-            "backup_profile_sha256": backup.profile_sha256(),
+            "backup_profile_sha256": profile.profile_sha256(),
             "deployment_lock_identity": [LOCK.stat().st_dev, LOCK.stat().st_ino],
+            "maintenance_parent": maintenance_parent,
             "ci": ci,
         }
         baseline_ref = io.write_new(directory / "baseline.json", baseline)
@@ -293,15 +357,50 @@ def prepare(image, ci_run_id):
             "candidate_may_have_written": True,
             "old_writer_allowed": False,
         }
+        if manager_receipt is not None:
+            plan.update(
+                schema=mixed.PLAN_SCHEMA,
+                scope=mixed.SCOPE,
+                manager_transition_ref=manager_transition_ref,
+                candidate_manager_sha=mixed.successor.REVISION,
+            )
         validate_plan(plan, native["base_sha256"])
         ref = io.write_new(directory / "plan.json", plan)
         progress(directory, "prepared", plan_ref=ref)
+        launch_ticket = launch_native.issue(ref, consumers, baseline)
         return {
             "ok": True,
             "attempt_id": attempt,
             "plan_ref": ref,
             "deadline_utc": plan["deadline_utc"],
+            "launch_ticket": launch_ticket,
         }
+
+
+def stage_manager(inputs_ref, package, predecessor_ref):
+    """Explicit inert copy under fresh original running authority, never a start."""
+    from scripts import j1_manager_successor_transition
+
+    io.require(os.name == "posix" and os.geteuid() == 0, "native_root_required")
+    predecessor = io.document(io.referenced(predecessor_ref))
+    # This read-only compatibility gate is before the first staging effect.
+    authority.verify_preserved(predecessor, running=True)
+    with deployment_lock(predecessor["deployment_lock_identity"]) as descriptor:
+        reference = j1_manager_successor_transition.stage_locked(
+            inputs_ref,
+            package,
+            predecessor_ref,
+            None,
+            deployment_fd=descriptor,
+            deadline=time.monotonic() + 300,
+            mode="inert_before_prepare",
+        )
+    return {
+        "ok": True,
+        "manager_transition_ref": reference,
+        "native_acceptance": False,
+        "activation_authorized": False,
+    }
 
 
 def marker_value(plan_ref, plan):
@@ -312,10 +411,121 @@ def marker_value(plan_ref, plan):
     }
 
 
-def require_marker(plan_ref, plan):
+def marker_parent(baseline):
+    pin = baseline.get("maintenance_parent")
+    io.require(type(pin) is dict, "maintenance_parent_pin_required")
+    return pin
+
+
+def store_for(plan, baseline=None):
+    baseline = (
+        baseline if baseline is not None else io.document(io.referenced(plan["baseline_ref"]))
+    )
+    if variant.is_mixed(plan):
+        io.require("recovery_origin" not in baseline, "mixed_historical_recovery_not_admitted")
+        return variant.store(STATE, plan)
+    return (
+        recovery.RecoveryStore(plan, baseline)
+        if "recovery_origin" in baseline
+        else Store(STATE, plan["base_sha256"])
+    )
+
+
+def marker_record(directory, plan_ref, baseline):
+    io.require((directory / "marker-owned.json").exists(), "marker_ownership_required")
+    pointer = io.document(io.read_protected(directory / "marker-owned.json"))
     io.require(
-        io.document(io.read_protected(MARKER)) == marker_value(plan_ref, plan),
-        "owned_maintenance_marker_changed",
+        type(pointer) is dict
+        and set(pointer) == {"plan_ref", "record"}
+        and pointer["plan_ref"] == plan_ref,
+        "marker_ownership_pointer_changed",
+    )
+    raw = io.referenced(pointer["record"])
+    path = Path(pointer["record"]["path"])
+    io.require(
+        path.parent == directory and re.fullmatch(r"marker-identity-[0-9a-f]{32}\.json", path.name),
+        "marker_ownership_path_changed",
+    )
+    record = io.document(raw)
+    io.require(
+        type(record) is dict
+        and set(record) == {"plan_ref", "parent", "identity"}
+        and record["plan_ref"] == plan_ref
+        and io.canonical(record["parent"]) == io.canonical(marker_parent(baseline)),
+        "marker_ownership_binding_changed",
+    )
+    return record
+
+
+def authorize_marker(plan, baseline):
+    store = store_for(plan, baseline)
+    pending = store.pending()
+    if pending is not None:
+        io.require(io.canonical(pending) == io.canonical(plan), "marker_pending_changed")
+    else:
+        store.confirm_finished(plan)
+
+
+def ensure_marker(directory, plan_ref, plan, baseline):
+    pin = marker_parent(baseline)
+    previous = (
+        marker_record(directory, plan_ref, baseline)
+        if (directory / "marker-owned.json").exists()
+        else None
+    )
+    if previous is not None and os.path.lexists(MARKER):
+        marker.require_owned(
+            pin, marker_value(plan_ref, plan), expected_identity=previous["identity"]
+        )
+    identity = marker.ensure(
+        pin, marker_value(plan_ref, plan), authorize=lambda: authorize_marker(plan, baseline)
+    )
+    if previous is None or io.canonical(previous["identity"]) != io.canonical(identity):
+        ref = save(
+            directory,
+            "marker-identity",
+            {"plan_ref": plan_ref, "parent": pin, "identity": identity},
+        )
+        io.atomic_replace(directory / "marker-owned.json", {"plan_ref": plan_ref, "record": ref})
+    return require_marker(plan_ref, plan, baseline)
+
+
+def require_marker(plan_ref, plan, baseline):
+    pin = marker_parent(baseline)
+    record = marker_record(Path(plan_ref["path"]).parent, plan_ref, baseline)
+    return marker.require_owned(
+        pin, marker_value(plan_ref, plan), expected_identity=record["identity"]
+    )
+
+
+def remove_marker(plan_ref, plan, baseline, commit_ref):
+    identity = require_marker(plan_ref, plan, baseline)
+
+    def authorize():
+        store = store_for(plan, baseline)
+        pending = store.pending()
+        io.require(
+            pending is None or io.canonical(pending) == io.canonical(plan), "marker_pending_changed"
+        )
+        head = store.head()
+        io.require(
+            head["record"] is not None
+            and head["record"]["plan"] == plan
+            and head["sha256"] == commit_ref["sha256"]
+            and head["sequence"] == plan["sequence"],
+            "marker_committed_head_required",
+        )
+        io.confirm_durable(commit_ref)
+        io.confirm_durable(io.reference(store.head_path))
+        io.require(store.head() == head, "marker_committed_head_changed")
+        if pending is None:
+            io.require(store.confirm_finished(plan) == commit_ref, "marker_committed_head_changed")
+
+    marker.remove_owned(
+        marker_parent(baseline),
+        marker_value(plan_ref, plan),
+        expected_identity=identity,
+        authorize=authorize,
     )
 
 
@@ -352,7 +562,13 @@ def guard_starts(host, started_at):
         )
         checks = value.get("ExecCondition", "") + value.get("ExecStartPre", "")
         records = re.findall(r"\{([^{}]*)\}", checks)
-        guard = [item for item in records if "autostop-j1-candidate-guard/guard.py" in item]
+        guard_path = "autostop-j1-candidate-guard/guard.py"
+        if (
+            host.native.get("schema") == "autostop.j1.crm-manager-mcp-native-baseline.v2"
+            and unit == "autostop-manager-mcp.service"
+        ):
+            guard_path = "autostop-manager-mcp-successor/v2/guard.py"
+        guard = [item for item in records if guard_path in item]
         io.require(
             len(guard) == 1
             and re.search(r"(?:^|;\s*)code=exited(?:\s*;|\s*$)", guard[0])
@@ -373,6 +589,27 @@ def projection(ownership):
     return {"dropins": ownership["dropins"], "bytes_sha256": ownership["bytes_sha256"]}
 
 
+def latest_store_drain(directory):
+    """Choose the latest observation, including a later failed stop attempt."""
+    paths = list(directory.glob("store-drain-*.json"))
+    io.require(0 < len(paths) <= 256, "mixed_store_stop_evidence_missing_or_unbounded")
+    rows = []
+    for path in paths:
+        io.require(
+            re.fullmatch(r"store-drain-[0-9a-f]{32}\.json", path.name),
+            "mixed_store_stop_filename",
+        )
+        reference = io.reference(path)
+        document = io.document(io.referenced(reference))
+        rows.append(
+            (signatures._utc(document.get("observed_at"), "mixed_store_stop_time"), reference)
+        )
+    latest = max(row[0] for row in rows)
+    matches = [reference for observed, reference in rows if observed == latest]
+    io.require(len(matches) == 1, "mixed_store_stop_observation_ambiguous")
+    return matches[0]
+
+
 def validate_payload(kind, payload, directory, plan_ref, plan, baseline):
     io.require(
         type(payload) is dict
@@ -389,6 +626,14 @@ def validate_payload(kind, payload, directory, plan_ref, plan, baseline):
             and payload.get("profile_sha256") == baseline["backup_profile_sha256"],
             "offhost_restore_required",
         )
+        archived = io.document(io.read_protected(directory / "control-closed.json"))
+        io.require(
+            payload.get("control_archive_manifest_sha256") == archived["manifest_sha256"]
+            and payload.get("control_graph_restored") is True
+            and type(payload.get("control_restore_receipt_sha256")) is str
+            and re.fullmatch(r"[0-9a-f]{64}", payload["control_restore_receipt_sha256"]),
+            "offhost_control_graph_restore_required",
+        )
         inspection_hash = payload.get("closed_inspection_sha256")
     else:
         io.require(payload.get("phase") == "activated", "activated_proof_required")
@@ -396,7 +641,7 @@ def validate_payload(kind, payload, directory, plan_ref, plan, baseline):
         if kind == "native_acceptance":
             io.require(
                 payload.get("native_preserved") is True
-                and payload.get("original_guards_executed") is True,
+                and payload.get(variant.guard_acceptance_field(plan)) is True,
                 "native_acceptance_required",
             )
         else:
@@ -431,7 +676,7 @@ def receive_proof(attempt, kind, raw):
     io.require(kind in signatures.KINDS and 0 < len(raw) <= 2 * 1024**2, "proof_input_invalid")
     value = io.document(raw)
     incoming = save(directory, "incoming-proof", value)
-    payload = signatures.verify_proof(incoming, kind, plan_ref, baseline["review_key_ref"])
+    payload = verify_proof(incoming, kind, plan_ref, plan, baseline)
     validate_payload(kind, payload, directory, plan_ref, plan, baseline)
     final = io.write_new(directory / (kind + ".json"), value)
     return {"ok": True, "proof": final}
@@ -444,10 +689,15 @@ def await_proof(directory, kind, plan_ref, plan, baseline, observer):
         observer()
         time.sleep(0.3)
     ref = io.reference(path)
-    payload = signatures.verify_proof(ref, kind, plan_ref, baseline["review_key_ref"])
+    payload = verify_proof(ref, kind, plan_ref, plan, baseline)
     validate_payload(kind, payload, directory, plan_ref, plan, baseline)
     observer()
     return ref
+
+
+def verify_proof(ref, kind, plan_ref, plan, baseline):
+    options = {"plan_validator": validate_plan} if variant.is_mixed(plan) else {}
+    return signatures.verify_proof(ref, kind, plan_ref, baseline["review_key_ref"], **options)
 
 
 def inspect(attempt, stage):
@@ -465,7 +715,7 @@ def inspect(attempt, stage):
     io.require(stage in {"closed", "activated"}, "inspection_stage_invalid")
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     host.deadline = time.monotonic() + remaining(plan)
-    require_marker(plan_ref, plan)
+    require_marker(plan_ref, plan, baseline)
     ownership = io.document(io.read_protected(directory / "closure-owned.json"))
     evidence = {}
     evidence["process_scope"] = io.document(io.referenced(ownership["process_scope_ref"]))
@@ -474,7 +724,7 @@ def inspect(attempt, stage):
     idle_ref = evidence["ingress_drain"]["idle_observation_ref"]
     evidence["ingress_idle"] = io.document(io.referenced(idle_ref))
     inspection = {
-        "schema": INSPECTION,
+        "schema": variant.inspection_schema(plan),
         "stage": stage,
         "attempt_id": attempt,
         "plan_sha256": plan_ref["sha256"],
@@ -505,8 +755,8 @@ def inspect(attempt, stage):
             inspection[name + "_ref"] = record["reference"]
             evidence[name] = io.document(io.referenced(record["reference"]))
         evidence["closure"] = closure.observe_closed(ownership, force_full=True)
-        evidence["native"] = authority.verify_preserved(
-            baseline["native"], running=False, owned_closure=projection(ownership)
+        evidence["native"] = variant.verify_native(
+            plan, baseline, running=False, owned_closure=projection(ownership)
         )
         inspection.update(
             writer_closure_confirmed=True,
@@ -516,7 +766,7 @@ def inspect(attempt, stage):
         io.require(
             state["phase"] == "awaiting-native-runtime-acceptance", "activated_inspection_phase"
         )
-        evidence["native"] = authority.verify_preserved(baseline["native"], running=True)
+        evidence["native"] = variant.verify_native(plan, baseline, running=True)
         evidence["guard_starts"] = guard_starts(host, state["native_start_monotonic_us"])
         evidence["activation_cohort"] = closure.observe_activation(ownership)
         counts = work_counts(host.job_status())
@@ -527,7 +777,6 @@ def inspect(attempt, stage):
             baseline["previous_container"], evidence["container"], plan["candidate"]
         )
         inspection.update(
-            original_guards_executed=True,
             runtime_checks_passed=True,
             runtime_ref=save(directory, "inspected-runtime", evidence["runtime"]),
             container_ref=save(directory, "inspected-container", evidence["container"]),
@@ -536,6 +785,7 @@ def inspect(attempt, stage):
                 directory, "inspected-activation-cohort", evidence["activation_cohort"]
             ),
         )
+        inspection[variant.guard_acceptance_field(plan)] = True
     inspection["native_ref"] = save(directory, "inspected-native", evidence["native"])
     ref = save(directory, "inspection", inspection)
     result = {
@@ -550,10 +800,15 @@ def inspect(attempt, stage):
         "inspection_ref": ref,
         "evidence": evidence,
         "backup_context": context(plan),
-        "scope_profile_sha256": backup.profile_sha256(),
+        "scope_profile_sha256": variant.backup_engine(plan).profile_sha256(),
     }
     if stage == "closed":
         result["transport"] = io.document(io.read_protected(directory / "transport.json"))
+        result["control_archive"] = io.document(
+            io.read_protected(directory / "control-closed.json")
+        )
+    if "recovery_origin" in baseline:
+        result["recovery"] = recovery.response_evidence(plan, baseline)
     remaining(plan)
     return result
 
@@ -580,9 +835,7 @@ def _record_failure(directory, plan_ref, plan, baseline, host, ownership, error)
     """Caller holds the original lock through restoration and its readback."""
     errors = []
     try:
-        if not MARKER.exists():
-            io.write_new(MARKER, marker_value(plan_ref, plan))
-        require_marker(plan_ref, plan)
+        ensure_marker(directory, plan_ref, plan, baseline)
     except Exception:
         errors.append("maintenance_marker_restore_failed")
     try:
@@ -625,8 +878,52 @@ def _record_failure(directory, plan_ref, plan, baseline, host, ownership, error)
 
 
 def apply(attempt):
+    # Pure native bootstrap takes C without D, then D -> short O for E. Keep D
+    # under one owner before load_attempt can invoke Host.source or Store IO.
+    with launch_native.Admission(attempt, deployment_lock) as admission:
+        return _apply_admitted(attempt, admission)
+
+
+def capture_control(directory, plan_ref, plan, *, stage, observer):
+    """Keep control history beside the fixed data profile, under a new root."""
+    if not CONTROL_ARCHIVES.exists():
+        io.protected_directory(CONTROL_ARCHIVES.parent)
+        CONTROL_ARCHIVES.mkdir(mode=0o700)
+        io.fsync_directory(CONTROL_ARCHIVES.parent)
+    io.protected_directory(CONTROL_ARCHIVES, private=True)
+    destination = CONTROL_ARCHIVES / plan["attempt_id"]
+    if not destination.exists():
+        destination.mkdir(mode=0o700)
+        io.fsync_directory(destination.parent)
+    io.protected_directory(destination, private=True)
+    captured = control_archive.capture(
+        ROOT,
+        plan_ref,
+        io.reference(directory / "backup/manifest.json"),
+        destination / stage,
+        stage=stage,
+        observer=observer,
+        timeout=min(remaining(plan), 60),
+    )
+    packed = control_archive.bundle(
+        destination / stage,
+        captured["manifest_sha256"],
+        destination / (stage + ".tar.gz"),
+        timeout=min(remaining(plan), 60),
+    )
+    value = {
+        "manifest": captured["manifest"],
+        "manifest_sha256": captured["manifest_sha256"],
+        "stage": stage,
+        "archive": packed["archive"],
+    }
+    io.write_new(directory / ("control-" + stage + ".json"), value)
+    return value
+
+
+def _apply_admitted(attempt, admission):
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
-    store = Store(STATE, plan["base_sha256"])
+    store = store_for(plan, baseline)
     io.require(store.pending() is None, "pending_forward_requires_recovery")
     io.require(
         not (directory / "failure.json").exists(),
@@ -658,35 +955,70 @@ def apply(attempt):
             failure_recorded = True
 
     try:
-        with deployment_lock(baseline["deployment_lock_identity"], on_failure=locked_failure):
+        with admission.execution(
+            baseline["deployment_lock_identity"], on_failure=locked_failure
+        ) as deployment_fd:
             host.deadline = time.monotonic() + remaining(plan)
-            authority.verify_preserved(baseline["native"], running=True)
+            recovering = "recovery_origin" in baseline
+            if recovering:
+                ownership = recovery.prepared_ownership(directory, baseline)
+                variant.verify_native(
+                    plan,
+                    baseline,
+                    running=True,
+                    owned_closure=projection(ownership),
+                    preclose=True,
+                )
+            else:
+                variant.verify_native(plan, baseline, running=True)
             current = host.container()
             io.require(current == baseline["previous_container"], "baseline_container_changed")
             io.require(not MARKER.exists(), "preexisting_maintenance_marker")
-            ownership = closure.prepare_closure(baseline["native"], directory)
+            io.require(
+                io.canonical(marker.prepare()) == io.canonical(marker_parent(baseline)),
+                "maintenance_parent_changed",
+            )
+            if not recovering:
+                ownership = closure.prepare_closure(baseline["native"], directory)
+            try:
+                store.begin(plan)
+            except BaseException:
+                # Publication may have completed before an fsync/readback
+                # failed. Only an exact owned pending permits cleanup effects;
+                # a competing transaction must never grant writer ownership.
+                try:
+                    mutation_owned = store.pending() == plan
+                except Exception:
+                    mutation_owned = False
+                raise
             mutation_owned = True
-            store.begin(plan)
-            io.write_new(MARKER, marker_value(plan_ref, plan))
+            ensure_marker(directory, plan_ref, plan, baseline)
             progress(directory, "draining")
             save(directory, "drain", host.begin_drain(attempt, baseline["host"]))
-            ownership = closure.close_writers(
-                baseline["native"],
-                directory,
-                deadline=host.deadline,
-                idle_observer=lambda: save(
+
+            def idle_observer():
+                return save(
                     directory,
                     "ingress-idle",
-                    {
-                        "observed_at": utc(),
-                        **host.observe_idle_appserver(),
-                    },
-                ),
+                    {"observed_at": utc(), **host.observe_idle_appserver()},
+                )
+
+            ownership = (
+                closure.close_recovery(
+                    ownership, deadline=host.deadline, idle_observer=idle_observer
+                )
+                if recovering
+                else closure.close_writers(
+                    baseline["native"],
+                    directory,
+                    deadline=host.deadline,
+                    idle_observer=idle_observer,
+                )
             )
 
             def marker_check():
                 remaining(plan)
-                require_marker(plan_ref, plan)
+                require_marker(plan_ref, plan, baseline)
 
             monitor = ClosureMonitor(
                 lambda: save(
@@ -710,7 +1042,7 @@ def apply(attempt):
             monitor.start()
             witness = monitor.fence
             monitor.begin_capture()
-            captured = backup.capture(
+            captured = variant.backup_engine(plan).capture(
                 directory / "backup", context(plan), witness, timeout=min(remaining(plan), 3600)
             )
             captured_monitor = monitor.finish_capture()
@@ -720,8 +1052,9 @@ def apply(attempt):
             captured["terminal_full_ref"] = captured_monitor["terminal_full"]["reference"]
             witness()
             io.write_new(directory / "backup-evidence.json", captured)
+            capture_control(directory, plan_ref, plan, stage="closed", observer=witness)
             known = io.reference(CACHE_INVENTORY) if CACHE_INVENTORY.exists() else None
-            packed = transport.bundle_delta(
+            packed = variant.transport_engine(plan).bundle_delta(
                 directory / "backup",
                 captured["manifest_sha256"],
                 known,
@@ -738,13 +1071,31 @@ def apply(attempt):
                 directory, "awaiting-offhost-restore", manifest_sha256=captured["manifest_sha256"]
             )
             restored = await_proof(directory, "offhost_restore", plan_ref, plan, baseline, witness)
-            authority.verify_preserved(
-                baseline["native"], running=False, owned_closure=projection(ownership)
+            variant.verify_native(
+                plan, baseline, running=False, owned_closure=projection(ownership)
             )
             witness()
             monitor.stop()
             remaining(plan)
-            require_marker(plan_ref, plan)
+            require_marker(plan_ref, plan, baseline)
+            if variant.is_mixed(plan):
+                from scripts import j1_manager_successor_transition
+
+                # The Store receipt is validated against this exact scope and
+                # baseline again by the issuer; an earlier incarnation is no permit.
+                j1_manager_successor_transition.issue_locked(
+                    plan["manager_transition_ref"],
+                    plan_ref,
+                    ownership,
+                    io.reference(directory / "backup-evidence.json"),
+                    restored,
+                    latest_store_drain(directory),
+                    deployment_fd=deployment_fd,
+                    deadline=host.deadline,
+                )
+                variant.verify_native(
+                    plan, baseline, running=False, owned_closure=projection(ownership)
+                )
             progress(directory, "activating-crm")
             # The accepted quiet interval ends here. Reopen only the owned
             # barrier before introducing the candidate's first writable mount.
@@ -752,7 +1103,7 @@ def apply(attempt):
             host.replace_crm(plan["candidate"])
             native_start = int(time.monotonic() * 1_000_000)
             host.start_native()
-            authority.verify_preserved(baseline["native"], running=True)
+            variant.verify_native(plan, baseline, running=True)
             guard_starts(host, native_start)
             closure.observe_activation(ownership)
             io.require(
@@ -767,7 +1118,7 @@ def apply(attempt):
 
             def still_held():
                 remaining(plan)
-                require_marker(plan_ref, plan)
+                require_marker(plan_ref, plan, baseline)
                 closure.observe_activation(ownership)
                 io.require(
                     work_counts(host.job_status())["enabled"] is False,
@@ -782,7 +1133,7 @@ def apply(attempt):
                 directory, "runtime_acceptance", plan_ref, plan, baseline, still_held
             )
             host.validate_manager(host.manager("status"), attempt, held=True)
-            authority.verify_preserved(baseline["native"], running=True)
+            variant.verify_native(plan, baseline, running=True)
             check_container_preserved(
                 baseline["previous_container"], host.container(), plan["candidate"]
             )
@@ -798,10 +1149,10 @@ def apply(attempt):
             # This durable transaction MUST precede removal of the old marker.
             io.require(store.head()["record"]["plan"] == plan, "durable_head_readback_failed")
             progress(directory, "committed-opening", commit=commit)
-            closure.release_auxiliary(ownership, commit)
-            require_marker(plan_ref, plan)
-            MARKER.unlink()
-            io.fsync_directory(MARKER.parent)
+            auxiliary_release = save(
+                directory, "auxiliary-release", closure.release_auxiliary(ownership, commit)
+            )
+            remove_marker(plan_ref, plan, baseline, commit)
         # Original duty restoration acquires the same lock, so release it only
         # after HEAD is durable and marker removal has been synchronized.
         host.deadline = time.monotonic() + 180
@@ -812,9 +1163,14 @@ def apply(attempt):
             "desired_duty_not_restored",
         )
         final = host.probes(plan["candidate"], attempt, held=False)
-        authority.verify_preserved(baseline["native"], running=True)
+        variant.verify_native(plan, baseline, running=True)
         check_container_preserved(
             baseline["previous_container"], host.container(), plan["candidate"]
+        )
+        released_cohort = (
+            save(directory, "released-cohort", closure.observe_released(ownership))
+            if recovering
+            else None
         )
         completed = io.write_new(
             directory / "completion.json",
@@ -824,11 +1180,33 @@ def apply(attempt):
                 "commit": commit,
                 "actual_container": host.container(),
                 "checks": final,
+                "auxiliary_release_ref": auxiliary_release,
+                **({"released_cohort_ref": released_cohort} if recovering else {}),
                 "completed_at": utc(),
             },
         )
         store.finish(plan)
         progress(directory, "complete", completion=completed)
+        with deployment_lock(baseline["deployment_lock_identity"]):
+            store.confirm_finished(plan)
+
+            def terminal_observer():
+                io.require(
+                    not MARKER.exists() and not (directory / "failure.json").exists(),
+                    "terminal_archive_generation_failed",
+                )
+                return save(
+                    directory,
+                    "terminal-control-observation",
+                    {
+                        "plan_ref": plan_ref,
+                        "head": store.head()["sha256"],
+                        "native": variant.verify_native(plan, baseline, running=True),
+                        "production_restore_authorized": False,
+                    },
+                )
+
+            capture_control(directory, plan_ref, plan, stage="terminal", observer=terminal_observer)
         return {"ok": True, "completion": completed, "attempt_id": attempt}
     except BaseException as exc:
         if not mutation_owned:
@@ -866,6 +1244,21 @@ def export_delta(attempt):
             sys.stdout.buffer.write(block)
 
 
+def export_control(attempt, stage):
+    """Read an immutable bounded evidence envelope; never replay a controller."""
+    io.require(stage in {"closed", "terminal"}, "control_export_stage")
+    directory = attempt_directory(attempt)
+    metadata = io.document(io.read_protected(directory / ("control-" + stage + ".json")))
+    path = CONTROL_ARCHIVES / attempt / (stage + ".tar.gz")
+    reference = metadata["archive"]
+    io.require(metadata["stage"] == stage and reference["path"] == str(path), "control_export_path")
+    # Hash verification precedes stdout. Native read_protected has a hard bound;
+    # no source modules, state writers, application or service is invoked.
+    raw = io.read_protected(path, control_archive.MAX_TOTAL_BYTES + control_archive.MAX_FILE_BYTES)
+    io.require(io.sha(raw) == reference["sha256"], "control_export_changed")
+    sys.stdout.buffer.write(raw)
+
+
 def build():
     """Build only the published commit, before maintenance or writer effects."""
     io.require(not MARKER.exists(), "build_requires_open_installation")
@@ -874,6 +1267,7 @@ def build():
     io.protected_directory(ROOT, private=True)
     host = Host({}, ROOT)
     with deployment_lock():
+        io.require(not os.path.lexists(STATE / "active-recovery.json"), "state_recovery_active")
         source = host.source()
         scope = backup.inventory()
         import shutil
@@ -931,8 +1325,11 @@ def build():
 
 def settle(attempt):
     """ExecStopPost safety net, including SIGKILL of the main consumer."""
+    denied = launch_native.settle_unentered(attempt, deployment_lock)
+    if denied is not None:
+        return denied
     directory, plan_ref, plan, baseline, host = load_attempt(attempt, verify_published=False)
-    store = Store(STATE, plan["base_sha256"])
+    store = store_for(plan, baseline)
 
     def owned_closure():
         ownership = io.document(io.read_protected(directory / "closure-owned.json"))
@@ -965,7 +1362,7 @@ def settle(attempt):
             pending = store.pending()
         except Exception as exc:
             io.require(MARKER.exists(), "stop_post_owned_marker_required")
-            require_marker(plan_ref, plan)
+            require_marker(plan_ref, plan, baseline)
             return refence(exc)
         if pending is not None:
             io.require(pending == plan, "stop_post_pending_changed")
@@ -973,7 +1370,7 @@ def settle(attempt):
 
         owned_marker = False
         if MARKER.exists():
-            require_marker(plan_ref, plan)
+            require_marker(plan_ref, plan, baseline)
             owned_marker = True
         try:
             head = store.head()
@@ -1030,16 +1427,19 @@ def settle(attempt):
                 "completion_binding_invalid",
             )
             ownership = owned_closure()
-            io.require(
-                all(not Path(item["path"]).exists() for item in ownership["dropins"]),
-                "completed_writer_barriers_present",
-            )
+            if variant.is_mixed(plan):
+                closure._open_barriers(ownership)
+            else:
+                io.require(
+                    all(not Path(item["path"]).exists() for item in ownership["dropins"]),
+                    "completed_writer_barriers_present",
+                )
             commit = store.confirm_finished(plan)
             io.require(completed.get("commit") == commit, "completion_commit_binding_invalid")
             io.confirm_durable(completion_ref)
             io.confirm_durable(state_ref)
             host.deadline = time.monotonic() + 90
-            authority.verify_preserved(baseline["native"], running=True)
+            variant.verify_native(plan, baseline, running=True)
             check_container_preserved(
                 baseline["previous_container"], host.container(), plan["candidate"]
             )
@@ -1048,6 +1448,27 @@ def settle(attempt):
                 "completed_duty_changed",
             )
             host.validate_manager(host.manager("status"), attempt, held=False)
+            if "recovery_origin" in baseline:
+                for key, label in (
+                    ("auxiliary_release_ref", "auxiliary-release"),
+                    ("released_cohort_ref", "released-cohort"),
+                ):
+                    reference = completed.get(key)
+                    io.require(
+                        type(reference) is dict
+                        and Path(reference.get("path", "")).parent == directory
+                        and re.fullmatch(
+                            label + r"-[0-9a-f]{32}\.json", Path(reference["path"]).name
+                        ),
+                        "completed_cohort_reference_required",
+                    )
+                    cohort = io.document(io.referenced(reference))
+                    io.require(
+                        cohort.get("attempt_id") == attempt
+                        and cohort.get("process_scope_ref") == ownership["process_scope_ref"],
+                        "completed_cohort_binding_changed",
+                    )
+                closure.observe_released(ownership)
             return {"ok": True, "completed": True}
         except BaseException as exc:
             return refence(exc)
@@ -1055,32 +1476,10 @@ def settle(attempt):
 
 def launch(attempt):
     """Keep the transition alive across SSH loss and fence on service death."""
+    launch_native.validate(attempt)
     directory, plan_ref, plan, baseline, host = load_attempt(attempt)
     remaining(plan)
-    unit = "autostop-crm-forward-" + attempt
-    command = [
-        "/usr/bin/systemd-run",
-        "--quiet",
-        "--wait",
-        "--collect",
-        "--unit=" + unit,
-        "--property=Type=exec",
-        "--property=RuntimeMaxSec=900",
-        "--property=TimeoutStopSec=120",
-        "--property=KillSignal=SIGTERM",
-        "--property=ExecStopPost=/usr/bin/python3 -I -S -B /opt/autostopcrm/scripts/j1_forward_release.py settle --attempt "
-        + attempt,
-        "--setenv=LD_LIBRARY_PATH=/opt/autostop-sqlite/3.51.3/lib",
-        "/usr/bin/python3",
-        "-I",
-        "-S",
-        "-B",
-        str(CRM / "scripts/j1_forward_release.py"),
-        "run",
-        "--attempt",
-        attempt,
-    ]
-    host.run(command, label="forward-service", timeout=1100)
+    launch_native.submit_and_wait(attempt)
     with deployment_lock(baseline["deployment_lock_identity"]):
         io.require(
             not (directory / "failure.json").exists() and not MARKER.exists(),
@@ -1097,7 +1496,7 @@ def launch(attempt):
             and state.get("completion") == completion_ref,
             "completed_generation_readback_required",
         )
-        commit = Store(STATE, plan["base_sha256"]).confirm_finished(plan)
+        commit = store_for(plan, baseline).confirm_finished(plan)
         io.require(completion.get("commit") == commit, "completed_generation_commit_changed")
         io.confirm_durable(completion_ref)
         io.confirm_durable(state_ref)
@@ -1118,25 +1517,72 @@ def main():
     prepare_parser = sub.add_parser("prepare")
     prepare_parser.add_argument("--image", required=True)
     prepare_parser.add_argument("--ci-run-id", type=int, required=True)
+    prepare_parser.add_argument("--manager-transition")
+    prepare_parser.add_argument("--manager-transition-sha256")
+    staging_parser = sub.add_parser("stage-manager")
+    staging_parser.add_argument("--mode", choices=("inert-before-prepare",), required=True)
+    staging_parser.add_argument("--inputs", required=True)
+    staging_parser.add_argument("--inputs-sha256", required=True)
+    staging_parser.add_argument("--package", required=True)
+    staging_parser.add_argument("--predecessor", required=True)
+    staging_parser.add_argument("--predecessor-sha256", required=True)
+    recovery_parser = sub.add_parser("prepare-recovery")
+    recovery_parser.add_argument("--image", required=True)
+    recovery_parser.add_argument("--ci-run-id", type=int, required=True)
+    recovery_parser.add_argument("--origin-attempt", required=True)
+    origin_parser = sub.add_parser("seal-origin")
+    origin_parser.add_argument("--attempt", required=True)
     sub.add_parser("build")
-    for operation in ("apply", "run", "settle", "inspect", "receive-proof", "export-delta"):
+    for operation in (
+        "apply",
+        "run",
+        "settle",
+        "inspect",
+        "receive-proof",
+        "export-delta",
+        "revoke-launch",
+        "export-control",
+    ):
         child = sub.add_parser(operation)
         child.add_argument("--attempt", required=True)
         if operation == "inspect":
             child.add_argument(
                 "--stage", choices=("closed", "activated", "barriers"), required=True
             )
+        if operation == "export-control":
+            child.add_argument("--stage", choices=("closed", "terminal"), required=True)
         if operation == "receive-proof":
             child.add_argument("--kind", choices=sorted(signatures.KINDS), required=True)
     args = parser.parse_args()
     try:
         io.require(os.name == "posix" and os.geteuid() == 0, "linux_native_root_required")
         if args.command == "prepare":
-            result = prepare(args.image, args.ci_run_id)
+            io.require(
+                bool(args.manager_transition) is bool(args.manager_transition_sha256),
+                "mixed_transition_reference_required",
+            )
+            reference = (
+                {"path": args.manager_transition, "sha256": args.manager_transition_sha256}
+                if args.manager_transition
+                else None
+            )
+            result = prepare(args.image, args.ci_run_id, manager_transition_ref=reference)
+        elif args.command == "stage-manager":
+            result = stage_manager(
+                {"path": args.inputs, "sha256": args.inputs_sha256},
+                args.package,
+                {"path": args.predecessor, "sha256": args.predecessor_sha256},
+            )
+        elif args.command == "prepare-recovery":
+            result = recovery.prepare(args.image, args.ci_run_id, args.origin_attempt)
+        elif args.command == "seal-origin":
+            result = recovery.seal_origin(args.attempt)
         elif args.command == "build":
             result = build()
         elif args.command == "apply":
             result = launch(args.attempt)
+        elif args.command == "revoke-launch":
+            result = launch_native.revoke(args.attempt)
         elif args.command == "run":
             cgroup = Path("/proc/self/cgroup").read_text()
             io.require(
@@ -1152,13 +1598,20 @@ def main():
             result = inspect(args.attempt, args.stage)
         elif args.command == "receive-proof":
             result = receive_proof(args.attempt, args.kind, sys.stdin.buffer.read(2 * 1024**2 + 1))
+        elif args.command == "export-control":
+            export_control(args.attempt, args.stage)
+            return 0
         else:
             export_delta(args.attempt)
             return 0
         sys.stdout.buffer.write(io.canonical(result))
         return 0 if result.get("ok") is True else 2
     except Exception as exc:
-        error = str(exc) if isinstance(exc, io.Refusal) else type(exc).__name__
+        error = (
+            str(exc)
+            if isinstance(exc, (io.Refusal, launch_native.journal.Refusal))
+            else type(exc).__name__
+        )
         sys.stderr.buffer.write(io.canonical({"ok": False, "error": error}))
         return 2
 

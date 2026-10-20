@@ -46,6 +46,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
         cls.source = read_board_source("app_main_before_printing.js")
         cls.after_source = AFTER_SOURCE_PATH.read_text(encoding="utf-8")
+        cls.cold_board_url = read_board_source("cold_board_url.js")
 
     def _run_node(self, body: str) -> None:
         if "persistOperatorUserSave(" in body and "async function cardFilesApi(" not in body:
@@ -965,6 +966,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const assert = require('node:assert/strict');
 
             global.window = {{ setTimeout, clearTimeout }};
+            {self.cold_board_url}
             const API_READ_RETRY_LIMIT = 0;
             const API_READ_RETRY_BASE_DELAY_MS = 0;
             const state = {{

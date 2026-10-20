@@ -132,7 +132,13 @@ def _verify_signature(body, signature, parent, *, timeout):
 
 
 def verify_proof(
-    ref, kind: str, plan_ref: dict, review_key_ref: dict, *, now: datetime | None = None
+    ref,
+    kind: str,
+    plan_ref: dict,
+    review_key_ref: dict,
+    *,
+    now: datetime | None = None,
+    plan_validator=None,
 ) -> dict:
     """Return the authenticated payload, never a payload-derived acceptance flag."""
     started = time.monotonic()
@@ -157,7 +163,7 @@ def verify_proof(
         and HEX64.fullmatch(plan["base_sha256"]),
         "proof_plan_invalid",
     )
-    validate_plan(plan, plan["base_sha256"])
+    (validate_plan if plan_validator is None else plan_validator)(plan, plan["base_sha256"])
     created = _utc(plan["created_at"], "proof_plan_time_invalid")
     deadline = _utc(plan["deadline_utc"], "proof_plan_time_invalid")
     io.require(current <= deadline, "proof_deadline_expired")

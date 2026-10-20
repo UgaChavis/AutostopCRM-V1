@@ -21,6 +21,8 @@ from markdown_it.token import Token
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -38,9 +40,16 @@ CRM_CANONICAL_DOCS = (
     "docs/OPERATIONS_RUNBOOK.md",
     "docs/J1_RELEASE_BOUNDARY.md",
     "docs/J1_CRM_FORWARD_RELEASE.md",
+    "docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
+    "docs/J1_FORWARD_LAUNCH_ADMISSION.md",
+    "docs/J1_COLD_RECOVERY.md",
+    "docs/J1_STORE54_BOUNDARY.md",
+    "docs/J1_COLD_KERNEL_PREPARATION.md",
+    "docs/J1_COLD_NATIVE_PREPARATION.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
+    ".github/release-rehearsal-constraints.txt",
     "requirements-common.txt",
     "requirements.txt",
     "requirements-dev.txt",
@@ -624,7 +633,7 @@ QUALITY_WORKFLOW_REQUIRED_TEXT = (
         "GitHub quality workflow does not run docs audit",
     ),
     (
-        "coverage run -m unittest discover -s tests -v",
+        "python -m tests.runtime_suite_runner",
         "GitHub quality workflow does not collect full-suite branch coverage",
     ),
     (
@@ -1563,9 +1572,10 @@ def _is_link_like(path: Path) -> bool:
         if path.is_symlink():
             return True
         junction_probe = getattr(path, "is_junction", None)
-        if junction_probe is not None:
-            return junction_probe()
-        # Python 3.11 has no Path.is_junction; reject every Windows reparse point.
+        if junction_probe is not None and junction_probe():
+            return True
+        # A non-junction can still be a Windows reparse file. Python 3.11
+        # additionally needs this check because it has no is_junction method.
         return bool(
             getattr(path.lstat(), "st_file_attributes", 0)
             & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)

@@ -74,6 +74,9 @@ if ($Profile -eq "changed") {
 
 $managedEnvironmentNames = @(
     "PYTHONPYCACHEPREFIX",
+    "PYTHONUTF8",
+    "TEMP",
+    "TMP",
     "COVERAGE_FILE",
     "QT_QPA_PLATFORM",
     "QTWEBENGINE_DISABLE_SANDBOX",
@@ -87,7 +90,11 @@ foreach ($environmentName in $managedEnvironmentNames) {
     )
 }
 
-$tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$tempRoot = & $pythonExe -c 'import os, pathlib, tempfile; candidate = os.getenv("RUNNER_TEMP") if os.name == "nt" and os.getenv("GITHUB_ACTIONS") == "true" else tempfile.gettempdir(); print(pathlib.Path(candidate).resolve(strict=True))'
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tempRoot)) {
+    throw "Cannot establish the canonical private CI temp parent."
+}
+$tempRoot = [IO.Path]::GetFullPath($tempRoot.Trim())
 $ciRunId = [Guid]::NewGuid().ToString("N")
 $ciPycacheName = "autostopcrm-ci-pycache-$ciRunId"
 $ciPycachePath = [IO.Path]::GetFullPath((Join-Path $tempRoot $ciPycacheName))
@@ -109,6 +116,11 @@ Initialize-CiProfileCompletion
 try {
     [void](New-Item -ItemType Directory -Path $ciPycachePath -ErrorAction Stop)
     $env:PYTHONPYCACHEPREFIX = $ciPycachePath
+    $ciFixtureTemp = Join-Path $ciPycachePath "fixtures"
+    [void](New-Item -ItemType Directory -Path $ciFixtureTemp -ErrorAction Stop)
+    $env:TEMP = $ciFixtureTemp
+    $env:TMP = $ciFixtureTemp
+    $env:PYTHONUTF8 = "1"
     $env:COVERAGE_FILE = Join-Path $ciPycachePath ".coverage"
     $env:QT_QPA_PLATFORM = "offscreen"
     $env:QTWEBENGINE_DISABLE_SANDBOX = "1"
@@ -127,16 +139,9 @@ try {
     Invoke-Python -StepName "Erase stale runtime coverage" -Arguments @(
         "-m", "coverage", "erase"
     )
-    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
-        Invoke-Python -StepName "Isolated Windows runtime coverage" -Arguments @(
-            "-m", "tests.runtime_suite_runner"
-        )
-    }
-    else {
-        Invoke-Python -StepName "Runtime branch coverage" -Arguments @(
-            "-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"
-        ) -TimeoutSeconds 1800
-    }
+    Invoke-Python -StepName "Isolated runtime branch coverage" -Arguments @(
+        "-m", "tests.runtime_suite_runner"
+    )
     Invoke-Python -StepName "Combine runtime coverage" -Arguments @(
         "-m", "coverage", "combine"
     )
@@ -171,6 +176,58 @@ try {
     )
     Invoke-Python -StepName "Coverage ratchet" -Arguments @(
         "scripts/coverage_audit.py", "--format", "text"
+    )
+
+    $storeDrainCoverage = Join-Path $ciPycachePath "store-drain.coverage"
+    Invoke-Python -StepName "Store pre-stop branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $storeDrainCoverage,
+        "--source=scripts.j1_forward_store", "-m", "unittest",
+        "tests.test_j1_forward_store", "tests.test_j1_forward_store_wire",
+        "tests.test_j1_forward_store_integration", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Store pre-stop coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $storeDrainCoverage
+    )
+    Invoke-Python -StepName "Report Store pre-stop coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $storeDrainCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Store pre-stop coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $storeDrainCoverage,
+        "-o", "coverage-store-drain.json"
+    )
+
+    $managerAuthorityCoverage = Join-Path $ciPycachePath "manager-authority.coverage"
+    Invoke-Python -StepName "Manager authority preparation branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $managerAuthorityCoverage,
+        "--source=scripts.j1_manager_transition,scripts.j1_manager_transition_source", "-m", "unittest",
+        "tests.test_j1_manager_transition", "tests.test_j1_manager_transition_source", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Manager authority preparation coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $managerAuthorityCoverage
+    )
+    Invoke-Python -StepName "Report Manager authority preparation coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $managerAuthorityCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Manager authority preparation coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $managerAuthorityCoverage,
+        "-o", "coverage-manager-authority.json"
+    )
+
+    $managerSuccessorCoverage = Join-Path $ciPycachePath "manager-successor.coverage"
+    Invoke-Python -StepName "Manager successor guard branch coverage" -Arguments @(
+        "-m", "coverage", "run", "--data-file", $managerSuccessorCoverage,
+        "--source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native", "-m", "unittest",
+        "tests.test_j1_manager_successor_guard", "tests.test_j1_manager_successor_native", "-v"
+    ) -TimeoutSeconds 180
+    Invoke-Python -StepName "Combine Manager successor guard coverage" -Arguments @(
+        "-m", "coverage", "combine", "--data-file", $managerSuccessorCoverage
+    )
+    Invoke-Python -StepName "Report Manager successor guard coverage" -Arguments @(
+        "-m", "coverage", "report", "--data-file", $managerSuccessorCoverage, "--fail-under=90"
+    )
+    Invoke-Python -StepName "Write Manager successor guard coverage JSON" -Arguments @(
+        "-m", "coverage", "json", "--data-file", $managerSuccessorCoverage,
+        "-o", "coverage-manager-successor.json"
     )
 
     Invoke-Python -StepName "Repository code health" -Arguments @(

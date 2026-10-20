@@ -223,7 +223,8 @@ class CardServiceCashboxCancellationMixin:
                 item
                 for item in transactions
                 if item.related_transaction_id == transaction.id
-                and item.transaction_kind == _CASH_TRANSACTION_KIND_CANCELLATION
+                and normalize_text(item.transaction_kind, default="", limit=32).casefold()
+                == _CASH_TRANSACTION_KIND_CANCELLATION
             ),
             None,
         )

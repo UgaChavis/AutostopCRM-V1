@@ -1,4 +1,4 @@
-# CRM-only release after J1 arm — v1
+# CRM-only release after J1 arm
 
 This runbook describes the versioned `--forward-j1` release path on
 `vps26457.mnogoweb.in`. Its scope is `crm_only_native_preserved`: replace the
@@ -13,6 +13,13 @@ closure, a fresh backup, an actual off-host restore, native starts through the
 original guards, candidate runtime checks and independently signed evidence.
 An earlier accepted release is a predecessor, never acceptance of a later CRM
 image.
+
+The separate [mixed warm MCP transition](J1_MANAGER_AUTHORITY_TRANSITION.md#explicit-warm-transition-library-v2)
+has its own plan/baseline/closure/inspection discriminator and backup profile.
+Its explicit staging and paired prepare options do not change the meaning of
+the CRM-only schemas described here. It retains the five other native profiles,
+the full accepted warm cohort and both permanent denied roles. Historical
+recovery observations or unknown warm ingress cannot select that variant.
 
 ## Preserved authority and separate successor history
 
@@ -194,6 +201,55 @@ consumer checks the additional false condition, empty mutable lifecycle hooks
 and `NeedDaemonReload=no` before stop effects. It then stops all eight units
 and the fixed `autostopcrm` Compose service. This protocol neither stops other
 projects nor treats an unrelated process as an owned writer.
+
+### Store pre-stop gate
+
+The shared `LinuxRunner.stop` boundary runs the versioned
+`j1_forward_store.py` gate before either systemd or Docker stop. Normal closure,
+failure recovery and a fresh ExecStopPost `settle` process use the same gate.
+They reconstruct the native binding from the protected plan/baseline and
+ownership; a previous drain receipt is never permission to stop another process.
+
+For a worker-capable Manager, the gate binds fresh MainPID, boot, start ticks,
+invocation, interpreter, source revision and the accepted TCP connection's kernel
+owner. Direct numeric loopback HTTP uses no proxy or redirect. GET obtains the
+instance; at most one empty POST per gate invocation closes admission. Bounded
+GET polling requires that same instance/PID, `accepting=false`, `drained=true`
+and zero read, stateful and transport counts. An uncertain POST is resolved only
+by reading the same
+instance. The total drain budget is at most 120 seconds and never exceeds the
+current stop invocation's remaining time. Normal closure is bounded by the
+release window; failure recovery and cold settle use the existing separate
+90-second closure budget, including after that window expires. Incarnation is
+rechecked after each request and after the receipt is durable, immediately before
+stop effects.
+
+Each observation creates a separate append-only `store-drain-UUID.json` receipt
+under the attempt directory, binding attempt, consumer, native baseline and
+process scope. Failure, schema/identity uncertainty, incomplete HTTP cleanup or
+a receipt-write failure prevents both stop effects. Recovery retains its owned
+barriers/maintenance/hold and reports closure incomplete until a fresh observation
+permits stop; it does not force-kill Manager to turn a timeout into closure.
+Backup and activation still require the full independently established closure.
+
+The preserved `89af29082e0a6f72c5d85ae448acb6d4deec5d94` runtime predates
+the Store worker endpoint. Only that exact verified legacy revision retains the
+existing native closure path, with explicit `mode=legacy_unsupported`,
+`worker_drain_supported=false` and `store_workers_drained=null`. An inactive
+service requires MainPID zero, a terminal state and an empty service cgroup.
+Neither case fabricates a successful worker drain; HTTP 404/timeout never selects
+a legacy fallback for another revision.
+
+This gate does not change the accepted Manager revision, guards or earlier
+authority/receipts. A new consumer bundle requires a new prepare. Activating the
+worker-capable Manager from [Manager PR 126](https://github.com/UgaChavis/AutostopManager/pull/126)
+still requires a separately reviewed Manager authority transition; this CRM-only
+protocol remains scoped to its preserved native authority.
+
+The separate [Manager MCP successor preparation contract](J1_MANAGER_AUTHORITY_TRANSITION.md)
+provides offline `prepare`/`verify` and a capsule with no activation permission.
+It preserves this observer and successor chain; a native transition remains a
+separate guarded operation.
 
 Closure version 2 keeps the original three accepted warm identities unchanged
 and separately records the processes that must stop writing. This cohort
@@ -450,11 +506,11 @@ that every recovery effect succeeded.
 Inspect the matching pending attempt before taking any continuation action.
 `apply` does not resume a pending or failed attempt: it refuses before replaying
 deployment effects. This version has no `recover-commit` or general resume
-command. A pre-commit failure requires a separately reviewed
-forward-recovery action, retaining the current facts and closure. A future
-recovery must bind the same UUID, exact predecessor, candidate and baseline,
-re-observe current state, and establish the required closure before dependent
-work. A matching filename alone does not establish those facts. An expired,
+command. A pre-commit failure requires an explicit forward-recovery
+transaction retaining the current facts and closure. Recovery v2 below binds
+the original UUID, predecessor, candidate and baseline as historical evidence
+and creates a new bounded plan for fresh acceptance. A matching filename alone
+does not establish those facts. An expired,
 conflicting or uncertain attempt cannot be repaired by editing its plan,
 head, pending state, timestamps, signatures or old native receipts.
 
@@ -471,19 +527,161 @@ native authority; bind the new candidate's successful merged push CI run, and
 obtain fresh baseline, closure, backup, restore and runtime
 proofs for the new CRM candidate. Previous proofs remain historical evidence.
 
+## Explicit failed-attempt recovery v2
+
+`prepare-recovery` is a separate eligibility path for the reviewed failed
+attempt `236d5cef-6c87-4bf1-a977-a36e70bdf90b`. It does not resume an expired
+plan. A new UUID, nonce, merged commit/image, successful exact push CI, baseline
+and 600-second window bind every new proof. The original native policy, armed
+state, wrappers, source/runtime bindings, duty intent and deployment-lock inode
+retain their accepted bytes and identities.
+
+Before changing the production checkout, execute the published, independently
+reviewed recovery consumer from a protected Git source bundle to retain the
+old consumer files:
+
+```bash
+/usr/bin/python3 -I -S -B /PROTECTED_REVIEWED_SOURCE/scripts/j1_forward_release.py \
+  seal-origin --attempt 236d5cef-6c87-4bf1-a977-a36e70bdf90b
+```
+
+This finite operation holds the original lock, refuses a surviving old
+controller, verifies the actual original consumer digest, and retains identical
+pending and source bytes below `/var/lib/autostop-crm-forward/origins/`. It does
+not change the running container, native services, marker, Scheduler hold or
+process states. Do not fast-forward first and then patch the old baseline's
+consumer hashes to make it load.
+
+After the new source and image pass the usual publication gates:
+
+```bash
+./deploy.sh --forward-j1 prepare-recovery --image sha256:IMAGE_ID_64_HEX \
+  --ci-run-id QUALITY_RUN_ID \
+  --origin-attempt 236d5cef-6c87-4bf1-a977-a36e70bdf90b
+```
+
+The first scope observation happens before a new attempt directory, active
+recovery pointer, marker, Work pause, service stop or process signal. A failed
+observation grants no continuation effects. A successful preparation returns
+the new UUID; `apply`, inspection, the finite off-host worker, real disposable
+restore and signed acceptance then use that UUID through the normal dispatcher.
+
+The immutable recovery envelope binds the original plan, pending, closure,
+scope, failure and saved consumers; the new plan, code and CI; the original
+owned Scheduler hold and deployment-lock identity. The original pending stays
+byte-identical while a separate active-recovery pointer excludes competing
+attempts. A v2 history record explicitly names both plans. Five new substantive
+proofs and a durable matching HEAD precede removal of the original pending;
+the active pointer is removed and synchronized last. An interrupted finish is
+retryable only for that exact committed recovery. A reference or an earlier
+success receipt cannot substitute for fresh acceptance.
+
+The recovery process profile preserves all 13 original writer incarnations
+and the two surviving tunnel processes. Three exited SSH identities remain
+historical; they are never represented as live or replaced with another PID.
+The three orphan proxies retain their exact original program, birth, socket
+and pipe identities and stay frozen after commit. Nine helpers may resume only
+after durable acceptance. Native evidence explicitly distinguishes the three
+historical warm actors from the two actually observed original actors. The
+ordinary v1 profile still requires its original 18 live actors.
+
+Current host eligibility is **blocked**. Passive observation after the failed
+attempt found a growing appserver listener backlog (201 connections in the
+recorded observation), a disconnected historical native peer with buffered
+input, and queued proxy data. Some client processes have exited, so available
+kernel socket metadata cannot establish their PID birth and source. The v2
+observer refuses these facts before new recovery effects. A daemon with its
+ordinary writable authority cannot be declared a metadata-only drain merely by
+calling a phase "drain". No unknown-peer exemption, synthetic empty queue,
+bootstrap replacement, native authority edit or timeout waiver is provided.
+Resuming this host requires a separately reviewed lifecycle mechanism that can
+dispose of or isolate the unattributed ingress under actual native acceptance.
+Until then, do not report quiet closure, a completed new backup/restore, a new
+running CRM image, or a successful rollout.
+
+## Marker and loaded systemd observations
+
+The fixed data directory legitimately belongs to UID/GID `10001:10001`, mode
+`0700`. Preparation pins its device, inode, owner and mode while checking its
+root-owned physical ancestors. A separate anchored, no-follow marker adapter
+creates only the fixed root-owned `0600`, single-link operational gate and
+checks exact canonical attempt bytes and stored file identity. It never
+changes directory ownership or permissions. The root-private transaction and
+original deployment lock remain authority; the app-owned directory means the
+marker itself is not immutable authority. Removal requires exact durable
+committed HEAD, identity readback and the caller's exclusion of marker-name
+writers. General protected-file checks remain strict.
+
+`systemctl show` can emit one `ExecCondition=` line per command. Both the
+closure observer and native preservation observer retain the ordered original
+guard followed by the owned false condition. Duplicate scalar properties and
+lifecycle hooks remain refusals. Typed verification of omitted empty hook
+arrays is unchanged. Every native stop still requires the actual loaded deny
+condition, cleared hooks and `NeedDaemonReload=no`; file presence alone is
+insufficient.
+
 ## Implementation and verification map
+
+The fixed data-backup profile is supplemented by a separate bounded control
+archive (`j1_forward_archive.py`). Capture requires the caller to retain the
+deployment lock and repeatedly observe closure. It follows pinned references
+from state, HEAD/history, the current attempt, retained origins and recovery
+envelopes, including derived retained-pending paths and exact consumer bytes.
+It does not recursively copy the changing attempts directory. Count, byte,
+graph-depth and time limits apply; sources and state are reread before publishing
+the immutable manifest. Output is outside the logical control root.
+
+Off-host verification reconstructs only disposable private copies and runs the
+normal Store HEAD/pending/recovery validators against an explicit read-only map
+of original logical paths. It never resolves missing evidence from production
+or imports archived Python. A terminal archive also requires the committed
+five-proof graph, completion/progress, auxiliary release and recovery cohort
+receipts. Windows verification uses the worker's accepted ACL-custody checker;
+the native protected-file policy is not relaxed. A successful disposable
+control restore does not grant native admission, prove writer closure, restore
+external dependencies or authorize a production restore. Data-backup and
+independent native/closure proof gates remain required.
+
+The controller now creates a closed archive before requesting the off-host
+proof, and a terminal archive after the durable commit and terminal readback.
+Packages live separately under
+`/var/lib/autostop-crm-forward-control-archives/<attempt>/`. The fixed data profile
+is unchanged. `export-control --attempt <UUID> --stage closed|terminal` exports
+only the hash-verified bounded evidence envelope; it never executes archived
+code or replays a controller. Source consumer inventories using the launch
+protocol also require the complete admitted ticket/context/event/acceptance
+graph. Offline restore verifies its exact transitions and binding.
+
+The Windows custodian downloads and restores the closed control graph after
+the data restore and before signing. The signed proof binds its manifest hash
+and the actual independent restore receipt. A successful database restore
+cannot substitute for a missing or corrupt control graph. A terminal archive
+retains the five-proof HEAD and late completion/cohort graph; retain both
+envelopes independently when preparing the later release record.
+
+Recovery stop uses the same ownership-bound Store-worker drain as ordinary
+closure. The archived original pending, original writer ban and exact cohort
+bindings survive the new recovery; an unknown warm ingress is still a refusal.
 
 | Module | Responsibility |
 | --- | --- |
 | `j1_forward_release.py` | Published-image build, bounded preparation, service lifecycle, inspection, proof dispatch and release ordering |
 | `j1_forward_io.py` | Protected physical files, strict JSON and durable publication |
+| `j1_forward_launch_permission.py` | Durable one-attempt S/A/C/E/R journal and fail-closed publication reconciliation |
+| `j1_forward_launch_native.py` | Fixed Linux issuer, independent systemd/process acceptance and single-lock consumer entry |
+| `j1_forward_marker.py` | Pinned legacy app-owned marker directory and exact owned marker operations |
 | `j1_forward_authority.py` | Original native authority and actual runtime preservation |
 | `j1_forward_state.py` | Exact predecessor, pending attempt and append-only successor history |
+| `j1_forward_recovery.py` | Immutable original consumer retention and explicit recovery orchestration |
+| `j1_forward_recovery_state.py` | Original pending retention and separate durable v2 recovery transactions |
+| `j1_forward_recovery_scope.py` | Fixed surviving cohort, historical transport exits and strict ingress refusal |
+| `j1_forward_recovery_worker.py` | Independent recovery provenance and hold validation before real restore/signing |
 | `j1_forward_proofs.py` | Ed25519 envelope verification and plan/time binding |
 | `j1_forward_host.py` | Fixed host commands, Work/Scheduler draining, duty and native starts |
 | `j1_forward_closure.py` | Owned barriers, exact writer freeze/thaw and closure observations |
 | `j1_forward_process_scope.py` | Attempt-bound helper/proxy ownership, live SSH transport proofs and process topology |
 | `j1_forward_backup.py` | Fixed-profile capture and real disposable restore verification |
+| `j1_forward_archive.py` | Bounded control graph, retained consumer bytes and independent read-only semantic restore |
 | `j1_forward_transport.py` | Private online transport cache and final-manifest assembly |
 | `j1_forward_runtime.py` | Bounded candidate authentication/read/runtime probes |
 | `j1_forward_worker.py` | Finite Windows inspection, disposable restore and private Ed25519 signing |
@@ -494,3 +692,6 @@ checks on the exact reviewed source. Test shell dispatch separately: the
 effects, preserve argument boundaries and propagate failure. Synthetic tests
 exercise refusal and failure ordering; actual off-host restore and native
 release evidence are still required for deployment completion.
+
+The [launch-admission contract](J1_FORWARD_LAUNCH_ADMISSION.md) defines the
+separate launch/revoke boundary. Its acceptance is not native release acceptance.

@@ -8,7 +8,6 @@ import logging
 import math
 import re
 import secrets
-import socket
 import sys
 import threading
 import unicodedata
@@ -20,9 +19,11 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging import Logger
 from pathlib import Path, PurePath
-from time import perf_counter, sleep
+from time import perf_counter
 from urllib.parse import parse_qs, quote, urlsplit
 
+from ..cold_board_ingress import ColdBoardIngress, html_body, response_body, wait_until_accepting
+from ..cold_http_ingress import load_http_ingress
 from ..config import (
     get_api_bearer_token,
     get_api_host,
@@ -627,6 +628,7 @@ class HttpResponseWriter:
         cache_control: str = "no-store",
         extra_headers: dict[str, str] | None = None,
     ) -> None:
+        body = response_body(handler, body, content_type, extra_headers)
         try:
             handler.send_response(status_code)
             self.send_headers(
@@ -777,12 +779,12 @@ class StaticAndDownloadResponder:
         request_id: str,
     ) -> bool:
         if route in {"/", "/index.html"}:
-            body = _board_html_bytes()
+            body = html_body(handler, _board_html_bytes())
             handler.send_response(HTTPStatus.OK)
             handler._send_headers("text/html; charset=utf-8", len(body))
             return True
         if route in {"/dashboard", "/dashboard/"}:
-            body = _display_dashboard_html_bytes()
+            body = html_body(handler, _display_dashboard_html_bytes())
             handler.send_response(HTTPStatus.OK)
             handler._send_headers("text/html; charset=utf-8", len(body))
             return True
@@ -796,6 +798,7 @@ class StaticAndDownloadResponder:
         }:
             gzip_ok = _accepts_gzip(handler.headers.get("Accept-Encoding", ""))
             body, extra_headers = infrastructure_response(route, gzip_ok)
+            body = html_body(handler, body, compressed=gzip_ok)
             handler.send_response(HTTPStatus.OK)
             handler._send_headers(
                 "text/html; charset=utf-8",
@@ -1777,7 +1780,7 @@ class JsonRouteDispatcher:
                 )
 
 
-class _ApiRequestHandler(BaseHTTPRequestHandler):
+class _ApiRequestHandler(ColdBoardIngress, BaseHTTPRequestHandler):
     """Thin stdlib transport adapter; runtime collaborators live on each subclass."""
 
     server_version = "MinimalKanbanAPI/1.0"
@@ -2169,6 +2172,9 @@ class ApiServer:
         self.agent_bearer_token = self._bearer_token or secrets.token_urlsafe(32)
         self._operator_service = operator_service
         self._clipboard_file_provider = clipboard_file_provider or list_clipboard_file_paths
+        self._cold_http_ingress = load_http_ingress()
+        if self._cold_http_ingress is not None:
+            self._fallback_limit = 1
 
     @property
     def base_url(self) -> str:
@@ -2177,7 +2183,8 @@ class ApiServer:
             display_host = "127.0.0.1"
         elif ":" in display_host and not display_host.startswith("["):
             display_host = f"[{display_host}]"
-        return f"http://{display_host}:{self.port}"
+        prefix = self._cold_http_ingress.prefix("board") if self._cold_http_ingress else ""
+        return f"http://{display_host}:{self.port}{prefix}"
 
     def start(self) -> None:
         if self._server is not None:
@@ -2241,31 +2248,8 @@ class ApiServer:
         self._logger.info("api_server_stopped")
 
     def _wait_until_accepting(self, *, timeout_seconds: float = 5.0) -> None:
-        deadline = perf_counter() + timeout_seconds
-        last_error: BaseException | None = None
-        connect_host = self.host
-        if connect_host in {"0.0.0.0", "::", "[::]"}:
-            connect_host = "127.0.0.1"
-        elif connect_host.startswith("[") and connect_host.endswith("]"):
-            connect_host = connect_host[1:-1]
-        request = (
-            f"GET /api/health HTTP/1.1\r\nHost: {connect_host}\r\nConnection: close\r\n\r\n"
-        ).encode("ascii")
-        while perf_counter() < deadline:
-            try:
-                with socket.create_connection((connect_host, self.port), timeout=0.2) as sock:
-                    sock.settimeout(0.5)
-                    sock.sendall(request)
-                    status_line = sock.recv(64).split(b"\r\n", 1)[0]
-                    if status_line.startswith(b"HTTP/") and b" 200 " in status_line:
-                        return
-                    last_error = RuntimeError(
-                        f"Локальный API вернул неожиданный health status: {status_line!r}"
-                    )
-            except (OSError, TimeoutError) as exc:
-                last_error = exc
-            sleep(0.02)
-        raise RuntimeError("Локальный API запущен, но health endpoint не отвечает.") from last_error
+        prefix = self._cold_http_ingress.prefix("board") if self._cold_http_ingress else ""
+        wait_until_accepting(self.host, self.port, prefix, timeout_seconds=timeout_seconds)
 
     def _build_shared_files_service(self, service: CardService) -> SharedFilesService:
         store = getattr(service, "_store", None)
@@ -2465,6 +2449,7 @@ class ApiServer:
         )
 
         class RequestHandler(_ApiRequestHandler):
+            COLD_HTTP_INGRESS = self._cold_http_ingress
             ROUTES = routes
             ROUTE_SPECS = route_specs
             REQUEST_CONTEXT_FACTORY = request_context_factory

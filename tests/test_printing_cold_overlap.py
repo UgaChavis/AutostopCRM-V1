@@ -11,9 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class PrintingColdOverlapTests(unittest.TestCase):
     def run_node(self, body: str) -> None:
-        loader = (ROOT / "src/minimal_kanban/web_app_assets/source/module_loader.js").read_text(
-            encoding="utf-8"
-        )
+        source = ROOT / "src/minimal_kanban/web_app_assets/source"
+        loader = (source / "cold_board_url.js").read_text(encoding="utf-8") + (
+            source / "module_loader.js"
+        ).read_text(encoding="utf-8")
         script = (
             r"""
 const assert=require('node:assert/strict');

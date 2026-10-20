@@ -19,13 +19,18 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-SCRIPTS = ROOT / "scripts"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
 
-from check_agent_gateway_v2 import (  # noqa: E402
+from minimal_kanban.mcp.gateway_contract import (  # noqa: E402
+    BOARD_WORKFLOW_OPERATIONS,
+    DOCUMENT_WORKFLOW_OPERATIONS,
+    FINANCE_WORKFLOW_OPERATIONS,
+    INVENTORY_WORKFLOW_OPERATIONS,
+)
+from scripts.check_agent_gateway_v2 import (  # noqa: E402
     DEFAULT_TOKEN_ENV,
     EXPECTED_TOOL_NAMES,
     _anonymous_access_probe,
@@ -33,13 +38,6 @@ from check_agent_gateway_v2 import (  # noqa: E402
     _serialized_size,
     _structured,
     _tool_ok,
-)
-
-from minimal_kanban.mcp.gateway_contract import (  # noqa: E402
-    BOARD_WORKFLOW_OPERATIONS,
-    DOCUMENT_WORKFLOW_OPERATIONS,
-    FINANCE_WORKFLOW_OPERATIONS,
-    INVENTORY_WORKFLOW_OPERATIONS,
 )
 
 ATTESTATION_FORMAT = "gateway_attestation_v1"

@@ -581,7 +581,7 @@
     }
     async function fetchGraph(sinceRevision=null){
       const path='/api/get_telegram_agent_behavior'+(Number.isInteger(sinceRevision)?'?since_revision='+encodeURIComponent(sinceRevision):'');
-      const response=await fetch(path,{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store'});
+      const response=await fetch(autostopBoardUrl(path),{method:'GET',headers:operatorHeaders(),credentials:'same-origin',cache:'no-store'});
       const result=await response.json();
       if(response.status===401||response.status===403)throw new Error('auth');
       if(!response.ok||result.ok!==true||!Number.isInteger(result.data?.revision))throw new Error('data');
@@ -750,7 +750,7 @@
       const error=validateGraph();if(error){setStatus(error,'error');return;}
       saveInFlight=true;updateControls();setStatus('Сохранение схемы…');
       try{
-        const response=await fetch('/api/save_telegram_agent_behavior',{method:'POST',headers:operatorHeaders(true),credentials:'same-origin',body:JSON.stringify({graph,expected_revision:revision})});
+        const response=await fetch(autostopBoardUrl('/api/save_telegram_agent_behavior'),{method:'POST',headers:operatorHeaders(true),credentials:'same-origin',body:JSON.stringify({graph,expected_revision:revision})});
         let result=null;try{result=await response.json();}catch(_error){}
         if(response.status===409){try{showConflict(await fetchGraph());}catch(_error){conflict=true;$('conflictDiff').textContent='Схему изменили в CRM. Не удалось загрузить новую версию для сравнения; черновик остался в этой вкладке.';updateControls();setStatus('Схему изменили в другой вкладке. Черновик остался здесь.','error');}return;}
         if(response.status===401||response.status===403){canEdit=false;editing=false;setStatus('Сессия владельца закончилась. Черновик остался в этой вкладке.','error');return;}

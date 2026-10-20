@@ -1,0 +1,65 @@
+# Diagnostic constraints, captured read-only from the successful unit job:
+# https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/39262399690/job/118093179372
+# Source: 855540a7b8ef944488b6767ba77ac6f6626432be (57 installed packages).
+# Windows-only dependencies are resolved from the project's requirements and
+# retained in the runner's complete pip-freeze receipt; this is not a universal lockfile.
+PySide6==6.11.0
+PySide6_Addons==6.11.0
+PySide6_Essentials==6.11.0
+altgraph==0.17.5
+annotated-types==0.8.0
+anyio==4.15.1
+attrs==26.1.0
+certifi==2026.10.18
+cffi==2.1.1
+cfgv==3.5.0
+click==8.5.0
+coverage==7.15.3
+cryptography==48.0.1
+defusedxml==0.7.1
+distlib==0.4.4
+filelock==4.2.4
+greenlet==3.5.6
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+httpx-sse==0.4.3
+identify==2.6.20
+idna==3.20
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+markdown-it-py==4.2.0
+mcp==1.28.1
+mdurl==0.1.2
+nodeenv==1.11.0
+orjson==3.10.18
+packaging==26.3
+platformdirs==4.13.5
+playwright==1.60.0
+pre-commit==4.6.0
+pycparser==3.11
+pydantic==2.14.1
+pydantic-core==2.50.1
+pydantic-settings==2.16.0
+pyee==13.0.1
+pyinstaller==6.19.0
+pyinstaller-hooks-contrib==2026.8
+pyjwt==2.15.1
+python-discovery==1.6.4
+python-dotenv==1.2.4
+python-multipart==0.0.32
+pyyaml==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+ruff==0.15.22
+setuptools==84.0.0
+shiboken6==6.11.0
+sse-starlette==3.5.0
+starlette==1.9.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+# Explicit cross-platform runtime addition; not part of the historic CI freeze.
+# https://pypi.org/project/tzdata/2026.5/
+tzdata==2026.5
+uvicorn==0.54.0
+virtualenv==21.14.11

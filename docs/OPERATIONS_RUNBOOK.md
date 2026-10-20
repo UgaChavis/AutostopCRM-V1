@@ -252,6 +252,62 @@ parallel. The final `quality` job requires every gate to succeed, including
 when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
 are cached; the Docker candidate is loaded only for tests, never pushed.
 
+The `release-rehearsal.yml` workflow runs the complete canonical CI
+profile on separate disposable Ubuntu and Windows runners and a third real
+Linux systemd fixture. Every job checks out the workflow's exact commit and
+publishes source, dependency, native-library and failure evidence. It uses
+Python 3.12.15 on Linux and 3.12.10 on Windows, the project requirements
+and diagnostic constraints captured
+from the successful unit job linked in `.github/release-rehearsal-constraints.txt`.
+Platform-only dependencies remain visible in each complete pip-freeze receipt.
+The first Windows bootstrap failed because the official
+[`actions/python-versions` manifest](https://github.com/actions/python-versions/blob/main/versions-manifest.json)
+has no Windows 3.12.15 payload. Windows therefore uses the latest available
+3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
+The workflow has no deployment, production probes or production credentials.
+The separate [cold recovery contract](J1_COLD_RECOVERY.md) records all six
+replacement roles, original pending and hold provenance, and ingress
+quarantine. Closed-stage inspection alone never permits a replacement start.
+It runs on an explicit dispatch or a push to `autostopcrm-v1` or
+`codex/release-rehearsal/**`,
+so a new workflow can be verified before it reaches the default branch.
+The final gate requires matching completion evidence from all three scenarios;
+a skipped, absent or failed scenario cannot produce a ready result.
+The main-branch quality run also exports the exact Docker image that passed
+its runtime checks, its image identity, installed dependency versions and
+SHA-256 checksums as a build artifact. This performs no registry push or
+server update. Use that image archive in the release kit; a later rebuild
+does not inherit the tested image's identity.
+
+Its SQLite 3.51.3 is private to the runner: Linux builds the runtime image's
+verified source; Windows preloads the verified official DLL through a private
+Python startup directory without replacing the base interpreter's DLL. Before
+the profile, `scripts/rehearsal_runtime.py` checks the actual mapped library,
+version, source ID, temporary WAL/FTS5/integrity behavior, Qt PDF and Chromium.
+Bootstrap failure terminates Python before the requested entrypoint runs.
+
+The rehearsal's strict skip contract records all skipped test IDs and reasons.
+Only the exact operating-system exclusions in `tests/runtime_skip_contract.py`
+are accepted: Windows byte-range/job-handle cases on Linux, and the documented
+Linux/POSIX release, flock, peer-credential, file-mode and browser-fixture cases
+on Windows. Linux root-owned launch-journal exclusions apply only to the two
+native launch test families on Windows. Linux exercises Docker packaging;
+Windows records that separate packaging boundary. Missing Node, Chromium,
+Playwright, supported SQLite, or an unknown skip reason fails the rehearsal.
+The real systemd fixture is required; an absent script or failed fixture cannot
+produce a ready result. Existing hosted `quality` gates remain required.
+The systemd job has a 15-minute bound and creates only UUID-scoped transient
+units and root-owned `/run` fixtures on a disposable hosted Linux VM. It runs
+the actual reviewed native journal/observer against a fixed synthetic consumer,
+with a sentinel effect only after E. Cases cover S/A/C/E, revoke before S and
+between C/E under the real deployment flock, honest late revoke, lost submit
+acknowledgement without resubmission, duplicate entry, stale worker incarnation,
+expiry and corrupt acceptance. Cleanup must stop every owned unit before
+removing private evidence; only sanitized readable reports are uploaded.
+This establishes the fixture's native admission protocol behavior. Full
+production consumer, archive/recovery semantics and production acceptance
+require their separate evidence.
+
 The repository-health audit classifies every tracked file as a canonical doc,
 manifest, runtime code/asset, operations tool, test, or deploy configuration.
 It fails on an unknown role or tracked generated artifact; `--format json`

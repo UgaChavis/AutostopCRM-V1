@@ -310,7 +310,29 @@ class GzipReader:
         return bytes(result)
 
 
-def extract(archive, archivesha, destination, end):
+def extract(
+    archive,
+    archivesha,
+    destination,
+    end,
+    *,
+    max_members=MAX_MEMBERS,
+    max_file=MAX_FILE,
+    max_total=MAX_TOTAL,
+    max_manifest=MAX_MANIFEST,
+):
+    require(
+        all(
+            type(value) is int and 0 < value <= maximum
+            for value, maximum in (
+                (max_members, MAX_MEMBERS),
+                (max_file, MAX_FILE),
+                (max_total, MAX_TOTAL),
+                (max_manifest, MAX_MANIFEST),
+            )
+        ),
+        "archive_limits_invalid",
+    )
     b = core()
     require(
         b.physical(archive).st_size <= MAX_ENVELOPE and b.digest(archive, end) == archivesha,
@@ -352,12 +374,12 @@ def extract(archive, archivesha, destination, end):
             )
             require(info.tobuf(format=tarfile.USTAR_FORMAT) == header, "tar_noncanonical_header")
             require(
-                len(seen) < MAX_MEMBERS
-                and 0 <= info.size <= (MAX_MANIFEST if info.name == "manifest.json" else MAX_FILE),
+                len(seen) < max_members
+                and 0 <= info.size <= (max_manifest if info.name == "manifest.json" else max_file),
                 "tar_member_limit",
             )
             total += info.size
-            require(total <= MAX_TOTAL + MAX_MANIFEST, "tar_total_limit")
+            require(total <= max_total + max_manifest, "tar_total_limit")
             target, digest, remaining = destination / info.name, hashlib.sha256(), info.size
             with b.new_file(target) as output:
                 while remaining:

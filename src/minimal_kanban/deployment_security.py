@@ -290,6 +290,13 @@ def validate_production_environment(
     public_endpoint_url = str(
         source.get("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL", "") or ""
     ).strip()
+    from .cold_http_ingress import ColdHttpIngressUnavailableError, validate_public_urls
+
+    try:
+        expected_mcp_path = validate_public_urls(source)
+    except ColdHttpIngressUnavailableError:
+        expected_mcp_path = "/mcp"
+        errors.append("Cold HTTP ingress configuration must be physically validated")
     if not public_base_url:
         errors.append("MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL is required in production")
     else:
@@ -300,7 +307,9 @@ def validate_production_environment(
         errors.append("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL is required in production")
     else:
         error = _validate_https_url(
-            "MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL", public_endpoint_url, expected_path="/mcp"
+            "MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL",
+            public_endpoint_url,
+            expected_path=expected_mcp_path,
         )
         if error:
             errors.append(error)

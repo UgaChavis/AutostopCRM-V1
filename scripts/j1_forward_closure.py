@@ -29,9 +29,13 @@ from scripts import j1_forward_authority as authority
 from scripts import j1_forward_host as host_policy
 from scripts import j1_forward_io as io
 from scripts import j1_forward_process_scope as process_scope
+from scripts import j1_forward_recovery_scope as recovery_scope
 from scripts import j1_forward_state as forward_state
+from scripts import j1_forward_store as store_drain
+from scripts import j1_forward_variant as variant
 
 SCHEMA = "autostop.j1.crm-forward-closure.v2"
+MIXED_SCHEMA = "autostop.j1.crm-manager-mcp-forward-closure.v3"
 UNITS = tuple(
     sorted(
         (
@@ -78,6 +82,22 @@ WRITER_ROOTS = (
     "/var/lib/autostop-telegram",
     "/root/.codex",
 )
+
+
+def writer_roots(ownership):
+    """The versioned closure selects fixed extra roots, never caller paths."""
+    if ownership.get("schema") != MIXED_SCHEMA:
+        return WRITER_ROOTS
+    from scripts import j1_forward_mixed_backup as policy
+    from scripts import j1_manager_successor_guard_v2 as guard
+
+    return (*WRITER_ROOTS, *(path for _name, path in policy.EXTRA_ROOTS), guard.SOURCE_ROOT)
+
+
+def _scan_options(ownership):
+    return {"roots": writer_roots(ownership)} if ownership.get("schema") == MIXED_SCHEMA else {}
+
+
 ACTOR_FIELDS = (
     "pid",
     "start_ticks",
@@ -209,6 +229,10 @@ def _forward_commands(attempt):
         for stage in ("closed", "activated"):
             commands[(*prefix, "inspect", "--attempt", attempt, "--stage", stage)] = "inspect"
         commands[(*prefix, "export-delta", "--attempt", attempt)] = "export-delta"
+        for stage in ("closed", "terminal"):
+            commands[(*prefix, "export-control", "--attempt", attempt, "--stage", stage)] = (
+                "export-control"
+            )
         for kind in ("offhost_restore", "native_acceptance", "runtime_acceptance"):
             commands[(*prefix, "receive-proof", "--attempt", attempt, "--kind", kind)] = (
                 "receive-proof"
@@ -381,7 +405,9 @@ class LinuxRunner:
         return io.write_new(directory / "process-scope.json", value)
 
     def load_scope(self, reference):
-        return io.document(io.referenced(reference))
+        scope = io.document(io.referenced(reference))
+        _scope_module(scope).actor_sets(scope)
+        return scope
 
     def capture_scope(self, native, closure):
         return process_scope.capture(
@@ -392,25 +418,22 @@ class LinuxRunner:
         )
 
     def verify_scope(self, scope, *, frozen):
-        return process_scope.verify(scope, frozen=frozen)
+        return _scope_module(scope).verify(scope, frozen=frozen)
 
     def scope_actors(self, scope):
-        return process_scope.actor_sets(scope)
+        return _scope_module(scope).actor_sets(scope)
 
     def activation_scope(self, scope, *, released=False):
-        return (
-            process_scope.verify_released(scope)
-            if released
-            else process_scope.verify_activation(scope)
-        )
+        module = _scope_module(scope)
+        return module.verify_released(scope) if released else module.verify_activation(scope)
 
     def staging_scope(self, scope):
-        return process_scope.verify_staging(scope)
+        return _scope_module(scope).verify_staging(scope)
 
     def admission_window(self, closure):
         plan = io.document(io.read_protected(Path(closure["attempt_dir"]) / "plan.json"))
         scope = self.load_scope(closure["process_scope_ref"])
-        forward_state.validate_plan(plan, scope["base_sha256"])
+        variant.validate_plan(plan, scope["base_sha256"])
         io.require(
             plan["attempt_id"] == closure["attempt_id"]
             and plan["candidate"]["consumer_sha256"] == closure["consumer_sha256"],
@@ -471,7 +494,7 @@ class LinuxRunner:
         directory = Path(closure["attempt_dir"])
         plan = io.document(io.read_protected(directory / "plan.json"))
         scope = self.load_scope(closure["process_scope_ref"])
-        forward_state.validate_plan(plan, scope["base_sha256"])
+        variant.validate_plan(plan, scope["base_sha256"])
         root = ATTEMPTS.parent / "state"
         io.require(
             type(commit_ref) is dict
@@ -488,7 +511,11 @@ class LinuxRunner:
             == io.reference(directory / "closure-owned.json"),
             "auxiliary_commit_binding",
         )
-        store = forward_state.Store(root, scope["base_sha256"])
+        store = (
+            variant.store(root, plan)
+            if variant.is_mixed(plan)
+            else forward_state.Store(root, scope["base_sha256"])
+        )
         expected = {"sequence": plan["sequence"], "sha256": commit_ref["sha256"], "record": record}
         io.require(store.head() == expected, "auxiliary_commit_head")
         io.confirm_durable(commit_ref)
@@ -529,7 +556,72 @@ class LinuxRunner:
     def reload(self, deadline):
         self.command(["/usr/bin/systemctl", "daemon-reload"], deadline)
 
-    def stop(self, deadline):
+    def _store_stop(self, ownership, deadline):
+        # Reconstruct from the same protected plan in the independent settlement
+        # process too. A receipt from an earlier PID or activation is no permit.
+        plan, baseline = self._control_baseline(ownership)
+        self.control_bindings(ownership)
+        native = variant.stop_native(plan, baseline)
+        io.require(
+            native.get("sha256")
+            == io.sha(
+                io.canonical({key: value for key, value in native.items() if key != "sha256"})
+            ),
+            "store_stop_native_digest",
+        )
+        binding = {
+            "schema": "autostop.j1.crm-forward-store-stop.v1",
+            "attempt_id": ownership["attempt_id"],
+            "consumer_sha256": ownership["consumer_sha256"],
+            "native_baseline_sha256": ownership["baseline_sha256"],
+            "baseline_ref": plan["baseline_ref"],
+            "process_scope_ref": ownership["process_scope_ref"],
+        }
+        try:
+            drain_deadline = min(deadline, time.monotonic() + 120)
+            result = store_drain.drain_before_stop(
+                native, deadline=drain_deadline, command=self.command
+            )
+            io.require(
+                type(result) is dict
+                and result.get("ok") is True
+                and result.get("stop_permitted") is True,
+                "store_stop_not_permitted",
+            )
+            receipt = self._store_stop_receipt(ownership, binding, result)
+            store_drain.verify_stop_identity(
+                native, result, deadline=drain_deadline, command=self.command
+            )
+        except Exception as error:
+            self._store_stop_receipt(
+                ownership,
+                binding,
+                {
+                    "ok": False,
+                    "stop_permitted": False,
+                    "error_code": str(error)
+                    if isinstance(error, io.Refusal)
+                    else "store_drain_failed",
+                },
+            )
+            raise
+        return receipt
+
+    @staticmethod
+    def _store_stop_receipt(ownership, binding, result):
+        return io.write_new(
+            Path(ownership["attempt_dir"]) / ("store-drain-" + uuid.uuid4().hex + ".json"),
+            {
+                **binding,
+                "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "result": result,
+            },
+        )
+
+    def stop(self, deadline, *, ownership):
+        # This gate precedes BOTH systemd and Docker effects. Normal closure and
+        # failure/ExecStopPost settlement must never bypass a pending Store write.
+        self._store_stop(ownership, deadline)
         failures = []
         for args in (
             ["/usr/bin/systemctl", "stop", *UNITS],
@@ -647,12 +739,13 @@ class LinuxRunner:
         io.require(len(result) <= 65536, "process_scan_limit")
         return result
 
-    def control_bindings(self, closure):
-        """Bind the fixed script to this attempt's already protected plan."""
+    def _control_baseline(self, closure):
         directory = ATTEMPTS / closure["attempt_id"]
         io.require(str(directory) == closure["attempt_dir"], "control_attempt_directory")
         plan = io.document(io.read_protected(directory / "plan.json"))
         baseline = io.document(io.referenced(plan["baseline_ref"]))
+        if variant.is_mixed(plan):
+            variant.validate_plan(plan, plan["base_sha256"])
         io.require(
             plan["attempt_id"] == closure["attempt_id"]
             and plan["baseline_ref"]["path"] == str(directory / "baseline.json")
@@ -660,17 +753,22 @@ class LinuxRunner:
             and io.sha(io.canonical(baseline["native"])) == closure["baseline_sha256"],
             "control_baseline_binding",
         )
+        return plan, baseline
+
+    def control_bindings(self, closure):
+        """Bind the fixed script to this attempt's already protected plan."""
+        plan, baseline = self._control_baseline(closure)
         consumers = baseline["source_consumers"]
         io.require(
             type(consumers) is dict
-            and 8 <= len(consumers) <= 32
+            and 8 <= len(consumers) <= (80 if variant.is_mixed(plan) else 64)
             and "scripts/j1_forward_release.py" in consumers
             and io.sha(io.canonical(consumers)) == plan["candidate"]["consumer_sha256"],
             "control_consumer_binding",
         )
         for name, digest in consumers.items():
             io.require(
-                re.fullmatch(r"scripts/j1_forward_[a-z_]+\.py", name), "control_consumer_path"
+                variant.consumer_name(name, mixed=variant.is_mixed(plan)), "control_consumer_path"
             )
             io.require(io.reference(CRM / name)["sha256"] == digest, "control_consumer_changed")
         digest = plan["candidate"]["consumer_sha256"]
@@ -773,9 +871,9 @@ class LinuxRunner:
                 admitted.add(parent)
         return admitted
 
-    def source_roots(self):
+    def source_roots(self, *, roots=WRITER_ROOTS):
         result = []
-        for name in WRITER_ROOTS:
+        for name in roots:
             path = Path(name)
             try:
                 info = path.lstat()
@@ -855,7 +953,7 @@ class LinuxRunner:
         )
         return results
 
-    def containers(self, deadline):
+    def containers(self, deadline, *, roots=WRITER_ROOTS):
         ids = self.command([*DOCKER, "ps", "--quiet", "--no-trunc"], deadline).decode().split()
         io.require(all(re.fullmatch("[0-9a-f]{64}", item) for item in ids), "container_id_invalid")
         if not ids:
@@ -884,10 +982,8 @@ class LinuxRunner:
                     not (
                         mount.get("RW") is True
                         and (
-                            _under(source)
-                            or any(
-                                root.startswith(source.rstrip("/") + "/") for root in WRITER_ROOTS
-                            )
+                            _under(source, roots)
+                            or any(root.startswith(source.rstrip("/") + "/") for root in roots)
                         )
                     ),
                     "alternative_container_writer",
@@ -924,8 +1020,8 @@ class LinuxRunner:
             "cache_alias_identity",
         )
 
-    def descriptor_scan(self, processes, frozen, own):
-        inodes = self.source_inodes()
+    def descriptor_scan(self, processes, frozen, own, *, roots=WRITER_ROOTS):
+        inodes = self.source_inodes() if roots == WRITER_ROOTS else self.source_inodes(roots=roots)
         frozen_fds = coordination = 0
         for pid, proc in processes.items():
             root = Path("/proc") / str(pid)
@@ -934,7 +1030,7 @@ class LinuxRunner:
                     try:
                         target = os.readlink(fd).removesuffix(" (deleted)")
                         info = fd.stat()
-                        if not _under(target) and (info.st_dev, info.st_ino) not in inodes:
+                        if not _under(target, roots) and (info.st_dev, info.st_ino) not in inodes:
                             continue
                         details = dict(
                             line.split(":", 1)
@@ -964,7 +1060,7 @@ class LinuxRunner:
                         target = fields[5].removesuffix(" (deleted)")
                         major, minor = (int(item, 16) for item in fields[3].split(":"))
                         identity = (os.makedev(major, minor), int(fields[4]))
-                        if _under(target) or identity in inodes:
+                        if _under(target, roots) or identity in inodes:
                             io.require(
                                 pid in frozen or (pid in own and self.coordination_path(target)),
                                 "unexpected_source_write_mapping",
@@ -975,14 +1071,14 @@ class LinuxRunner:
         return {"frozen_owned_write_fds": frozen_fds, "owned_sqlite_coordination_fds": coordination}
 
     @staticmethod
-    def source_inodes():
+    def source_inodes(*, roots=WRITER_ROOTS):
         """Metadata only; include hardlink and mount-namespace aliases of sources."""
         result = set()
 
         def failed(_error):
             raise io.Refusal("source_inventory_incomplete")
 
-        for name in WRITER_ROOTS:
+        for name in roots:
             path = Path(name)
             if not path.exists():
                 continue
@@ -1055,8 +1151,34 @@ def _paths():
     ]
 
 
+def _scope_module(scope):
+    io.require(type(scope) is dict, "closure_scope_schema")
+    if scope.get("schema") == process_scope.SCHEMA:
+        return process_scope
+    io.require(scope.get("schema") == recovery_scope.SCHEMA, "closure_scope_schema")
+    return recovery_scope
+
+
+def _retained_proxies(scope):
+    return set(recovery_scope.ORPHANS) if _scope_module(scope) is recovery_scope else set()
+
+
 def _validate(closure):
-    io.require(type(closure) is dict and closure.get("schema") == SCHEMA, "closure_schema")
+    io.require(
+        type(closure) is dict and closure.get("schema") in {SCHEMA, MIXED_SCHEMA}, "closure_schema"
+    )
+    if closure["schema"] == MIXED_SCHEMA:
+        io.require(
+            closure.get("permanent_denied_units")
+            == sorted(set(authority.ALL_UNITS) - set(authority.NATIVE_UNITS)),
+            "mixed_closure_permanent_denied",
+        )
+        from scripts.j1_forward_mixed_authority import load_transition
+
+        receipt, _binding = load_transition(closure.get("manager_transition_ref"))
+        io.require(
+            receipt["attempt_id"] == closure["attempt_id"], "mixed_closure_transition_attempt"
+        )
     io.require(
         closure.get("dropins") == _paths() and closure.get("bytes_sha256") == io.sha(DENY_BYTES),
         "closure_fixed_barriers",
@@ -1089,6 +1211,7 @@ def _scope(closure):
 
 
 def _scope_binding(closure, scope):
+    _scope_module(scope)
     io.require(
         scope.get("attempt_id") == closure["attempt_id"]
         and scope.get("attempt_dir") == closure["attempt_dir"]
@@ -1143,6 +1266,12 @@ def _ingress_drain(closure, *, required=False):
     )
     scope = _scope(closure)
     staging = value.get("staging_observation", {})
+    recovery = _scope_module(scope) is recovery_scope
+    extra = (
+        {"retired_transports_absent", "disposition", "original_liveness", "retained_frozen"}
+        if recovery
+        else set()
+    )
     io.require(
         type(staging) is dict
         and set(staging)
@@ -1155,7 +1284,9 @@ def _ingress_drain(closure, *, required=False):
             "native_control_peer",
             "topology_sha256",
         }
-        and staging.get("schema") == "autostop.j1.crm-forward-process-scope-staging.v1"
+        | extra
+        and staging.get("schema")
+        == "autostop.j1.crm-forward-process-scope-staging.v" + ("2" if recovery else "1")
         and staging.get("scope_sha256") == closure["process_scope_ref"]["sha256"]
         and staging.get("auxiliary_released") is False
         and staging.get("native_control_peer", "missing") is None
@@ -1183,6 +1314,15 @@ def _ingress_drain(closure, *, required=False):
                 ),
                 "ingress_staging_actors",
             )
+    if recovery:
+        io.require(
+            staging["retired_transports_absent"] == list(recovery_scope.RETIRED)
+            and staging["disposition"] == recovery_scope.DISPOSITION
+            and staging["retained_frozen"] == list(recovery_scope.ORPHANS)
+            and staging["original_liveness"]
+            == [row for row in staging["freeze_actors"] if row["pid"] in recovery_scope.ORIGINAL],
+            "ingress_recovery_disposition",
+        )
     return reference
 
 
@@ -1287,13 +1427,33 @@ def _barrier_files(closure):
     policy_ref = capsule["policy"]
     io.referenced(policy_ref)
     sample(policy_ref["path"], policy_ref["sha256"])
+    if closure.get("schema") == MIXED_SCHEMA:
+        from scripts import j1_forward_mixed_authority as mixed
+        from scripts import j1_manager_successor_guard_v2 as guard
+        from scripts import j1_manager_successor_native_v2 as native
+
+        transition_ref = closure["manager_transition_ref"]
+        sample(transition_ref["path"], transition_ref["sha256"])
+        receipt, binding = mixed.load_transition(transition_ref)
+        sample(receipt["binding_ref"]["path"], receipt["binding_ref"]["sha256"])
+        for key in ("guard", "native", "capsule", "source_index", "predecessor_baseline"):
+            sample(binding[key]["path"], binding[key]["sha256"])
+        sample(guard.BASE, guard.BASE_SHA256)
+        sample(native.BASE, native.BASE_SHA256)
+        if os.path.lexists(guard.DROPIN):
+            sample(guard.DROPIN, io.sha(guard.render_dropin(receipt["binding_ref"]["sha256"])))
     return policy_ref["sha256"], samples
 
 
-def _barrier_conditions(raw, unit, policy_hash):
+def _barrier_conditions(raw, unit, policy_hash, *, successor_hash=None):
     prefix = f"/usr/bin/python3 -I -S {authority.GUARD}"
+    guard_command = f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"
+    if successor_hash is not None:
+        from scripts import j1_manager_successor_guard_v2 as guard
+
+        guard_command = f"/usr/bin/python3 -I -S -B {guard.GUARD} check --binding-sha256 {successor_hash} --unit {unit}"
     expected = (
-        ("/usr/bin/python3", f"{prefix} check --policy-sha256 {policy_hash} --unit {unit}"),
+        ("/usr/bin/python3", guard_command),
         ("/usr/bin/false", "/usr/bin/false"),
     )
     records = re.findall(r"\{ ([^{}]*) \}", raw)
@@ -1336,8 +1496,21 @@ def inspect_barriers(closure):
         _barriers(closure)
         units = RUNNER.units(deadline)
         _unit_policy(units, stopped=False)
+        successor_hash = None
+        if closure.get("schema") == MIXED_SCHEMA:
+            from scripts import j1_forward_mixed_authority as mixed
+            from scripts import j1_manager_successor_guard_v2 as guard
+
+            if os.path.lexists(guard.DROPIN):
+                receipt, _binding = mixed.load_transition(closure["manager_transition_ref"])
+                successor_hash = receipt["binding_ref"]["sha256"]
         for unit, status in units.items():
-            _barrier_conditions(status["ExecCondition"], unit, policy_hash)
+            _barrier_conditions(
+                status["ExecCondition"],
+                unit,
+                policy_hash,
+                successor_hash=successor_hash if unit == "autostop-manager-mcp.service" else None,
+            )
             io.require(not status.get("Job"), "barrier_unit_job_pending")
             if unit not in authority.NATIVE_UNITS:
                 io.require(
@@ -1353,7 +1526,9 @@ def inspect_barriers(closure):
         io.require(_barrier_files(closure) == (policy_hash, files), "barrier_files_changed")
         _remaining(deadline)
         return {
-            "schema": "autostop.j1.crm-forward-barrier-inspection.v1",
+            "schema": "autostop.j1.crm-manager-mcp-forward-barrier-inspection.v2"
+            if closure.get("schema") == MIXED_SCHEMA
+            else "autostop.j1.crm-forward-barrier-inspection.v1",
             "attempt_id": closure["attempt_id"],
             "boot_id": closure["boot_id"],
             "barriers": closure["dropins"],
@@ -1443,10 +1618,13 @@ def _observe(closure, *, force_full=False, deadline=None, require_admission=Fals
         _unit_policy(units)
         processes = RUNNER.processes()
         frozen, own = _process_policy(closure, processes)
-        io.require(RUNNER.source_roots() == closure["source_roots"], "writer_roots_changed")
+        scan_options = _scan_options(closure)
+        io.require(
+            RUNNER.source_roots(**scan_options) == closure["source_roots"], "writer_roots_changed"
+        )
         RUNNER.cache_views(deadline)
-        containers = RUNNER.containers(deadline)
-        descriptors = RUNNER.descriptor_scan(processes, frozen, own)
+        containers = RUNNER.containers(deadline, **scan_options)
+        descriptors = RUNNER.descriptor_scan(processes, frozen, own, **scan_options)
         _remaining(deadline)
         # Recheck after the expensive scan; a mid-scan thaw is never hidden.
         _barriers(closure)
@@ -1491,13 +1669,16 @@ def observe_closed(closure: dict, *, force_full=False) -> dict:
 def _activation_actors(closure, *, released):
     scope = _scope(closure)
     writers, transports = RUNNER.scope_actors(scope)
+    retained = _retained_proxies(scope)
     observed_writers, observed_transports = [], []
     with _executable_hash_pass():
         for group, output in ((writers, observed_writers), (transports, observed_transports)):
             for expected in group:
                 actual = RUNNER.actor(expected, full=True)
                 _same_actor(expected, actual, full=True)
-                stopped = group is writers and expected["pid"] != 538285 and not released
+                stopped = group is writers and (
+                    expected["pid"] in retained or (expected["pid"] != 538285 and not released)
+                )
                 io.require(actual.get("stopped") is stopped, "activation_actor_stop_state")
                 output.append(
                     {"pid": actual["pid"], "start_ticks": actual["start_ticks"], "stopped": stopped}
@@ -1507,7 +1688,16 @@ def _activation_actors(closure, *, released):
 
 def _open_barriers(closure):
     for entry in closure["dropins"]:
-        io.require(RUNNER.read_barrier(Path(entry["path"])) is None, "activation_barrier_present")
+        denied = (
+            closure.get("permanent_denied_units", ())
+            if closure.get("schema") == MIXED_SCHEMA
+            else ()
+        )
+        io.require(
+            RUNNER.read_barrier(Path(entry["path"]))
+            == (DENY_BYTES if entry["unit"] in denied else None),
+            "activation_barrier_present",
+        )
 
 
 def observe_activation(closure: dict) -> dict:
@@ -1551,13 +1741,23 @@ def _prepared_ownership(baseline: dict, attempt_dir: Path, *, reuse: bool) -> di
         "bytes_sha256": io.sha(DENY_BYTES),
         "warm_actors": actors,
         "baseline_sha256": io.sha(io.canonical(baseline)),
-        "source_roots": RUNNER.source_roots(),
     }
+    if baseline.get("schema") == "autostop.j1.crm-manager-mcp-native-baseline.v2":
+        closure.update(
+            schema=MIXED_SCHEMA,
+            manager_transition_ref=baseline["manager_transition_ref"],
+            permanent_denied_units=sorted(set(authority.ALL_UNITS) - set(authority.NATIVE_UNITS)),
+        )
+    closure["source_roots"] = RUNNER.source_roots(**_scan_options(closure))
     closure["consumer_sha256"] = RUNNER.control_bindings(closure)
     for actor in actors:
         _same_actor(actor, RUNNER.actor(actor, full=True), full=True)
     for entry in closure["dropins"]:
-        io.require(RUNNER.read_barrier(Path(entry["path"])) is None, "barrier_already_exists")
+        permanent = entry["unit"] in closure.get("permanent_denied_units", ())
+        io.require(
+            RUNNER.read_barrier(Path(entry["path"])) == (DENY_BYTES if permanent else None),
+            "permanent_denied_barrier_changed" if permanent else "barrier_already_exists",
+        )
     existing = None
     if reuse:
         try:
@@ -1598,10 +1798,16 @@ def close_writers(baseline: dict, attempt_dir: Path, *, deadline: float, idle_ob
         _remaining(deadline)
         try:
             for entry in closure["dropins"]:
-                RUNNER.put_barrier(Path(entry["path"]))
+                path = Path(entry["path"])
+                if entry["unit"] in closure.get("permanent_denied_units", ()):
+                    io.require(
+                        RUNNER.read_barrier(path) == DENY_BYTES, "permanent_denied_barrier_changed"
+                    )
+                else:
+                    RUNNER.put_barrier(path)
             RUNNER.reload(deadline)
             _unit_policy(RUNNER.units(deadline), stopped=False)
-            RUNNER.stop(deadline)
+            RUNNER.stop(deadline, ownership=closure)
             scope = _scope(closure)
             RUNNER.verify_scope(scope, frozen=False)
             _process_policy(closure, RUNNER.processes())
@@ -1645,6 +1851,80 @@ def close_writers(baseline: dict, attempt_dir: Path, *, deadline: float, idle_ob
             raise
 
 
+def _recovery_preclose(closure, deadline):
+    """Validate a fenced recovery without claiming drained ingress or caching it.
+
+    Recovery's preclose verifier admits only its independently bound pending
+    ingress provenance. This full writer/source scan cannot authorize backup,
+    reopen or activation; those still require the later immutable drain proof.
+    """
+    _validate(closure)
+    _barriers(closure)
+    scope, _writers, _actors_seen, _transports = _closed_actors(closure, deadline, full=True)
+    io.require(_scope_module(scope) is recovery_scope, "recovery_scope_required")
+    RUNNER.verify_scope(scope, frozen=False)
+    _unit_policy(RUNNER.units(deadline))
+    processes = RUNNER.processes()
+    frozen, own = _process_policy(closure, processes)
+    io.require(RUNNER.source_roots() == closure["source_roots"], "writer_roots_changed")
+    RUNNER.cache_views(deadline)
+    RUNNER.containers(deadline)
+    RUNNER.descriptor_scan(processes, frozen, own)
+    _remaining(deadline)
+    _barriers(closure)
+    _closed_actors(closure, deadline)
+    RUNNER.verify_scope(scope, frozen=False)
+    _remaining(deadline)
+
+
+def close_recovery(closure: dict, *, deadline: float, idle_observer) -> dict:
+    """Drain a stored recovery cohort while its orphan proxies remain frozen.
+
+    The caller owns the original deployment lock and has validated the new
+    pending transition. No historical actor is recaptured or adopted here.
+    """
+    with _LOCK:
+        _validate(closure)
+        io.require(_scope_module(_scope(closure)) is recovery_scope, "recovery_scope_required")
+        try:
+            io.require(callable(idle_observer), "ingress_idle_observer_required")
+            _remaining(deadline)
+            io.require(RUNNER.load_drain(closure) == (None, None), "recovery_drain_already_exists")
+            # Read the loaded fence before allowing any native stop hooks to run.
+            _barriers(closure)
+            _unit_policy(RUNNER.units(deadline), stopped=False)
+            RUNNER.stop(deadline, ownership=closure)
+            _recovery_preclose(closure, min(deadline, time.monotonic() + 30))
+            _remaining(deadline)
+            daemon = closure["freeze_actors"][0]
+            RUNNER.signal_actor(daemon, False, deadline=deadline)
+            _activation_actors(closure, released=False)
+            _remaining(deadline)
+            idle_ref = idle_observer()
+            RUNNER.idle_receipt(closure, idle_ref)
+            _remaining(deadline)
+            staging = RUNNER.staging_scope(_scope(closure))
+            _remaining(deadline)
+            RUNNER.save_drain(
+                closure,
+                {
+                    "schema": "autostop.j1.crm-forward-ingress-drain.v1",
+                    "attempt_id": closure["attempt_id"],
+                    "process_scope_ref": closure["process_scope_ref"],
+                    "idle_observation_ref": idle_ref,
+                    "staging_observation": staging,
+                    "observed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                },
+            )
+            _remaining(deadline)
+            RUNNER.signal_actor(daemon, True, deadline=deadline)
+            _observe(closure, force_full=True, deadline=deadline, require_admission=True)
+            return closure
+        except BaseException:
+            fail_closed(closure)
+            raise
+
+
 def fail_closed(closure: dict) -> dict:
     """Best-effort restoration, preserving unknown files and PID incarnations."""
     with _LOCK:
@@ -1669,7 +1949,7 @@ def fail_closed(closure: dict) -> dict:
             errors.append("loaded_barrier_restore_failed")
         if safe_to_stop:
             try:
-                RUNNER.stop(deadline)
+                RUNNER.stop(deadline, ownership=closure)
             except Exception:
                 errors.append("writer_stop_failed")
         for actor in closure["freeze_actors"]:
@@ -1702,7 +1982,8 @@ def reopen_native(closure: dict, *, deadline=None) -> None:
         try:
             for entry in closure["dropins"]:
                 _remaining(deadline)
-                RUNNER.remove_barrier(Path(entry["path"]))
+                if entry["unit"] not in closure.get("permanent_denied_units", ()):
+                    RUNNER.remove_barrier(Path(entry["path"]))
             RUNNER.reload(deadline)
             _remaining(deadline)
             RUNNER.signal_actor(closure["freeze_actors"][0], False, deadline=deadline)
@@ -1714,6 +1995,29 @@ def reopen_native(closure: dict, *, deadline=None) -> None:
             raise
 
 
+def observe_released(closure: dict) -> dict:
+    """Fresh readback of the committed release, including retained orphans."""
+    with _LOCK:
+        _validate(closure)
+        _open_barriers(closure)
+        scope = _scope(closure)
+        observed_scope = RUNNER.activation_scope(scope, released=True)
+        writers, transports = _activation_actors(closure, released=True)
+        result = {
+            "schema": "autostop.j1.crm-forward-released-observation.v2",
+            "attempt_id": closure["attempt_id"],
+            "process_scope_ref": closure["process_scope_ref"],
+            "freeze_actors": writers,
+            "transport_actors": transports,
+            "process_scope_observation": observed_scope,
+            "sampled_at": time.time(),
+        }
+        if scope.get("schema") == recovery_scope.SCHEMA:
+            result["disposition"] = recovery_scope.DISPOSITION
+            result["retained_frozen"] = list(recovery_scope.ORPHANS)
+        return result
+
+
 def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
     """Release only stored auxiliaries after exact durable HEAD, under caller's old lock."""
     with _LOCK:
@@ -1721,12 +2025,14 @@ def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
         RUNNER.committed(closure, commit_ref)
         observe_activation(closure)
         try:
+            retained = _retained_proxies(_scope(closure))
             # The daemon is already online; no signal targets a transport.
             for actor in reversed(closure["freeze_actors"][1:]):
                 actual = RUNNER.actor(actor, full=True)
                 _same_actor(actor, actual, full=True)
                 io.require(actual.get("stopped") is True, "auxiliary_not_owned_stopped")
-                RUNNER.signal_actor(actor, False)
+                if actor["pid"] not in retained:
+                    RUNNER.signal_actor(actor, False)
             scope_observation = RUNNER.activation_scope(_scope(closure), released=True)
             writers, transports = _activation_actors(closure, released=True)
             return {
@@ -1738,6 +2044,14 @@ def release_auxiliary(closure: dict, commit_ref: dict) -> dict:
                 "transport_actors": transports,
                 "process_scope_observation": scope_observation,
                 "sampled_at": time.time(),
+                **(
+                    {
+                        "disposition": recovery_scope.DISPOSITION,
+                        "retained_frozen": list(recovery_scope.ORPHANS),
+                    }
+                    if retained
+                    else {}
+                ),
             }
         except BaseException:
             fail_closed(closure)

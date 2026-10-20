@@ -266,6 +266,9 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
         self.assertIn("!docs/J1_RELEASE_BOUNDARY.md", rules)
+        self.assertIn("!docs/J1_FORWARD_LAUNCH_ADMISSION.md", rules)
+        self.assertIn("!docs/J1_COLD_RECOVERY.md", rules)
+        self.assertIn("!docs/J1_MANAGER_AUTHORITY_TRANSITION.md", rules)
 
     @unittest.skipUnless(
         os.environ.get("AUTOSTOPCRM_DOCKER_CONTEXT_TESTS") == "1",
@@ -348,6 +351,12 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
                 "Docker image excludes canonical documentation: !docs/J1_RELEASE_BOUNDARY.md",
                 "Docker image excludes canonical documentation: !docs/J1_CRM_FORWARD_RELEASE.md",
+                "Docker image excludes canonical documentation: !docs/J1_FORWARD_LAUNCH_ADMISSION.md",
+                "Docker image excludes canonical documentation: !docs/J1_COLD_RECOVERY.md",
+                "Docker image excludes canonical documentation: !docs/J1_STORE54_BOUNDARY.md",
+                "Docker image excludes canonical documentation: !docs/J1_COLD_KERNEL_PREPARATION.md",
+                "Docker image excludes canonical documentation: !docs/J1_COLD_NATIVE_PREPARATION.md",
+                "Docker image excludes canonical documentation: !docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
             },
             {issue.detail for issue in issues},
         )
@@ -723,6 +732,10 @@ class DocsAuditTests(unittest.TestCase):
             (temp_root / "requirements-runtime.txt").write_text(
                 "runtime manifest\n", encoding="utf-8"
             )
+            (temp_root / ".github").mkdir()
+            (temp_root / ".github/release-rehearsal-constraints.txt").write_text(
+                "pinned rehearsal manifest\n", encoding="utf-8"
+            )
             (temp_root / "notes.md").write_text("unclassified\n", encoding="utf-8")
             (temp_root / "removed.md").write_text("deleted before audit\n", encoding="utf-8")
             subprocess.run(["git", "init"], cwd=temp_root, check=True, capture_output=True)
@@ -733,6 +746,7 @@ class DocsAuditTests(unittest.TestCase):
                     "README.md",
                     "requirements.txt",
                     "requirements-runtime.txt",
+                    ".github/release-rehearsal-constraints.txt",
                     "notes.md",
                     "removed.md",
                 ],

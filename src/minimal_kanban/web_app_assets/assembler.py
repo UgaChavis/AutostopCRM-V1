@@ -76,13 +76,21 @@ BOARD_WEB_APP_HTML = "".join(
     ]
 )
 
-DISPLAY_DASHBOARD_HTML = _read_source_chunk("display_dashboard.html")
+
+def _with_address_generation(document: str) -> str:
+    helper = _read_source_chunk("cold_board_url.js")
+    return document.replace("<script>", "<script>\n" + helper, 1)
+
+
+DISPLAY_DASHBOARD_HTML = _with_address_generation(_read_source_chunk("display_dashboard.html"))
 
 
 # The public shell contains no topology. The API serves this dataset only to
 # authenticated browser operators, using the existing infrastructure route.
-MODULE_MAP_HTML = _read_source_chunk("module_map.html")
-MANAGER_STRUCTURE_HTML = read_browser_source("manager_structure.html")
+MODULE_MAP_HTML = _with_address_generation(_read_source_chunk("module_map.html"))
+MANAGER_STRUCTURE_HTML = _with_address_generation(read_browser_source("manager_structure.html"))
 MODULE_MAP_INFRASTRUCTURE = json.loads(_read_source_chunk("manager_infrastructure.json"))
-TELEGRAM_AGENT_BEHAVIOR_HTML = _read_source_chunk("telegram_agent_behavior.html")
+TELEGRAM_AGENT_BEHAVIOR_HTML = _with_address_generation(
+    _read_source_chunk("telegram_agent_behavior.html")
+)
 TELEGRAM_AGENT_BEHAVIOR = json.loads(_read_source_chunk("telegram_agent_behavior.json"))

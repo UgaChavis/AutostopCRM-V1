@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..cold_manager import prepare_cold_manager
 from ..deployment_security import load_agent_gateway_security_policy
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
 
@@ -23,6 +24,8 @@ class AutostopManagerCompatibilityError(RuntimeError):
 
 
 def _add_autostop_manager_path() -> None:
+    if prepare_cold_manager():
+        return
     configured_path = os.environ.get("AUTOSTOP_MANAGER_PATH", "").strip()
     repo_root = Path(__file__).resolve().parents[3]
     candidates = []

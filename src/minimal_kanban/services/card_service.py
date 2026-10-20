@@ -7,6 +7,7 @@ import math
 import re
 import time
 import uuid
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from logging import Logger
@@ -131,6 +132,7 @@ from .card_service_finance import (
     CardServiceFinanceMixin,
 )
 from .card_service_inventory import CardServiceInventoryMixin
+from .card_service_payment_links import CardServicePaymentLinksMixin
 from .card_service_payroll import CardServicePayrollMixin
 from .card_service_repair_order_search import (
     SEARCH_SEPARATOR_PATTERN as _SEARCH_SEPARATOR_PATTERN,
@@ -400,6 +402,7 @@ class CardService(
     CardServiceRepairOrderSearchMixin,
     CardServiceBulkMixin,
     CardServiceFinanceMixin,
+    CardServicePaymentLinksMixin,
     CardServiceInventoryMixin,
     CardServiceClientsMixin,
     CardServiceDashboardMixin,
@@ -6627,6 +6630,7 @@ class CardService(
                 events,
                 actor_name,
                 source,
+                cards=cards,
                 attestation_run_id=attestation_run_id,
                 digest_correlation_id=digest_correlation_id,
             )
@@ -7201,6 +7205,7 @@ class CardService(
         actor_name: str,
         source: str,
         *,
+        cards: list[Card],
         attestation_run_id: str = "",
         digest_correlation_id: str,
     ) -> RepairOrder:
@@ -7266,6 +7271,7 @@ class CardService(
                     details={"card_id": card.id, "payment_id": payment.id},
                 )
         next_by_id = {payment.id: payment for payment in next_payments if payment.id}
+        retained_links: set[tuple[str, str]] = set()
 
         for previous_payment in previous_order.payments:
             existing_transaction = self._find_cash_transaction(
@@ -7283,6 +7289,7 @@ class CardService(
                 == self._repair_order_payment_financial_signature(next_payment)
             )
             if keep_transaction:
+                retained_links.add((next_payment.id, existing_transaction.id))
                 next_payment.cash_transaction_id = existing_transaction.id
                 next_payment.actor_name = (
                     next_payment.actor_name
@@ -7300,6 +7307,13 @@ class CardService(
                 continue
             if existing_transaction is None:
                 continue
+            self._ensure_repair_order_payment_cash_link(
+                cards,
+                cash_transactions,
+                previous_payment,
+                existing_transaction,
+                owner=(card.id, previous_payment.id),
+            )
             cash_transactions[:] = [
                 item for item in cash_transactions if item.id != existing_transaction.id
             ]
@@ -7319,6 +7333,7 @@ class CardService(
                 },
             )
 
+        next_cash_link_counts = Counter(payment.cash_transaction_id for payment in next_payments)
         for payment in next_payments:
             if payment.id in correction_existing_ids:
                 continue
@@ -7335,10 +7350,19 @@ class CardService(
             payment.payment_method = normalize_repair_order_payment_method(
                 payment.payment_method or next_order.payment_method
             )
-            if (
-                self._find_cash_transaction(cash_transactions, payment.cash_transaction_id)
-                is not None
-            ):
+            existing_transaction = self._find_cash_transaction(
+                cash_transactions, payment.cash_transaction_id
+            )
+            if existing_transaction is not None:
+                # Keep untouched historical links available for audit, without repairing them.
+                if (payment.id, existing_transaction.id) not in retained_links:
+                    self._ensure_repair_order_payment_cash_link(
+                        cards,
+                        cash_transactions,
+                        payment,
+                        existing_transaction,
+                        duplicate=next_cash_link_counts[existing_transaction.id] > 1,
+                    )
                 continue
             transaction = CashTransaction(
                 id=str(uuid.uuid4()),

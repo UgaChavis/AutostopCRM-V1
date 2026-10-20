@@ -30,6 +30,8 @@ class FakeStore:
         self.f = fixture
         self.record = None
         self.pending_plan = None
+        self.head_path = fixture.root / "head.json"
+        self.commit_ref = None
 
     def pending(self):
         return self.pending_plan
@@ -51,16 +53,44 @@ class FakeStore:
             self.f.directory / "synthetic-commit.json", {"plan": plan, "proofs": proofs}
         )
         self.record = {"plan": plan}
+        self.commit_ref = ref
+        io.write_new(self.head_path, {"commit": ref, "plan": plan})
         self.f.event("commit.durable")
         return ref
 
     def head(self):
         self.f.event("head.readback")
-        return {"record": {"plan": {}} if self.f.failure == "head" else self.record}
+        return {
+            "record": {"plan": {}} if self.f.failure == "head" else self.record,
+            "sha256": self.commit_ref["sha256"] if self.commit_ref else None,
+            "sequence": self.record["plan"]["sequence"] if self.record else 0,
+        }
+
+    def confirm_finished(self, plan):
+        io.require(
+            self.pending_plan is None and self.record == {"plan": plan}, "fixture_terminal_head"
+        )
+        return self.commit_ref
 
     def finish(self, _plan):
         self.f.event("state.finish")
         self.pending_plan = None
+
+
+class SyntheticAdmission:
+    """Native boundary is covered separately by real private launch journals."""
+
+    def __init__(self, _attempt, lock_factory):
+        self.lock_factory = lock_factory
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execution(self, expected, *, on_failure):
+        return self.lock_factory(expected, on_failure=on_failure)
 
 
 class FakeHost:
@@ -184,6 +214,12 @@ class ForwardReleaseTests(unittest.TestCase):
         self.directory = self.root / "attempt"
         self.directory.mkdir()
         self.marker = self.root / "maintenance.json"
+        parent = self.root.stat()
+        self.maintenance_parent = {
+            "path": str(self.root),
+            "dev": parent.st_dev,
+            "ino": parent.st_ino,
+        }
         self.trace, self.failure, self.locked = [], None, False
         self.writers = dict.fromkeys(
             ("j1", "manager", "scheduler", "work", "personal", "wake"), True
@@ -233,12 +269,18 @@ class ForwardReleaseTests(unittest.TestCase):
             },
             "backup_profile_sha256": r.backup.profile_sha256(),
             "deployment_lock_identity": [12, 34],
+            "maintenance_parent": self.maintenance_parent,
             "review_key_ref": {"path": str(key), "sha256": io.sha(key.read_bytes())},
         }
         self.install(io, "protected_directory", self.physical_directory)
         self.install(io, "read_protected", self.read_physical)
         self.install(io, "fsync_directory", self.sync)
         self.install(r, "MARKER", self.marker)
+        self.install(r.marker, "prepare", self.prepare_marker)
+        self.install(r.marker, "ensure", self.ensure_marker)
+        self.install(r.marker, "require_owned", self.require_owned_marker)
+        self.install(r.marker, "remove_owned", self.remove_owned_marker)
+        self.install(io, "confirm_durable", self.confirm_durable)
         self.install(r, "CACHE_INVENTORY", self.root / "unused-cache.json")
         self.install(r.signatures, "REVIEW_KEY_PATH", str(key))
         self.install(r.signatures, "_verify_signature", self.verify_signature)
@@ -261,6 +303,7 @@ class ForwardReleaseTests(unittest.TestCase):
             lambda _attempt: (self.directory, self.plan_ref, self.plan, self.baseline, self.host),
         )
         self.install(r, "deployment_lock", self.deployment_lock)
+        self.install(r.launch_native, "Admission", SyntheticAdmission)
         self.install(r, "cleanup_signals", nullcontext)
         self.install(r.authority, "verify_preserved", self.verify_authority)
         self.install(r.closure, "close_writers", self.close_writers)
@@ -272,6 +315,7 @@ class ForwardReleaseTests(unittest.TestCase):
         self.install(r.closure, "release_auxiliary", self.release_auxiliary)
         self.install(r.closure, "fail_closed", self.fail_closed)
         self.install(r.backup, "capture", self.capture)
+        self.install(r, "capture_control", self.capture_control)
         self.install(r.transport, "bundle_delta", self.bundle_delta)
         self.install(r, "guard_starts", lambda *_args: self.event("guards.fresh"))
         self.install(r, "check_container_preserved", self.check_candidate)
@@ -359,6 +403,49 @@ class ForwardReleaseTests(unittest.TestCase):
     def event(self, name):
         self.trace.append((name, self.locked))
         return {"ok": True}
+
+    def prepare_marker(self):
+        self.event("marker.parent.prepare")
+        io.require(not self.marker.exists(), "fixture_marker_exists")
+        self.fault("marker_parent")
+        return dict(self.maintenance_parent)
+
+    def require_owned_marker(self, pin, payload, *, expected_identity=None):
+        io.require(pin == self.maintenance_parent, "fixture_marker_parent_changed")
+        raw = self.read_physical(self.marker)
+        io.require(raw == io.canonical(payload), "owned_maintenance_marker_changed")
+        info = self.marker.stat()
+        identity = {
+            "path": str(self.marker),
+            "dev": info.st_dev,
+            "ino": info.st_ino,
+            "mtime_ns": info.st_mtime_ns,
+            "sha256": io.sha(raw),
+        }
+        if expected_identity is not None:
+            io.require(identity == expected_identity, "marker_owned_identity_changed")
+        return identity
+
+    def ensure_marker(self, pin, payload, *, authorize):
+        self.assertTrue(self.locked)
+        authorize()
+        if not self.marker.exists():
+            authorize()
+            io.write_new(self.marker, payload)
+        return self.require_owned_marker(pin, payload)
+
+    def remove_owned_marker(self, pin, payload, *, expected_identity, authorize):
+        self.assertTrue(self.locked)
+        authorize()
+        self.require_owned_marker(pin, payload, expected_identity=expected_identity)
+        authorize()
+        self.marker.unlink()
+        io.fsync_directory(self.marker.parent)
+
+    def confirm_durable(self, ref):
+        self.assertTrue(self.locked)
+        self.assertEqual(ref, io.reference(ref["path"]))
+        self.event("marker.authority.durable")
 
     def fault(self, name):
         if self.failure == name:
@@ -455,6 +542,14 @@ class ForwardReleaseTests(unittest.TestCase):
         self.event("transport.bundle")
         return {"archive": {"path": str(self.directory / "delta.tar.gz"), "sha256": "e" * 64}}
 
+    def capture_control(self, directory, _plan_ref, _plan, *, stage, observer):
+        self.assertTrue(self.locked)
+        observer()
+        self.event("control." + stage)
+        value = {"manifest_sha256": "b" * 64, "stage": stage}
+        io.write_new(directory / ("control-" + stage + ".json"), value)
+        return value
+
     def check_candidate(self, _previous, current, candidate):
         self.assertEqual(current["image"], candidate["image"])
         self.assertEqual(current["revision"], candidate["revision"])
@@ -497,6 +592,9 @@ class ForwardReleaseTests(unittest.TestCase):
                 manifest_sha256=self.manifest_sha,
                 profile_sha256=self.baseline["backup_profile_sha256"],
                 closed_inspection_sha256=inspection_ref["sha256"],
+                control_archive_manifest_sha256="b" * 64,
+                control_graph_restored=True,
+                control_restore_receipt_sha256="c" * 64,
             )
         else:
             payload.update(
@@ -646,6 +744,55 @@ class ForwardReleaseTests(unittest.TestCase):
             "candidate.replace",
         ):
             self.assertNotIn(event, self.events())
+
+    def test_invalid_marker_parent_fails_before_pending_or_closure_ownership(self):
+        self.failure = "marker_parent"
+        with self.assertRaisesRegex(RuntimeError, "synthetic_marker_parent"):
+            r.apply(self.plan["attempt_id"])
+        self.assertIsNone(self.store.pending_plan)
+        self.assertFalse(self.marker.exists())
+        for event in ("state.begin", "ownership.prepare", "writers.fail_closed", "manager.hold"):
+            self.assertNotIn(event, self.events())
+
+    def test_changed_or_missing_marker_parent_pin_has_no_writer_effects(self):
+        for pin in ({"different": True}, None):
+            with self.subTest(pin=pin):
+                self.baseline["maintenance_parent"] = pin
+                with self.assertRaisesRegex(io.Refusal, "maintenance_parent"):
+                    r.apply(self.plan["attempt_id"])
+                self.assertIsNone(self.store.pending_plan)
+                self.assertFalse(self.marker.exists())
+                self.assertNotIn("ownership.prepare", self.events())
+                self.assertNotIn("writers.fail_closed", self.events())
+
+    def test_marker_creation_requires_exact_pending_authority(self):
+        self.store.pending_plan = {**self.plan, "sequence": 2}
+        with self.deployment_lock(self.baseline["deployment_lock_identity"]):
+            with self.assertRaisesRegex(io.Refusal, "marker_pending_changed"):
+                r.ensure_marker(self.directory, self.plan_ref, self.plan, self.baseline)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse((self.directory / "marker-owned.json").exists())
+
+    def test_marker_removal_requires_committed_head_even_with_matching_pending(self):
+        self.store.pending_plan = self.plan
+        with self.deployment_lock(self.baseline["deployment_lock_identity"]):
+            r.ensure_marker(self.directory, self.plan_ref, self.plan, self.baseline)
+            with self.assertRaisesRegex(io.Refusal, "marker_committed_head_required"):
+                r.remove_marker(self.plan_ref, self.plan, self.baseline, {"sha256": "f" * 64})
+        self.assertTrue(self.marker.exists())
+        self.assertNotIn("marker.remove", self.events())
+
+    def test_matching_marker_bytes_cannot_replace_recorded_file_identity(self):
+        self.store.pending_plan = self.plan
+        with self.deployment_lock(self.baseline["deployment_lock_identity"]):
+            r.ensure_marker(self.directory, self.plan_ref, self.plan, self.baseline)
+            replacement = self.root / "replacement.json"
+            replacement.write_bytes(self.marker.read_bytes())
+            replacement.replace(self.marker)
+            with self.assertRaisesRegex(io.Refusal, "marker_owned_identity_changed"):
+                r.require_marker(self.plan_ref, self.plan, self.baseline)
+            with self.assertRaisesRegex(io.Refusal, "marker_owned_identity_changed"):
+                r.ensure_marker(self.directory, self.plan_ref, self.plan, self.baseline)
 
     def test_partial_begin_drain_failure_closes_every_owned_writer(self):
         self.failure = "drain"

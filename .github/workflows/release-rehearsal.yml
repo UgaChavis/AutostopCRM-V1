@@ -1,0 +1,312 @@
+name: AutoStop CRM isolated release rehearsal
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - autostopcrm-v1
+      - "codex/release-rehearsal/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rehearsal:
+    name: ${{ matrix.scenario }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            scenario: linux-profile
+            python_version: "3.12.15"
+            timeout_minutes: 45
+          - os: windows-latest
+            scenario: windows-profile
+            python_version: "3.12.10"
+            timeout_minutes: 45
+          - os: ubuntu-latest
+            scenario: linux-systemd
+            python_version: "3.12.15"
+            timeout_minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QTWEBENGINE_DISABLE_SANDBOX: "1"
+      PYTHONUNBUFFERED: "1"
+      AUTOSTOP_REQUIRE_UI_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
+      AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
+      AUTOSTOP_REHEARSAL_STRICT_SKIPS: "1"
+
+    steps:
+      - name: Checkout the exact workflow commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Record immutable source and fixture paths
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) {
+            throw "Checkout differs from the selected workflow commit."
+          }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'output/release-rehearsal'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          @{
+            source_sha = $head
+            scenario = '${{ matrix.scenario }}'
+            runner_os = '${{ runner.os }}'
+            selected_python = '${{ matrix.python_version }}'
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            production_access = $false
+          } | ConvertTo-Json | Set-Content (Join-Path $output 'source.json')
+          "AUTOSTOP_REHEARSAL_RECEIPT_DIR=$output" >> $env:GITHUB_ENV
+          "AUTOSTOP_BROWSER_SMOKE_SCREENSHOT_DIR=$output/browser-smoke" >> $env:GITHUB_ENV
+          "PLAYWRIGHT_BROWSERS_PATH=$env:RUNNER_TEMP/rehearsal-browsers" >> $env:GITHUB_ENV
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Set up Node for required JavaScript tests
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.21.0"
+
+      - name: Verify the pinned Compose plugin without a Docker daemon
+        if: runner.os == 'Windows'
+        run: |
+          $plugins = Join-Path $env:RUNNER_TEMP 'rehearsal-compose'
+          New-Item -ItemType Directory -Path $plugins | Out-Null
+          $binary = Join-Path $plugins 'docker-compose.exe'
+          Invoke-WebRequest https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-windows-x86_64.exe -OutFile $binary
+          if ((Get-FileHash $binary -Algorithm SHA256).Hash.ToLowerInvariant() -ne '8aeaa0055e660e12cf07cd70680dc8333957fe6718528b91ec3da084eab62483') {
+            throw 'Compose executable mismatch.'
+          }
+          & $binary version --short
+          if ($LASTEXITCODE -ne 0) { throw 'Compose version probe failed.' }
+          "CRM_REHEARSAL_COMPOSE_DIR=$plugins" >> $env:GITHUB_ENV
+
+      - name: Create a disposable project environment
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to create the disposable venv.' }
+          $relative = if ($IsWindows) { '.venv/Scripts/python.exe' } else { '.venv/bin/python' }
+          $python = (Resolve-Path $relative).Path
+          "CRM_REHEARSAL_PYTHON=$python" >> $env:GITHUB_ENV
+          & $python -m pip install pip==26.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install the diagnostic pip version.' }
+          & $python -m pip install -r requirements-dev.txt -c .github/release-rehearsal-constraints.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to install the pinned project dependencies.' }
+          & $python -m pip check
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency consistency check failed.' }
+          & $python -m pip freeze | Set-Content output/release-rehearsal/pip-freeze.txt
+          node --version | Set-Content output/release-rehearsal/node-version.txt
+
+      - name: Install Linux fixture prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 install -y --no-install-recommends \
+            gcc libc6-dev make tcl unzip libdbus-1-3 libegl1 libfontconfig1 \
+            libgl1 libglib2.0-0 libnspr4 libnss3 libxcomposite1 libxdamage1 \
+            libxkbcommon0 libxkbfile1 libxtst6 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 \
+            libxext6 libxrender1 poppler-utils
+
+      - name: Build the same private Linux SQLite as the runtime image
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/sqlite-src-3510300.zip"
+          curl --fail --location --retry 3 https://sqlite.org/2026/sqlite-src-3510300.zip --output "$archive"
+          printf '%s  %s\n' f8a67a1f5b5cae7c6d42f0994ca7bf1a4a5858868c82adc9fc1340bed5eb8cd2 "$archive" | sha256sum --check --strict
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/sqlite-src-3510300"
+          test "$(cat manifest.uuid)" = 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618
+          CFLAGS="-O2 -fno-strict-aliasing -DSQLITE_SECURE_DELETE \
+            -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_FTS3_PARENTHESIS \
+            -DSQLITE_ENABLE_FTS3_TOKENIZER -DSQLITE_SOUNDEX \
+            -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_ENABLE_DBSTAT_VTAB \
+            -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ALLOW_ROWID_IN_VIEW \
+            -DSQLITE_LIKE_DOESNT_MATCH_BLOBS -DSQLITE_USE_URI \
+            -DSQLITE_MAX_SCHEMA_RETRY=25 -DSQLITE_ENABLE_STMTVTAB \
+            -DSQLITE_MAX_VARIABLE_NUMBER=250000 \
+            -DSQLITE_MAX_DEFAULT_PAGE_SIZE=32768" \
+            ./configure --prefix="$RUNNER_TEMP/rehearsal-sqlite" --disable-static --soname=legacy \
+              --enable-threadsafe --enable-load-extension --enable-fts4 --enable-fts5 \
+              --enable-rtree --enable-session --enable-update-limit
+          make -j2 libsqlite3.so
+          install -D -m 755 libsqlite3.so "$RUNNER_TEMP/rehearsal-sqlite/libsqlite3.so.0"
+          {
+            printf 'LD_LIBRARY_PATH=%s\n' "$RUNNER_TEMP/rehearsal-sqlite${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            printf 'CRM_REHEARSAL_SQLITE_LIBRARY=%s\n' "$RUNNER_TEMP/rehearsal-sqlite/libsqlite3.so.0"
+            printf 'AUTOSTOPCRM_DOCKER_CONTEXT_TESTS=1\n'
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare only a private Windows SQLite DLL
+        if: runner.os == 'Windows'
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'sqlite-dll-win-x64-3510300.zip'
+          Invoke-WebRequest https://sqlite.org/2026/sqlite-dll-win-x64-3510300.zip -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ea004f52ba873cc54d1cb908c2f7cf48c3064061d9ee3ded6a309284da5ff411') {
+            throw 'Official SQLite archive differs from the selected payload.'
+          }
+          $private = Join-Path $env:RUNNER_TEMP 'rehearsal-sqlite'
+          Expand-Archive $archive -DestinationPath $private
+          $library = Join-Path $private 'sqlite3.dll'
+          $bootstrap = Join-Path $env:RUNNER_TEMP 'rehearsal-sqlite-bootstrap'
+          & $env:CRM_REHEARSAL_PYTHON scripts/rehearsal_runtime.py --sqlite-library $library `
+            --prepare-windows-bootstrap $bootstrap --output output/release-rehearsal/windows-bootstrap.json
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare the private Windows SQLite bootstrap.' }
+          "CRM_REHEARSAL_SQLITE_LIBRARY=$library" >> $env:GITHUB_ENV
+          $pythonPath = $bootstrap
+          if ($env:PYTHONPATH) { $pythonPath += [IO.Path]::PathSeparator + $env:PYTHONPATH }
+          "PYTHONPATH=$pythonPath" >> $env:GITHUB_ENV
+
+      - name: Install private Chromium and its Linux runtime dependencies
+        run: |
+          $arguments = @('-m', 'playwright', 'install', 'chromium')
+          if ($IsLinux) { $arguments += '--with-deps' }
+          & $env:CRM_REHEARSAL_PYTHON @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Chromium prerequisite installation failed.' }
+
+      - name: Verify actual native SQLite Qt PDF and Chromium before the profile
+        run: |
+          & $env:CRM_REHEARSAL_PYTHON -m tests.runtime_process --timeout-seconds 120 --label native-runtime `
+            -- $env:CRM_REHEARSAL_PYTHON scripts/rehearsal_runtime.py `
+            --sqlite-library $env:CRM_REHEARSAL_SQLITE_LIBRARY --output output/release-rehearsal/native-runtime.json
+          if ($LASTEXITCODE -ne 0) { throw 'Actual linked native runtime verification failed.' }
+
+      - name: Run the complete canonical CI profile once
+        if: matrix.scenario != 'linux-systemd'
+        run: |
+          Start-Transcript -Path output/release-rehearsal/ci-profile.txt
+          try {
+            & ./scripts/run_checks.ps1 -Profile ci
+          }
+          finally {
+            Stop-Transcript
+          }
+
+      - name: Exercise the required real isolated Linux systemd fixture
+        if: matrix.scenario == 'linux-systemd'
+        shell: bash
+        run: |
+          sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" .venv/bin/python scripts/j1_isolated_systemd_rehearsal.py --output-dir output/release-rehearsal/systemd
+
+      - name: Exercise the required cold execution-slot systemd template and guard
+        if: matrix.scenario == 'linux-systemd'
+        shell: bash
+        run: |
+          sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" /usr/bin/python3 -B scripts/rehearse_cold_systemd.py --output-dir output/release-rehearsal/cold-systemd
+
+      - name: Verify tracked source remains the selected commit
+        run: |
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -ne $env:GITHUB_SHA) { throw 'Source HEAD changed during the rehearsal.' }
+          git diff --exit-code HEAD --
+          if ($LASTEXITCODE -ne 0) { throw 'Tracked source changed during the rehearsal.' }
+          $untracked = git ls-files --others --exclude-standard
+          if ($LASTEXITCODE -ne 0 -or $untracked) { throw 'Unexpected untracked source appeared during the rehearsal.' }
+
+      - name: Publish completion only after all required scenario steps
+        run: |
+          @{
+            source_sha = $env:GITHUB_SHA
+            scenario = '${{ matrix.scenario }}'
+            complete = $true
+            scope = 'disposable-rehearsal-only'
+          } | ConvertTo-Json | Set-Content output/release-rehearsal/rehearsal-complete.json
+
+      - name: Upload source runtime profile coverage and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-rehearsal-${{ matrix.scenario }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            output/release-rehearsal/
+            output/runtime-process/
+            coverage-runtime.json
+            coverage-runtime.xml
+            coverage-release.json
+            htmlcov/
+          if-no-files-found: error
+
+  rehearsal-ready:
+    if: always()
+    needs: rehearsal
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every profile and the native fixture
+        env:
+          REHEARSAL_RESULT: ${{ needs.rehearsal.result }}
+        run: test "$REHEARSAL_RESULT" = success
+
+      - name: Download the required per-scenario completion evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-rehearsal-*-${{ github.sha }}-${{ github.run_attempt }}
+          path: downloaded-rehearsals
+
+      - name: Refuse missing skipped or mismatched scenario evidence
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected = {"linux-profile", "windows-profile", "linux-systemd"}
+          seen = set()
+          for path in Path("downloaded-rehearsals").rglob("rehearsal-complete.json"):
+              receipt = json.loads(path.read_text(encoding="utf-8-sig"))
+              scenario = receipt["scenario"]
+              assert scenario in expected and scenario not in seen, receipt
+              assert receipt["source_sha"] == os.environ["GITHUB_SHA"], receipt
+              assert receipt["complete"] is True, receipt
+              assert receipt["scope"] == "disposable-rehearsal-only", receipt
+              seen.add(scenario)
+          assert seen == expected, {"missing_scenarios": sorted(expected - seen)}
+          cold_paths = list(Path("downloaded-rehearsals").rglob("cold-systemd/report.json"))
+          assert len(cold_paths) == 1, {"cold_systemd_reports": len(cold_paths)}
+          cold = json.loads(cold_paths[0].read_text(encoding="utf-8"))
+          assert cold["schema"] == "autostopcrm.hosted-cold-unit-rehearsal.v1", cold
+          assert cold["source_sha"] == os.environ["GITHUB_SHA"], cold
+          assert cold["ok"] is True and cold["cleanup_complete"] is True, cold
+          assert cold["production_acceptance"] is False, cold
+          kernel_credentials = cold["kernel_credentials"]
+          assert type(kernel_credentials) is dict and set(kernel_credentials) == {"passed", "cleanup_complete", "observed", "settings", "production_acceptance"}, kernel_credentials
+          assert kernel_credentials["passed"] is True and kernel_credentials["cleanup_complete"] is True, kernel_credentials
+          assert kernel_credentials["observed"] == {"uid": 0, "gid": 0, "groups": [0]}, kernel_credentials
+          assert kernel_credentials["settings"] == {"User": "root", "Group": "root", "SupplementaryGroups": "root"}, kernel_credentials
+          assert kernel_credentials["production_acceptance"] is False, kernel_credentials
+          expected_cold = {"one_entry", "source_corrupt_before_a", "parent_r_before_a", "kernel_dead_before_a"}
+          seen_cold = set()
+          for case in cold["cases"]:
+              assert case["name"] in expected_cold and case["name"] not in seen_cold, case
+              assert case["passed"] is True and case["cleanup_complete"] is True, case
+              assert case["systemd_launches"] == 1, case
+              assert case["exec_condition"] == "" and case["exact_guard_exec_start"] is True, case
+              assert 0 <= case["mainpid_observed_within_seconds"] < 10, case
+              assert 0 <= case["a_published_within_seconds"] < 10, case
+              assert case["guard_exit_status"] == (None if case["name"] == "one_entry" else 2), case
+              expected_journal = {"S": 1, "A": 1, "C": 1, "E": 1} if case["name"] == "one_entry" else {"S": 1, "A": 1, "C": 0, "E": 0}
+              assert case["journal"] == expected_journal, case
+              seen_cold.add(case["name"])
+          assert seen_cold == expected_cold, {"missing_cold_cases": sorted(expected_cold - seen_cold)}
+          print("Every required rehearsal scenario completed on the selected commit.")
+          PY

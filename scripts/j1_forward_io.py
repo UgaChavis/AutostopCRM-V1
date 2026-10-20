@@ -8,7 +8,7 @@ import math
 import os
 import stat
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 ROOT_UID = 0
 
@@ -33,6 +33,45 @@ def canonical(value: object) -> bytes:
         )
         + "\n"
     ).encode("utf-8")
+
+
+def logical_path(value):
+    """Preserve captured path syntax independently of the restoring OS.
+
+    Native Linux captures stay POSIX on Windows. Explicit drive-qualified
+    private Windows fixtures retain their own syntax; UNC paths are excluded.
+    No logical path is opened by this helper.
+    """
+    text = os.fspath(value)
+    windows = PureWindowsPath(text)
+    if windows.is_absolute() and len(windows.drive) == 2 and windows.drive[1] == ":":
+        return windows
+    return PurePosixPath(text)
+
+
+def unchanged_read(before, opened, after, final, *, windows=None):
+    """Compare compatible stat branches while retaining both change checks.
+
+    CPython Windows path stat reports creation time as ctime while fd stat can
+    report change time. Never compare those two meanings. Check stable path
+    ctime, stable fd ctime, and common inode/size/mtime/birthtime independently.
+    https://github.com/python/cpython/issues/157671
+    """
+    windows = os.name == "nt" if windows is None else windows
+    fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns") + (
+        ("st_birthtime_ns",) if windows else ("st_ctime_ns",)
+    )
+    return (
+        all(
+            getattr(before, key)
+            == getattr(opened, key)
+            == getattr(after, key)
+            == getattr(final, key)
+            for key in fields
+        )
+        and before.st_ctime_ns == final.st_ctime_ns
+        and opened.st_ctime_ns == after.st_ctime_ns
+    )
 
 
 def _pairs(pairs):
@@ -108,16 +147,8 @@ def read_protected(path: Path | str, limit: int = 2 * 1024**2) -> bytes:
             raw = stream.read(limit + 1)
         after = os.fstat(descriptor)
         final = path.lstat()
-        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
         require(
-            len(raw) == before.st_size <= limit
-            and all(
-                getattr(before, key)
-                == getattr(opened, key)
-                == getattr(after, key)
-                == getattr(final, key)
-                for key in fields
-            ),
+            len(raw) == before.st_size <= limit and unchanged_read(before, opened, after, final),
             "protected_file_changed",
         )
         return raw

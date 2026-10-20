@@ -59,7 +59,13 @@ class OperatorProfileContractTests(unittest.TestCase):
 class ClientContextRegressionTests(unittest.TestCase):
     def run_node(self, body: str) -> None:
         result = subprocess.run(
-            ["node"], input=body, text=True, capture_output=True, cwd=ROOT, timeout=15
+            ["node"],
+            input=body,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

@@ -17,6 +17,8 @@ from browser_smoke_runtime import start_temp_runtime  # noqa: E402
 
 
 class UiBrowserTestCase(unittest.TestCase):
+    _driver_witness = None
+
     @classmethod
     def setUpClass(cls) -> None:
         if sys.platform == "win32":
@@ -31,16 +33,42 @@ class UiBrowserTestCase(unittest.TestCase):
             raise unittest.SkipTest("Playwright is not installed") from error
         cls.playwright = sync_playwright().start()
         cls.addClassCleanup(cls.playwright.stop)
-        if not Path(cls.playwright.chromium.executable_path).exists():
-            if os.environ.get("AUTOSTOP_REQUIRE_UI_BROWSER") == "1":
-                raise RuntimeError("Chromium is required for UI regression tests")
-            raise unittest.SkipTest("Playwright Chromium is not installed")
-        cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
-        cls.addClassCleanup(cls.browser.close)
-        cls.runtime = start_temp_runtime(start_port=45031)
-        cls.addClassCleanup(cls.runtime.close)
+        witness = None
+        try:
+            if sys.platform == "win32":
+                from tests.runtime_process_windows import DriverWitness
+
+                directory = (
+                    Path(
+                        os.environ.get("AUTOSTOP_REHEARSAL_RECEIPT_DIR", "output/release-rehearsal")
+                    )
+                    / "driver-witness"
+                )
+                witness = DriverWitness(
+                    cls.playwright, destination=directory, label=f"{cls.__module__}.{cls.__name__}"
+                )
+            if not Path(cls.playwright.chromium.executable_path).exists():
+                if os.environ.get("AUTOSTOP_REQUIRE_UI_BROWSER") == "1":
+                    raise RuntimeError("Chromium is required for UI regression tests")
+                raise unittest.SkipTest("Playwright Chromium is not installed")
+            cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            cls.addClassCleanup(cls.browser.close)
+            cls.runtime = start_temp_runtime(start_port=45031)
+            cls.addClassCleanup(cls.runtime.close)
+        except BaseException:
+            if witness is not None:
+                try:
+                    witness.close()
+                except Exception:
+                    pass  # preserve the original setup failure; invalid witness is persisted
+            raise
+        cls._driver_witness = witness
+        if witness is not None:
+            cls.addClassCleanup(witness.close)  # last registered, before all existing cleanup
 
     def setUp(self) -> None:
+        if self._driver_witness is not None:
+            self._driver_witness.case(self.id())
         self.context = self.browser.new_context(
             viewport={"width": 1440, "height": 960},
             extra_http_headers=self.runtime.auth_headers,

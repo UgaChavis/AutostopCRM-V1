@@ -47,6 +47,9 @@ nosetests.xml
 coverage.xml
 coverage-runtime.*
 coverage-release.*
+coverage-store-drain.*
+coverage-manager-authority.*
+coverage-manager-successor.*
 *.cover
 *.py,cover
 .hypothesis/
