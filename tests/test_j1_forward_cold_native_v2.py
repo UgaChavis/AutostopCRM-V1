@@ -7,7 +7,7 @@ import tempfile
 import types
 import unittest
 import uuid
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -405,9 +405,28 @@ class KernelCommittedPhaseTests(unittest.TestCase):
             "admission_ref": projection_ref,
         }
         Path(self.fence["state_path"]).write_bytes(io.canonical(opened))
+        entered, exited = [], []
+
+        @contextmanager
+        def historical_boundary(_store, reference):
+            # This binding-only package isolates the native publication/lock
+            # boundary. FixtureTypedHistoryTests validates the complete COLD
+            # package, typed bytes and real historical memo below.
+            self.assertEqual(reference, plan_ref)
+            with self.assertRaises(BlockingIOError):
+                os.close(epochs.locked_fence(self.fence, exclusive=True))
+            entered.append(reference)
+            try:
+                yield
+            finally:
+                with self.assertRaises(BlockingIOError):
+                    os.close(epochs.locked_fence(self.fence, exclusive=True))
+                exited.append(reference)
+
         with (
             patch.object(native, "STATE", self.state),
             patch.object(epochs, "verify", return_value=self.fence),
+            patch.object(cold_state.ColdStore, "historical_validation", historical_boundary),
         ):
             with self.provider._runtime_kernel_admitted(self.validated) as admitted:
                 self.assertTrue(admitted)
@@ -454,6 +473,8 @@ class KernelCommittedPhaseTests(unittest.TestCase):
                         self.fail("An open descriptor is not an owned exclusive lock")
             finally:
                 os.close(descriptor)
+        self.assertEqual(entered, [plan_ref] * 4)
+        self.assertEqual(exited, entered)
 
 
 @unittest.skipUnless(
@@ -635,6 +656,13 @@ class FixtureTypedHistoryTests(unittest.TestCase):
         capsule_ref = self.fixture.runtime["capsule_ref"]
         with self.assertRaisesRegex(io.Refusal, "fixture_reference_outside_root"):
             io.read_protected(leaf["path"])
+        closed = []
+        actual_close = cold_state._HistoricalValidation.close
+
+        def close(operation):
+            actual_close(operation)
+            closed.append(operation)
+
         with (
             patch.object(
                 self.provider, "read_opaque_reference", wraps=self.provider.read_opaque_reference
@@ -642,11 +670,24 @@ class FixtureTypedHistoryTests(unittest.TestCase):
             patch.object(
                 self.provider, "read_runtime_capsule", wraps=self.provider.read_runtime_capsule
             ) as packed,
+            patch.object(cold, "_decode_package", wraps=cold._decode_package) as decode,
+            patch.object(cold_state._HistoricalValidation, "close", close),
         ):
-            with self.provider._runtime_kernel_admitted(self.validated) as admitted:
-                self.assertTrue(admitted)
-                with self.assertRaises(BlockingIOError):
-                    epochs.locked_fence(self.fence, exclusive=True)
+            for expected in (1, 2):
+                counts = opaque.call_count, packed.call_count
+                with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                    self.assertTrue(admitted)
+                    with self.assertRaises(BlockingIOError):
+                        os.close(epochs.locked_fence(self.fence, exclusive=True))
+                # Entry/exit HEAD share one semantic decode, while a later
+                # operation gets a fresh memo and actual typed source reads.
+                self.assertEqual(decode.call_count, expected)
+                self.assertGreater(opaque.call_count, counts[0])
+                self.assertGreater(packed.call_count, counts[1])
+                self.assertEqual(len(closed), expected)
+                self.assertFalse(closed[-1].active)
+                self.assertIsNone(closed[-1].memo)
+                self.assertEqual(closed[-1].bytes, 0)
         self.assertGreaterEqual(sum(call.args == (leaf,) for call in opaque.call_args_list), 2)
         self.assertGreaterEqual(
             sum(call.args == (capsule_ref,) for call in packed.call_args_list), 2
@@ -663,9 +704,18 @@ class FixtureTypedHistoryTests(unittest.TestCase):
         leaf = Path(self.fixture.external_interpreter["path"])
         leaf.chmod(0o777)
         try:
-            with self.assertRaisesRegex(io.Refusal, "fixture_external_protection"):
-                with self.provider._runtime_kernel_admitted(self.validated):
-                    self.fail("Writable external runtime cannot admit committed history")
+            actual_close = cold_state._HistoricalValidation.close
+            with patch.object(
+                cold_state._HistoricalValidation, "close", autospec=True, side_effect=actual_close
+            ) as close:
+                with self.assertRaisesRegex(io.Refusal, "fixture_external_protection"):
+                    with self.provider._runtime_kernel_admitted(self.validated):
+                        self.fail("Writable external runtime cannot admit committed history")
+            close.assert_called_once()
+            closed = close.call_args.args[0]
+            self.assertFalse(closed.active)
+            self.assertIsNone(closed.memo)
+            self.assertEqual(closed.bytes, 0)
         finally:
             leaf.chmod(0o755)
         for path in (leaf, Path(self.fixture.runtime["capsule_ref"]["path"])):
@@ -694,6 +744,10 @@ class FixtureTypedHistoryTests(unittest.TestCase):
                             io.atomic_replace(self.store.head_path, changed)
                 finally:
                     io.atomic_replace(self.store.head_path, io.document(original))
+        with patch.object(cold, "_decode_package", wraps=cold._decode_package) as decode:
+            with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                self.assertTrue(admitted)
+            self.assertEqual(decode.call_count, 1)
 
 
 if __name__ == "__main__":

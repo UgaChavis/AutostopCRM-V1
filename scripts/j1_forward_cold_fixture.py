@@ -832,32 +832,35 @@ class FixtureProvider(native.NativeProvider):
                     return provider.read_runtime_capsule(reference)
 
             store = FixtureStore(self.root / "forward/state", plan["base_sha256"])
-            head = store.head()
-            contract.need(
-                state["commit_ref"]["path"] == str(store.history / f"{head['sequence']:020d}.json")
-                and state["commit_ref"]["sha256"] == head["sha256"]
-                and head["record"]["plan"] == plan
-                and plan["cold_authority_package_ref"] == epoch["package_ref"],
-                "fixture_runtime_actual_head",
-            )
-            projection = io.document(self.read_reference(state["admission_ref"]))
-            contract.need(
-                projection["source_refs"]["plan"] == state["plan_ref"]
-                and projection["source_refs"]["commit"] == state["commit_ref"]
-                and projection["source_refs"]["head"] == self.reference(store.head_path),
-                "fixture_runtime_projection",
-            )
-            for name, reference in projection["source_refs"].items():
+            with store.historical_validation(state["plan_ref"]):
+                head = store.head()
                 contract.need(
-                    self.read_reference(reference)
-                    == self.read_reference(projection["projected_refs"][name]),
-                    "fixture_runtime_projection_changed",
+                    state["commit_ref"]["path"]
+                    == str(store.history / f"{head['sequence']:020d}.json")
+                    and state["commit_ref"]["sha256"] == head["sha256"]
+                    and head["record"]["plan"] == plan
+                    and plan["cold_authority_package_ref"] == epoch["package_ref"],
+                    "fixture_runtime_actual_head",
                 )
-            yield True
-            contract.need(
-                store.head() == head and io.document(self.read_path(fence["state_path"])) == state,
-                "fixture_runtime_head_raced",
-            )
+                projection = io.document(self.read_reference(state["admission_ref"]))
+                contract.need(
+                    projection["source_refs"]["plan"] == state["plan_ref"]
+                    and projection["source_refs"]["commit"] == state["commit_ref"]
+                    and projection["source_refs"]["head"] == self.reference(store.head_path),
+                    "fixture_runtime_projection",
+                )
+                for name, reference in projection["source_refs"].items():
+                    contract.need(
+                        self.read_reference(reference)
+                        == self.read_reference(projection["projected_refs"][name]),
+                        "fixture_runtime_projection_changed",
+                    )
+                yield True
+                contract.need(
+                    store.head() == head
+                    and io.document(self.read_path(fence["state_path"])) == state,
+                    "fixture_runtime_head_raced",
+                )
         finally:
             os.close(descriptor)
 

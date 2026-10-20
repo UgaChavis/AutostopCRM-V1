@@ -1127,38 +1127,39 @@ class NativeProvider:
             cold_state.validate_plan(plan, plan["base_sha256"])
             commit = io.document(self.read_reference(current["commit_ref"]))
             store = cold_state.ColdStore(STATE.parent.parent / "state", plan["base_sha256"])
-            head = store.head()
-            contract.need(
-                head["sha256"] == current["commit_ref"]["sha256"]
-                and current["commit_ref"]["path"]
-                == str(store.history / f"{head['sequence']:020d}.json")
-                and head["record"] == commit
-                and commit["plan"] == plan
-                and plan["cold_authority_package_ref"] == package_ref
-                and plan["dispatch_epoch_ref"] == epoch_ref
-                and plan["attempt_id"] == binding["attempt_id"],
-                "kernel_runtime_actual_head",
-            )
-            projection = io.document(self.read_reference(current["admission_ref"]))
-            contract.fields(
-                projection,
-                {"schema", *epochs.COMMON, "source_refs", "projected_refs"},
-                "kernel_runtime_projection_fields",
-            )
-            contract.need(
-                projection["schema"] == "autostop.j1.cold-dispatch-admission.v1"
-                and all(projection[key] == epoch[key] for key in epochs.COMMON)
-                and projection["source_refs"]["plan"] == current["plan_ref"]
-                and projection["source_refs"]["commit"] == current["commit_ref"]
-                and projection["source_refs"]["epoch"] == epoch_ref,
-                "kernel_runtime_projection_binding",
-            )
-            yield True
-            contract.need(
-                io.document(io.read_protected(fence["state_path"])) == current
-                and store.head() == head,
-                "kernel_runtime_publication_raced",
-            )
+            with store.historical_validation(current["plan_ref"]):
+                head = store.head()
+                contract.need(
+                    head["sha256"] == current["commit_ref"]["sha256"]
+                    and current["commit_ref"]["path"]
+                    == str(store.history / f"{head['sequence']:020d}.json")
+                    and head["record"] == commit
+                    and commit["plan"] == plan
+                    and plan["cold_authority_package_ref"] == package_ref
+                    and plan["dispatch_epoch_ref"] == epoch_ref
+                    and plan["attempt_id"] == binding["attempt_id"],
+                    "kernel_runtime_actual_head",
+                )
+                projection = io.document(self.read_reference(current["admission_ref"]))
+                contract.fields(
+                    projection,
+                    {"schema", *epochs.COMMON, "source_refs", "projected_refs"},
+                    "kernel_runtime_projection_fields",
+                )
+                contract.need(
+                    projection["schema"] == "autostop.j1.cold-dispatch-admission.v1"
+                    and all(projection[key] == epoch[key] for key in epochs.COMMON)
+                    and projection["source_refs"]["plan"] == current["plan_ref"]
+                    and projection["source_refs"]["commit"] == current["commit_ref"]
+                    and projection["source_refs"]["epoch"] == epoch_ref,
+                    "kernel_runtime_projection_binding",
+                )
+                yield True
+                contract.need(
+                    io.document(io.read_protected(fence["state_path"])) == current
+                    and store.head() == head,
+                    "kernel_runtime_publication_raced",
+                )
         finally:
             if borrowed is None:
                 os.close(descriptor)
