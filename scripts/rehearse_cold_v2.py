@@ -32,6 +32,11 @@ def main(argv=None):
     parser.add_argument("--codex", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--whisper-dir", help="Opt-in exact four public Whisper input files")
+    parser.add_argument(
+        "--entry-only",
+        action="store_true",
+        help="Only the actual kernel2 child-entry diagnostic; no restore claim",
+    )
     args = parser.parse_args(argv)
     io.require(
         sys.platform.startswith("linux") and sys.dont_write_bytecode, "v2_linux_and_B_required"
@@ -78,7 +83,8 @@ def main(argv=None):
         log_path.chmod(0o600)
         result = unittest.TextTestRunner(stream=log, verbosity=2).run(
             unittest.defaultTestLoader.loadTestsFromName(
-                "tests.cold_v2_trace.ColdV2JoinedTraceTests"
+                "tests.cold_v2_trace."
+                + ("ColdV2EntryTests" if args.entry_only else "ColdV2JoinedTraceTests")
             )
         )
     receipt = {
@@ -100,6 +106,8 @@ def main(argv=None):
         "authenticated_real_account": False,
         "production_applications_exercised": False,
         "actual_pinned_voice_models_requested": bool(args.whisper_dir),
+        "entry_only": args.entry_only,
+        "independent_restore_exercised": not args.entry_only and result.wasSuccessful(),
     }
     with rehearsal.PrivateFilesystem(output):
         receipt["log_ref"] = io.reference(log_path)

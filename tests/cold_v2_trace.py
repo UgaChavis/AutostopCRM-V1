@@ -6,9 +6,11 @@ import copy
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 import unittest
+import uuid
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +21,7 @@ from scripts import j1_forward_archive as archive
 from scripts import j1_forward_cold_authority as authority
 from scripts import j1_forward_cold_backup as cold_backup
 from scripts import j1_forward_cold_epoch as epochs
+from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_lifecycle as lifecycle
 from scripts import j1_forward_io as io
 from scripts import j1_forward_rehearsal_crm as crm_boundary
@@ -32,6 +35,132 @@ from scripts.cold_v2_rehearsal import (
     stage_voice_models,
     verify_restored_models,
 )
+
+
+def _accept(controller, unit):
+    try:
+        return controller.accept(unit)
+    except Exception:
+        ticket_unit = "autostop-crm-forward-" + controller.epoch["slots"][unit] + ".service"
+        try:
+            status = private_guard_status(controller.backend, ticket_unit)
+            snapshot = controller.store(unit).read()["state"]
+            status["journal"] = {
+                "sequence": snapshot["sequence"],
+                "submitted": snapshot["dispatch_possible"],
+                "accepted": snapshot["acceptance"] is not None,
+                "claimed": snapshot["claim"] is not None,
+                "entered": snapshot["execution_possible"],
+            }
+        except Exception:
+            status = {"diagnostics_unavailable": True}
+        print("PRIVATE_COLD_GUARD " + json.dumps(status, sort_keys=True), flush=True)
+        raise
+
+
+@unittest.skipUnless(
+    sys.platform.startswith("linux") and hasattr(os, "pidfd_open"),
+    "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
+)
+class ColdV2EntryTests(unittest.TestCase):
+    def test_one_actual_kernel2_entry_requires_e_and_keeps_ingress_closed(self):
+        # Only the independent-restore admission boundary is a direct fixture
+        # assumption here. The joined trace separately proves actual restores.
+        started = time.monotonic()
+        with TypedFixture(ttl_seconds=600) as fixture, fixture.custody:
+            package_ref = fixture.produce()
+            epoch_ref = lifecycle.provision_epoch(
+                package_ref, fixture.runtime_bindings, provider=fixture.provider
+            )
+            backend = lifecycle.FixtureBackend(fixture)
+            controller = lifecycle.Controller(
+                package_ref, epoch_ref, provider=fixture.provider, backend=backend
+            )
+            controller.stage()
+            directory = fixture.control / "attempts" / fixture.binding["attempt_id"]
+            baseline = fixture._write(
+                directory / "entry-only-baseline.json",
+                {
+                    "controller_request_ref": fixture.parent.request_ref,
+                    "controller_launch_ref": fixture.parent.manifest_ref,
+                },
+            )
+            plan = fixture._plan(fixture.binding["attempt_id"])
+            plan.update(
+                schema=authority.PLAN_SCHEMA,
+                scope=authority.PLAN_SCOPE,
+                baseline_ref=baseline,
+                candidate_manager_sha=fixture.binding["candidate_manager_sha"],
+                cold_authority_package_ref=package_ref,
+                dispatch_epoch_ref=epoch_ref,
+                cold_crm_spec_ref=baseline,
+            )
+            plan_ref = fixture._write(directory / "entry-only-plan.json", plan)
+            lifecycle._publish(
+                controller.root / "release-admission.json",
+                {
+                    "schema": "autostop.j1.cold-slot-release-admission.v1",
+                    "package_ref": package_ref,
+                    "epoch_ref": epoch_ref,
+                    "plan_ref": plan_ref,
+                    "backup_ref": baseline,
+                    "offhost_ref": baseline,
+                    "candidate_may_have_written": True,
+                    "old_writer_allowed": False,
+                },
+                controller.root,
+            )
+            unit = authority.ALLOWED[0]
+            with self.assertRaisesRegex(io.Refusal, "fixture_candidate_not_entered"):
+                topology.candidate_inspection(
+                    fixture.provider, unit, authority.digest(fixture.binding)
+                )
+            controller.submit(unit)
+            reference = _accept(controller, unit)
+            observed = io.document(fixture.provider.read_reference(reference))
+            self.assertFalse(observed["business_acceptance"])
+            slot, snapshot, context = controller.context(unit)
+            self.assertTrue(snapshot["state"]["execution_possible"])
+            self.assertTrue(controller.submit(unit)["historical"])
+            self.assertEqual(slot.read(), snapshot)
+            duplicate = subprocess.run(
+                context["worker_argv"],
+                env=context["bootstrap_environment"],
+                cwd=context["worker_cwd"],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertEqual(slot.read(), snapshot)
+            endpoint = fixture.root / "execution/roles" / epochs.ROLES[unit] / "run/control.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(3)
+                client.connect(str(endpoint))
+                client.sendall(
+                    io.canonical({"op_id": str(uuid.uuid4()), "payload_sha256": "f" * 64})
+                )
+                self.assertEqual(client.recv(128), b"HELD\n")
+            self.assertEqual(len(list((fixture.root / "barriers").iterdir())), 8)
+            dispatch = io.document(
+                fixture.provider.read_path(fixture.root / "execution/dispatch/state.json")
+            )
+            self.assertEqual(dispatch["state"], "closed")
+            print(
+                "PRIVATE_COLD_ENTRY_ONLY "
+                + json.dumps(
+                    {
+                        "wall_seconds": time.monotonic() - started,
+                        "direct_fixture_admission": True,
+                        "independent_restore_exercised": False,
+                        "production_authority": False,
+                        "entered": True,
+                        "ingress_closed": True,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
 
 
 @unittest.skipUnless(
@@ -214,20 +343,7 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 accepted = {}
                 for unit in authority.ALLOWED:
                     controller.submit(unit)
-                    try:
-                        accepted[unit] = controller.accept(unit)
-                    except Exception:
-                        ticket_unit = (
-                            "autostop-crm-forward-" + controller.epoch["slots"][unit] + ".service"
-                        )
-                        try:
-                            status = private_guard_status(controller.backend, ticket_unit)
-                        except Exception:
-                            status = {"diagnostics_unavailable": True}
-                        print(
-                            "PRIVATE_COLD_GUARD " + json.dumps(status, sort_keys=True), flush=True
-                        )
-                        raise
+                    accepted[unit] = _accept(controller, unit)
                     snapshot = controller.store(unit).read()
                     self.assertTrue(snapshot["state"]["execution_possible"])
                     self.assertTrue(controller.submit(unit)["historical"])

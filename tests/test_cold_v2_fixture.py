@@ -19,6 +19,7 @@ from scripts import j1_forward_cold_authority as cold
 from scripts import j1_forward_cold_backup as backup
 from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_kernel as kernel
+from scripts import j1_forward_cold_lifecycle as lifecycle
 from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts.cold_v2_rehearsal import TypedFixture
@@ -91,6 +92,83 @@ class PendingVersionTests(unittest.TestCase):
                 self.read(
                     scope, damage=lambda value: value["requests"][0].update(payload_sha256="2" * 64)
                 )
+
+
+class CandidateBootstrapTests(unittest.TestCase):
+    def test_fixture_bootstrap_never_accepts_a_production_or_caller_provider(self):
+        with self.assertRaisesRegex(io.Refusal, "fixture_candidate_provider"):
+            topology.candidate_inspection(
+                SimpleNamespace(scope="production_native"), "any", "0" * 64
+            )
+
+    def test_binding_readback_requires_the_exact_entered_process_and_current_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "worker.py"
+            source.write_bytes(b"pinned-private-source")
+            source_ref = {"path": str(source), "sha256": io.sha(source.read_bytes())}
+            documents = {}
+
+            def save(path, value):
+                raw = io.canonical(value)
+                documents[str(path)] = raw
+                return {"path": str(path), "sha256": io.sha(raw)}
+
+            unit = cold.ALLOWED[0]
+            index = save(root / "index.json", {"files": [source_ref]})
+            policy = save(root / "policy.json", {"source_index_ref": index})
+            package = {"scope": "native_fixture", "binding": {}, "policies": {unit: policy}}
+            save(root / "authority.json", package)
+            save(root / "execution/epoch.json", {})
+            provider = object.__new__(topology.FixtureProvider)
+            provider.root = root
+            provider.reference = lambda path: {
+                "path": str(path),
+                "sha256": io.sha(documents[str(path)]),
+            }
+            provider.read_reference = lambda ref: (
+                source.read_bytes() if ref == source_ref else documents[ref["path"]]
+            )
+            accepted = {"pid": os.getpid(), "start_ticks": 12}
+            state = {"execution_possible": True, "claim": accepted, "acceptance": accepted}
+            controller = SimpleNamespace(
+                admitted=lambda: None,
+                context=lambda _unit: (None, {"state": state}, {"policy_ref": policy}),
+            )
+            with (
+                patch.object(lifecycle, "Controller", return_value=controller),
+                patch.object(cold, "_binding"),
+                patch.object(topology.native, "birth", return_value=12),
+                patch.object(
+                    topology.native,
+                    "verify_package",
+                    side_effect=AssertionError("second qualification"),
+                ),
+                patch.object(lifecycle, "_observe_process", return_value=accepted),
+            ):
+                receipt = topology.candidate_inspection(provider, unit, cold.digest({}))
+                self.assertEqual(receipt["policy_ref"], policy)
+                for mutation in (
+                    {"execution_possible": False},
+                    {"claim": {"pid": os.getpid() + 1, "start_ticks": 12}},
+                ):
+                    original = dict(state)
+                    state.update(mutation)
+                    with self.assertRaisesRegex(io.Refusal, "fixture_candidate_not_entered"):
+                        topology.candidate_inspection(provider, unit, cold.digest({}))
+                    state.clear()
+                    state.update(original)
+                original_read = provider.read_reference
+
+                def replace_after_read(reference):
+                    raw = original_read(reference)
+                    if reference == source_ref:
+                        source.write_bytes(b"replaced-during-binding-readback")
+                    return raw
+
+                provider.read_reference = replace_after_read
+                with self.assertRaisesRegex(io.Refusal, "fixture_candidate_source_changed"):
+                    topology.candidate_inspection(provider, unit, cold.digest({}))
 
 
 class FixtureBoundaryTests(unittest.TestCase):

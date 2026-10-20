@@ -64,9 +64,7 @@ if mode == 'probe':
     raise SystemExit(0)
 if mode == 'candidate':
     provider = fixture.FixtureProvider(root)
-    ref = provider.reference(root / 'authority.json')
-    receipt = guard.inspect(ref, unit, config['binding_sha256'], provider=provider,
-                            required_scope='native_fixture', current_process=True)
+    receipt = fixture.candidate_inspection(provider, unit, config['binding_sha256'])
     binding = json.loads(pathlib.Path(os.environ['AUTOSTOP_COLD_RUNTIME_BINDING']).read_bytes())
     fence = json.loads(provider.read_reference(binding['ingress_fence_ref']))
     tombstones = json.loads(provider.read_reference(binding['tombstones_ref']))
@@ -201,6 +199,64 @@ def _safe_file(path, root, *, limit=128 * 1024**2):
         return raw
     finally:
         os.close(descriptor)
+
+
+def candidate_inspection(provider, unit, binding_sha256):
+    """Read back this fixture application's already consumed native entry.
+
+    The standalone guard fully qualifies the package before its durable E.
+    The application verifies its own binding and source after exec, like the
+    Manager bootstrap; it does not run a second package qualification.
+    """
+    from scripts import j1_forward_cold_kernel as kernel
+    from scripts import j1_forward_cold_lifecycle as lifecycle
+
+    contract.need(type(provider) is FixtureProvider, "fixture_candidate_provider")
+    reference = provider.reference(provider.root / "authority.json")
+    package = io.document(provider.read_reference(reference))
+    contract.need(
+        package["scope"] == "native_fixture"
+        and unit in contract.ALLOWED
+        and contract.digest(package["binding"]) == binding_sha256,
+        "fixture_candidate_binding",
+    )
+    contract._binding(package["binding"], now_ns=time.monotonic_ns())
+    epoch_ref = provider.reference(provider.root / "execution/epoch.json")
+    controller = lifecycle.Controller(reference, epoch_ref, provider=provider, backend=object())
+    controller.admitted()
+    _store, snapshot, context = controller.context(unit)
+    accepted, claim = snapshot["state"]["acceptance"], snapshot["state"]["claim"]
+    contract.need(
+        snapshot["state"]["execution_possible"] is True
+        and claim == accepted
+        and claim is not None
+        and claim["pid"] == os.getpid()
+        and claim["start_ticks"] == native.birth(os.getpid())
+        and context["policy_ref"] == package["policies"][unit],
+        "fixture_candidate_not_entered",
+    )
+    observed = lifecycle._observe_process(os.getpid(), context, provider, started=True)
+    policy = io.document(provider.read_reference(context["policy_ref"]))
+    files = io.document(provider.read_reference(policy["source_index_ref"]))["files"]
+    versions = {row["path"]: kernel.file_version(Path(row["path"]).lstat()) for row in files}
+    for row in files:
+        provider.read_reference(row)
+    contract.need(
+        all(kernel.file_version(Path(path).lstat()) == value for path, value in versions.items()),
+        "fixture_candidate_source_changed",
+    )
+    contract.need(
+        lifecycle._observe_process(os.getpid(), context, provider, started=True) == observed,
+        "fixture_candidate_process_changed",
+    )
+    return {
+        "schema": "autostop.j1.cold-closed-dispatch-inspection.v1",
+        "scope": "native_fixture",
+        "package_ref": reference,
+        "binding_sha256": binding_sha256,
+        "unit": unit,
+        "policy_ref": context["policy_ref"],
+    }
 
 
 class FixtureProvider(native.NativeProvider):
