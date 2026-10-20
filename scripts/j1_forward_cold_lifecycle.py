@@ -28,6 +28,15 @@ from scripts import j1_forward_launch_permission as journal
 STATE = native.STATE / "epochs"
 NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 BOOTSTRAP_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
+BOOTSTRAP_UNSET = (
+    "HOME",
+    "LOGNAME",
+    "USER",
+    "SHELL",
+    "MEMORY_PRESSURE_WATCH",
+    "MEMORY_PRESSURE_WRITE",
+    "SGX_AESM_ADDR",
+)
 PARENT_REQUESTS = Path("/var/lib/autostop-crm-forward/cold-requests")
 PARENT_JOURNALS = Path("/var/lib/autostop-crm-forward/cold-controller-launch")
 PARENT_SOURCE = Path("/opt/autostopcrm")
@@ -694,7 +703,7 @@ class NativeBackend:
         )
         environment = context["bootstrap_environment"]
         contract.need(
-            not any(key in environment for key in ("LD_PRELOAD", "PYTHONHOME")),
+            not any(key in environment for key in ("LD_PRELOAD", "PYTHONHOME", *BOOTSTRAP_UNSET)),
             "slot_unsafe_bootstrap_environment",
         )
         entries = []
@@ -711,6 +720,9 @@ class NativeBackend:
         command = " ".join(context["worker_argv"])
         raw = (
             "[Unit]\nDescription=AutoStop cold guarded execution slot\n[Service]\nType=exec\nUser=root\nGroup=root\nSupplementaryGroups=\nWorkingDirectory=/\nRestart=no\n"
+            + "UnsetEnvironment="
+            + " ".join(BOOTSTRAP_UNSET)
+            + "\n"
             + "".join(entries)
             + "ExecStart="
             + command
@@ -777,7 +789,7 @@ class NativeBackend:
             re.fullmatch(r"autostop-crm-forward-[0-9a-f-]{36}\.service", ticket["unit"]),
             "slot_unit_name",
         )
-        properties = (*native.UNIT_PROPERTIES, "Restart", "FragmentPath", "Job")
+        properties = (*native.UNIT_PROPERTIES, "Restart", "FragmentPath", "Job", "UnsetEnvironment")
         fields = native.systemd_properties(
             ticket["unit"], properties, environment=BOOTSTRAP_ENVIRONMENT
         )
@@ -812,6 +824,10 @@ class NativeBackend:
         )
         import shlex
 
+        contract.need(
+            shlex.split(fields["UnsetEnvironment"]) == list(BOOTSTRAP_UNSET),
+            "slot_loaded_unset_environment_changed",
+        )
         rows = [entry.split("=", 1) for entry in shlex.split(fields["Environment"])]
         contract.need(
             all(len(row) == 2 for row in rows)

@@ -69,6 +69,7 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
             Restart="no",
             FragmentPath="/etc/systemd/system/" + self.ticket["unit"],
             Job="0",
+            UnsetEnvironment=" ".join(lifecycle.BOOTSTRAP_UNSET),
             Environment=" ".join(
                 key + "=" + value for key, value in lifecycle.BOOTSTRAP_ENVIRONMENT.items()
             ),
@@ -121,6 +122,7 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
             self.assertNotIn("ExecCondition=", raw)
             self.assertEqual(raw.count("ExecStart="), 1)
             self.assertIn("\nGroup=root\nSupplementaryGroups=\n", raw)
+            self.assertIn("UnsetEnvironment=" + " ".join(lifecycle.BOOTSTRAP_UNSET) + "\n", raw)
             self.assertIn("ExecStart=" + " ".join(context["worker_argv"]), raw)
             self.assertEqual(execute.call_args.args[0], ["/usr/bin/systemctl", "daemon-reload"])
 
@@ -131,6 +133,7 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
             ("FragmentPath", "/run/systemd/transient/unknown.service"),
             ("Job", "123 start"),
             ("Environment", "AUTOSTOP_COLD_RUNTIME_BINDING=/untrusted"),
+            ("UnsetEnvironment", "INVOCATION_ID"),
             (
                 "ExecCondition",
                 command("/usr/bin/touch /tmp/unwanted") + " " + original["ExecCondition"],
