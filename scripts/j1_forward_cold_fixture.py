@@ -819,7 +819,19 @@ class FixtureProvider(native.NativeProvider):
                 "fixture_runtime_not_open",
             )
             plan = io.document(self.read_reference(state["plan_ref"]))
-            store = cold_state.ColdStore(self.root / "forward/state", plan["base_sha256"])
+            provider = self
+
+            class FixtureStore(cold_state.ColdStore):
+                def _read_reference(self, reference):
+                    return provider.read_reference(reference)
+
+                def read_opaque_reference(self, reference):
+                    return provider.read_opaque_reference(reference)
+
+                def read_runtime_capsule(self, reference):
+                    return provider.read_runtime_capsule(reference)
+
+            store = FixtureStore(self.root / "forward/state", plan["base_sha256"])
             head = store.head()
             contract.need(
                 state["commit_ref"]["path"] == str(store.history / f"{head['sequence']:020d}.json")

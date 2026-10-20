@@ -11,12 +11,18 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import cold_trace
 from scripts import j1_forward_cold_authority as cold
 from scripts import j1_forward_cold_epoch as epochs
+from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_kernel as kernel
+from scripts import j1_forward_cold_lifecycle as lifecycle
 from scripts import j1_forward_cold_native as native
+from scripts import j1_forward_cold_projection as projection
+from scripts import j1_forward_cold_runtime_capsule as capsule
 from scripts import j1_forward_cold_state as cold_state
 from scripts import j1_forward_io as io
+from scripts import j1_forward_release_rehearsal as rehearsal
 from tests import test_j1_forward_state as state_fixture
 
 
@@ -448,6 +454,246 @@ class KernelCommittedPhaseTests(unittest.TestCase):
                         self.fail("An open descriptor is not an owned exclusive lock")
             finally:
                 os.close(descriptor)
+
+
+@unittest.skipUnless(
+    sys.platform.startswith("linux"), "Requires real Linux flock, AF_UNIX and SO_PEERCRED"
+)
+class FixtureTypedHistoryTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="typed-leaves-")
+        self.addCleanup(temporary.cleanup)
+        external = Path(temporary.name)
+
+        class StorageFixture(rehearsal.TraceFixture):
+            # Actual COLD history and v2 typed-byte validation, not a claim
+            # that these inert ELF bytes are an accepted running appserver.
+            def _pending(self, quarantine):
+                reference = super()._pending(quarantine)
+                document = io.document(self.provider.read_reference(reference))
+                io.require(not document["requests"], "storage_fixture_empty_catalog")
+                document["schema"] = "autostop.j1.cold-pending-disposition.v2"
+                return self.publish("evidence/storage-pending-v2.json", document)
+
+            def _produce_kernel(self, *arguments):
+                source, policies, reference = super()._produce_kernel(*arguments)
+                body = io.document(self.provider.read_reference(reference))
+                roots = {name: str(external / name) for name in ("python", "venv")}
+                for root in roots.values():
+                    directory = Path(root) / "bin"
+                    directory.mkdir(parents=True, mode=0o700)
+                    leaf = directory / "python3.12"
+                    leaf.write_bytes(b"\x7fELF inert private typed-reader fixture; never execute\n")
+                    leaf.chmod(0o755)
+                runtime = capsule.produce(
+                    external / "runtime.tar.gz",
+                    roots=roots,
+                    binding=self.binding,
+                    scope="native_fixture",
+                )
+                self.runtime_ref = self.publish("evidence/storage-runtime-index.json", runtime)
+                self.runtime = runtime
+                self.provider.external = {
+                    **capsule.allowed_paths(runtime),
+                    runtime["capsule_ref"]["path"]: runtime["capsule_ref"]["sha256"],
+                }
+                self.external_interpreter = self.provider.reference(
+                    Path(roots["venv"]) / "bin/python3.12"
+                )
+                policy = io.document(self.provider.read_reference(body["policy_ref"]))
+                rpc = self.publish("evidence/storage-rpc.py", b"# inert source fixture\n", raw=True)
+                protocol = self.publish(
+                    "evidence/storage-protocol.json",
+                    self.doc(
+                        "kernel-protocol-index",
+                        files=sorted([policy["source_ref"], rpc], key=lambda row: row["path"]),
+                    ),
+                )
+                policy.update(
+                    schema="autostop.j1.cold-kernel-policy.v2",
+                    interpreter_ref=self.external_interpreter,
+                    runtime_index_ref=self.runtime_ref,
+                    appserver_ref=self.external_interpreter,
+                    appserver_argv=[self.external_interpreter["path"]],
+                    appserver_environment_ref=policy["environment_ref"],
+                    protocol_index_ref=protocol,
+                    rpc_ref=rpc,
+                )
+                body.update(
+                    schema="autostop.j1.cold-kernel.v2",
+                    supervisor_actor=body["actor"],
+                    policy_ref=self.publish("evidence/storage-kernel-policy-v2.json", policy),
+                    preparation_ref=self.publish(
+                        "evidence/storage-preparation.json", {"scope": "storage_only_fixture"}
+                    ),
+                    empty_thread_ref=self.publish(
+                        "evidence/storage-empty-thread.json", {"scope": "storage_only_fixture"}
+                    ),
+                )
+                return source, policies, self.publish("evidence/storage-kernel-v2.json", body)
+
+        source_root = Path(__file__).resolve().parents[1]
+        consumers = {
+            str(path.relative_to(source_root)): path.read_bytes()
+            for path in sorted((source_root / "scripts").glob("j1_forward_*.py"))
+        }
+        helper = "scripts/j1_manager_transition_source.py"
+        consumers[helper] = (source_root / helper).read_bytes()
+        # Actual non-root tests cannot read private common Git metadata. No
+        # production Git/CI qualification is claimed by this storage fixture.
+        with (
+            patch.object(
+                rehearsal,
+                "checkout_identity",
+                return_value={"revision": "1" * 40, "tree": "2" * 40},
+            ),
+            patch.object(rehearsal, "source_inventory", return_value=consumers),
+        ):
+            self.fixture = StorageFixture(candidates=True)
+        self.addCleanup(self.fixture.close)
+        # Kernel native truth has separate actual-kernel tests. Here the real
+        # structural validator/State/crypto/flock and protected readers run.
+        with patch.object(self.fixture.provider, "verify_kernel"):
+            self.package_ref = self.fixture.produce()
+        self.fixture.publish(
+            "typed-fixture.json",
+            {
+                "schema": "autostop.j1.private-typed-cold-fixture.v1",
+                "scope": "native_fixture",
+                "binding": self.fixture.binding,
+                "runtime_index_ref": self.fixture.runtime_ref,
+                "external_refs": [self.fixture.runtime["capsule_ref"]],
+            },
+        )
+        self.provider = self.fixture.provider = topology.FixtureProvider(self.fixture.root)
+        custody = self.fixture.custody
+        custody.__enter__()
+        self.addCleanup(custody.__exit__, None, None, None)
+        self.validated = cold.validate_package(
+            self.package_ref, read_reference=self.provider.read_reference
+        )
+        self.assertEqual(self.validated["kernel"]["schema"], "autostop.j1.cold-kernel.v2")
+        self.assertEqual(
+            self.validated["pending"]["schema"], "autostop.j1.cold-pending-disposition.v2"
+        )
+        self.epoch = {
+            "schema": epochs.SCHEMA,
+            "scope": "native_fixture",
+            **epochs.common(self.fixture.binding),
+            "package_ref": self.package_ref,
+            "runtime_bindings": self.fixture.runtime_bindings,
+            "slots": {unit: lifecycle.slot_id(self.fixture.binding, unit) for unit in cold.ALLOWED},
+            "journal_root": str(self.fixture.root / "execution/journals"),
+        }
+        epoch_ref = self.fixture.publish("execution/epoch.json", self.epoch)
+        self.fence = epochs.verify(self.epoch, self.validated["package"], self.provider)
+        signer = rehearsal.TemporaryCustodian(
+            self.fixture.root / "signer", self.fixture.root / "reviewer/public.pem"
+        )
+        spec = self.fixture.publish("storage-spec.json", {"scope": "storage_only_fixture"})
+        attempt = cold_trace.prepare_attempt(
+            self.fixture, self.package_ref, epoch_ref, spec, signer
+        )
+        self.store = attempt["store"]
+        self.assertEqual(attempt["envelope"]["schema"], cold_state.RECOVERY_SCHEMA)
+        proofs = {
+            name: signer.sign(
+                name,
+                attempt["plan_ref"],
+                {"scope": "storage_only_fixture", "acceptance_claimed": False},
+                attempt["directory"] / (name + "-proof.json"),
+            )
+            for name in rehearsal.state.PROOF_FIELDS
+        }
+        commit = self.store.commit_recovery(attempt["envelope"], proofs)
+        descriptor = epochs.locked_fence(self.fence, exclusive=True)
+        try:
+            with patch.object(projection.native, "verify_package", return_value=self.validated):
+                admission = projection.publish(
+                    attempt["plan_ref"],
+                    commit,
+                    epoch_ref,
+                    store=self.store,
+                    provider=self.provider,
+                    dispatch_fd=descriptor,
+                )
+            io.atomic_replace(
+                self.fence["state_path"],
+                {
+                    **epochs.closed_state(self.epoch),
+                    "state": "open",
+                    "plan_ref": attempt["plan_ref"],
+                    "commit_ref": commit,
+                    "admission_ref": admission,
+                },
+            )
+        finally:
+            os.close(descriptor)
+
+    def test_committed_fixture_head_uses_typed_external_readers_and_actual_shared_lock(self):
+        leaf = self.fixture.external_interpreter
+        capsule_ref = self.fixture.runtime["capsule_ref"]
+        with self.assertRaisesRegex(io.Refusal, "fixture_reference_outside_root"):
+            io.read_protected(leaf["path"])
+        with (
+            patch.object(
+                self.provider, "read_opaque_reference", wraps=self.provider.read_opaque_reference
+            ) as opaque,
+            patch.object(
+                self.provider, "read_runtime_capsule", wraps=self.provider.read_runtime_capsule
+            ) as packed,
+        ):
+            with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                self.assertTrue(admitted)
+                with self.assertRaises(BlockingIOError):
+                    epochs.locked_fence(self.fence, exclusive=True)
+        self.assertGreaterEqual(sum(call.args == (leaf,) for call in opaque.call_args_list), 2)
+        self.assertGreaterEqual(
+            sum(call.args == (capsule_ref,) for call in packed.call_args_list), 2
+        )
+
+    def test_unlisted_writable_or_changed_typed_leaves_and_entry_exit_head_deny(self):
+        unknown = Path(self.fixture.external_interpreter["path"]).with_name("unlisted")
+        unknown.write_bytes(b"\x7fELF unlisted inert bytes")
+        unknown.chmod(0o755)
+        with self.assertRaisesRegex(io.Refusal, "fixture_reference_outside_root"):
+            self.provider.read_opaque_reference(
+                {"path": str(unknown), "sha256": io.sha(unknown.read_bytes())}
+            )
+        leaf = Path(self.fixture.external_interpreter["path"])
+        leaf.chmod(0o777)
+        try:
+            with self.assertRaisesRegex(io.Refusal, "fixture_external_protection"):
+                with self.provider._runtime_kernel_admitted(self.validated):
+                    self.fail("Writable external runtime cannot admit committed history")
+        finally:
+            leaf.chmod(0o755)
+        for path in (leaf, Path(self.fixture.runtime["capsule_ref"]["path"])):
+            original = path.read_bytes()
+            for at_exit in (False, True):
+                with self.subTest(path=path.name, at_exit=at_exit):
+                    try:
+                        with self.assertRaises(io.Refusal):
+                            if not at_exit:
+                                path.write_bytes(original + b"changed")
+                            with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                                self.assertTrue(admitted)
+                                path.write_bytes(original + b"changed")
+                    finally:
+                        path.write_bytes(original)
+        original = self.store.head_path.read_bytes()
+        for at_exit in (False, True):
+            with self.subTest(head_at_exit=at_exit):
+                try:
+                    changed = {**io.document(original), "sha256": "f" * 64}
+                    with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
+                        if not at_exit:
+                            io.atomic_replace(self.store.head_path, changed)
+                        with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                            self.assertTrue(admitted)
+                            io.atomic_replace(self.store.head_path, changed)
+                finally:
+                    io.atomic_replace(self.store.head_path, io.document(original))
 
 
 if __name__ == "__main__":
