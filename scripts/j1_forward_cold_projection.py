@@ -104,7 +104,7 @@ def _public_new(path, raw):
     return io.reference(path)
 
 
-def publish(plan_ref, commit_ref, epoch_ref, *, store, provider, dispatch_fd):
+def publish(plan_ref, commit_ref, epoch_ref, *, store, provider, dispatch_fd, _observation=None):
     """Copy exact committed bytes; publishing a cut alone never opens dispatch."""
     plan_raw = _bytes(store._read_reference, plan_ref)
     plan = io.document(plan_raw)
@@ -115,9 +115,16 @@ def publish(plan_ref, commit_ref, epoch_ref, *, store, provider, dispatch_fd):
     fence = _fence(epoch, provider.read_reference)
     _exclusive(fence, dispatch_fd)
     with native.borrow_dispatch(provider, dispatch_fd):
-        verified = native.verify_package(
-            plan["cold_authority_package_ref"], provider=provider, required_scope=provider.scope
-        )
+        if _observation is None:
+            verified = native.verify_package(
+                plan["cold_authority_package_ref"], provider=provider, required_scope=provider.scope
+            )
+        else:
+            contract.need(
+                type(_observation) is native.PackageRequalification,
+                "projection_requalification_type",
+            )
+            verified = _observation.observe(plan["cold_authority_package_ref"], provider)
         epochs.verify(epoch, verified["package"], provider)
     commit_raw = _bytes(store._read_reference, commit_ref)
     commit = io.document(commit_raw)

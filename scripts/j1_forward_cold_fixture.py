@@ -811,8 +811,24 @@ class FixtureProvider(native.NativeProvider):
         if io.document(self.read_path(fence["state_path"])) == epochs.closed_state(epoch):
             yield False
             return
-        descriptor = epochs.locked_fence(fence, exclusive=False)
+        borrowed = getattr(self, "_borrowed_dispatch_fd", None)
+        descriptor = epochs.locked_fence(fence, exclusive=False) if borrowed is None else borrowed
         try:
+            if borrowed is not None:
+                info, linked, pin = (
+                    os.fstat(descriptor),
+                    Path(fence["dispatch_lock_path"]).lstat(),
+                    fence["dispatch_lock_identity"],
+                )
+                contract.need(
+                    (info.st_dev, info.st_ino, info.st_ctime_ns)
+                    == (linked.st_dev, linked.st_ino, linked.st_ctime_ns)
+                    == (pin["device"], pin["inode"], pin["ctime_ns"]),
+                    "fixture_runtime_lock_changed",
+                )
+                native.held_descriptor(
+                    native.controller(os.getpid()), descriptor, [info.st_dev, info.st_ino]
+                )
             state = io.document(self.read_path(fence["state_path"]))
             contract.need(
                 state["state"] == "open" and state["admission_ref"] is not None,
@@ -862,7 +878,8 @@ class FixtureProvider(native.NativeProvider):
                     "fixture_runtime_head_raced",
                 )
         finally:
-            os.close(descriptor)
+            if borrowed is None:
+                os.close(descriptor)
 
     def kernel_rpc_factory(self, path, deadline):
         contract.need(self.typed is not None, "fixture_artificial_auth_scope")

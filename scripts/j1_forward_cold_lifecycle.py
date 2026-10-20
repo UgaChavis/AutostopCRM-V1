@@ -1776,57 +1776,114 @@ class Controller:
         from scripts import j1_forward_cold_projection
 
         contract.need(store is not None, "slot_open_store_required")
-        commit = io.document(io.referenced(self.commit(commit_ref, store=store)))
-        _value, fence = self.verify()
-        descriptor = epochs.locked_fence(fence, exclusive=True)
+        descriptor, fence = None, None
         try:
-            contract.need(
-                not (self.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
-            )
-            admission_ref = j1_forward_cold_projection.publish(
-                commit["plan_ref"],
-                commit_ref,
-                self.epoch_ref,
-                store=store,
-                provider=self.provider,
-                dispatch_fd=descriptor,
-            )
-            state = {
-                "schema": "autostop.j1.cold-dispatch-state.v1",
-                **epochs.common(self.epoch),
-                "state": "open",
-                "commit_ref": commit_ref,
-                "plan_ref": commit["plan_ref"],
-                "admission_ref": admission_ref,
-            }
-            current = io.document(_read(fence["state_path"], Path(fence["state_path"]).parent))
-            contract.need(
-                current == epochs.closed_state(self.epoch) or current == state,
-                "slot_dispatch_state_conflict",
-            )
-            if current != state:
-                temporary = Path(fence["state_path"]).with_name(".state-" + str(uuid.uuid4()))
-                journal._new(temporary, io.canonical(state))
-                temporary.chmod(0o644)
-                os.replace(temporary, fence["state_path"])
-                journal._sync(Path(fence["state_path"]).parent)
-            contract.need(
-                _read(fence["state_path"], Path(fence["state_path"]).parent) == io.canonical(state),
-                "slot_dispatch_publication_changed",
-            )
-            return _publish(
-                self.root / "opened.json",
-                {
-                    "ok": True,
-                    "epoch_ref": self.epoch_ref,
-                    "commit_ref": commit_ref,
-                    "old_hold_released": False,
-                    "old_barriers_opened": False,
-                },
-                self.root,
-            )
+            admission = self.admitted()
+            with (
+                native.PackageRequalification(
+                    self.package_ref,
+                    provider=self.provider,
+                    required_scope=self.provider.scope,
+                    max_calls=2,
+                ) as observation,
+                store.historical_validation(admission["plan_ref"]),
+            ):
+                # Preserve ready/commit -> first native cut -> EX ordering.
+                # Neither ready's nine-cut context nor its native facts escape.
+                commit = io.document(io.referenced(self.commit(commit_ref, store=store)))
+                value, fence = self.verify(observation)
+                contract.need(commit["plan_ref"] == admission["plan_ref"], "slot_open_plan_changed")
+                descriptor = epochs.locked_fence(fence, exclusive=True)
+                admission_ref = j1_forward_cold_projection.publish(
+                    commit["plan_ref"],
+                    commit_ref,
+                    self.epoch_ref,
+                    store=store,
+                    provider=self.provider,
+                    dispatch_fd=descriptor,
+                    _observation=observation,
+                )
+            # Both scope exits run under EX and before OPEN. Recheck mutable
+            # truth after the final historical and typed/native source reads.
+            with native.borrow_dispatch(self.provider, descriptor):
+                native._mutable_package(self.provider, value)
+                head_ref = io.document(io.referenced(admission_ref))["source_refs"]["head"]
+                return self._publish_open(
+                    value, admission, commit_ref, admission_ref, head_ref, store, fence, descriptor
+                )
+        except BaseException:
+            if descriptor is not None:
+                j1_forward_cold_projection._exclusive(fence, descriptor)
+                j1_forward_cold_projection._closed(fence, self.epoch)
+            raise
         finally:
-            os.close(descriptor)
+            if descriptor is not None:
+                os.close(descriptor)
+
+    def _open_current(self, value, admission, head_ref, store, fence, descriptor):
+        from scripts import j1_forward_cold_projection as projection
+
+        contract.need(
+            self.provider.boot() == value["package"]["binding"]["boot_id"], "slot_open_boot"
+        )
+        contract.need(self.admitted() == admission, "slot_open_admission_changed")
+        contract.need(self._verify_epoch(value)[1] == fence, "slot_open_fence_changed")
+        # Do not rerun historical decoding here. The current HEAD bytes still
+        # have to match the exact chain just verified under this same EX.
+        projection._bytes(store._read_reference, head_ref)
+        projection._exclusive(fence, descriptor)
+        contract.need(
+            self.provider.boot() == value["package"]["binding"]["boot_id"], "slot_open_boot"
+        )
+        contract._binding(value["package"]["binding"], now_ns=time.monotonic_ns())
+
+    def _publish_open(
+        self, value, admission, commit_ref, admission_ref, head_ref, store, fence, descriptor
+    ):
+        state = {
+            "schema": "autostop.j1.cold-dispatch-state.v1",
+            **epochs.common(self.epoch),
+            "state": "open",
+            "commit_ref": commit_ref,
+            "plan_ref": admission["plan_ref"],
+            "admission_ref": admission_ref,
+        }
+        current = io.document(_read(fence["state_path"], Path(fence["state_path"]).parent))
+        contract.need(
+            current == epochs.closed_state(self.epoch) or current == state,
+            "slot_dispatch_state_conflict",
+        )
+        if current != state:
+            temporary = Path(fence["state_path"]).with_name(".state-" + str(uuid.uuid4()))
+            journal._new(temporary, io.canonical(state))
+            temporary.chmod(0o644)
+            self._open_current(value, admission, head_ref, store, fence, descriptor)
+            os.replace(temporary, fence["state_path"])
+            journal._sync(Path(fence["state_path"]).parent)
+        contract.need(
+            _read(fence["state_path"], Path(fence["state_path"]).parent) == io.canonical(state),
+            "slot_dispatch_publication_changed",
+        )
+        self._open_current(value, admission, head_ref, store, fence, descriptor)
+        opened = _publish(
+            self.root / "opened.json",
+            {
+                "ok": True,
+                "epoch_ref": self.epoch_ref,
+                "commit_ref": commit_ref,
+                "old_hold_released": False,
+                "old_barriers_opened": False,
+            },
+            self.root,
+        )
+        # A delayed rename/fsync/receipt must not release an expired OPEN. All
+        # cooperating dispatchers remain excluded until these checks succeed.
+        contract.need(
+            _read(fence["state_path"], Path(fence["state_path"]).parent) == io.canonical(state),
+            "slot_dispatch_publication_changed",
+        )
+        self._open_current(value, admission, head_ref, store, fence, descriptor)
+        return opened
 
     def finish(self, *, store=None):
         admission = self.admitted(fresh=False)

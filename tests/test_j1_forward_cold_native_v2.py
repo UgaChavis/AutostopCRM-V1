@@ -693,6 +693,45 @@ class FixtureTypedHistoryTests(unittest.TestCase):
             sum(call.args == (capsule_ref,) for call in packed.call_args_list), 2
         )
 
+    def test_committed_fixture_borrows_only_the_exact_owned_ex_and_never_closes_it(self):
+        import fcntl
+
+        descriptor = epochs.locked_fence(self.fence, exclusive=True)
+        try:
+            with native.borrow_dispatch(self.provider, descriptor):
+                with self.provider._runtime_kernel_admitted(self.validated) as admitted:
+                    self.assertTrue(admitted)
+                    with self.assertRaises(BlockingIOError):
+                        epochs.locked_fence(self.fence, exclusive=False)
+            os.fstat(descriptor)  # The observer must not close the lender's EX.
+            with self.assertRaises(BlockingIOError):
+                epochs.locked_fence(self.fence, exclusive=False)
+            self.assertIsNone(self.provider._borrowed_dispatch_fd)
+        finally:
+            os.close(descriptor)
+
+        other = self.fixture.root / "different-dispatch.lock"
+        other.write_bytes(b"")
+        other.chmod(0o600)
+        descriptor = os.open(other, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with native.borrow_dispatch(self.provider, descriptor):
+                with self.assertRaisesRegex(io.Refusal, "fixture_runtime_lock_changed"):
+                    with self.provider._runtime_kernel_admitted(self.validated):
+                        self.fail("Unrelated EX cannot stand in for this epoch")
+            os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+
+        descriptor = epochs.locked_fence(self.fence, exclusive=False)
+        try:
+            with self.assertRaisesRegex(io.Refusal, "hold_lock_not_owned"):
+                with native.borrow_dispatch(self.provider, descriptor):
+                    self.fail("A shared lock is not the controller's EX")
+        finally:
+            os.close(descriptor)
+
     def test_unlisted_writable_or_changed_typed_leaves_and_entry_exit_head_deny(self):
         unknown = Path(self.fixture.external_interpreter["path"]).with_name("unlisted")
         unknown.write_bytes(b"\x7fELF unlisted inert bytes")

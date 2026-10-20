@@ -17,8 +17,10 @@ from unittest.mock import patch
 
 from scripts import cold_trace as trace
 from scripts import j1_forward_cold_authority as authority
+from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_fixture as cold_fixture
 from scripts import j1_forward_cold_lifecycle as lifecycle
+from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_cold_state as transactions
 from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
@@ -226,6 +228,33 @@ def _isolated_check(case, root):
                 receipt["actual_uid"] = os.geteuid()
             elif case == "recover":
                 receipt.update(_recover(attempt, signer))
+            elif case == "open":
+                # Real COLD recovery graph and signatures; native readiness is
+                # an explicit unit seam in the parent, not a role entry proof.
+                acceptance = "9" * 64
+                payload = {
+                    "scope": "storage_only_fixture",
+                    "acceptance_claimed": False,
+                    "phase": "activated",
+                    "plan_sha256": attempt["plan_ref"]["sha256"],
+                    "baseline_sha256": attempt["plan"]["baseline_ref"]["sha256"],
+                    "cold_guards_executed": True,
+                    "execution_acceptance_sha256": acceptance,
+                    "runtime_checks_passed": True,
+                    "candidate_revision": attempt["plan"]["candidate"]["revision"],
+                    "candidate_image": attempt["plan"]["candidate"]["image"],
+                }
+                proofs = {
+                    name: signer.sign(
+                        name, attempt["plan_ref"], payload, attempt["directory"] / (name + ".json")
+                    )
+                    for name in rehearsal.state.PROOF_FIELDS
+                }
+                receipt.update(
+                    commit=attempt["store"].commit_recovery(attempt["envelope"], proofs),
+                    proofs=proofs,
+                    acceptance_sha256=acceptance,
+                )
             elif case == "owner":
                 with attempt["store"].historical_validation(attempt["plan_ref"]):
                     attempt["store"]._envelope(attempt["envelope"])
@@ -490,6 +519,139 @@ class HistoricalValidationTests(_ColdFixtureTests):
             self.assertFalse(hasattr(store, "_historical_validation"))
             with store.historical_validation(receipt["plan_ref"]):
                 store._envelope(envelope)
+
+
+class ColdOpenHistoryTests(_ColdFixtureTests):
+    def prepare_open(self):
+        receipt = self.isolated("open")
+        self.enterContext(rehearsal.PrivateFilesystem(self.root))
+        store, provider = _private_store(receipt)
+        plan = io.document(provider.read_reference(receipt["plan_ref"]))
+        baseline = io.document(provider.read_reference(plan["baseline_ref"]))
+        self.enterContext(
+            patch.object(
+                rehearsal.signatures, "REVIEW_KEY_PATH", baseline["review_key_ref"]["path"]
+            )
+        )
+        controller = lifecycle.Controller(
+            receipt["package_ref"],
+            receipt["epoch_ref"],
+            provider=provider,
+            backend=lifecycle.FixtureBackend(SimpleNamespace(provider=provider)),
+        )
+        # Live process/native readiness is the only substituted truth. Typed
+        # Reader/bytes, installed source, COLD history, HEAD, signatures and EX
+        # remain real. This is not full kernel2/app acceptance or a budget run.
+        for name in (
+            "verify_closure",
+            "verify_retirement",
+            "verify_ingress",
+            "verify_original_hold",
+            "verify_pending",
+            "verify_kernel",
+        ):
+            self.enterContext(patch.object(provider, name))
+        controller.ready = lambda: {"acceptance_sha256": receipt["acceptance_sha256"]}
+        io.write_new(
+            controller.root / "release-admission.json",
+            {
+                "schema": "autostop.j1.cold-slot-release-admission.v1",
+                "package_ref": receipt["package_ref"],
+                "epoch_ref": receipt["epoch_ref"],
+                "plan_ref": receipt["plan_ref"],
+                "backup_ref": receipt["proofs"]["backup"],
+                "offhost_ref": receipt["proofs"]["offhost_restore"],
+                "candidate_may_have_written": True,
+                "old_writer_allowed": False,
+            },
+        )
+        package = io.document(provider.read_reference(receipt["package_ref"]))
+        fence = epochs.verify(controller.epoch, package, provider)
+        return receipt, store, provider, controller, fence
+
+    def test_real_cold_open_shares_only_historical_decoding_and_keeps_both_full_file_cuts(self):
+        receipt, store, provider, controller, fence = self.prepare_open()
+        counts = {"historical": 0, "native": 0}
+        original_decode = authority._decode_package
+
+        def decode(reference, reader, **kwargs):
+            owner = type(getattr(reader.read, "__self__", None)).__name__
+            counts["historical" if owner == "_CapturedPackages" else "native"] += 1
+            return original_decode(reference, reader, **kwargs)
+
+        original_recheck = transactions._HistoricalValidation.recheck
+        exits = []
+
+        def recheck(operation):
+            with self.assertRaises(BlockingIOError):
+                epochs.locked_fence(fence, exclusive=False)
+            self.assertEqual("closed", io.document(io.read_protected(fence["state_path"]))["state"])
+            original_recheck(operation)
+            exits.append(True)
+
+        with (
+            patch.object(authority, "_decode_package", side_effect=decode),
+            patch.object(provider, "verify_files", wraps=provider.verify_files) as files,
+            patch.object(store, "head", wraps=store.head) as heads,
+            patch.object(transactions._HistoricalValidation, "recheck", recheck),
+        ):
+            opened = controller.open_ingress(receipt["commit"], store=store)
+        self.assertEqual(counts, {"historical": 1, "native": 1})
+        self.assertEqual(files.call_count, 2)
+        self.assertEqual(heads.call_count, 3)
+        self.assertEqual(exits, [True])
+        self.assertFalse(hasattr(store, "_historical_validation"))
+        self.assertEqual(io.document(io.referenced(opened))["commit_ref"], receipt["commit"])
+        self.assertEqual("open", io.document(io.read_protected(fence["state_path"]))["state"])
+
+    def test_real_cold_expiry_after_last_head_and_scope_exit_closes_under_ex(self):
+        receipt, store, provider, controller, fence = self.prepare_open()
+        binding = io.document(provider.read_reference(receipt["package_ref"]))["binding"]
+        real_clock = native.time.monotonic_ns
+        original_head = store.head
+        original_recheck = transactions._HistoricalValidation.recheck
+        for boundary in ("last_head", "scope_exit"):
+            with self.subTest(boundary=boundary):
+                clock, heads, exits = [None], [], []
+
+                def now():
+                    return real_clock() if clock[0] is None else clock[0]
+
+                def head():
+                    result = original_head()
+                    heads.append(True)
+                    if boundary == "last_head" and len(heads) == 3:
+                        clock[0] = binding["deadline_ns"]
+                    return result
+
+                def recheck(operation):
+                    with self.assertRaises(BlockingIOError):
+                        epochs.locked_fence(fence, exclusive=False)
+                    self.assertEqual(
+                        "closed", io.document(io.read_protected(fence["state_path"]))["state"]
+                    )
+                    original_recheck(operation)
+                    exits.append(True)
+                    if boundary == "scope_exit":
+                        clock[0] = binding["deadline_ns"]
+
+                with (
+                    patch.object(native.time, "monotonic_ns", side_effect=now),
+                    patch.object(store, "head", side_effect=head),
+                    patch.object(transactions._HistoricalValidation, "recheck", recheck),
+                ):
+                    with self.assertRaisesRegex(io.Refusal, "binding_expired_or_window"):
+                        controller.open_ingress(receipt["commit"], store=store)
+                self.assertEqual(len(heads), 3)
+                self.assertEqual(exits, [True])
+                self.assertFalse((controller.root / "opened.json").exists())
+                self.assertEqual(
+                    io.document(io.read_protected(fence["state_path"])),
+                    epochs.closed_state(controller.epoch),
+                )
+                self.assertFalse(hasattr(store, "_historical_validation"))
+                descriptor = epochs.locked_fence(fence, exclusive=False)
+                os.close(descriptor)
 
 
 if __name__ == "__main__":
