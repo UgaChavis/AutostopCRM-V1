@@ -519,6 +519,14 @@ HEAD recovery, commit, OPEN, finish and independent terminal graph restore.
 A deadline failure remains a failed receipt. Archive restore validates opaque
 runtime bytes and reconstructs interpreter aliases without executing them.
 
+The separate Linux custodian runs the fixed host `/usr/bin/python3`. Its v2
+fixture runtime receipt pins the physical executable's hash, owner and full
+file version. The child must independently match its actual executable inode
+and the private copied SQLite 3.51.3 library's bytes and mapped inode. This
+avoids relying on `LD_LIBRARY_PATH` to replace the sealed candidate Python's
+statically embedded SQLite. Legacy fixture runtime v1 receipts retain their
+original exact SQLite and mapped-library checks.
+
 The optional runner argument `--whisper-dir` selects exactly four public files
 of `Systran/faster-whisper-small` revision
 `536b0662742c02347bc0e980a01041f333bce120`. Every file's pinned size/hash is

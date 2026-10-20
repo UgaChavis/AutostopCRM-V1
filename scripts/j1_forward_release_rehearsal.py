@@ -26,6 +26,7 @@ from scripts import j1_forward_state as state
 from scripts import j1_forward_variant as variant
 
 SOURCE = Path(__file__).resolve().parents[1]
+CUSTODIAN_INTERPRETER = Path("/usr/bin/python3")
 # A genuine locally retained source snapshot before the native launch-journal
 # protocol existed. This is a synthetic historical attempt, not the current
 # candidate's source or a claim about an installed production revision.
@@ -686,6 +687,7 @@ def independent_restore(
 ):
     """Fixed child command; no shell, inherited credentials or effect commands."""
     runtime_ref = private_sqlite_runtime(fixture)
+    runtime = io.document(io.referenced(runtime_ref))
     request = {
         "schema": "autostop.j1.private-custodian-request.v1",
         "package_ref": fixture.package_ref,
@@ -714,7 +716,7 @@ def independent_restore(
     )
     result = subprocess.run(
         [
-            str(Path(os.sys.executable).resolve()),
+            runtime["interpreter_ref"]["path"],
             "-I",
             "-S",
             "-B",
@@ -750,6 +752,26 @@ def independent_restore(
     receipt = io.document(io.read_protected(fixture.root / "custodian-result.json"))
     io.require(receipt["pid"] != os.getpid(), "rehearsal_restore_process_not_independent")
     return receipt
+
+
+def _sqlite_interpreter():
+    from scripts import j1_forward_cold_kernel as kernel
+
+    interpreter = CUSTODIAN_INTERPRETER.resolve(strict=True)
+    for parent in interpreter.parents:
+        info = parent.lstat()
+        io.require(
+            stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022,
+            "rehearsal_sqlite_interpreter_parent",
+        )
+    before = kernel.file_version(interpreter.lstat())
+    io.require(before[6] == 0, "rehearsal_sqlite_interpreter_owner")
+    reference = kernel.file_digest(interpreter)
+    io.require(
+        kernel.file_version(interpreter.lstat()) == before,
+        "rehearsal_sqlite_interpreter_changed",
+    )
+    return reference, before
 
 
 def private_sqlite_runtime(fixture):
@@ -796,12 +818,18 @@ def private_sqlite_runtime(fixture):
         library_ref = fixture.provider.reference(target)
     else:
         library_ref = fixture._copy(target, raw)
+    interpreter_ref, interpreter_before = _sqlite_interpreter()
     value = {
-        "schema": "autostop.j1.private-sqlite-runtime.v1",
+        "schema": "autostop.j1.private-sqlite-runtime.v2",
         "scope": "native_fixture",
         "source_path": str(selected),
         "source_sha256": digest["sha256"],
         "library_ref": library_ref,
+        # The sealed candidate CPython may embed SQLite statically. Use the
+        # fixed host custodian tool and bind its actual bytes instead of
+        # assuming LD_LIBRARY_PATH can replace a built-in library.
+        "interpreter_ref": interpreter_ref,
+        "interpreter_version": interpreter_before,
         "expected_version": "3.51.3",
     }
     receipt = directory / "receipt.json"
@@ -834,14 +862,33 @@ def verify_private_sqlite(root, reference):
     raw = cold_fixture._safe_file(reference["path"], root)
     io.require(io.sha(raw) == reference["sha256"], "rehearsal_sqlite_receipt_hash")
     document = io.document(raw)
+    version = document.get("schema") if type(document) is dict else None
+    fields = {"schema", "scope", "source_path", "source_sha256", "library_ref", "expected_version"}
+    if version == "autostop.j1.private-sqlite-runtime.v2":
+        fields.update(("interpreter_ref", "interpreter_version"))
     io.require(
-        set(document)
-        == {"schema", "scope", "source_path", "source_sha256", "library_ref", "expected_version"}
-        and document["schema"] == "autostop.j1.private-sqlite-runtime.v1"
+        type(document) is dict
+        and set(document) == fields
+        and version
+        in {"autostop.j1.private-sqlite-runtime.v1", "autostop.j1.private-sqlite-runtime.v2"}
         and document["scope"] == "native_fixture"
         and document["expected_version"] == sqlite3.sqlite_version == "3.51.3",
         "rehearsal_sqlite_actual_version",
     )
+    if version == "autostop.j1.private-sqlite-runtime.v2":
+        from scripts import j1_forward_cold_kernel as kernel
+
+        current = Path(os.sys.executable).resolve(strict=True)
+        actual_ref, actual = _sqlite_interpreter()
+        io.require(
+            str(current) == actual_ref["path"]
+            and actual[6] == 0
+            and actual
+            == document["interpreter_version"]
+            == kernel.file_version(Path("/proc/self/exe").stat())
+            and actual_ref == document["interpreter_ref"],
+            "rehearsal_sqlite_interpreter_identity",
+        )
     library = Path(document["library_ref"]["path"])
     io.require(
         library == root / "custodian-runtime/libsqlite3.so.0", "rehearsal_sqlite_copied_path"

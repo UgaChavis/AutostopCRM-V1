@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -20,6 +21,66 @@ from scripts import j1_forward_state as state
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
 class ReleaseRehearsalFilesystemTests(unittest.TestCase):
+    def test_private_custodian_pins_host_interpreter_and_actual_dynamic_sqlite(self):
+        with rehearsal.TraceFixture() as fixture, fixture.custody:
+            reference = rehearsal.private_sqlite_runtime(fixture)
+            value = io.document(io.referenced(reference))
+            self.assertEqual(value["schema"], "autostop.j1.private-sqlite-runtime.v2")
+            self.assertEqual(value["interpreter_version"][6], 0)
+            command = [
+                value["interpreter_ref"]["path"],
+                "-I",
+                "-S",
+                "-B",
+                "-c",
+                "import json,sys; sys.path.insert(0,sys.argv[1]); "
+                "from scripts.j1_forward_release_rehearsal import verify_private_sqlite; "
+                "print(json.dumps(verify_private_sqlite(sys.argv[2],json.loads(sys.argv[3]))))",
+                str(rehearsal.SOURCE),
+                str(fixture.root),
+                io.canonical(reference).decode(),
+            ]
+
+            def observe():
+                return subprocess.run(
+                    command,
+                    env=rehearsal.private_sqlite_environment(fixture),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+
+            result = observe()
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            actual = io.document(result.stdout)
+            self.assertEqual(actual["sqlite_version"], "3.51.3")
+            self.assertEqual(actual["library_ref"], value["library_ref"])
+            self.assertEqual(
+                actual["mapping_identity"][1], Path(value["library_ref"]["path"]).stat().st_ino
+            )
+            # The old fixture receipt remains readable with its original
+            # exact SQLite/mapped-library checks and without a new permit.
+            legacy = {
+                key: item
+                for key, item in value.items()
+                if key not in {"interpreter_ref", "interpreter_version"}
+            }
+            legacy["schema"] = "autostop.j1.private-sqlite-runtime.v1"
+            path = Path(reference["path"])
+            path.write_bytes(io.canonical(legacy))
+            command[-1] = io.canonical(fixture.provider.reference(path)).decode()
+            old = observe()
+            self.assertEqual(old.returncode, 0, old.stderr.decode())
+
+            # Rehashing the fixture receipt cannot authorize another executable.
+            value["interpreter_ref"]["sha256"] = "f" * 64
+            path.write_bytes(io.canonical(value))
+            command[-1] = io.canonical(fixture.provider.reference(path)).decode()
+            refused = observe()
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn(b"rehearsal_sqlite_interpreter_identity", refused.stderr)
+
     def test_private_child_copies_only_selected_sqlite_and_rejects_changed_copy(self):
         with rehearsal.TraceFixture() as fixture, fixture.custody:
             with patch.dict(
