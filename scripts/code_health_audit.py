@@ -172,6 +172,7 @@ CANONICAL_DOCS = frozenset(
         "docs/J1_CRM_FORWARD_RELEASE.md",
         "docs/J1_FORWARD_LAUNCH_ADMISSION.md",
         "docs/J1_COLD_RECOVERY.md",
+        "docs/J1_STORE54_BOUNDARY.md",
         "docs/J1_COLD_KERNEL_PREPARATION.md",
         "docs/J1_COLD_NATIVE_PREPARATION.md",
         "docs/J1_MANAGER_AUTHORITY_TRANSITION.md",

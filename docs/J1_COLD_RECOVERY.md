@@ -174,8 +174,13 @@ Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
 and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
 checks CRM-to-Store compatibility. Both explicitly report business acceptance
 as false. Customer-facing business acceptance remains a separate release-window
-gate, alongside the Store candidate's quiet backup, independent restore and
-schema/principal readback. The cold controller does not deploy Store.
+gate. The [Store54 boundary](J1_STORE54_BOUNDARY.md) keeps Store live and independent:
+its image, database and receipts are not replaced or restored by this release.
+`old_writer_allowed=false` concerns the retired Manager/CRM actors. Store quiet,
+zero in-flight Store handlers and Store backup/restore are not claimed. Existing
+unknown operations keep their IDs, principal and no-replay disposition; a late
+first execution in Store does not authorize another Manager request. The cold
+controller does not deploy Store.
 
 The provider rechecks physical protected source/runtime/startup files, the
 complete source tree, exact effective unit records and non-ignored dispatch
@@ -500,7 +505,11 @@ writes into the measured runtime. `--artifact-dir`, `--installed-dir`, `--codex`
 and a fresh `--output-dir` are required. This large Linux-only rehearsal is
 opt-in; ordinary test discovery runs its small contract regressions instead.
 
-The runner checks the pinned Manager 5bf9570c capsule and alpha.11 executable.
+The runner checks a source-pinned Manager revision/capsule pair and the alpha.11
+executable against the reviewed artifact identity. The current fixture's 5bf9570c
+pins are historical; the final Manager decoder fix requires new fixed source and
+capsule pins and a complete rerun before release. Artifact directory arguments
+do not accept an arbitrary replacement runtime or grant authority.
 The fixture creates its own offline appserver and supervisor, performs actual
 socket/RPC/owned-thread measurements, and reads all six private durable catalog
 families. Its account response is an explicit synthetic assumption: the actual
