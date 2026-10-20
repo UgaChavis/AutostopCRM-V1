@@ -203,6 +203,10 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       QTWEBENGINE_DISABLE_SANDBOX: "1"
+      AUTOSTOP_REQUIRE_UI_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
+      AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
+      AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
 
     steps:
       - name: Checkout
@@ -293,15 +297,31 @@ jobs:
         run: python -c 'import sqlite3; assert sqlite3.sqlite_version == "3.51.3", sqlite3.sqlite_version; print(sqlite3.sqlite_version)'
 
       - name: Cache Chromium
-        if: ${{ matrix.suite == 'browser-performance' }}
+        if: ${{ matrix.suite != 'static' }}
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: chromium-${{ runner.os }}-${{ hashFiles('requirements-runtime.txt') }}
 
       - name: Install Chromium for mandatory browser smoke
-        if: ${{ matrix.suite == 'browser-performance' }}
+        if: ${{ matrix.suite != 'static' }}
         run: python -m playwright install --with-deps chromium
+
+      - name: Verify the actual Chromium before the required test groups
+        if: ${{ matrix.suite != 'static' }}
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as playwright:
+              browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+              try:
+                  page = browser.new_page()
+                  page.set_content("<title>Isolated Chromium preflight</title>")
+                  assert page.title() == "Isolated Chromium preflight"
+                  print("Required Chromium:", browser.version)
+              finally:
+                  browser.close()
+          PY
 
       - name: Validate production Compose configuration
         if: ${{ matrix.suite == 'static' }}
