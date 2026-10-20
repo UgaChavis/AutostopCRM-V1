@@ -180,6 +180,29 @@ class RuntimeProcessTests(unittest.TestCase):
                 self.assertEqual("child_failed", report["reason"])
                 self.assertEqual([], report["owned_after_cleanup"])
 
+    def test_native_windows_crash_is_never_relabelled_as_deadline_timeout(self):
+        from tests import runtime_process
+
+        with tempfile.TemporaryDirectory() as name:
+            diagnostics = Path(name)
+            with (
+                patch.object(sys, "platform", "win32"),
+                patch("tests.runtime_process_windows.WindowsProcess") as owned,
+            ):
+                owned.return_value.pid = 123
+                owned.return_value.wait.return_value = 0xC0000005
+                owned.return_value.members.return_value = []
+                code = runtime_process.run(
+                    [sys.executable, "-c", "pass"],
+                    timeout=1,
+                    label="native-dword",
+                    diagnostics=diagnostics,
+                )
+            report = json.loads(next(diagnostics.glob("*.json")).read_text())
+            self.assertEqual(0xC0000005, code)
+            self.assertEqual(0xC0000005, report["raw_child_exit"])
+            self.assertEqual("child_failed", report["reason"])
+
     def test_deadline_stack_survives_entrypoint_return_and_stalled_atexit(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
@@ -201,6 +224,33 @@ class RuntimeProcessTests(unittest.TestCase):
             self.assertIn("Timeout", stack)
             self.assertIn("native_cleanup_stand_in", stack)
             self.assertEqual([], report["owned_after_cleanup"])
+
+    def test_deadline_dump_holds_the_gil_during_busy_coverage_imports_and_calls(self):
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            script = directory / "busy_imports.py"
+            script.write_text(
+                "import importlib\n"
+                "def changing_frames(depth):\n"
+                "    a, b, c = 1, 2, 3\n"
+                "    if depth: return changing_frames(depth - 1)\n"
+                "while True:\n"
+                "    importlib.invalidate_caches()\n"
+                "    changing_frames(64)\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, COVERAGE_FILE=str(directory / ".coverage-busy")):
+                controller = self.launch(
+                    directory, ["-m", "coverage", "run", "--parallel-mode", script], timeout=3
+                )
+                code, output, report = self.finish(controller, directory)
+            self.assertEqual(124, code, output)
+            self.assertEqual("timeout", report["reason"])
+            self.assertEqual([], report["owned_after_cleanup"])
+            stack = Path(report["stack_path"]).read_text(encoding="utf-8")
+            self.assertIn("deadline Python traceback (GIL acquired)", stack)
+            self.assertIn("busy_imports.py", stack)
+            self.assertNotIn("access violation", stack)
 
     def test_timeout_kills_owned_detached_descendants_and_preserves_unrelated_process(self):
         with tempfile.TemporaryDirectory() as name:

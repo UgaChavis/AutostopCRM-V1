@@ -91,7 +91,10 @@ jobs:
             tests.test_docs_audit tests.test_deploy_script.DeployScriptTests.test_production_compose_resolves_without_legacy_crawler_credentials `
             tests.test_cold_manager tests.test_j1_forward_cold_container `
             tests.test_j1_forward_cold_archive tests.test_j1_forward_mixed_archive `
+            tests.test_j1_forward_cold_interpreter_alias tests.test_j1_forward_cold_consumers `
+            tests.test_j1_forward_cold_producer `
             tests.test_j1_forward_launch_permission.LogicalTicketRestoreTests tests.test_runtime_core_cohorts `
+            tests.test_runtime_process `
             tests.test_printing_async_context tests.test_repair_order_number_audit `
             tests.test_payment_reconciliation -v *> output/windows-regressions/results.txt
           if ($LASTEXITCODE -ne 0) { throw 'Windows regression group failed; see retained results and stack evidence.' }
