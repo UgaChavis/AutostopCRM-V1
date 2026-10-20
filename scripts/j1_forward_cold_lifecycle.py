@@ -710,7 +710,7 @@ class NativeBackend:
             entries.append('Environment="' + escaped + '"\n')
         command = " ".join(context["worker_argv"])
         raw = (
-            "[Unit]\nDescription=AutoStop cold guarded execution slot\n[Service]\nType=exec\nUser=root\nWorkingDirectory=/\nRestart=no\n"
+            "[Unit]\nDescription=AutoStop cold guarded execution slot\n[Service]\nType=exec\nUser=root\nGroup=root\nSupplementaryGroups=\nWorkingDirectory=/\nRestart=no\n"
             + "".join(entries)
             + "ExecStart="
             + command
@@ -1145,7 +1145,7 @@ class Controller:
                     ),
                 },
                 "bootstrap_credentials": (
-                    {"uid": 0, "gid": 0, "groups": [0]}
+                    {"uid": 0, "gid": 0, "groups": []}
                     if self.provider.scope == "production_native"
                     else {
                         "uid": os.geteuid(),

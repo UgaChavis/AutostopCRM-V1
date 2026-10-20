@@ -109,6 +109,7 @@ class ColdSystemdBoundaryTests(unittest.TestCase):
         store.create.assert_called_once_with(ticket)
         self.assertEqual(context["worker_cwd"], "/")
         self.assertEqual(context["scope"], "native_fixture")
+        self.assertEqual(context["bootstrap_credentials"], {"uid": 0, "gid": 0, "groups": []})
         self.assertEqual(context["worker_argv"][5], "launch")
         self.assertEqual(ticket["context_sha256"], io.sha(io.canonical(context)))
         self.assertEqual(

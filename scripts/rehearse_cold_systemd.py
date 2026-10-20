@@ -154,7 +154,10 @@ class HostedFixtureBackend:
         except (OSError, ValueError) as error:
             failure = code(error)
             self.observation_errors[failure] = self.observation_errors.get(failure, 0) + 1
-            if failure == "cold_slot_native_process" and self.process_mismatch is None:
+            if (
+                failure in {"cold_slot_native_process", "cold_slot_native_environment"}
+                and self.process_mismatch is None
+            ):
                 try:
                     self.process_mismatch = self.process_diagnostic(ticket, context, started)
                 except BaseException as diagnostic_error:
@@ -191,6 +194,20 @@ class HostedFixtureBackend:
             "credentials_observed": {key: observed[key] for key in credentials},
             "credentials_expected": credentials,
         }
+        expected_environment = context["environment" if started else "bootstrap_environment"]
+        environment = native._environment((Path("/proc") / str(pid) / "environ").read_bytes())
+        volatile = {"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID"}
+        comparisons.update(
+            unexpected_environment_keys=sorted(
+                set(environment) - set(expected_environment) - volatile
+            ),
+            missing_environment_keys=sorted(set(expected_environment) - set(environment)),
+            changed_environment_keys=sorted(
+                key
+                for key in expected_environment
+                if key in environment and environment[key] != expected_environment[key]
+            ),
+        )
         require(
             native.actor(pid) == observed and launch._unit(self.unit) == before,
             "diagnostic_process_changed",
@@ -378,7 +395,7 @@ def stage_slot(fixture, controller, backend):
             **lifecycle.BOOTSTRAP_ENVIRONMENT,
             **dict.fromkeys(("TMPDIR", "TEMP", "TMP"), str(fixture.root.parent)),
         },
-        "bootstrap_credentials": {"uid": 0, "gid": 0, "groups": [0]},
+        "bootstrap_credentials": {"uid": 0, "gid": 0, "groups": []},
         "worker_argv": [
             bootstrap["path"],
             "-I",

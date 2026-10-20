@@ -120,6 +120,7 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
             raw = (units / self.ticket["unit"]).read_text()
             self.assertNotIn("ExecCondition=", raw)
             self.assertEqual(raw.count("ExecStart="), 1)
+            self.assertIn("\nGroup=root\nSupplementaryGroups=\n", raw)
             self.assertIn("ExecStart=" + " ".join(context["worker_argv"]), raw)
             self.assertEqual(execute.call_args.args[0], ["/usr/bin/systemctl", "daemon-reload"])
 
