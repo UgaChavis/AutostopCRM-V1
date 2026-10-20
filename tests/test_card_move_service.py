@@ -6,11 +6,43 @@ import json
 # ruff: noqa: I001
 from tests.services_case import CardServiceCase
 
-from minimal_kanban.models import Card, utc_now
+from minimal_kanban.models import AuditEvent, Card, utc_now
 from minimal_kanban.services.card_service import ServiceError
 
 
 class CardMoveServiceTests(CardServiceCase):
+    def test_column_patch_counts_events_once_without_changing_card_projection(self) -> None:
+        class CountedEvents(list):
+            iterations = 0
+
+            def __iter__(self):
+                self.iterations += 1
+                return super().__iter__()
+
+        cards = [
+            Card.from_dict({"id": ident, "title": ident, "column": "inbox", "position": index})
+            for index, ident in enumerate(("first", "second"))
+        ]
+        events = [
+            AuditEvent.from_dict({"card_id": ident, "action": "title_changed"})
+            for ident in ("first", "first", "second", "unrelated")
+        ]
+        expected = [
+            self.service._serialize_card(card, events, viewer_username="ALICE", compact=True)
+            for card in cards
+        ]
+        counted = CountedEvents(events)
+        actual = self.service._serialize_compact_cards_for_columns(
+            cards, counted, ["inbox"], viewer_username="ALICE"
+        )
+        self.assertEqual(actual, expected)
+        self.assertEqual(counted.iterations, 1)
+        counted.iterations = 0
+        self.assertEqual(
+            self.service._serialize_compact_cards_for_columns(cards, counted, ["empty"]), []
+        )
+        self.assertEqual(counted.iterations, 0)
+
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(
             {"title": "First", "column": "inbox", "deadline": {"hours": 2}}

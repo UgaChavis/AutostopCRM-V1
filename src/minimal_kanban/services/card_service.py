@@ -5259,11 +5259,13 @@ class CardService(
         selected_cards.sort(
             key=lambda item: (item.column, item.position, item.created_at, item.updated_at, item.id)
         )
+        event_counts = Counter(event.card_id for event in events) if selected_cards else {}
         return [
             self._serialize_card(
                 card,
                 events,
                 column_labels=column_labels,
+                event_counts=event_counts,
                 viewer_username=viewer_username,
                 compact=True,
             )
