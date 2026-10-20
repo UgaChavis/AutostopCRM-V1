@@ -104,6 +104,7 @@ class HostedFixtureBackend:
         self.launches = 0
         self.injected = False
         self.launch_started = self.launch_finished = self.wrapper_observed = None
+        self.observation_errors = {}
 
     def _verify_unit(self, ticket, context, *, inactive):
         require(ticket["unit"] == self.unit, "unowned_cold_systemd_unit")
@@ -147,7 +148,12 @@ class HostedFixtureBackend:
         self.launch_finished = time.monotonic()
 
     def observe(self, ticket, context, *, started=False):
-        result = self.actual.observe(self, ticket, context, started=started)
+        try:
+            result = self.actual.observe(self, ticket, context, started=started)
+        except (OSError, ValueError) as error:
+            failure = code(error)
+            self.observation_errors[failure] = self.observation_errors.get(failure, 0) + 1
+            raise
         if not started and self.wrapper_observed is None:
             self.wrapper_observed = time.monotonic()
             self.before_a(ticket)
@@ -253,6 +259,7 @@ class HostedFixtureBackend:
                 if name.startswith("Exec") and name != "ExecMainStatus" and fields[name]
             ],
             "guard_errors": errors,
+            "observation_errors": dict(getattr(self, "observation_errors", {})),
         }
 
     def stop(self):

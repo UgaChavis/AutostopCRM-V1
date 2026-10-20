@@ -165,6 +165,20 @@ class ColdSystemdBoundaryTests(unittest.TestCase):
         self.assertIn("--all", command.call_args_list[0].args[0])
         self.assertIn("--unit=" + backend.unit, command.call_args_list[1].args[0])
 
+    def test_observer_failure_preserves_the_original_refusal_and_only_counts_safe_codes(self):
+        backend = object.__new__(stand.HostedFixtureBackend)
+        backend.actual = SimpleNamespace(
+            observe=Mock(side_effect=io.Refusal("slot_native_process"))
+        )
+        backend.observation_errors = {}
+        with self.assertRaisesRegex(io.Refusal, "slot_native_process"):
+            backend.observe({}, {})
+        self.assertEqual(backend.observation_errors, {"slot_native_process": 1})
+        backend.actual.observe.side_effect = OSError("private-placeholder")
+        with self.assertRaisesRegex(OSError, "private-placeholder"):
+            backend.observe({}, {})
+        self.assertEqual(backend.observation_errors, {"slot_native_process": 1, "OSError": 1})
+
 
 class ColdSystemdEvidenceGateTests(unittest.TestCase):
     def workflow_gate(self):
