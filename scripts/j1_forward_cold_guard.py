@@ -17,7 +17,7 @@ from pathlib import Path
 BOOTSTRAP_HASHES = {
     "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
     "j1_forward_authority": "98bf737d3a3cca4482ee8ae6158fde3b85034fba4587321e818b9c84eea32e08",
-    "j1_forward_cold_authority": "c7830fcef4fc658d0b9123cd176f9589bcc00c7248b9b8a6e3c216d393841ef9",
+    "j1_forward_cold_authority": "fd20eac9f95b3673ddf61dd7b411199b281fcd83a873b766f3c010c7dad7e8f7",
     "j1_forward_cold_runtime_capsule": "115decb5e6c2a012250d3c10eef481794cfdb53b31efaac224be75fe748e40d2",
     "j1_forward_cold_native": "c4fd36aa35044b7275b3ec5dd037b569a3ffdd432226c30631eedeb54e6002d1",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
