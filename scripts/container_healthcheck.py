@@ -14,6 +14,10 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from minimal_kanban.deployment_security import (  # noqa: E402
+    DeploymentSecurityError,
+    reject_retired_release_configuration,
+)
 from minimal_kanban.json_safety import reject_deeply_nested_json  # noqa: E402
 
 API_HEALTH_URL = "http://127.0.0.1:41731/api/health"
@@ -59,9 +63,7 @@ def _load_api_health_json(raw: bytes) -> object:
 
 
 def _check_api() -> bool:
-    with _urlopen_no_redirect(
-        _cold_url(API_HEALTH_URL, "board"), timeout=HEALTHCHECK_TIMEOUT_SECONDS
-    ) as response:
+    with _urlopen_no_redirect(API_HEALTH_URL, timeout=HEALTHCHECK_TIMEOUT_SECONDS) as response:
         payload = _load_api_health_json(_read_api_health_body(response))
         if not isinstance(payload, dict):
             return False
@@ -69,9 +71,7 @@ def _check_api() -> bool:
 
 
 def _check_mcp() -> bool:
-    request = urllib.request.Request(
-        _cold_url(MCP_URL, "mcp"), method="GET", headers={"Accept": "application/json"}
-    )
+    request = urllib.request.Request(MCP_URL, method="GET", headers={"Accept": "application/json"})
     try:
         with _urlopen_no_redirect(request, timeout=HEALTHCHECK_TIMEOUT_SECONDS) as response:
             return response.status in READY_MCP_STATUSES
@@ -79,24 +79,14 @@ def _check_mcp() -> bool:
         return exc.code in READY_MCP_STATUSES
 
 
-def _cold_url(value: str, transport: str) -> str:
-    from urllib.parse import urlsplit
-
-    from minimal_kanban.cold_http_ingress import load_http_ingress
-    from minimal_kanban.cold_manager import prepare_cold_manager
-
-    prepare_cold_manager()
-    config = load_http_ingress()
-    if config is None:
-        return value
-    parsed = urlsplit(value)
-    return f"{parsed.scheme}://{parsed.netloc}{config.prefix(transport)}{parsed.path}"
-
-
 def main() -> int:
     try:
+        reject_retired_release_configuration()
         api_ok = _check_api()
         mcp_ok = _check_mcp()
+    except DeploymentSecurityError as exc:
+        print(f"FATAL: healthcheck configuration is invalid: {exc}", file=sys.stderr)
+        return 1
     except Exception:
         return 1
     return 0 if api_ok and mcp_ok else 1

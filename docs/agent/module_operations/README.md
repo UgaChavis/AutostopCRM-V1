@@ -40,7 +40,8 @@ handoff. The Store API and its deployment belong to the Store repository.
 Stop a release at a failed gate. The owner's current procedure stops Manager,
 CRM and Store together, preserves SSH, uses one necessary-data/config backup
 and one local isolated restore check, then verifies the installed applications.
-Old J1/guarded release commands are reference-only pending separate cleanup.
+Old J1/guarded release controllers have been removed from the source candidate;
+`deploy.sh` only reports the current procedure and exits without effects.
 See the [current procedure](../../OPERATIONS_RUNBOOK.md#deploy) and
 [remaining maintenance evidence](../../maintenance-backlog.md).
 

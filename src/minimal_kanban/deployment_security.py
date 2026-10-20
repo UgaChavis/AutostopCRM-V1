@@ -172,10 +172,31 @@ def _parse_switch(
     raise DeploymentSecurityError(f"{name} must be a boolean value (0 or 1)")
 
 
+def reject_retired_release_configuration(
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    """Reject explicit configuration for removed release transports and sources."""
+    source = _clean_environment(environ)
+    for name in (
+        "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG",
+        "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG_SHA256",
+        "AUTOSTOP_COLD_RUNTIME_BINDING",
+        "AUTOSTOP_COLD_RUNTIME_BINDING_SHA256",
+    ):
+        if name in source:
+            raise DeploymentSecurityError(f"Retired release configuration is not supported: {name}")
+    manager_source = Path(str(source.get("AUTOSTOP_MANAGER_PATH", "") or "").strip())
+    if manager_source.is_relative_to("/opt/autostop-manager-cold-releases"):
+        raise DeploymentSecurityError(
+            "AUTOSTOP_MANAGER_PATH refers to a retired release source; select the installed source"
+        )
+
+
 def load_agent_gateway_security_policy(
     environ: Mapping[str, str] | None = None,
 ) -> AgentGatewaySecurityPolicy:
     source = _clean_environment(environ)
+    reject_retired_release_configuration(source)
     deployment_environment = _normalized_environment(source)
     production = deployment_environment in PRODUCTION_ENVIRONMENTS
     service_identity = str(
@@ -250,10 +271,14 @@ def validate_production_environment(
     """Return production configuration errors without exposing secret values."""
 
     source = _clean_environment(environ)
-    if _normalized_environment(source) not in PRODUCTION_ENVIRONMENTS:
-        return []
-
     errors: list[str] = []
+    try:
+        reject_retired_release_configuration(source)
+    except DeploymentSecurityError as exc:
+        errors.append(str(exc))
+    if _normalized_environment(source) not in PRODUCTION_ENVIRONMENTS:
+        return errors
+
     embedded_oauth = (
         str(source.get("AUTOSTOP_MCP_EMBEDDED_OAUTH_ENABLED", "") or "").strip().lower()
     )
@@ -290,13 +315,6 @@ def validate_production_environment(
     public_endpoint_url = str(
         source.get("MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL", "") or ""
     ).strip()
-    from .cold_http_ingress import ColdHttpIngressUnavailableError, validate_public_urls
-
-    try:
-        expected_mcp_path = validate_public_urls(source)
-    except ColdHttpIngressUnavailableError:
-        expected_mcp_path = "/mcp"
-        errors.append("Cold HTTP ingress configuration must be physically validated")
     if not public_base_url:
         errors.append("MINIMAL_KANBAN_MCP_PUBLIC_BASE_URL is required in production")
     else:
@@ -309,7 +327,7 @@ def validate_production_environment(
         error = _validate_https_url(
             "MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL",
             public_endpoint_url,
-            expected_path=expected_mcp_path,
+            expected_path="/mcp",
         )
         if error:
             errors.append(error)

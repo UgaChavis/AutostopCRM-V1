@@ -5,9 +5,8 @@ parity, deployment, rollback, live verification, performance gates, and
 maintenance safety.
 
 The owner's current update policy is **full application downtime**. The
-[current maintenance procedure](#deploy) supersedes the retained guarded J1,
-warm-transition and CRM-only deployment references. Those references describe
-existing source for future cleanup; they are not an approved server update path.
+[current maintenance procedure](#deploy) replaces the retired guarded J1,
+warm-transition and CRM-only deployment controllers.
 Unresolved historical evidence is in the [maintenance backlog](maintenance-backlog.md).
 
 ## Production Runtime
@@ -82,31 +81,6 @@ Keep existing local code and user work unchanged unless updating that checkout
 is explicitly in scope. A clean candidate may be prepared separately; compare
 the artifact with its exact CI evidence and the installed version independently.
 
-### Historical guarded preflight (reference only)
-
-The following describes the retained `deploy.sh` implementation, not the
-current maintenance procedure. Do not create its clones, environments or
-admissions for an ordinary offline update.
-
-The legacy production preflight is fail-closed for both repositories. CRM must be the
-root checkout on branch `autostopcrm-v1`, clean including untracked files, and
-its `HEAD` must equal a fresh exact fetch of `origin/autostopcrm-v1`.
-The effective `AUTOSTOP_MANAGER_SOURCE_DIR` selects the Manager Git checkout
-(default `/opt/AutostopManager`). That selected root must be on branch
-`AutostopManager`, clean including untracked files, with `HEAD` equal to the
-freshly fetched configured remote branch. An existing dirty Manager checkout
-must be preserved; prepare a separate clean clone on the published main SHA
-and select it instead. A detached review archive is not a deploy source.
-`AUTOSTOP_MANAGER_RELEASE_PYTHON` selects the preflight dependency interpreter
-(default `<selected-source>/.venv/bin/python`); prepare that clone's own ignored
-venv and run its full gates. The override does not move native MCP's fixed
-`/opt/AutostopManager/.venv/bin/python`, `.env`, `.crm-mcp.env` or permanent DB
-(default `/opt/AutostopManager/data/autostop_manager.sqlite3`). Verify those
-runtime prerequisites separately. `deploy.sh` sources CRM `.env` before choosing
-settings; it can override process environment, so reconcile effective values.
-There is no skip-sync or dirty-tree production override for either selected
-candidate. Do not reset or discard pre-existing changes.
-
 ## Workstation Setup
 
 Initial setup:
@@ -175,7 +149,7 @@ flags added in Python 3.12.
 
 Committed state may remain in the WAL while the keeper is alive. Follow the
 [SQLite WAL backup rules](https://sqlite.org/wal.html): copying only the main
-database can omit committed changes. The retained coordinated release helper uses
+database can omit committed changes. The independent backup helper uses
 `sqlite3.Connection.backup()` for an online snapshot and restores with CRM
 stopped, removing stale WAL/SHM files before replacement. The current procedure
 still requires one consistent backup and one isolated local restore check;
@@ -274,8 +248,7 @@ when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
 are cached; the Docker candidate is loaded only for tests, never pushed.
 
 The `release-rehearsal.yml` workflow runs the complete canonical CI
-profile on separate disposable Ubuntu and Windows runners and a third real
-Linux systemd fixture. Every job checks out the workflow's exact commit and
+profile on separate disposable Ubuntu and Windows runners. Every job checks out the workflow's exact commit and
 publishes source, dependency, native-library and failure evidence. It uses
 Python 3.12.15 on Linux and 3.12.10 on Windows, the project requirements
 and diagnostic constraints captured
@@ -286,13 +259,10 @@ The first Windows bootstrap failed because the official
 has no Windows 3.12.15 payload. Windows therefore uses the latest available
 3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
 The workflow has no deployment, production probes or production credentials.
-The separate [cold recovery contract](J1_COLD_RECOVERY.md) records all six
-replacement roles, original pending and hold provenance, and ingress
-quarantine. Closed-stage inspection alone never permits a replacement start.
 It runs on an explicit dispatch or a push to `autostopcrm-v1` or
 `codex/release-rehearsal/**`,
 so a new workflow can be verified before it reaches the default branch.
-The final gate requires matching completion evidence from all three scenarios;
+The final gate requires matching completion evidence from both platform scenarios;
 a skipped, absent or failed scenario cannot produce a ready result.
 The main-branch quality run also exports the exact Docker image that passed
 its runtime checks, its image identity, installed dependency versions and
@@ -680,8 +650,8 @@ their values. A Store-enabled release also requires the App runtime flags
 proves all three flags plus the dedicated quote credential before release
 completion.
 Missing or invalid Store configuration is nonfatal to normal CRM container
-startup and is reported as `store_degraded`; `deploy.sh` nevertheless requires
-valid Store settings before publishing a Store-enabled release.
+startup and is reported as `store_degraded`; acceptance of a Store-enabled
+installation still requires valid Store settings and successful readback.
 
 Validate before restart:
 
@@ -696,10 +666,9 @@ export MINIMAL_KANBAN_MCP_PUBLIC_ENDPOINT_URL="${AUTOSTOP_PUBLIC_MCP_URL:-https:
 python3 scripts/validate_production_env.py --require-production --require-store
 ```
 
-`deploy.sh` snapshots and rotates only the internal CRM server bearer after
-the image and rollback source are ready. It never edits Codex configuration.
-For manual server repair, use the same helper and never pass a token on the
-command line:
+The offline update preserves existing working credentials. Rotate an internal
+CRM server bearer only for a separately authorized credential repair; use the
+existing helper and never pass a token on the command line:
 
 ```bash
 cd /opt/autostopcrm
@@ -718,36 +687,24 @@ credential checks.
 
 Preserve the existing root-only credential file and principal identities in the
 current offline procedure. Verify the URL/token pairing privately before start
-and use readiness/readback after start; never print credentials. The following
-guard-admission sequence is a **historical implementation reference only**.
-
-Before the first admitted candidate scheduler start, `deploy.sh`
-atomically writes only `AUTOSTOP_CRM_MCP_URL` and
-`AUTOSTOP_CRM_MCP_BEARER_TOKEN` to the separate root-only
-`/opt/AutostopManager/.crm-mcp.env`. The URL is fixed to
-`http://127.0.0.1:8001/mcp`; the helper takes the current CRM bearer from
-server `.env` and preserves a private recovery snapshot. The guard-bound release
-retains that snapshot on failure and never restores old writers automatically.
-It never prints either credential.
+and use readiness/readback after start; never print credentials. Manager uses the
+separate root-only `/opt/AutostopManager/.crm-mcp.env`, with
+`AUTOSTOP_CRM_MCP_URL=http://127.0.0.1:8001/mcp` and
+`AUTOSTOP_CRM_MCP_BEARER_TOKEN` matching the configured CRM bearer. This file
+belongs in the single configuration backup when the maintenance changes it.
 
 The legacy CRM E8 Web Research Gateway contract serves the current Manager
 [E15 public research module](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/E15.md).
 The Automation Center also uses this credential for feed readiness.
 
-The Automation Center scheduler starts once under the owned global hold with
-those final credentials; they are not mutated after guard admission. Before the hold can be released, the deploy compares the URL and bearer
-in the root-only file with the running scheduler's `/proc/<MainPID>/environ`
-without logging either value, calls the authenticated non-mutating
-`POST /api/change_feed/readiness`, and performs a fresh scheduler status and
-dependency readback. The readiness route does not register the digest consumer,
-open a delivery, or advance an ACK.
+After an offline update, verify the scheduler's configured CRM and Manager
+revision values against the installed artifacts before starting it. Preserve the
+existing credentials. Compare the effective authenticated feed URL and credential
+without logging either value, call the non-mutating `POST /api/change_feed/readiness`,
+and reread ordinary scheduler status and dependencies. This readiness route does
+not register a digest consumer, open a delivery or advance an ACK. Restore only
+the explicitly selected application's prior operating state after acceptance.
 
-The default `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=1` activates the sealed
-Manager native MCP during the coordinated deploy, with a bounded probe and
-fail-closed forward recovery. This also makes newly imported offline catalogs available through
-`search_offline_parts_catalogs` on the same update. The guarded release must
-preserve all six previously active profiles; a conflicting `=0` is refused
-before effects. Use the CRM-only procedure below for an approved UI-only release.
 Do not copy the bearer into Manager's general `.env`. Store operations through
 current Manager [F1](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F1.md)
 and [F2](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F2.md)
@@ -795,8 +752,11 @@ old/new application combination is unnecessary.
    from the old combined scenario applies.
 3. Preserve SSH and the controlling session. Close task intake, stop application
    consumers and Manager, CRM and Store, and verify they stopped before copying
-   data or replacing files. Keep unrelated services and normal backups intact.
-   Record uncertain unfinished operations for separate reconciliation.
+   data or replacing files. Record any application watchdog state, stop its timer
+   and any already running recovery service, then verify both inactive before
+   backup. Stopping only the timer does not stop an active recovery process.
+   Keep unrelated timers, services and normal backups intact. Record uncertain unfinished
+   operations for separate reconciliation.
 4. Make **one consistent backup of necessary data and settings** for the
    changed components. Validate completeness and perform **one local isolated
    restore check**, then remove its disposable directory. Do not duplicate
@@ -810,7 +770,8 @@ old/new application combination is unnecessary.
 6. Start the applications using their reviewed existing service definitions.
    Independently check physical source/image revisions, processes, authorization,
    health and Manager → CRM → Store connectivity. Technical acceptance creates
-   no customer messages, orders or payments. Reopen task intake after acceptance.
+   no customer messages, orders or payments. After acceptance, restore only a
+   watchdog that was previously active, then reopen task intake.
 7. After overall successful acceptance, remove this window's temporary files,
    test restore directory and release backup. Preserve ordinary scheduled
    backups, required runtimes, access files, unique work and a compact receipt.
@@ -821,323 +782,10 @@ Never automatically replay uncertain operations, return an old writer, or
 restore an old database over newer working data. Repair requires a concrete
 assessment of the current state.
 
-### Historical guarded release reference
-
-**Deferred and not executable under the current procedure.** The rest of this
-Deploy section, including the CRM-only and Crawl4AI retirement subsections,
-records the retained implementation. The eight `docs/J1_*.md` documents are
-reference-only contracts for that deferred code. Their admissions, holds,
-snapshots and off-host requirements do not add steps to the current procedure.
-The old sequence below is preserved for review, not as an alternative command
-list to follow during maintenance.
-
-Historical sequence:
-
-1. Verify and commit only intended changes.
-2. Push the commit to `origin/autostopcrm-v1`.
-3. Confirm `/opt/autostopcrm` is clean and fast-forward it to that commit.
-4. Choose the clean Manager source described in [Git Parity](#git-parity) and
-   follow its [release guide and coordinated documentation kit](https://github.com/UgaChavis/AutostopManager/blob/8861f8c4fd35bb8988f06e3d5e7c57eb04677047/docs/agent/references/deployment.md).
-   Run that source's `scripts/release-gates.sh`; it requires its own
-   `.venv/bin/python`. Its temporary
-   `AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks. The compatibility
-   commands `knowledge-sync` and `knowledge-audit` now only audit instructions;
-   they do not open or modify the Manager database.
-5. Run the cross-project documentation gate with that same exact Manager source:
-   `/opt/autostopcrm/.venv/bin/python scripts/docs_audit.py --manager-root "$manager_release_source" --format text`.
-   It independently requires all module instructions, Manager skills and technical
-   references declared by the current instruction inventory, discovers additional
-   guides, and checks
-   CRM's canonical Manager GitHub file links against that checkout. The runtime
-   inventory must include the full package, not only the six startup documents.
-   Use the CRM interpreter, which supplies both CRM and Manager probe dependencies;
-   the host `python3` and Manager venv may each lack part of that dependency set.
-   `deploy.sh` repeats this gate against its sealed Manager candidate before
-   maintenance with `AUTOSTOP_DOCS_AUDIT_PYTHON` (default: CRM `.venv/bin/python`).
-6. Follow the [J1 source preparation and protected continuation](J1_RELEASE_BOUNDARY.md).
-   A bare `deploy.sh` invocation is refused; activation requires separate authorization
-   and independently accepted pre-effect closure, runtime and lifecycle evidence.
-7. Compare workstation, remote, and server revisions.
-8. Run live, UI-if-relevant, and performance smoke.
-
-On the server, before `deploy.sh`, prepare the selected source on
-`AutostopManager` with its own dependency venv. Resolve the same effective source,
-interpreter and permanent DB settings that CRM `.env` supplies to deploy; the
-following variables must refer to those reviewed values.
-
-```bash
-manager_release_source="${AUTOSTOP_MANAGER_SOURCE_DIR:-/opt/AutostopManager}"
-manager_release_python="${AUTOSTOP_MANAGER_RELEASE_PYTHON:-$manager_release_source/.venv/bin/python}"
-manager_state_db="${AUTOSTOP_MANAGER_DB:-/opt/AutostopManager/data/autostop_manager.sqlite3}"
-cd /opt/autostopcrm
-git status --short --branch
-git fetch origin autostopcrm-v1
-git merge --ff-only origin/autostopcrm-v1
-git -C "$manager_release_source" status --short --branch
-git -C "$manager_release_source" fetch origin AutostopManager
-git -C "$manager_release_source" merge --ff-only origin/AutostopManager
-cd "$manager_release_source"
-./scripts/release-gates.sh
-# This legacy-state gate uses the permanent Manager DB, not the new clone's data.
-env AUTOSTOP_MANAGER_ENV_FILE=/opt/AutostopManager/.env \
-  AUTOSTOP_MANAGER_DB="$manager_state_db" \
-  "$manager_release_python" -m autostop_manager.cli store-conductor-release-gate
-# Dry-run; use --apply only if the Manager runbook calls for migration.
-"$manager_release_python" scripts/remove-learning-hooks.py
-cd /opt/autostopcrm
-docker network inspect --format '{{.Internal}}' autostop-store-agent
-docker network inspect --format '{{range .Containers}}{{println .Name}}{{end}}' autostop-store-agent
-```
-
-Initial infrastructure provisioning creates the network once with
-`docker network create --driver bridge --internal autostop-store-agent`; the
-Store deployment attaches `autostop-app`. Do not attach the database. CRM
-deploy refuses a missing/non-internal network, a missing App member, the
-database, or any unexpected member.
-
-Run the release from a workstation after the intended commit is checked out on
-the server. The target is fixed in `deploy.sh` as
-`CRM_DEPLOY_BRANCH=autostopcrm-v1`; do not pass a branch override:
-
-Set `$preparedReceipt` and `$preparedSha256` from the verified preparation output;
-complete the separately authorized closure procedure before this command.
-
-```powershell
-ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && ./deploy.sh --j1-prepared '$preparedReceipt' --sha256 '$preparedSha256'"
-```
-
-Prerequisites in server `.env` include the Gateway switches and Store URL/scoped
-tokens listed in [Production Authentication](#production-authentication), and
-`AUTOSTOP_SMOKE_OPERATOR_USERNAME` / `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`.
-Legacy Crawl4AI credentials are not required by this Compose or deploy.
-Public HTTPS/API/MCP auth smoke is mandatory; there is no skip flag.
-
-The Manager catalog release is fetched separately from GitHub during the
-pre-maintenance phase. The server needs HTTPS access to GitHub Releases,
-`ripgrep`, Poppler (`pdfinfo`, `pdftotext`, `pdftoppm`), and Tesseract with
-English and Russian language data. The archive checksum is pinned in the
-Manager sync helper; the PDF/XLSX files and extracted text stay in the private
-cache beside the Manager DB. The first import may take several minutes and
-needs disk space for the download, extraction, and the normal release build.
-
-The bounded guarded release flow:
-
-1. Prepares three immutable exact Manager source snapshots and a hash-bound
-   receipt before `.env`, without live changes, application imports or cleanup.
-2. Requires independently accepted closure before normal deploy effects and
-   rechecks actual loaded deny barriers before any live source alias changes.
-   All six native profiles, ordinary J1 writers and alternative admission paths
-   must be covered; current daemon/instruction1b and history are preserved.
-3. Retains exact branch/fetched-remote cleanliness, free-space, production env,
-   Store identity/network, mandatory image build/revision and protected backup
-   gates. The sealed candidate Manager snapshot runs an isolated instruction
-   audit that does not replace the canonical full Manager gates.
-   `AUTOSTOP_MANAGER_DB` isolates all stateful preflight checks; candidate
-   instruction/catalog helpers also disable ordinary J1 cache access.
-4. Acquires the owned scheduler hold, snapshots coordinated state and held
-   registry, stops only CRM, verifies the protected checkpoint and performs
-   only the existing audit-probe-consumer cleanup. The M2 durable role workspace
-   stays outside restore overlays.
-5. Consumes the prepared physical sources and accepted unchanged Work dependency
-   runtime. Prepares final units and credentials without starting applications,
-   then publishes the fixed bounded handoff described in
-   [J1 release boundary](J1_RELEASE_BOUNDARY.md).
-6. Requires exact independent runtime/unit/lifecycle/checkpoint/off-host proofs,
-   durable v2 arm and loaded candidate guard readback before the first native
-   candidate start. Preserves all six active roles and prior enablement.
-7. Retains CRM/Manager/timers/feed/Telegram readback, public Gateway/Store/OAuth
-   checks, active image identity and maintenance limits. Credentials and final
-   runtime/unit inputs do not change after admission.
-8. Removes maintenance only after required checks. Postcommit inbound restore
-   uses the fixed hash-bound controller and durable success receipt. Every later
-   Work restart restores the same desired duty through its guarded post-start
-   RPC, without altering env, wake configuration, source or bootstrap.
-   Retention remains post-success and protects current and
-   previous release assets; preparation artifacts are retained separately.
-
-Failures preserve the independently established closed window. Once maintenance
-starts, the failure handler re-arms its marker and boundedly stops all six native
-roles, browser and CRM. It never overlays current research/budget facts, protected
-DBs, credentials, source selectors or units with old snapshots. Unknown/pending
-arm has the same fail-closed outcome. Forward recovery is a separate reviewed
-operation; no successful rollback is inferred from a stopped-service snapshot.
-
-Commonly reviewed settings:
-
-- `AUTOSTOP_MANAGER_DEPLOY_REMOTE` (the Manager branch remains fixed as
-  `AutostopManager`)
-- `AUTOSTOP_RELEASE_IMAGE` / `AUTOSTOP_STABLE_IMAGE`
-- `AUTOSTOP_BUILD_RELEASE_IMAGE`
-- `AUTOSTOP_MAINTENANCE_BUDGET_SECONDS`
-- `AUTOSTOP_RELEASE_BACKUP_ROOT`
-- `AUTOSTOP_RELEASE_BACKUP_RETENTION_COUNT`
-- `AUTOSTOP_MANAGER_RELEASE_RETENTION_COUNT`
-- `AUTOSTOP_RELEASE_IMAGE_RETENTION_COUNT` /
-  `AUTOSTOP_ROLLBACK_IMAGE_RETENTION_COUNT`
-- `AUTOSTOP_DEPLOY_LOCK_PATH`
-- `AUTOSTOP_SMOKE_ATTEMPTS` / `AUTOSTOP_SMOKE_DELAY_SECONDS`
-- `AUTOSTOP_INSTALL_WATCHDOG`
-
-Defaults and validation live in `deploy.sh`. Do not use
-`docker compose up -d --build --remove-orphans` as a production shortcut: it
-does not provide the release checkpoint or guarded recovery boundary.
-
-### Retiring the legacy Crawl4AI container
-
-This is a coordinated deployment/configuration change, not a CRM-only UI
-release. The pinned HTTP extraction and static J1 path remain available;
-removing Crawl4AI does not enable browser egress or bypass its isolation guard.
-Do not remove the current/previous CRM image, Store image, data, or any business
-backup to reclaim its storage.
-
-Before any stop or image removal, record the exact legacy container/image ID,
-source Compose and private configuration provenance, then preserve the complete
-OCI image and original descriptors/tags in the approved private cold-image
-registry. Verify every blob digest and rootfs diff ID and prove an isolated
-cold load/recovery with no production-daemon hydration. Checksums of the cold archive or
-a compressed-stream byte counter alone are not recovery evidence. Review the
-peak archive/rehearsal/build/backup disk budget before starting.
-
-Publish this source through the canonical local CI profile and exact candidate,
-PR and merged hosted gates; deploy the exact reviewed revision normally. Keep
-all release checkpoint/hold/auth/rollback protections. Native health and
-cleanup policy must describe the new five-container host topology while
-protecting current and previous release tuples. The normal deploy does not
-use `--remove-orphans`: the legacy container remains until the separately
-reviewed native cleanup step verifies cold custody and the healthy new release.
-
-Under the native cleanup locks with CI quiescent and its prior state restored
-in `finally`, remove only the recorded legacy container and exact image after
-fresh ID/reference checks. Never use generic image, volume, system or builder
-prune. Independently compare all other image tags/rootfs, containers, service
-identities, protected backups/source work and free-space blocks afterward.
-Read-only HTTPS/API/MCP and static J1 checks establish availability; the normal
-Store release smoke may perform bounded business reads and must be labelled
-as such. No customer, financial, Telegram or GUI write is part of retirement.
-
-Preserve the server-local legacy credential entries for historical recovery;
-this release does not edit or print them. Before using an archived historical
-Compose that still declares Crawl4AI, hydrate its exact cold image and verify
-its original private `AUTOSTOP_CRAWL4AI_API_TOKEN` and
-`AUTOSTOP_CRAWL4AI_SECRET_KEY` configuration first. A rollback of the CRM image
-through the new Compose keeps the retired dependency absent. Once live writes
-have reopened, use a new reviewed forward/revert release rather than restoring
-old business state or manually replacing Compose.
-
-### CRM-only UI release from an isolated worktree
-
-**Historical reference only.** Do not use this partial-service procedure for the
-current full-downtime update policy.
-
-Use `scripts/deploy_crm_only.py` only for a reviewed UI-only diff in its
-explicit path allowlist. It does not update Manager source, scheduler units,
-Telegram release, J1, or MCP credentials. The maintenance hold is temporary.
-The sealed guarded duty controller pauses and restores work Telegram inbound handling:
-it restarts the bridge, disables then reenables the Codex wake unit, and starts
-`autostop-codex-start.service` during resume. Preflight refuses an active media
-worker. Include these service effects in the owner's release approval. The script runs Compose through the existing
-`/opt/autostopcrm/docker-compose.yml`, `.env`, data directory, project name
-`autostopcrm`, and shared deploy lock. It never edits the shared Git checkout.
-
-After the PR is merged, create a **clean, separate** worktree at the exact
-GitHub `autostopcrm-v1` SHA. The source SHA, GitHub ref, installed CRM revision,
-unchanged Compose bytes, path allowlist, mounts, current Manager revision,
-authentication, scheduler feed, disk and current health must all pass:
-Use a separate clean Manager worktree at the published guarded-controller SHA.
-Preflight reports the active `telegram_release_dir`; pass that exact value to
-apply. The controller checks it under the Telegram control lock before each
-duty operation, including rollback, while the installed Telegram runtime stays
-on its existing release.
-
-```bash
-/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/deploy_crm_only.py \
-  --source /path/to/clean/release-worktree --sha "$exact_sha" \
-  --guarded-controller-repo /path/to/clean/manager-worktree \
-  --guarded-controller-sha "$exact_manager_github_sha" --preflight
-```
-
-This command is read-only. Keep its result and the exact PR/CI revision with
-the release record. Only after the owner explicitly approves the CRM container
-update and the temporary Telegram duty restart, run the same source and SHA
-with both guarded-controller arguments and
-`--expected-telegram-release-dir "$preflight_telegram_release_dir" \
---apply --confirm-sha "$exact_sha"`. The script repeats preflight under
-the shared lock, builds the image from `git archive` of that SHA, tags the old
-image for rollback, sets the maintenance marker, acquires the scheduler hold,
-pauses inbound duty, stops only CRM, creates and verifies the CRM/Manager
-snapshot, replaces CRM, and checks health, mounts, public HTTPS, Gateway,
-OAuth metadata, anonymous public read rejection, Store reads and scheduler feed auth.
-The Gateway probe is a bounded read-only check; it does not run the exhaustive
-maintenance feed/ACK workflow or register OAuth clients. It clears smoke
-operator credentials for the connector probe, so no login session is created.
-It checks the feed high-water mark and Telegram idempotency/outbox fingerprints
-against private pre-release baselines. Manager and other container IDs
-must remain unchanged. It then releases the hold, removes the marker and
-restores inbound duty. No payment, order or message test is part of release.
-
-On candidate failure before the marker is removed, the script proves the
-candidate stopped, verifies the backup, restores **only CRM changed state**,
-recreates the previous CRM image and checks it before reopening. If stop,
-restore or readback fails, it leaves the marker and hold in place for manual
-recovery. If Telegram changes its active release while the hold is owned, the command
-keeps the marker and hold for manual recovery instead of calling duty on the
-new target. Once the marker is removed, automatic data rollback is forbidden:
-new live writes may have arrived, so recovery needs a new guarded window and
-backup. If the bounded recovery window expires, the marker remains and manual
-recovery is required. The release record prints the backup directory and
-rollback image tag.
-
-If a CRM-only release leaves `manager_automations(operation=readiness)` with
-the previous CRM SHA, reconcile the scheduler identity in a separate approved
-step. This changes `/etc/autostop-manager/automation-control.env` and restarts
-`autostop-manager-scheduler.service`; the CRM-only release keeps that process
-unchanged. Its private config backup remains under
-`/root/autostopcrm-backups/crm-only/` and must never be committed.
-
-Use a clean worktree at the installed and published CRM SHA and pass the exact
-old reported SHA. The command checks root ownership and mode `0600`, the live
-scheduler process environment, readiness and five synchronized timers. It
-acquires a quiescent release hold, changes one config line atomically, restarts
-the scheduler, then checks the new process, hold ownership, identity and timers
-before releasing the hold. It also pauses and resumes work Telegram duty, which
-restarts its bridge and wake unit, and checks its technical effect snapshot.
-Use a separate clean Manager worktree at its exact published SHA. The command
-checks the published guarded duty-controller blob, seals that one script in its
-private backup directory, and passes the preflight-pinned Telegram release
-target on every duty call. The controller verifies the target under the Telegram
-control lock before touching duty. No Manager or Telegram release is activated.
-Record `telegram_release_dir` from preflight and pass it back to apply; a
-Telegram release switch before apply aborts before the hold or any service
-change. A switch during apply is detected by the guarded controller under its
-lock or subsequent readback, potentially after the hold is acquired.
-It first backs up config, the scheduler registry, and unit/timer state.
-Before the CRM update, use bounded read-only probes to inspect the old state;
-this CLI preflight requires the new CRM image already installed.
-
-```bash
-/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
-  --source /path/to/clean/release-worktree --sha "$exact_sha" \
-  --guarded-controller-repo /path/to/clean/manager-worktree \
-  --guarded-controller-sha "$exact_manager_github_sha" \
-  --expected-reported-sha "$previous_reported_sha" --preflight
-# Only after explicit approval of the scheduler restart:
-/opt/autostopcrm/.venv/bin/python /path/to/clean/release-worktree/scripts/reconcile_automation_crm_revision.py \
-  --source /path/to/clean/release-worktree --sha "$exact_sha" \
-  --guarded-controller-repo /path/to/clean/manager-worktree \
-  --guarded-controller-sha "$exact_manager_github_sha" \
-  --expected-reported-sha "$previous_reported_sha" \
-  --expected-telegram-release-dir "$preflight_telegram_release_dir" \
-  --apply --confirm-sha "$exact_sha"
-```
-
-On failure before hold release, the command restores only its own config
-change and restarts the previous scheduler identity under the hold. An uncertain
-hold or concurrent config change requires manual recovery. This step does not
-stop CRM, Manager MCP, Store or J1. If it loses the scheduler hold and cannot
-recover it, it stops the scheduler and leaves Telegram duty paused for manual
-recovery. After hold release, a failed final readback stops the scheduler and
-tries to re-pause Telegram duty; it preserves any concurrent config write for
-manual recovery. Do not automatically restore live CRM data.
+The former automatic `deploy.sh` controller is retired. Its retained entrypoint
+prints the procedure link and exits before reading configuration or changing services.
+Do not restore old controller bindings or replay unfinished operations. Historical
+source and evidence remain in Git and the separately preserved private receipts.
 
 ## Production Verification
 
@@ -1154,8 +802,8 @@ Before activation, compare the pinned artifact with the sealed Manager release:
 `python scripts/check_automotive_tool_catalog.py --manager-root /path/to/sealed-manager`
 regenerates the whole bundle from that sealed code with disposable state and
 compares registry, native schemas and instruction text. Use `--manager-python`
-for the approved dependency venv. Coordinated and CRM-only preflight run this
-comparison against the selected Manager `REVISION` before image build or maintenance.
+for the approved dependency venv. Run this comparison against the selected
+Manager `REVISION` during candidate preparation before image build or maintenance.
 The checker requires its `REVISION` to match and compares every embedded Markdown
 instruction with that snapshot. The Docker CI stage runs the validator without
 network access. After activation, use the same checker inside the existing CRM
@@ -1178,6 +826,11 @@ map. Full release backup/restore preserves the complete JSON bytes, including
 commissioning states and receipts. Catalog updates keep stable operation IDs;
 retired IDs remain in the durable map until an explicit reviewed migration.
 Manual colors, technical implementation/access and result evidence are separate.
+
+Authenticated live probes use the existing authorized technical operator from
+`AUTOSTOP_SMOKE_OPERATOR_USERNAME` and `AUTOSTOP_SMOKE_OPERATOR_PASSWORD`.
+Pass credentials through the process environment, never inline or in logs.
+The probes do not authorize customer messages, orders or payments.
 
 From the server:
 
@@ -1202,8 +855,8 @@ mode-`0600` file with `--state-out`, redeploy, then pass the same path with
 is revoked. Delete the private smoke file afterward.
 
 The recurring `--require-store` probe uses `store_state` search and does not
-advance the owner's durable `store_digest` cursor. After the first coordinated
-Store release, separately perform one intentional
+advance the owner's durable `store_digest` cursor. Initial Store commissioning
+may separately authorize one intentional
 `agent_board_digest(scope="store", limit=1)` traversal. ACK every non-empty
 page with its exact `cursor`/`ack_token` through the terminal page before
 recording only compact health/count evidence; never leave a pending delivery
@@ -1212,12 +865,13 @@ separately as a CRM-only call: it must report Store as `not_loaded`, return no
 Store snapshot/cursor/ACK, issue no Store request, and leave the owner
 `store_digest` checkpoint unchanged.
 
-The post-release command above intentionally does not repeat the
-maintenance-only CRM change-feed probes after the marker is removed. Those
-probes occur only inside `deploy.sh` with
-`--exhaustive --maintenance-safe --require-store`, a revision-bound proof, and
-a unique attempt id. The public smoke never invokes the generic Store owner
-transport and records no Store request body or Store data.
+The public command above omits `--maintenance-safe` and never invokes the
+technical change-feed bootstrap, replay or ACK probes. Those probes remain a
+separate maintenance-only option requiring an active marker, revision-bound
+proof and unique attempt ID. The retired controller no longer invokes them.
+Use isolated synthetic tests for their regression checks; never bypass the
+marker or replay an old attempt to complete routine acceptance. The public
+smoke records no Store request body or Store data.
 
 After deploying UI changes, manually verify the affected flows on the live
 site: operator login, board/card changes, clients, repair orders and PDF export,
@@ -1238,10 +892,18 @@ synthetic data as `tv-dashboard-1920x1080.png` in
 ## Watchdog
 
 The production baseline does not install `autostopcrm-watchdog.timer`.
-`deploy.sh` keeps watchdog installation disabled by default; do not set
-`AUTOSTOP_INSTALL_WATCHDOG=1` without separate owner authorization. Existing
-watchdog units are legacy state and should be removed during maintenance.
-When auditing that state, use:
+The offline procedure does not add watchdog units. Installing or removing one
+requires a separate check of its actual callers and an authorized maintenance
+change. The optional `scripts/production_watchdog.py` still reads
+`AUTOSTOP_DEPLOY_LOCK_PATH` (default: `.autostop-deploy.lock` under its configured
+root). It skips a cycle only while another process holds the POSIX file lock;
+the file's presence alone does not suppress recovery. During authorized downtime,
+stop the actual application watchdog timer and any running recovery service,
+verify both inactive before backup, and restore only the previously active
+watchdog after acceptance. Preserve SSH and unrelated timers. The retired
+deployment controller no longer manages this lock.
+
+Read-only inspection, when relevant:
 
 ```bash
 systemctl status autostopcrm-watchdog.timer

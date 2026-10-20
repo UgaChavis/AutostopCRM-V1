@@ -1,9 +1,8 @@
-"""Render consent against the address generation that created the form."""
+"""Render the authenticated CRM OAuth consent form."""
 
 from __future__ import annotations
 
 import html
-from functools import partial
 
 from .oauth_provider import OAUTH_CONSENT_PATH
 
@@ -56,8 +55,3 @@ def _oauth_consent_page(
     <button type="submit">Подтвердить подключение</button>
   </form>
 </main></body></html>"""
-
-
-def consent_page_for(config):
-    action = (config.prefix("mcp") if config else "") + OAUTH_CONSENT_PATH
-    return partial(_oauth_consent_page, action_url=action)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import os
 import sys
 import unittest
 from functools import cache
@@ -33,6 +35,32 @@ class FakeResponse(FakeReadableResponse):
 
 
 class ContainerHealthcheckTests(unittest.TestCase):
+    def test_healthcheck_uses_normal_paths_when_both_services_are_ready(self) -> None:
+        module = load_container_healthcheck_module()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch.object(
+                module,
+                "_urlopen_no_redirect",
+                side_effect=[FakeResponse(b'{"ok": true}'), FakeResponse(b"")],
+            ) as opener,
+        ):
+            self.assertEqual(module.main(), 0)
+        self.assertEqual(opener.call_args_list[0].args[0], module.API_HEALTH_URL)
+        self.assertEqual(opener.call_args_list[1].args[0].full_url, module.MCP_URL)
+
+    def test_retired_configuration_refuses_healthcheck_before_connecting(self) -> None:
+        module = load_container_healthcheck_module()
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AUTOSTOP_COLD_HTTP_INGRESS_CONFIG": ""}, clear=True),
+            patch.object(module, "_urlopen_no_redirect") as opener,
+            patch.object(sys, "stderr", output),
+        ):
+            self.assertEqual(module.main(), 1)
+        opener.assert_not_called()
+        self.assertIn("Retired release configuration", output.getvalue())
+
     def test_api_check_rejects_nonstandard_json_constants(self) -> None:
         module = load_container_healthcheck_module()
 

@@ -12,9 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class PrintingColdOverlapTests(unittest.TestCase):
     def run_node(self, body: str) -> None:
         source = ROOT / "src/minimal_kanban/web_app_assets/source"
-        loader = (source / "cold_board_url.js").read_text(encoding="utf-8") + (
-            source / "module_loader.js"
-        ).read_text(encoding="utf-8")
+        loader = (source / "module_loader.js").read_text(encoding="utf-8")
         script = (
             r"""
 const assert=require('node:assert/strict');

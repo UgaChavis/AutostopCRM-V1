@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import os
+import runpy
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 if __package__:
     from tests.source_path_support import ensure_source_path
@@ -126,7 +131,7 @@ class DeploymentSecurityTests(unittest.TestCase):
 
         self.assertTrue(any("public base authority" in item for item in errors))
 
-    def test_partial_cold_ingress_cannot_fall_back_to_legacy_production_admission(self) -> None:
+    def test_retired_release_configuration_cannot_fall_back_to_normal_startup(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             for field in (
                 "AUTOSTOP_COLD_HTTP_INGRESS_CONFIG",
@@ -134,17 +139,99 @@ class DeploymentSecurityTests(unittest.TestCase):
                 "AUTOSTOP_COLD_RUNTIME_BINDING",
                 "AUTOSTOP_COLD_RUNTIME_BINDING_SHA256",
             ):
-                with self.subTest(field=field):
-                    env = valid_production_env(Path(temp_dir) / "maintenance")
-                    env[field] = "artificial-incomplete-binding"
-                    self.assertEqual(
-                        validate_production_environment(env),
-                        ["Cold HTTP ingress configuration must be physically validated"],
+                for value in ("", "artificial-retired-binding"):
+                    with self.subTest(field=field, value=value):
+                        env = valid_production_env(Path(temp_dir) / "maintenance")
+                        env[field] = value
+                        expected = f"Retired release configuration is not supported: {field}"
+                        self.assertEqual(validate_production_environment(env), [expected])
+                        self.assertEqual(
+                            validate_production_environment({field: value}), [expected]
+                        )
+                        with self.assertRaisesRegex(DeploymentSecurityError, field):
+                            assert_production_environment(env, require_production=True)
+                        with self.assertRaisesRegex(DeploymentSecurityError, field):
+                            load_agent_gateway_security_policy(env)
+
+    def test_retired_manager_source_is_rejected_before_import(self) -> None:
+        from minimal_kanban.mcp.manager_registration import _add_autostop_manager_path
+
+        environment = {"AUTOSTOP_MANAGER_PATH": "/opt/autostop-manager-cold-releases/old/source"}
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesRegex(DeploymentSecurityError, "retired release source"):
+                _add_autostop_manager_path()
+        self.assertEqual(len(validate_production_environment(environment)), 1)
+
+    def test_api_constructor_refuses_retired_binding_before_starting(self) -> None:
+        from minimal_kanban.api.server import ApiServer
+
+        with patch.dict(os.environ, {"AUTOSTOP_COLD_RUNTIME_BINDING": ""}, clear=True):
+            with self.assertRaisesRegex(DeploymentSecurityError, "Retired release configuration"):
+                ApiServer(Mock(), Mock())
+
+    def test_normal_manager_source_resolution_does_not_require_full_gateway_policy(self) -> None:
+        from minimal_kanban.mcp.manager_registration import _add_autostop_manager_path
+
+        with tempfile.TemporaryDirectory() as directory:
+            environment = {
+                "AUTOSTOP_DEPLOYMENT_ENV": "production",
+                "AUTOSTOP_MANAGER_PATH": directory,
+            }
+            with patch.dict(os.environ, environment, clear=True), patch.object(sys, "path", []):
+                _add_autostop_manager_path()
+                self.assertEqual(sys.path, [directory])
+
+    def test_standalone_container_imports_from_unrelated_directory_without_pythonpath(self):
+        root = Path(__file__).resolve().parents[1]
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "PYTHONPATH"
+            and not key.startswith("AUTOSTOP_COLD_")
+            and key != "AUTOSTOP_MANAGER_PATH"
+        }
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        with tempfile.TemporaryDirectory() as temporary:
+            for name in (
+                "scripts/container_entrypoint.py",
+                "scripts/container_healthcheck.py",
+                "scripts/browser_smoke_runtime.py",
+                "main_mcp.py",
+            ):
+                with self.subTest(name=name):
+                    script = (
+                        (
+                            "import runpy, sys; sys.path.insert(0, " + repr(str(root)) + "); "
+                            if name == "main_mcp.py"
+                            else "import runpy; "
+                        )
+                        + "runpy.run_path("
+                        + repr(str(root / name))
+                        + ",run_name='import_only'); print('IMPORTED')"
                     )
-                    with self.assertRaisesRegex(
-                        DeploymentSecurityError, "Cold HTTP ingress configuration"
-                    ):
-                        assert_production_environment(env, require_production=True)
+                    result = subprocess.run(
+                        [sys.executable, "-B", "-c", script],
+                        cwd=temporary,
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr[-4096:])
+                    self.assertEqual(result.stdout.strip(), "IMPORTED")
+
+    def test_main_entrypoints_refuse_retired_configuration_before_starting(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        env = {"AUTOSTOP_COLD_RUNTIME_BINDING_SHA256": ""}
+        with patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(DeploymentSecurityError, "Retired release configuration"):
+                runpy.run_path(str(root / "main_mcp.py"), run_name="import_only")
+            entrypoint = runpy.run_path(
+                str(root / "scripts/container_entrypoint.py"), run_name="import_only"
+            )
+            with patch.object(os, "execv") as execute, patch("sys.stderr", Mock()):
+                self.assertEqual(entrypoint["main"](), 78)
+            execute.assert_not_called()
 
     def test_production_store_identity_is_internal_strong_and_split_by_scope(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

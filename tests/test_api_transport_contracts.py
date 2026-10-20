@@ -445,6 +445,35 @@ class AuthenticationPolicyUnitTests(unittest.TestCase):
 
 
 class ApiRuntimeShutdownTests(unittest.TestCase):
+    def test_health_readiness_uses_normal_path_and_accepts_success(self) -> None:
+        server = ApiServer(Mock(), logging.getLogger(__name__), start_port=41731, fallback_limit=1)
+        connection = Mock()
+        connection.recv.return_value = b"HTTP/1.0 200 OK\r\n"
+        context = Mock()
+        context.__enter__ = Mock(return_value=connection)
+        context.__exit__ = Mock(return_value=False)
+        with patch("minimal_kanban.api.server.socket.create_connection", return_value=context):
+            server._wait_until_accepting()
+        self.assertTrue(
+            connection.sendall.call_args.args[0].startswith(b"GET /api/health HTTP/1.1\r\n")
+        )
+
+    def test_health_readiness_refuses_nonready_endpoint_with_bounded_timeout(self) -> None:
+        server = ApiServer(Mock(), logging.getLogger(__name__), start_port=41731, fallback_limit=1)
+        connection = Mock()
+        connection.recv.return_value = b"HTTP/1.0 503 Service Unavailable\r\n"
+        context = Mock()
+        context.__enter__ = Mock(return_value=connection)
+        context.__exit__ = Mock(return_value=False)
+        with (
+            patch("minimal_kanban.api.server.socket.create_connection", return_value=context),
+            patch("minimal_kanban.api.server.perf_counter", side_effect=[0, 0, 6]),
+            patch("minimal_kanban.api.server.sleep") as sleep,
+            self.assertRaisesRegex(RuntimeError, "health endpoint"),
+        ):
+            server._wait_until_accepting(timeout_seconds=5)
+        sleep.assert_called_once_with(0.02)
+
     def test_readiness_failure_retains_handles_when_cleanup_is_uncertain(self) -> None:
         logger = logging.getLogger(f"test.api.start_cleanup.{self._testMethodName}")
         server = ApiServer(Mock(), logger, start_port=41731, fallback_limit=1)
