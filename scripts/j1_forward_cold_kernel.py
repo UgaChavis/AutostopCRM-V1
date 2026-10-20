@@ -210,7 +210,7 @@ def _loaded(value, thread_id):
     )
 
 
-def _rollout_bytes(path, codex_home, thread_id):
+def _rollout_bytes(path, codex_home, thread_id, *, provider=None):
     if path is None:
         return None
     cold.need(
@@ -221,7 +221,12 @@ def _rollout_bytes(path, codex_home, thread_id):
         "kernel_rollout_path",
     )
     try:
-        raw = io.read_protected(Path(path), limit=2 * 1024**2)
+        if provider is not None and provider.scope == "native_fixture":
+            from scripts.j1_forward_cold_fixture import _safe_file
+
+            raw = _safe_file(Path(path), provider.root, limit=2 * 1024**2)
+        else:
+            raw = io.read_protected(Path(path), limit=2 * 1024**2)
     except FileNotFoundError:
         return None
     lines = raw.splitlines()
@@ -513,7 +518,9 @@ def _verify_preparation(validated, provider):
     _loaded(_read(provider, proof["loaded_ref"]), proof["thread_id"])
     _thread(_read(provider, proof["metadata_ref"]), proof["thread_id"], home["cwd"])
     cold.need(proof["rollout_path"] == created.get("path"), "kernel_rollout_path")
-    current_rollout = _rollout_bytes(proof["rollout_path"], home["codex_home"], proof["thread_id"])
+    current_rollout = _rollout_bytes(
+        proof["rollout_path"], home["codex_home"], proof["thread_id"], provider=provider
+    )
     if proof["rollout_checkpoint_ref"] is not None:
         cold.need(
             proof["rollout_observation"] == "metadata_file_observed", "kernel_rollout_observation"
@@ -635,7 +642,7 @@ def prepare_owned_thread(
         summary = rpc.call("thread/read", {"threadId": thread_id, "includeTurns": False})
         _thread(summary, thread_id, home["cwd"])
         metadata_ref = io.write_new(directory / "thread-metadata.json", summary)
-        raw = _rollout_bytes(created.get("path"), home["codex_home"], thread_id)
+        raw = _rollout_bytes(created.get("path"), home["codex_home"], thread_id, provider=provider)
         rollout_ref = None
         if raw is not None:
             content_ref = _write_bytes(directory / "rollout-metadata.raw", raw)

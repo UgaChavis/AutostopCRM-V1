@@ -103,6 +103,7 @@ class KernelPreparationTests(unittest.TestCase):
         )
         self.provider = SimpleNamespace(
             scope="native_fixture",
+            root=self.root,
             read_reference=lambda ref: Path(ref["path"]).read_bytes(),
             kernel_rpc_factory=lambda _path, _deadline: FakeRPC(self),
             verify_closure=lambda _validated: None,
@@ -264,6 +265,39 @@ class KernelPreparationTests(unittest.TestCase):
                 self.prepare()
         self.assertFalse((self.root / "records/thread-start-intent.json").exists())
         self.assertFalse(any(method == "thread/start" for method, _ in self.calls))
+
+    def test_private_rollout_reader_requires_its_actual_root_and_fixed_size_bound(self):
+        raw = self.rollout.read_bytes()
+        with patch.object(io, "read_protected", side_effect=AssertionError("production reader")):
+            self.assertEqual(
+                kernel._rollout_bytes(
+                    str(self.rollout), str(self.codex), self.thread_id, provider=self.provider
+                ),
+                raw,
+            )
+            other = SimpleNamespace(scope="native_fixture", root=self.root / "unrelated")
+            with self.assertRaisesRegex(io.Refusal, "fixture_reference_outside_root"):
+                kernel._rollout_bytes(
+                    str(self.rollout), str(self.codex), self.thread_id, provider=other
+                )
+            self.rollout.write_bytes(b"x" * (2 * 1024**2 + 1))
+            with self.assertRaisesRegex(io.Refusal, "fixture_file_changed"):
+                kernel._rollout_bytes(
+                    str(self.rollout), str(self.codex), self.thread_id, provider=self.provider
+                )
+
+    def test_production_and_default_rollout_reads_keep_the_protected_reader(self):
+        raw = self.rollout.read_bytes()
+        for provider in (None, SimpleNamespace(scope="production_native", root=self.root)):
+            with self.subTest(provider=provider):
+                with patch.object(io, "read_protected", return_value=raw) as read:
+                    self.assertEqual(
+                        kernel._rollout_bytes(
+                            str(self.rollout), str(self.codex), self.thread_id, provider=provider
+                        ),
+                        raw,
+                    )
+                    read.assert_called_once_with(self.rollout, limit=2 * 1024**2)
 
     def test_metadata_or_wrong_home_cannot_replace_creation_provenance(self):
         home = io.document(Path(self.home_ref["path"]).read_bytes())

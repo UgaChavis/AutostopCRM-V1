@@ -51,6 +51,32 @@ MODEL_FILES = {
 MODEL_ROLES = ("work-telegram", "personal-telegram")
 
 
+def private_guard_status(backend, ticket_unit):
+    """Bounded diagnostics for this fixture's own child; never emit raw stderr."""
+    entry = backend.started.get(ticket_unit)
+    if entry is None:
+        return {"worker_known": False, "exit_code": None, "stderr_code": None}
+    child, _invocation = entry
+    code = child.poll()
+    result = {"worker_known": True, "exit_code": code, "stderr_code": None}
+    if code is None or child.stderr is None:
+        return result
+    descriptor = child.stderr.fileno()
+    blocking = os.get_blocking(descriptor)
+    try:
+        os.set_blocking(descriptor, False)
+        raw = os.read(descriptor, 4097)
+    except BlockingIOError:
+        return result
+    finally:
+        os.set_blocking(descriptor, blocking)
+    if len(raw) <= 4096:
+        match = re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_]*: ([a-z][a-z0-9_]{0,127})\r?\n?", raw)
+        if match is not None:
+            result["stderr_code"] = match[1].decode("ascii")
+    return result
+
+
 def _voice_leaf(path, size, digest, *, target=None, deadline=None):
     """Stream a single public fixture-data leaf; never execute a model."""
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)

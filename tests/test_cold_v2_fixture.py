@@ -94,6 +94,35 @@ class PendingVersionTests(unittest.TestCase):
 
 
 class FixtureBoundaryTests(unittest.TestCase):
+    def test_guard_diagnostics_never_read_a_live_child_or_emit_raw_stderr(self):
+        for exit_code, raw, expected in (
+            (None, b"Refusal: cold_example\n", None),
+            (
+                2,
+                b"Refusal: root_protected_directory_required\n",
+                "root_protected_directory_required",
+            ),
+            (2, b"arbitrary private output\n", None),
+            (2, b"Refusal: cold_example\nPRIVATE\n", None),
+            (2, b"x" * 4097, None),
+        ):
+            with self.subTest(exit_code=exit_code, raw_length=len(raw)):
+                child = SimpleNamespace(
+                    poll=lambda: exit_code, stderr=SimpleNamespace(fileno=lambda: 9)
+                )
+                backend = SimpleNamespace(started={"owned.service": (child, "private")})
+                with (
+                    patch.object(typed.os, "get_blocking", return_value=True),
+                    patch.object(typed.os, "set_blocking"),
+                    patch.object(typed.os, "read", return_value=raw) as read,
+                ):
+                    status = typed.private_guard_status(backend, "owned.service")
+                self.assertEqual(status["stderr_code"], expected)
+                if exit_code is None:
+                    read.assert_not_called()
+                else:
+                    read.assert_called_once_with(9, 4097)
+
     def test_non_bytecode_mode_refuses_before_process_or_filesystem_effects(self):
         with (
             patch.object(sys, "dont_write_bytecode", False),

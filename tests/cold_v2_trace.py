@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 import socket
 import sys
@@ -25,7 +26,12 @@ from scripts import j1_forward_release as release
 from scripts import j1_forward_release_faults as faults
 from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts import j1_forward_variant as variant
-from scripts.cold_v2_rehearsal import TypedFixture, stage_voice_models, verify_restored_models
+from scripts.cold_v2_rehearsal import (
+    TypedFixture,
+    private_guard_status,
+    stage_voice_models,
+    verify_restored_models,
+)
 
 
 @unittest.skipUnless(
@@ -208,7 +214,20 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 accepted = {}
                 for unit in authority.ALLOWED:
                     controller.submit(unit)
-                    accepted[unit] = controller.accept(unit)
+                    try:
+                        accepted[unit] = controller.accept(unit)
+                    except Exception:
+                        ticket_unit = (
+                            "autostop-crm-forward-" + controller.epoch["slots"][unit] + ".service"
+                        )
+                        try:
+                            status = private_guard_status(controller.backend, ticket_unit)
+                        except Exception:
+                            status = {"diagnostics_unavailable": True}
+                        print(
+                            "PRIVATE_COLD_GUARD " + json.dumps(status, sort_keys=True), flush=True
+                        )
+                        raise
                     snapshot = controller.store(unit).read()
                     self.assertTrue(snapshot["state"]["execution_possible"])
                     self.assertTrue(controller.submit(unit)["historical"])
