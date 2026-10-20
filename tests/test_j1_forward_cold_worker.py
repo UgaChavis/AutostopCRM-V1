@@ -516,10 +516,15 @@ class ColdWorkerTests(unittest.TestCase):
             )
             raw[row["quarantine_path"]] = io.canonical(quarantine)
         observe = telegram.observe
+        publications = {}
 
         def publish(path, body, _root):
             path.write_bytes(io.canonical(body))
-            return {"path": str(path), "sha256": contract.digest(body)}
+            # The protocol is POSIX even when its private bytes live on a
+            # Windows drive. Never pass that native path to cold.reference.
+            logical = str(PurePosixPath(self.fixture.prefix) / "telegram-ready" / path.name)
+            publications[logical] = path
+            return {"path": logical, "sha256": contract.digest(body)}
 
         with (
             patch.object(
@@ -533,7 +538,9 @@ class ColdWorkerTests(unittest.TestCase):
             result = instance.telegram_frontiers(accepted["accepted"])
         self.assertEqual(result["source"], sources)
         self.assertEqual(instance.verify.call_count, 2)
-        self.assertEqual(io.sha(Path(result["reference"]["path"]).read_bytes()), result["digest"])
+        self.assertEqual(
+            io.sha(publications[result["reference"]["path"]].read_bytes()), result["digest"]
+        )
         self.assertEqual(set(result["document"]["roles"]), set(telegram.ROLES))
 
     def test_seven_runtime_identities_require_distinct_positive_integer_pids(self):
