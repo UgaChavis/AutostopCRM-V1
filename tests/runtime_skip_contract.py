@@ -68,6 +68,22 @@ WINDOWS_INSTALLED_BARRIER_CASES = frozenset(
         "test_incomplete_observation_and_wrong_host_are_refused",
     }
 )
+WINDOWS_NATIVE_METADATA_CASES = frozenset(
+    {
+        (
+            "test_j1_forward_cold_telegram",
+            "TelegramFrontierTests",
+            "test_private_filesystem_reader_checks_modes_links_and_actual_bytes",
+            "Native metadata permissions are POSIX",
+        ),
+        (
+            "test_j1_manager_successor_native",
+            "ProtectedIOTests",
+            "test_kernel_lock_conflict_blocks_shared_validation_and_cloexec_is_set",
+            "Linux flock/open flags require Linux",
+        ),
+    }
+)
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -96,6 +112,24 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
             and type(test).__name__ == "BarrierInspectionTests"
             and getattr(test, "_testMethodName", None) in WINDOWS_INSTALLED_BARRIER_CASES
             and reason == "Linux installed-barrier files"
+        ):
+            continue
+        if (
+            platform == "win32"
+            and (
+                type(test).__module__.removeprefix("tests."),
+                type(test).__name__,
+                getattr(test, "_testMethodName", None),
+                reason,
+            )
+            in WINDOWS_NATIVE_METADATA_CASES
+        ):
+            continue
+        if (
+            platform == "win32"
+            and type(test).__module__.removeprefix("tests.") == "test_j1_forward_store_capture_cut"
+            and type(test).__name__ == "StoreCaptureCutTests"
+            and reason == "Linux flock/open flags require Linux"
         ):
             continue
         if (

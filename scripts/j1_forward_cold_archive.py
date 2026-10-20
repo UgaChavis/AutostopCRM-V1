@@ -576,9 +576,9 @@ def _fixture_parent_history(body, plan, baseline, package, read):
         io.sha(ticket_raw),
         acceptance,
         0,
-        reader=lambda path, _owner: (
-            read(body["acceptance_ref"]) if str(path) == body["acceptance_ref"]["path"] else b""
-        ),
+        # This exact reference was matched to the receipt above. A restoring
+        # host may format Path('/captured/...') with Windows separators.
+        reader=lambda _path, _owner: read(body["acceptance_ref"]),
     )
     return body["acceptance_ref"]
 

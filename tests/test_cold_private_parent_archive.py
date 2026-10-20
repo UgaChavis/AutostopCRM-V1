@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import unittest
 import uuid
+from pathlib import PureWindowsPath
+from unittest.mock import patch
 
 from scripts import j1_forward_cold_archive as archive
 from scripts import j1_forward_io as io
@@ -180,6 +182,11 @@ class PrivateParentArchiveTests(unittest.TestCase):
     def test_actual_sace_history_replays_as_private_evidence_with_no_live_authority(self):
         material = self.fixture()
         self.assertEqual(self.replay(material), material[1]["acceptance_ref"])
+
+    def test_captured_posix_acceptance_replays_on_a_windows_path_consumer(self):
+        material = self.fixture()
+        with patch.object(launch, "Path", PureWindowsPath):
+            self.assertEqual(self.replay(material), material[1]["acceptance_ref"])
 
     def test_private_envelope_cannot_be_used_for_production_or_claim_systemd(self):
         for target, key, value in (
