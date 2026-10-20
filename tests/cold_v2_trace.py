@@ -5,9 +5,12 @@ from __future__ import annotations
 import copy
 import json
 import os
+import select
+import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import unittest
 import uuid
@@ -35,6 +38,62 @@ from scripts.cold_v2_rehearsal import (
     stage_voice_models,
     verify_restored_models,
 )
+
+
+def _crash_after_history(store, plan, perform):
+    """Crash this owned child after the actual supplied transaction's write.
+
+    The joined trace supplies its existing ColdStore/envelope/proofs directly;
+    neither a second State root nor a warm transaction replaces that call.
+    """
+    io.require(threading.active_count() == 1, "private_crash_requires_one_thread")
+    target = store.history / f"{plan['sequence']:020d}.json"
+    child = os.fork()
+    if child == 0:
+        original = io.write_new
+
+        def write(path, value):
+            reference = original(path, value)
+            if Path(path) == target:
+                os._exit(faults.CRASH_EXIT)
+            return reference
+
+        try:
+            with patch.object(io, "write_new", side_effect=write):
+                perform()
+        except BaseException:
+            import traceback
+
+            traceback.print_exc()
+            sys.stderr.flush()
+            os._exit(78)
+        os._exit(79)
+    descriptor = None
+    reaped = False
+    try:
+        descriptor = os.pidfd_open(child, 0)
+        io.require(bool(select.select([descriptor], [], [], 15)[0]), "private_crash_wait_timeout")
+        waited, status = os.waitpid(child, 0)
+        reaped = True
+        io.require(
+            waited == child
+            and os.WIFEXITED(status)
+            and os.WEXITSTATUS(status) == faults.CRASH_EXIT,
+            "private_recovery_crash_missed",
+        )
+    finally:
+        if not reaped:
+            # This unreaped PID is still our child; it cannot have been reused.
+            if descriptor is None:
+                os.kill(child, signal.SIGKILL)
+            else:
+                try:
+                    signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            os.waitpid(child, 0)
+        if descriptor is not None:
+            os.close(descriptor)
 
 
 def _accept(controller, unit):
@@ -413,16 +472,10 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                         fixture, attempt, signer, kind, proofs[kind], inspection
                     )
                 store = attempt["store"]
-                faults.crash(
-                    fixture,
-                    fixture.root / "state-faults/actual-cold-head",
-                    attempt["plan_ref"],
-                    operation="commit_recovery",
-                    target="history",
-                    phase="after",
-                    proofs=proofs,
-                    recovery_ref=attempt["recovery_ref"],
-                    state_root=store.root,
+                _crash_after_history(
+                    store,
+                    attempt["plan"],
+                    lambda: store.commit_recovery(attempt["envelope"], proofs),
                 )
                 with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
                     store.head()
