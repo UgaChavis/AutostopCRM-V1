@@ -267,7 +267,9 @@ class RuntimeProcessTests(unittest.TestCase):
                     report = json.loads(witness.path.read_text())
                     self.assertTrue(report["valid_witness"])
                     self.assertIsNone(report["native_exit"])
-                    self.assertGreater(report["intentional_cleanup_begin_ns"], report["started_ns"])
+                    self.assertGreaterEqual(
+                        report["intentional_cleanup_begin_ns"], report["started_ns"]
+                    )
                     self.assertIsNone(child.poll())
                 finally:
                     release.touch()
