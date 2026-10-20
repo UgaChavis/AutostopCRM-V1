@@ -66,7 +66,7 @@ def attempt_directory(attempt):
     return directory
 
 
-def source_consumers(*, mixed=False):
+def source_consumers(*, mixed=False, cold=False):
     result = subprocess.run(
         ["/usr/bin/git", "-C", str(CRM), "ls-files", "scripts/j1_forward_*.py"],
         capture_output=True,
@@ -85,6 +85,8 @@ def source_consumers(*, mixed=False):
     )
     if mixed:
         paths += sorted(variant.SUPPLEMENTAL)
+    elif cold:
+        paths += sorted(variant.COLD_SUPPLEMENTAL)
     return {path: io.reference(CRM / path)["sha256"] for path in sorted(paths)}
 
 
@@ -101,7 +103,13 @@ def load_attempt(attempt, *, verify_published=True):
         and plan["host"] == socket.gethostname(),
         "baseline_binding_invalid",
     )
-    consumers = source_consumers(mixed=True) if variant.is_mixed(plan) else source_consumers()
+    consumers = (
+        source_consumers(mixed=True)
+        if variant.is_mixed(plan)
+        else source_consumers(cold=True)
+        if variant._is_cold(plan)
+        else source_consumers()
+    )
     io.require(
         baseline["source_consumers"] == consumers
         and io.sha(io.canonical(consumers)) == plan["candidate"]["consumer_sha256"],

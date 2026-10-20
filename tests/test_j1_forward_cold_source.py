@@ -33,6 +33,11 @@ class ProducerSourceGraphTests(unittest.TestCase):
                 "release",
             )
         }
+        helper_path = (
+            "/usr/local/libexec/autostop-crm-forward-cold/v1/j1_manager_transition_source.py"
+        )
+        files[helper_path] = b"# qualified source verifier, never execute\n"
+        consumers["scripts/j1_manager_transition_source.py"] = io.sha(files[helper_path])
         binding = {
             "attempt_id": str(uuid.uuid4()),
             "boot_id": str(uuid.uuid4()),
@@ -99,6 +104,11 @@ class ProducerSourceGraphTests(unittest.TestCase):
             request["candidate"]["consumer_sha256"] = cold.digest(consumers)
         elif damage == "extra_request":
             request["allow_unknown"] = True
+        elif damage == "helper_missing":
+            del consumers["scripts/j1_manager_transition_source.py"]
+            request["candidate"]["consumer_sha256"] = cold.digest(consumers)
+        elif damage == "helper_changed":
+            files[helper_path] = b"# different verifier despite an unchanged request pin\n"
         receipt = bound("producer-receipt", **{key: leaf for key in cold.PRODUCER_RECEIPT_REFS})
         receipt["request_ref"] = ref("request.json", request)
         if damage == "receipt":
@@ -131,6 +141,10 @@ class ProducerSourceGraphTests(unittest.TestCase):
         self.assertIn(value["producer_inputs_ref"]["path"], reader.seen)
         self.assertIn(value["producer_receipt_ref"]["path"], reader.seen)
         self.assertIn("/private/request.json", reader.seen)
+        self.assertIn(
+            "/usr/local/libexec/autostop-crm-forward-cold/v1/j1_manager_transition_source.py",
+            reader.seen,
+        )
         reader.recheck()
         self.assertNotIn("activation_authorized", value)
 
@@ -143,6 +157,8 @@ class ProducerSourceGraphTests(unittest.TestCase):
             "guard",
             "receipt",
             "extra_request",
+            "helper_missing",
+            "helper_changed",
         ):
             with self.subTest(damage=damage):
                 reader, reference, binding, predecessor = self.fixture(damage)
@@ -150,6 +166,23 @@ class ProducerSourceGraphTests(unittest.TestCase):
                     cold._source_package(
                         reader, reference, binding, "production_native", predecessor_ref=predecessor
                     )
+
+    def test_installed_helper_is_inertly_replayed_and_independently_rechecked(self):
+        reader, reference, binding, predecessor = self.fixture()
+        cold._source_package(
+            reader, reference, binding, "production_native", predecessor_ref=predecessor
+        )
+        captured = {path: raw for path, (_ref, raw) in reader.seen.items()}
+        restored = cold.Reader(lambda ref: captured[ref["path"]])
+        cold._source_package(
+            restored, reference, binding, "production_native", predecessor_ref=predecessor
+        )
+        restored.recheck()
+        helper = "/usr/local/libexec/autostop-crm-forward-cold/v1/j1_manager_transition_source.py"
+        self.assertEqual(restored.seen[helper], reader.seen[helper])
+        captured[helper] += b"# changed after validation\n"
+        with self.assertRaises(io.Refusal):
+            restored.recheck()
 
     def test_fixture_source_v1_keeps_its_original_exact_shape(self):
         reader, reference, binding, _ = self.fixture()

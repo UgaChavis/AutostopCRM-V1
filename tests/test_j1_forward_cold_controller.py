@@ -38,6 +38,9 @@ class ColdControllerAdmissionTests(unittest.TestCase):
         self.cold_script = controller.FORWARD
         journal._new(self.cold_script, b"# immutable cold fixture consumer, never executed\n")
         self.consumers["scripts/j1_forward_cold_release.py"] = io.sha(self.cold_script.read_bytes())
+        helper = self.scripts / "j1_manager_transition_source.py"
+        journal._new(helper, b"# immutable private source verifier, never executed\n")
+        self.consumers["scripts/" + helper.name] = io.sha(helper.read_bytes())
         controller.REQUESTS.mkdir(mode=0o700)
         request_dir = controller.REQUESTS / self.attempt
         request_dir.mkdir(mode=0o700)
@@ -141,6 +144,20 @@ class ColdControllerAdmissionTests(unittest.TestCase):
         for changed in (900.0, True, 901):
             with self.subTest(runtime=changed), self.assertRaises(io.Refusal):
                 controller.validate_request({**self.request, "runtime_seconds": changed})
+
+    def test_source_verifier_drift_blocks_request_consumption(self):
+        self.accepted()
+        (self.scripts / "j1_manager_transition_source.py").write_bytes(b"# changed verifier\n")
+        with self.assertRaisesRegex(journal.Refusal, "consumer_changed"):
+            controller.validate(self.attempt)
+
+    def test_omitted_source_verifier_cannot_issue_a_cold_request(self):
+        del self.request["source"]["consumers"]["scripts/j1_manager_transition_source.py"]
+        self.request["candidate"]["consumer_sha256"] = io.sha(
+            io.canonical(self.request["source"]["consumers"])
+        )
+        with self.assertRaisesRegex(io.Refusal, "consumer_binding"):
+            controller.validate_request(self.request)
 
 
 if __name__ == "__main__":

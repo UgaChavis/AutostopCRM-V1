@@ -26,6 +26,7 @@ SUPPLEMENTAL = frozenset(
         "j1_manager_successor_transition",
     )
 )
+COLD_SUPPLEMENTAL = frozenset({"scripts/j1_manager_transition_source.py"})
 
 
 def is_mixed(plan):

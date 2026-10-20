@@ -107,7 +107,11 @@ class InertInstallerTests(unittest.TestCase):
         )
 
     def test_qualified_controller_closure_includes_fixed_kernel_bootstrap_and_every_consumer(self):
-        for name in ("j1_forward_cold_kernel_supervisor", "j1_forward_cold_kernel_bootstrap"):
+        for name in (
+            "j1_forward_cold_kernel_supervisor",
+            "j1_forward_cold_kernel_bootstrap",
+            "j1_manager_transition_source",
+        ):
             raw = (install.SOURCE / (name + ".py")).read_bytes()
             path = "/input/" + name + ".py"
             self.raw[path] = raw

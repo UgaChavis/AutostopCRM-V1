@@ -518,6 +518,14 @@ def _source_package(reader, source_ref, binding, scope, *, predecessor_ref=None)
             "producer_request_binding",
         )
         _producer_source(request, source, binding)
+        # The source/CI verifier is executed by preparation, so its installed
+        # bytes belong to every fresh package observation and inert restore.
+        reader.raw(
+            {
+                "path": "/usr/local/libexec/autostop-crm-forward-cold/v1/j1_manager_transition_source.py",
+                "sha256": request["source"]["consumers"]["scripts/j1_manager_transition_source.py"],
+            }
+        )
     return source
 
 
@@ -552,6 +560,7 @@ def _producer_source(request, source, binding):
         all("scripts/j1_forward_cold_" + name + ".py" in consumers for name in names),
         "producer_controller_closure",
     )
+    need("scripts/j1_manager_transition_source.py" in consumers, "producer_source_helper_missing")
     need(
         binding["consumer_sha256"]
         == digest({name: consumers["scripts/j1_forward_cold_" + name + ".py"] for name in names})

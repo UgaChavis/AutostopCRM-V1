@@ -54,6 +54,7 @@ SUPPLEMENTAL = frozenset(
         "j1_manager_successor_transition",
     )
 )
+COLD_SUPPLEMENTAL = frozenset({"scripts/j1_manager_transition_source.py"})
 
 
 def worker_command(attempt):
@@ -155,7 +156,7 @@ def owner():
     return {"pid": os.getpid(), "start_ticks": _proc_stat(os.getpid())}
 
 
-def _sources(consumers, *, mixed=False):
+def _sources(consumers, *, mixed=False, cold=False):
     require(
         type(consumers) is dict
         and 8 <= len(consumers) <= 80
@@ -165,6 +166,8 @@ def _sources(consumers, *, mixed=False):
     )
     if mixed:
         require(SUPPLEMENTAL <= set(consumers), "launch_mixed_consumers_incomplete")
+    elif cold:
+        require(COLD_SUPPLEMENTAL <= set(consumers), "launch_cold_consumers_incomplete")
     for relative, digest in consumers.items():
         require(
             type(relative) is str
@@ -172,6 +175,8 @@ def _sources(consumers, *, mixed=False):
                 re.fullmatch(r"scripts/j1_forward_[a-z_]+\.py", relative)
                 or mixed
                 and relative in SUPPLEMENTAL
+                or cold
+                and relative in COLD_SUPPLEMENTAL
             ),
             "launch_source_name",
         )

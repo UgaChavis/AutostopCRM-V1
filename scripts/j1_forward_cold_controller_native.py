@@ -79,6 +79,7 @@ def validate_request(request, *, now=None):
     cold.need(
         type(source["consumers"]) is dict
         and 8 <= len(source["consumers"]) <= 80
+        and native.COLD_SUPPLEMENTAL <= set(source["consumers"])
         and cold.digest(source["consumers"]) == candidate["consumer_sha256"],
         "controller_consumer_binding",
     )
@@ -154,7 +155,7 @@ def issue(reference, deployment_lock_identity):
         and request["boot_id"] == native.boot(),
         "controller_request_location",
     )
-    source_hash = native._sources(request["source"]["consumers"])
+    source_hash = native._sources(request["source"]["consumers"], cold=True)
     from scripts import j1_forward_cold_qualification
 
     j1_forward_cold_qualification.verify_qualification(
@@ -270,7 +271,7 @@ def validate(attempt):
         and request["boot_id"] == native.boot() == ticket["boot_id"]
         and request["owner_generation"] == ticket["owner_generation"]
         and request["source"]["consumers"] == context["consumers"]
-        and native._sources(context["consumers"]) == ticket["source_sha256"]
+        and native._sources(context["consumers"], cold=True) == ticket["source_sha256"]
         and native._file_digest(Path("/usr/bin/python3").resolve(strict=True))
         == context["interpreter"]
         and native._lock_identity() == context["deployment_lock_identity"],

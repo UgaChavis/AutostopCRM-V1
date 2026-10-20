@@ -261,6 +261,8 @@ def _source_consumers(baseline, plan):
     paths = sorted((root / "scripts").glob("j1_forward_*.py"))
     if variant.is_mixed(plan):
         paths += [root / name for name in sorted(variant.SUPPLEMENTAL)]
+    elif variant._is_cold(plan):
+        paths += [root / name for name in sorted(variant.COLD_SUPPLEMENTAL)]
     actual = {}
     for path in paths:
         _physical(path)

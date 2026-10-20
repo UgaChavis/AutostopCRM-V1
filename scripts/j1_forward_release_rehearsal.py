@@ -23,6 +23,7 @@ from scripts import j1_forward_cold_fixture as cold_fixture
 from scripts import j1_forward_io as io
 from scripts import j1_forward_proofs as signatures
 from scripts import j1_forward_state as state
+from scripts import j1_forward_variant as variant
 
 SOURCE = Path(__file__).resolve().parents[1]
 # A genuine locally retained source snapshot before the native launch-journal
@@ -112,13 +113,20 @@ def source_inventory():
         capture_output=True,
         timeout=10,
     )
-    names = set(result.stdout.decode().splitlines()) | {"scripts/" + Path(__file__).name}
+    names = (
+        set(result.stdout.decode().splitlines())
+        | {"scripts/" + Path(__file__).name}
+        | variant.COLD_SUPPLEMENTAL
+    )
     io.require(
         8 <= len(names) <= 128
         and all(
-            name.startswith("scripts/j1_forward_")
-            and name.endswith(".py")
-            and ".." not in Path(name).parts
+            (
+                name.startswith("scripts/j1_forward_")
+                and name.endswith(".py")
+                and ".." not in Path(name).parts
+            )
+            or name in variant.COLD_SUPPLEMENTAL
             for name in names
         ),
         "rehearsal_source_inventory",

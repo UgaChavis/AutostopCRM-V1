@@ -27,6 +27,13 @@ The already declared binding is checked against the actual original D, boot,
 request, source, monotonic interval and UTC deadline. Preparation cannot extend
 it or silently replace its generation.
 
+Cold requests use `j1_forward_release.source_consumers(cold=True)`: the bounded
+forward source set plus exactly `scripts/j1_manager_transition_source.py`, the
+verifier actually used during preparation. Request consumption, inert staging,
+fresh package observations and the off-host custodian pin this helper. Its bytes
+are restored as source without execution; the default warm consumer set and
+the existing mixed supplemental set retain their separate contracts.
+
 The Manager source is the complete byte-clean published Git tree. Both source
 and the protected installed tree are independently checked. Manager requires a
 successful production `push` on `AutostopManager`. CRM requires all five jobs

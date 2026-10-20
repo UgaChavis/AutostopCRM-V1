@@ -171,6 +171,7 @@ def inert_stage(
                 "j1_forward_cold_guard",
                 "j1_forward_cold_kernel_supervisor",
                 "j1_forward_cold_kernel_bootstrap",
+                "j1_manager_transition_source",
             }
             <= expected_controller
             and len(expected_controller) <= 80,
