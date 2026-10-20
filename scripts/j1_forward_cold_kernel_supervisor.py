@@ -228,22 +228,29 @@ def fresh_home(seed, *, provider):
         _directory(home / relative, fresh=True)
     kernel._write_bytes(home / ".codex/config.toml", CONFIG)
     kernel._write_bytes(home / ".codex/auth.json", auth)
+    maintenance = kernel.create_maintenance_lock(home / ".codex")
     home_ref = io.write_new(
         selected["directory"] / "fresh-home.json",
         {
-            "schema": "autostop.j1.cold-kernel-home.v1",
+            "schema": "autostop.j1.cold-kernel-home.v2",
             "scope": "production_native",
             "binding": binding,
             "home": str(home),
             "codex_home": str(home / ".codex"),
             "cwd": seed["policy"]["cwd"],
-            "prestart_files": {"config.toml": io.sha(CONFIG), "auth.json": io.sha(auth)},
+            "prestart_files": {
+                "config.toml": io.sha(CONFIG),
+                "auth.json": io.sha(auth),
+                kernel.MAINTENANCE_LOCK: kernel.EMPTY_SHA256,
+            },
+            "maintenance_lock": maintenance,
             "authorization_ref": seed["authorization_ref"],
             "created_ns": time.monotonic_ns(),
         },
     )
     cold.need(
-        sorted(path.name for path in (home / ".codex").iterdir()) == ["auth.json", "config.toml"],
+        sorted(path.name for path in (home / ".codex").iterdir())
+        == [kernel.MAINTENANCE_LOCK, "auth.json", "config.toml"],
         "kernel_home_not_fresh",
     )
     return home_ref

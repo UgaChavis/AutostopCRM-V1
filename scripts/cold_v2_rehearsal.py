@@ -418,6 +418,8 @@ class TypedFixture(rehearsal.TraceFixture):
             b'cli_auth_credentials_store="file"\n[analytics]\nenabled=false\n',
             raw=True,
         )
+        with self.custody:
+            maintenance = kernel.create_maintenance_lock(codex)
         endpoint = base / "app.sock"
         environment = {
             "HOME": str(home),
@@ -539,12 +541,15 @@ class TypedFixture(rehearsal.TraceFixture):
             "evidence/kernel-home.json",
             self.doc(
                 "kernel-home",
+                schema="autostop.j1.cold-kernel-home.v2",
                 home=str(home),
                 codex_home=str(codex),
                 cwd=str(self.root / "source"),
                 prestart_files={
-                    name: io.sha((codex / name).read_bytes()) for name in ("config.toml",)
+                    name: io.sha((codex / name).read_bytes())
+                    for name in ("config.toml", kernel.MAINTENANCE_LOCK)
                 },
+                maintenance_lock=maintenance,
                 authorization_ref=self.provider.reference(self.root / "typed-fixture.json"),
                 created_ns=time.monotonic_ns(),
             ),

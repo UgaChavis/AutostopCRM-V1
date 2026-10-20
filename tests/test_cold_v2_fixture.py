@@ -114,7 +114,12 @@ class FixtureBoundaryTests(unittest.TestCase):
         value["prestart_files"] = {}
         kernel._fresh_home(value, fixture.binding, "native_fixture")
         production = copy.deepcopy(value)
-        production["scope"] = "production_native"
+        production.update(
+            schema="autostop.j1.cold-kernel-home.v2",
+            scope="production_native",
+            maintenance_lock=kernel.create_maintenance_lock(fixture.codex),
+            prestart_files={kernel.MAINTENANCE_LOCK: kernel.EMPTY_SHA256},
+        )
         with self.assertRaisesRegex(io.Refusal, "fresh_home_manifest"):
             kernel._fresh_home(production, fixture.binding, "production_native")
 

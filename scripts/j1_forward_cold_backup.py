@@ -66,6 +66,13 @@ def _diagnostic_rule(package_ref, attempt):
         "schema_policy_sha256": cold.digest(
             {"columns": LOG_COLUMNS, "indexes": sorted(LOG_INDEXES), "migrations": LOG_MIGRATIONS}
         ),
+        "kernel_home_schema": "autostop.j1.cold-kernel-home.v2",
+        "precreated_maintenance_lock": {
+            "name": ".sqlite-maintenance.lock",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "mode": 0o600,
+            "upstream_revision": "5425d3e625daa58eea3ad1de27c087eb3b2ffbd3",
+        },
         "business_quiet_claimed": False,
         "cross_database_atomic_claimed": False,
     }
@@ -129,8 +136,11 @@ def diagnostic_selector(package_ref, read_reference):
         "kernel-home",
         binding,
         scope,
-        kernel_contract.HOME_FIELDS - {"schema", "scope", "binding"},
+        kernel_contract.HOME_V2_FIELDS - {"schema", "scope", "binding"},
+        version=2,
     )
+    maintenance = kernel_contract.maintenance_lock_shape(home)
+    cold.need(reader.raw(maintenance["reference"]) == b"", "diagnostic_maintenance_not_empty")
     environment = reader.bound(
         policy["appserver_environment_ref"], "environment", binding, scope, {"unit", "values"}
     )
@@ -147,7 +157,8 @@ def diagnostic_selector(package_ref, read_reference):
         and environment["unit"] == policy["unit"] == kernel["unit"]
         and environment["values"]["HOME"] == home["home"]
         and environment["values"]["CODEX_HOME"] == home["codex_home"]
-        and home["codex_home"] == str(PurePosixPath(home["home"]) / ".codex"),
+        and home["codex_home"] == str(PurePosixPath(home["home"]) / ".codex")
+        and maintenance["source_version"][6:8] == [kernel["actor"]["uid"], kernel["actor"]["gid"]],
         "diagnostic_kernel_source_binding",
     )
     reader.recheck()

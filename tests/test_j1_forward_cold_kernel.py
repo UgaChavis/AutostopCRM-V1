@@ -273,6 +273,63 @@ class KernelPreparationTests(unittest.TestCase):
             self.prepare()
         self.assertFalse(self.calls)
 
+    def current_home(self):
+        home = io.document(Path(self.home_ref["path"]).read_bytes())
+        home.update(
+            schema="autostop.j1.cold-kernel-home.v2",
+            maintenance_lock=kernel.create_maintenance_lock(self.codex),
+            prestart_files={**home["prestart_files"], kernel.MAINTENANCE_LOCK: kernel.EMPTY_SHA256},
+        )
+        return home
+
+    def test_precreated_lock_is_exact_empty_new_file_and_flock_preserves_its_cut(self):
+        import fcntl
+
+        home = self.current_home()
+        lock = self.codex / kernel.MAINTENANCE_LOCK
+        self.assertEqual(lock.read_bytes(), b"")
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+        with lock.open("rb") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            kernel._fresh_home(home, self.binding, "native_fixture")
+            self.assertEqual(
+                kernel.file_version(lock.lstat()), home["maintenance_lock"]["source_version"]
+            )
+        with self.assertRaisesRegex(io.Refusal, "maintenance_lock_must_be_new"):
+            kernel.create_maintenance_lock(self.codex)
+        self.assertEqual(
+            kernel.file_version(lock.lstat()), home["maintenance_lock"]["source_version"]
+        )
+
+    def test_same_empty_bytes_at_replaced_inode_do_not_satisfy_home_provenance(self):
+        home = self.current_home()
+        lock = self.codex / kernel.MAINTENANCE_LOCK
+        lock.rename(self.codex / "retained-old-lock")
+        kernel._write_bytes(lock, b"")
+        with self.assertRaisesRegex(io.Refusal, "maintenance_inode_changed"):
+            kernel._fresh_home(home, self.binding, "native_fixture")
+
+    def test_changed_lock_bytes_permissions_and_wrong_reference_are_rejected(self):
+        home = self.current_home()
+        lock = self.codex / kernel.MAINTENANCE_LOCK
+        wrong = copy.deepcopy(home)
+        wrong["maintenance_lock"]["reference"]["path"] = str(self.codex / "other-lock")
+        with self.assertRaisesRegex(io.Refusal, "maintenance_binding"):
+            kernel._fresh_home(wrong, self.binding, "native_fixture")
+        lock.chmod(0o644)
+        with self.assertRaisesRegex(io.Refusal, "maintenance_inode_changed"):
+            kernel._fresh_home(home, self.binding, "native_fixture")
+        lock.chmod(0o600)
+        lock.write_bytes(b"not an empty maintenance lock")
+        with self.assertRaises(io.Refusal):
+            kernel._fresh_home(home, self.binding, "native_fixture")
+
+    def test_production_kernel2_cannot_use_legacy_home_provenance(self):
+        home = io.document(Path(self.home_ref["path"]).read_bytes())
+        home["scope"] = "production_native"
+        with self.assertRaisesRegex(io.Refusal, "production_home_v2_required"):
+            kernel._fresh_home(home, self.binding, "production_native")
+
 
 class KernelBootstrapTests(unittest.TestCase):
     def test_import_and_wrong_main_boundary_have_no_filesystem_effects(self):
@@ -284,6 +341,7 @@ class KernelBootstrapTests(unittest.TestCase):
                 bootstrap.install(
                     Path("/tmp/private-not-production.py"), ["--attempt", str(uuid.uuid4())]
                 )
+
         actual = hashlib.sha256(Path(bootstrap.__file__).read_bytes()).hexdigest()
         self.assertEqual(actual, supervisor.BOOTSTRAP_SHA256)
 
@@ -302,6 +360,70 @@ class KernelBootstrapTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ImportError, "source_changed"):
                 loader.exec_module(types.ModuleType("scripts.j1_forward_private"))
+
+
+@unittest.skipUnless(os.name == "posix", "Release checks require POSIX ownership and permissions")
+class KernelFreshHomeTests(unittest.TestCase):
+    def test_supervisor_creates_bound_empty_lock_with_only_fresh_auth_and_config(self):
+        from scripts import j1_forward_cold_kernel_supervisor as supervisor
+        from scripts import j1_forward_release_rehearsal as rehearsal
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            attempt = str(uuid.uuid4())
+            now = time.monotonic_ns()
+            binding = {
+                "attempt_id": attempt,
+                "generation": str(uuid.uuid4()),
+                "not_before_ns": now - 1,
+                "deadline_ns": now + 60 * 10**9,
+            }
+            credential = root / "config/credentials" / attempt
+            target = root / "state/packages" / attempt / "kernel"
+            credential.mkdir(mode=0o700, parents=True)
+            target.mkdir(mode=0o700, parents=True)
+            raw = io.canonical({"synthetic_auth": "ARTIFICIAL_NEVER_USED_FOR_LOGIN"})
+            with (
+                rehearsal.PrivateFilesystem(root),
+                patch.object(supervisor.native, "CONFIG", root / "config"),
+                patch.object(supervisor.native, "STATE", root / "state"),
+            ):
+                kernel._write_bytes(credential / "auth.json", raw)
+                authorization = io.write_new(
+                    credential / "authorization.json",
+                    {
+                        "schema": "autostop.j1.cold-kernel-authorization.v1",
+                        "scope": "production_native",
+                        "binding": binding,
+                        "auth_sha256": io.sha(raw),
+                        "expires_ns": now + 60 * 10**9,
+                    },
+                )
+                seed = {
+                    "binding": binding,
+                    "authorization_ref": authorization,
+                    "policy": {"cwd": str(root)},
+                }
+                reference = supervisor.fresh_home(
+                    seed, provider=SimpleNamespace(read_reference=io.referenced)
+                )
+                home = io.document(io.referenced(reference))
+                self.assertEqual(home["schema"], "autostop.j1.cold-kernel-home.v2")
+                self.assertEqual(
+                    set(home["prestart_files"]),
+                    {"config.toml", "auth.json", kernel.MAINTENANCE_LOCK},
+                )
+                lock = kernel.maintenance_lock_shape(home)
+                self.assertEqual(io.referenced(lock["reference"]), b"")
+                self.assertEqual(
+                    kernel.file_version(Path(lock["reference"]["path"]).lstat()),
+                    lock["source_version"],
+                )
+                self.assertEqual((target / "home/.codex/auth.json").read_bytes(), raw)
+                with self.assertRaises(io.Refusal):
+                    supervisor.fresh_home(
+                        seed, provider=SimpleNamespace(read_reference=io.referenced)
+                    )
 
 
 if __name__ == "__main__":

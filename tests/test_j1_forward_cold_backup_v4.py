@@ -59,6 +59,12 @@ class DiagnosticSelectorTests(unittest.TestCase):
             }
 
         home_path = f"/private/packages/{bound['attempt_id']}/kernel/home"
+        lock_path = home_path + "/.codex/" + kernel.MAINTENANCE_LOCK
+        files[lock_path] = b""
+        maintenance = {
+            "reference": {"path": lock_path, "sha256": kernel.EMPTY_SHA256},
+            "source_version": [1, 2, 0, 3, 4, 0o100600, 1000, 1000, 1],
+        }
         ref = {"path": "/private/source.py", "sha256": "4" * 64}
         actor = {
             **dict.fromkeys(native.ACTOR_FIELDS, "synthetic"),
@@ -72,9 +78,12 @@ class DiagnosticSelectorTests(unittest.TestCase):
             "home",
             document(
                 "kernel-home",
-                kernel.HOME_FIELDS,
+                kernel.HOME_V2_FIELDS,
+                schema="autostop.j1.cold-kernel-home.v2",
                 home=home_path,
                 codex_home=home_path + "/.codex",
+                prestart_files={kernel.MAINTENANCE_LOCK: kernel.EMPTY_SHA256},
+                maintenance_lock=maintenance,
             ),
         )
         environment = save(

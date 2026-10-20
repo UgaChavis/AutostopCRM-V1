@@ -443,6 +443,9 @@ hash: the current attempt's kernel2 HOME `.codex/logs_2.sqlite`, produced by the
 pinned Codex binary `ff3a6a3ed13735b8a8938c40141eb38b688efd6b02ee0fd5358187111fe9966a`.
 The selector is derived from the package, kernel, policy, preparation and fresh
 HOME references; neither a caller path nor a filename alone selects a source.
+It requires HOME v2 and its precreated empty upstream maintenance lock, whose
+exact reference/version is also retained by the typed control graph. The lock
+and its parent directory retain their full strict version checks.
 
 Only this diagnostic database and its already existing WAL/SHM may change
 content during capture. Their three distinct protected file descriptors remain

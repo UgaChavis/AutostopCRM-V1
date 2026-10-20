@@ -23,6 +23,26 @@ neither the installed `/root/.codex` configuration nor its sessions. A real
 satisfy the native readback. No account provisioning or model request is part
 of this implementation.
 
+New production kernel2 preparation publishes `autostop.j1.cold-kernel-home.v2`.
+Before spawning Codex it also creates exactly one **new empty**
+`.sqlite-maintenance.lock`, with O_EXCL/no-follow and mode 0600. Its empty digest,
+exact path, credentials, inode and full file version are bound in that HOME
+document. Native preparation/runtime verification rechecks the actual file;
+replacement by another empty inode is denied. Independent control restore
+retains the exact empty leaf and the v4 diagnostic selector binds this HOME2
+provenance. Historical kernel1 and private HOME1 evidence remain readable;
+production kernel2 cannot use HOME1.
+
+This file is the pinned alpha.11 reclamation mutex: [source revision
+5425d3e](https://github.com/openai/codex/blob/5425d3e625daa58eea3ad1de27c087eb3b2ffbd3/codex-rs/state/src/runtime/reclamation.rs)
+opens it with create=true/truncate=false on its first 60-second interval.
+An owned offline 75-second probe reproduced that creation; a second probe with
+precreation kept the full parent-directory and lock-file versions unchanged.
+Codex retains its own flock behavior. No source directory timestamp is masked,
+no maintenance operation is invoked early, and no startup/release deadline is
+extended. The lock contains no copied runtime, session, queue or authorization
+state.
+
 After authentication, preparation writes and fsyncs one immutable thread/start
 intent before sending that exact request. A timeout, lost response, crash,
 expired deadline or changed fence leaves the intent consumed. There is no

@@ -14,7 +14,7 @@ import select
 import stat
 import time
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_cold_authority as cold
 from scripts import j1_forward_cold_kernel_rpc as transport
@@ -68,6 +68,9 @@ HOME_FIELDS = {
     "authorization_ref",
     "created_ns",
 }
+HOME_V2_FIELDS = HOME_FIELDS | {"maintenance_lock"}
+MAINTENANCE_LOCK = ".sqlite-maintenance.lock"
+EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CONTROL_METHODS = (
     "initialize",
     "account/read",
@@ -77,10 +80,10 @@ CONTROL_METHODS = (
 )
 
 
-def _bound(body, name, binding, scope, fields):
+def _bound(body, name, binding, scope, fields, *, version=1):
     cold.fields(body, fields, "kernel_" + name + "_fields")
     cold.need(
-        body["schema"] == "autostop.j1.cold-kernel-" + name + ".v1"
+        body["schema"] == "autostop.j1.cold-kernel-" + name + ".v" + str(version)
         and body["binding"] == binding
         and body["scope"] == scope,
         "kernel_" + name + "_binding",
@@ -231,12 +234,69 @@ def _rollout_bytes(path, codex_home, thread_id):
     return raw
 
 
+def maintenance_lock_shape(home):
+    """Pure historical binding; this alone is not a live inode observation."""
+    cold.need(
+        type(home) is dict
+        and type(home.get("codex_home")) is str
+        and type(home.get("prestart_files")) is dict
+        and "maintenance_lock" in home,
+        "kernel_maintenance_home_fields",
+    )
+    value = cold.fields(
+        home["maintenance_lock"], {"reference", "source_version"}, "kernel_maintenance_fields"
+    )
+    reference = cold.reference(value["reference"])
+    version = value["source_version"]
+    cold.need(
+        reference["path"] == str(PurePosixPath(home["codex_home"]) / MAINTENANCE_LOCK)
+        and reference["sha256"] == home["prestart_files"].get(MAINTENANCE_LOCK) == EMPTY_SHA256
+        and type(version) is list
+        and len(version) == 9
+        and all(type(number) is int and number >= 0 for number in version)
+        and version[1] > 0
+        and version[2] == 0
+        and version[3] > 0
+        and version[4] > 0
+        and version[5] == stat.S_IFREG | 0o600
+        and version[8] == 1,
+        "kernel_maintenance_binding",
+    )
+    return value
+
+
+def create_maintenance_lock(codex_home):
+    """Create the exact empty upstream lock in a NEW owned HOME, before spawn."""
+    path = Path(codex_home) / MAINTENANCE_LOCK
+    io.protected_directory(path.parent, private=True)
+    try:
+        reference = _write_bytes(path, b"")
+    except FileExistsError as error:
+        raise io.Refusal("cold_kernel_maintenance_lock_must_be_new") from error
+    return {"reference": reference, "source_version": file_version(path.lstat())}
+
+
 def _fresh_home(home, binding, scope):
-    _bound(home, "home", binding, scope, HOME_FIELDS)
+    cold.need(type(home) is dict, "kernel_home_fields")
+    current = home.get("schema") == "autostop.j1.cold-kernel-home.v2"
+    _bound(
+        home,
+        "home",
+        binding,
+        scope,
+        HOME_V2_FIELDS if current else HOME_FIELDS,
+        version=2 if current else 1,
+    )
+    cold.need(current or scope == "native_fixture", "kernel_production_home_v2_required")
     cold.need(
         type(home["prestart_files"]) is dict
         and set(home["prestart_files"])
-        <= {"config.toml", "auth.json", "app-server-daemon/settings.json"}
+        <= {
+            "config.toml",
+            "auth.json",
+            "app-server-daemon/settings.json",
+            *([MAINTENANCE_LOCK] if current else []),
+        }
         and (scope == "native_fixture" or "auth.json" in home["prestart_files"])
         and home["codex_home"] == str(Path(home["home"]) / ".codex")
         and home["created_ns"] >= binding["not_before_ns"],
@@ -245,6 +305,16 @@ def _fresh_home(home, binding, scope):
     cold.reference(home["authorization_ref"])
     for digest in home["prestart_files"].values():
         cold.need(type(digest) is str and cold.HEX.fullmatch(digest), "kernel_home_digest")
+    if current:
+        lock = maintenance_lock_shape(home)
+        path = Path(lock["reference"]["path"])
+        cold.need(
+            file_digest(path, limit=0) == lock["reference"]
+            and file_version(path.lstat()) == lock["source_version"]
+            and lock["source_version"][6:8]
+            == ([0, 0] if scope == "production_native" else [os.geteuid(), os.getegid()]),
+            "kernel_maintenance_inode_changed",
+        )
     for name in ("home", "codex_home", "cwd"):
         path = Path(home[name])
         info = path.lstat()
