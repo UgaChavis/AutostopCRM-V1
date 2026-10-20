@@ -538,12 +538,15 @@ class NativeRoleModelTests(unittest.TestCase):
                 io.require(Path(path).is_relative_to(root), "fixture_evidence_path")
                 return super().directory_at(path, mode=mode, uid=os.geteuid(), gid=os.getegid())
 
+            def publish(self, path, body, *, raw=False, mode=0o600, gid=0):
+                return super().publish(path, body, raw=raw, mode=mode, gid=os.getegid())
+
         backend = object.__new__(PrivateBackend)
         state = self.root / "state"
         backend.directory = state / "packages" / str(uuid.uuid4())
 
         def chown(fd, requested_uid, requested_gid):
-            self.assertEqual((requested_uid, requested_gid), (0, 0))
+            self.assertEqual((requested_uid, requested_gid), (0, gid))
             actual_fchown(fd, uid, gid)
 
         with patch.object(effectors.native, "STATE", state), patch.object(os, "fchown", chown):
