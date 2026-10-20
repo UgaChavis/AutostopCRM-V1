@@ -398,6 +398,51 @@ class InterpreterAliasTests(unittest.TestCase):
                     stage="closed",
                     logical_root=root,
                 )
+            clock = [0.0]
+
+            def expired(*args, **kwargs):
+                result = semantic(*args, **kwargs)
+                clock[0] = 2.0
+                return result
+
+            with (
+                patch.object(transport.time, "monotonic", side_effect=lambda: clock[0]),
+                patch.object(transport, "_semantic", side_effect=expired),
+                self.assertRaisesRegex(io.Refusal, "deadline"),
+            ):
+                transport.verify_and_restore(
+                    unpacked,
+                    io.sha(raw_manifest),
+                    self.fixture.root / "expired",
+                    plan_ref=plan_ref,
+                    backup_manifest_ref=backup_ref,
+                    stage="closed",
+                    logical_root=root,
+                    timeout=1,
+                )
+            self.assertFalse((self.fixture.root / "expired/restore.json").exists())
+
+            def changed_source(*args, **kwargs):
+                result = semantic(*args, **kwargs)
+                target = unpacked / "000000.bin"
+                before = target.stat()
+                os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns + 1))
+                return result
+
+            with (
+                patch.object(transport, "_semantic", side_effect=changed_source),
+                self.assertRaisesRegex(io.Refusal, "source_version_changed"),
+            ):
+                transport.verify_and_restore(
+                    unpacked,
+                    io.sha(raw_manifest),
+                    self.fixture.root / "changed-source",
+                    plan_ref=plan_ref,
+                    backup_manifest_ref=backup_ref,
+                    stage="closed",
+                    logical_root=root,
+                )
+            self.assertFalse((self.fixture.root / "changed-source/restore.json").exists())
         self.assertEqual(replay.call_count, 1)
         self.assertEqual((output / "runtime-alias-000000.elf").read_bytes(), self.elf)
         self.assertEqual((output / "runtime-alias-000000.elf").stat().st_mode & 0o777, 0o755)

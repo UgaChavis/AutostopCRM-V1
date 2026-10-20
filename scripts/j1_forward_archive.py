@@ -16,6 +16,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
+from scripts import j1_forward_cold_authority as cold_authority
 from scripts import j1_forward_io as io
 from scripts import j1_forward_launch_permission as launch
 from scripts import j1_forward_recovery as recovery
@@ -370,7 +371,7 @@ def _launch_semantic(root, documents, files):
 class _RestoredStore(state.Store):
     """Use the production state validators against explicit restored bytes only."""
 
-    def __init__(self, root, base_sha256, files, authorities=None):
+    def __init__(self, root, base_sha256, files, authorities=None, *, _captured_packages=None):
         self.root, self.base_sha256 = io.logical_path(root), base_sha256
         io.require(self.root.is_absolute() and ".." not in self.root.parts, "state_root_absolute")
         io.require(state._hash(base_sha256), "state_base_invalid")
@@ -379,6 +380,7 @@ class _RestoredStore(state.Store):
         self.pending_path = self.root / "pending.json"
         self.files = files
         self.authorities = {} if authorities is None else authorities
+        self._captured_packages = _captured_packages
 
     def _envelope(self, document):
         from scripts import j1_forward_cold_state
@@ -470,6 +472,7 @@ def _semantic(
     codec=3,
     runtime_blobs=None,
     runtime_aliases=None,
+    _captured_packages=None,
 ):
     root = io.logical_path(root)
     io.require(stage in {"closed", "terminal"}, "control_archive_stage")
@@ -481,7 +484,20 @@ def _semantic(
     )
     plan = io.document(raw_plan)
     variant.validate_plan(plan, plan["base_sha256"])
-    store = _RestoredStore(root / "state", plan["base_sha256"], files, authorities)
+    if _cold(plan):
+        if _captured_packages is None:
+            _captured_packages = cold_authority._CapturedPackages(capture_clock)
+        io.require(
+            type(_captured_packages) is cold_authority._CapturedPackages, "captured_package_reader"
+        )
+        _captured_packages.bind_clock(capture_clock)
+    store = _RestoredStore(
+        root / "state",
+        plan["base_sha256"],
+        files,
+        authorities,
+        _captured_packages=_captured_packages,
+    )
     directory = io.logical_path(plan_ref["path"]).parent
     captured, _ = store._read(directory / "backup-evidence.json")
     io.require(
@@ -582,6 +598,7 @@ def _semantic(
             read_file=lambda path, _limit: store._raw(path),
             list_directory=listing,
             codec=codec,
+            _captured_packages=_captured_packages,
         )
         io.require(expected == restored, "cold_archive_exact_graph_required")
         if codec in {4, 5}:
@@ -871,6 +888,7 @@ def capture(
     capture_clock = None
     runtime_blobs = {}
     runtime_aliases = {}
+    captured_packages = None
     if _cold(plan):
         from scripts import j1_forward_cold_archive
 
@@ -881,6 +899,7 @@ def capture(
             "boot_id": package["binding"]["boot_id"],
             "monotonic_ns": time.monotonic_ns(),
         }
+        captured_packages = cold_authority._CapturedPackages(capture_clock)
         authorities = j1_forward_cold_archive.collect(
             plan,
             root=root,
@@ -889,6 +908,7 @@ def capture(
             read_reference=authority_reader,
             read_file=authority_file_reader,
             codec=codec,
+            _captured_packages=captured_packages,
         )
         runtime_blobs = authorities.runtime_blob_paths
         runtime_aliases = authorities.runtime_aliases
@@ -908,6 +928,11 @@ def capture(
         )
     documents = {name: io.document(raw) for name, raw in files.items() if name.endswith(".json")}
     consumers = _consumer_bytes(documents, files, consumer_roots)
+    control_versions = (
+        {path: j1_forward_cold_archive._version(path) for path in files}
+        if captured_packages is not None
+        else {}
+    )
     semantic = _semantic(
         root,
         files,
@@ -920,6 +945,7 @@ def capture(
         codec=codec,
         runtime_blobs=runtime_blobs,
         runtime_aliases=runtime_aliases,
+        _captured_packages=captured_packages,
     )
     fence()
     io.require(
@@ -986,6 +1012,9 @@ def capture(
             }
         )
     files.update(witnesses_raw)
+    for path in witnesses_raw:
+        if captured_packages is not None:
+            control_versions.setdefault(path, j1_forward_cold_archive._version(path))
     io.require(
         sum(entry["bytes"] for entry in artifacts) <= transport_total_limit(codec),
         "control_archive_total_limit",
@@ -1003,6 +1032,7 @@ def capture(
             codec=codec,
             runtime_blobs=runtime_blobs,
             runtime_aliases=runtime_aliases,
+            _captured_packages=captured_packages,
         )
         == semantic,
         "control_archive_witness_semantics_changed",
@@ -1012,9 +1042,28 @@ def capture(
     )
     for path, raw in files.items():
         _budget(end)
+        if captured_packages is not None:
+            io.require(
+                j1_forward_cold_archive._version(path) == control_versions[path],
+                "control_archive_source_version_changed",
+            )
         io.require(io.read_protected(path, MAX_FILE_BYTES) == raw, "control_archive_source_changed")
+        if captured_packages is not None:
+            io.require(
+                j1_forward_cold_archive._version(path) == control_versions[path],
+                "control_archive_source_version_changed",
+            )
+    if captured_packages is not None:
+        io.require(
+            set(authorities.source_versions) == set(authorities), "cold_archive_source_versions"
+        )
     for path, raw in authorities.items():
         _budget(end)
+        if captured_packages is not None:
+            io.require(
+                j1_forward_cold_archive._version(path) == authorities.source_versions[path],
+                "cold_archive_source_version_changed",
+            )
         if path in runtime_aliases:
             io.require(
                 set(authorities.runtime_alias_versions) == set(runtime_aliases)
@@ -1037,6 +1086,11 @@ def capture(
             )
         )
         io.require(observed == raw, "mixed_archive_source_changed")
+        if captured_packages is not None:
+            io.require(
+                j1_forward_cold_archive._version(path) == authorities.source_versions[path],
+                "cold_archive_source_version_changed",
+            )
         if path in runtime_aliases:
             io.require(
                 j1_forward_cold_archive._version(path) == authorities.runtime_alias_versions[path],
@@ -1134,6 +1188,8 @@ def verify_and_restore(
     custody=None,
 ):
     """Restore private copies; Windows worker supplies its accepted ACL custody."""
+    from scripts import j1_forward_cold_archive
+
     package, output, root = Path(package), Path(output), io.logical_path(logical_root)
     io.require(state._hash(manifest_sha256) and 0 < timeout <= 300, "control_archive_context")
     io.require(custody is None or callable(custody), "control_archive_custody_required")
@@ -1147,7 +1203,9 @@ def verify_and_restore(
         "control_archive_production_restore_refused",
     )
     end = time.monotonic() + timeout
+    manifest_version = j1_forward_cold_archive._version(package / "manifest.json")
     raw = _package_read(package / "manifest.json", custody)
+    raw_manifest = raw
     io.require(io.sha(raw) == manifest_sha256, "control_archive_manifest_changed")
     manifest = io.document(raw)
     io.require(
@@ -1188,6 +1246,11 @@ def verify_and_restore(
     codec = _codec(manifest)
     blobs = _runtime_blobs(manifest)
     aliases = _runtime_aliases(manifest)
+    captured_packages = (
+        cold_authority._CapturedPackages(manifest["native_capture_clock"])
+        if manifest["schema"] in {COLD_V3_SCHEMA, COLD_SCHEMA, COLD_V5_SCHEMA}
+        else None
+    )
     io.require(
         type(manifest["witnesses"]) is list and len(manifest["witnesses"]) == 3,
         "control_archive_witness_inventory",
@@ -1203,6 +1266,7 @@ def verify_and_restore(
         "control_archive_exact_inventory_required",
     )
     files, consumers, authorities, names, total = {}, {}, {}, set(), 0
+    copies = []
     output.mkdir(mode=0o700)
     _package_directory(output, custody)
     _sync_directory(output.parent)
@@ -1234,7 +1298,9 @@ def verify_and_restore(
             "control_archive_entry",
         )
         file_limit = _entry_limit(manifest["schema"], entry, blobs)
-        raw = _package_read(package / entry["payload"], custody, file_limit)
+        source = package / entry["payload"]
+        source_version = j1_forward_cold_archive._version(source)
+        raw = _package_read(source, custody, file_limit)
         io.require(
             len(raw) == entry["bytes"] and io.sha(raw) == entry["sha256"],
             "control_archive_payload_changed",
@@ -1243,6 +1309,16 @@ def verify_and_restore(
         io.require(total <= transport_total_limit(codec), "control_archive_total_limit")
         _write_bytes(output / entry["payload"], raw, custody=custody, limit=file_limit)
         restored = _package_read(output / entry["payload"], custody, file_limit)
+        copies.append(
+            (
+                source,
+                output / entry["payload"],
+                source_version,
+                j1_forward_cold_archive._version(output / entry["payload"]),
+                restored,
+                file_limit,
+            )
+        )
         if parts[0] == "control":
             path = _path(root, str(root.joinpath(*parts[1:])))
             io.require(str(path) not in files, "control_archive_duplicate_path")
@@ -1269,7 +1345,9 @@ def verify_and_restore(
     if aliases:
         from scripts import j1_forward_cold_archive
 
-        reconstructed = j1_forward_cold_archive.restore_interpreters(aliases, authorities)
+        reconstructed = j1_forward_cold_archive.restore_interpreters(
+            aliases, authorities, _captured_packages=captured_packages
+        )
         for index, (path, raw) in enumerate(sorted(reconstructed.items())):
             _budget(end)
             target = output / f"runtime-alias-{index:06d}.elf"
@@ -1285,6 +1363,16 @@ def verify_and_restore(
                 "cold_archive_alias_copy_changed",
             )
             authorities[path] = raw
+            copies.append(
+                (
+                    None,
+                    target,
+                    None,
+                    j1_forward_cold_archive._version(target),
+                    raw,
+                    COLD_MAX_FILE_BYTES,
+                )
+            )
     plan = io.document(files[plan_ref["path"]])
     io.require(
         manifest["schema"] == _schema(plan, codec=codec),
@@ -1302,8 +1390,32 @@ def verify_and_restore(
         codec=codec,
         runtime_blobs=blobs,
         runtime_aliases=aliases,
+        _captured_packages=captured_packages,
     )
     io.require(actual == manifest["semantic"], "control_archive_semantic_result_changed")
+    _budget(end)
+    for source, target, source_version, target_version, expected, file_limit in copies:
+        _budget(end)
+        for path, version in ((source, source_version), (target, target_version)):
+            if path is None:
+                continue
+            io.require(
+                j1_forward_cold_archive._version(path) == version,
+                "control_archive_source_version_changed",
+            )
+            io.require(
+                _package_read(path, custody, file_limit) == expected, "control_archive_copy_changed"
+            )
+            io.require(
+                j1_forward_cold_archive._version(path) == version,
+                "control_archive_source_version_changed",
+            )
+    io.require(
+        j1_forward_cold_archive._version(package / "manifest.json") == manifest_version
+        and _package_read(package / "manifest.json", custody) == raw_manifest,
+        "control_archive_manifest_changed",
+    )
+    _budget(end)
     io.require(
         backup_manifest_ref["path"] in files
         and io.sha(files[backup_manifest_ref["path"]]) == backup_manifest_ref["sha256"],

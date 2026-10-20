@@ -38,6 +38,7 @@ class CapturedGraph(dict):
         self.runtime_blob_paths = dict(runtime_blob_paths)
         self.runtime_aliases = {} if runtime_aliases is None else dict(runtime_aliases)
         self.runtime_alias_versions = {}
+        self.source_versions = {}
 
 
 def validate_aliases(aliases):
@@ -119,7 +120,7 @@ def _interpreter_aliases(package, read):
     return validate_aliases(result)
 
 
-def restore_interpreters(aliases, authorities):
+def restore_interpreters(aliases, authorities, *, _captured_packages=None):
     """Verify every capsule member, then reconstruct selected ELF bytes inertly."""
     from scripts import j1_forward_cold_runtime_capsule as capsule
 
@@ -144,7 +145,20 @@ def restore_interpreters(aliases, authorities):
             io.require(io.sha(raw) == reference["sha256"], "cold_archive_alias_reference_changed")
             return raw
 
-        capsule.validate(index, binding=index["binding"], scope=index["scope"], read_reference=read)
+        if _captured_packages is None:
+            capsule.validate(
+                index, binding=index["binding"], scope=index["scope"], read_reference=read
+            )
+        else:
+            io.require(
+                type(_captured_packages) is cold._CapturedPackages, "captured_package_reader"
+            )
+            _captured_packages.runtime_index(
+                {"path": index_path, "sha256": digest},
+                binding=index["binding"],
+                scope=index["scope"],
+                read_reference=read,
+            )
         wanted = {}
         for path, row in selected:
             entry = rows.get(row["member"])
@@ -456,6 +470,7 @@ def collect(
     read_file=None,
     list_directory=None,
     codec=3,
+    _captured_packages=None,
 ):
     """Pure byte semantics when supplied restored readers; no live permits."""
     reader = _ProtectedReader().read_reference if read_reference is None else read_reference
@@ -475,6 +490,10 @@ def collect(
         "cold_archive_capture_clock",
     )
     snapshot = _ReadSnapshot(reader, _version if list_directory is None else None, codec=codec)
+    if _captured_packages is not None:
+        io.require(type(_captured_packages) is cold._CapturedPackages, "captured_package_reader")
+        _captured_packages.bind_clock(capture_clock)
+    snapshot._captured_packages = _captured_packages
     seen, pending = (
         snapshot.files,
         [
@@ -710,5 +729,8 @@ def collect(
         path: snapshot.versions[path]
         for path in snapshot.runtime_aliases
         if path in snapshot.versions
+    }
+    graph.source_versions = {
+        path: snapshot.versions[path] for path in graph if path in snapshot.versions
     }
     return graph

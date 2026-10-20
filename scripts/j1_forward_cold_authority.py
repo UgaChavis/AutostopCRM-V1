@@ -7,6 +7,7 @@ There is deliberately no installation, issuance, open-fence or replay API here.
 
 from __future__ import annotations
 
+import copy
 import re
 import time
 import uuid
@@ -276,6 +277,88 @@ class Reader:
         runtime_bytes(reference, raw, capsule=True)
         self.capsules.add(reference_path)
         return raw
+
+
+class _CapturedPackages:
+    """One archive call's pure bytes; never reused by a native observation."""
+
+    def __init__(self, capture_clock):
+        fields(capture_clock, {"boot_id", "monotonic_ns"}, "captured_package_clock")
+        need(
+            type(capture_clock["boot_id"]) is str and type(capture_clock["monotonic_ns"]) is int,
+            "captured_package_clock",
+        )
+        self._clock = (capture_clock["boot_id"], capture_clock["monotonic_ns"])
+        self._current, self._active = None, False
+        self._reader = Reader(self._read)
+        self._results = {}
+
+    def bind_clock(self, capture_clock):
+        fields(capture_clock, {"boot_id", "monotonic_ns"}, "captured_package_clock")
+        need(
+            type(capture_clock["monotonic_ns"]) is int
+            and (capture_clock["boot_id"], capture_clock["monotonic_ns"]) == self._clock,
+            "captured_package_clock_changed",
+        )
+
+    def _read(self, reference):
+        return self._current(reference)
+
+    def read_opaque_reference(self, reference):
+        return opaque_reader(self._current)(reference)
+
+    def read_runtime_capsule(self, reference):
+        return opaque_reader(self._current, capsule=True)(reference)
+
+    def _enter(self, read_reference):
+        need(not self._active and callable(read_reference), "captured_package_reader")
+        self._active, self._current = True, read_reference
+        # Register every original reference and its typed reader capability in
+        # this NEW Store/collector, and compare all captured bytes before reuse.
+        try:
+            self._reader.recheck()
+        except BaseException:
+            self._current, self._active = None, False
+            raise
+
+    def validate(self, package_ref, *, read_reference, required_scope, now_ns):
+        self._enter(read_reference)
+        try:
+            now_ns = time.monotonic_ns() if now_ns is None else now_ns
+            need(type(now_ns) is int, "captured_package_clock")
+            package = self._reader.doc(package_ref)
+            fields(package, PACKAGE_FIELDS, "package_fields")
+            need(required_scope is None or type(required_scope) is str, "package_scope")
+            need(type(package["scope"]) is str, "package_scope")
+            _binding(package["binding"], now_ns=now_ns)
+            key = (
+                package_ref["path"],
+                package_ref["sha256"],
+                digest(package["binding"]),
+                package["scope"],
+                required_scope,
+                now_ns,
+                self._clock[0],
+                self._clock[1],
+            )
+            if key not in self._results:
+                value = _decode_package(
+                    package_ref, self._reader, required_scope=required_scope, now_ns=now_ns
+                )
+                self._reader.recheck()
+                self._results[key] = copy.deepcopy(value)
+            return copy.deepcopy(self._results[key])
+        finally:
+            self._current, self._active = None, False
+
+    def runtime_index(self, reference, *, binding, scope, read_reference):
+        self._enter(read_reference)
+        try:
+            result = self._reader.index(reference, "runtime-index", binding, scope)
+            self._reader.recheck()
+            return result
+        finally:
+            self._current, self._active = None, False
 
 
 def compile_policy(binding, scope, unit, inputs, source_package, *, read_reference):
@@ -574,6 +657,11 @@ def validate_package(package_ref, *, read_reference=None, required_scope=None, n
     ``required_scope='production_native'`` strictly rejects fixture documents;
     changing a scope field does not replace the independent native verification.
     """
+    view = getattr(getattr(read_reference, "__self__", None), "_captured_packages", None)
+    if type(view) is _CapturedPackages:
+        return view.validate(
+            package_ref, read_reference=read_reference, required_scope=required_scope, now_ns=now_ns
+        )
     reader = Reader(io.referenced if read_reference is None else read_reference)
     result = _decode_package(package_ref, reader, required_scope=required_scope, now_ns=now_ns)
     reader.recheck()
