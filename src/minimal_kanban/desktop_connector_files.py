@@ -65,11 +65,20 @@ def _connector_host_label(value: str) -> str:
 def build_connector_file_contents(
     mcp_url: str, local_api_url: str, *, auth_mode: str = "none"
 ) -> dict[str, str]:
+    return _build_connector_file_contents(mcp_url, local_api_url, auth_mode=auth_mode)
+
+
+def _build_connector_file_contents(
+    mcp_url: str, local_api_url: str, *, auth_mode: str, pending: bool = False
+) -> dict[str, str]:
     normalized_mcp_url = str(mcp_url or "").strip()
     normalized_local_api_url = str(local_api_url or "").strip()
     normalized_auth_mode = _normalized_auth_mode(auth_mode)
     auth_label = _connector_auth_label(normalized_auth_mode)
     host_label = _connector_host_label(normalized_mcp_url)
+    paste_instruction = "Вставьте effective_mcp_url"
+    if pending:
+        paste_instruction += " после появления публичного HTTPS MCP URL"
 
     connection_card = (
         f"{DISPLAY_PRODUCT_NAME} / This Board Only ({host_label}) -> ChatGPT / MCP\n\n"
@@ -80,7 +89,7 @@ def build_connector_file_contents(
         "Connection flow:\n"
         "1. Запустите приложение с ярлыка.\n"
         "2. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.\n"
-        "3. Вставьте effective_mcp_url.\n"
+        f"3. {paste_instruction}.\n"
         f"4. Выберите режим {auth_label}.\n"
         "5. Создайте connector.\n"
         "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а agent_bootstrap — когда нужен контекст доски.\n"
@@ -91,7 +100,9 @@ def build_connector_file_contents(
         "connector_url": normalized_mcp_url,
         "auth_mode": normalized_auth_mode,
         "notes": [
-            "Use the public HTTPS /mcp URL.",
+            "Wait for the public HTTPS /mcp URL to appear."
+            if pending
+            else "Use the public HTTPS /mcp URL.",
             f"Authentication mode: {auth_label}.",
             "Start from the user's goal; tools have no required call order.",
             "Use ping_connector only to diagnose connectivity and agent_bootstrap when board context is useful.",
@@ -110,59 +121,19 @@ def build_connector_file_contents(
     )
     return {
         CONNECTION_CARD_FILENAME: connection_card,
-        CONNECTOR_JSON_FILENAME: _json_dumps(connector_payload) + "\n",
+        CONNECTOR_JSON_FILENAME: _json_dumps(connector_payload) + ("" if pending else "\n"),
         AUTH_NOTE_FILENAME: auth_note,
-        URL_FILENAME: normalized_mcp_url,
+        URL_FILENAME: WAITING_MESSAGE if pending else normalized_mcp_url,
     }
 
 
 def build_pending_connector_file_contents(
     *, auth_mode: str = "none", local_api_url: str = "http://127.0.0.1:41731"
 ) -> dict[str, str]:
-    normalized_auth_mode = _normalized_auth_mode(auth_mode)
-    auth_label = _connector_auth_label(normalized_auth_mode)
     normalized_local_api_url = str(local_api_url or "").strip() or "http://127.0.0.1:41731"
-    return {
-        CONNECTION_CARD_FILENAME: (
-            f"{DISPLAY_PRODUCT_NAME} / This Board Only (current-connector) -> ChatGPT / MCP\n\n"
-            "[KEY VALUES]\n"
-            f"connector_auth_mode = {normalized_auth_mode}\n"
-            "effective_mcp_url = \n"
-            f"effective_local_api_url = {normalized_local_api_url}\n\n"
-            "Connection flow:\n"
-            "1. Запустите приложение с ярлыка.\n"
-            "2. В ChatGPT откройте настройки, раздел Apps & Connectors, и создайте connector.\n"
-            "3. Вставьте effective_mcp_url после появления публичного HTTPS MCP URL.\n"
-            f"4. Выберите режим {auth_label}.\n"
-            "5. Создайте connector.\n"
-            "6. В новом чате опишите цель. Выбирайте только полезные инструменты и контекст; ping_connector нужен для диагностики связи, а agent_bootstrap — когда нужен контекст доски.\n"
-        ),
-        CONNECTOR_JSON_FILENAME: (
-            "{\n"
-            f'  "name": "{DISPLAY_PRODUCT_NAME} / This Board Only (current-connector)",\n'
-            '  "description": "Single-board connector for the current AutoStop CRM board only.",\n'
-            '  "connector_url": "",\n'
-            f'  "auth_mode": "{normalized_auth_mode}",\n'
-            '  "notes": [\n'
-            '    "Wait for the public HTTPS /mcp URL to appear.",\n'
-            f'    "Authentication mode: {auth_label}.",\n'
-            '    "Start from the user\'s goal; tools have no required call order.",\n'
-            '    "Use ping_connector only to diagnose connectivity and agent_bootstrap when board context is useful."\n'
-            "  ]\n"
-            "}"
-        ),
-        AUTH_NOTE_FILENAME: (
-            "ChatGPT connector\n\n"
-            "URL:\n\n\n"
-            "Authentication:\n"
-            f"{auth_label}\n\n"
-            "After connecting:\n"
-            "Start from the user's goal and relevant context. Tool order is not prescribed.\n"
-            "Use ping_connector only if connectivity needs diagnosis; "
-            "use agent_bootstrap when board context is useful.\n"
-        ),
-        URL_FILENAME: WAITING_MESSAGE,
-    }
+    return _build_connector_file_contents(
+        "", normalized_local_api_url, auth_mode=auth_mode, pending=True
+    )
 
 
 def write_connector_files(
