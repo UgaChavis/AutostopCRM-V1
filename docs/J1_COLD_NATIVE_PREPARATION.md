@@ -118,6 +118,31 @@ models remain role-owned 0700/0600. Partial or corrupt copies retain closed
 dispatch and cannot satisfy preparation. Credentials and old sessions are not
 included in the public model asset.
 
+Both Telegram roles additionally require an `auth-session` entry named
+`auth-only.json` in the fresh role material descriptor. Its secret input is
+root-protected under the attempt's separate staged credential directory, and
+its byte count/hash are bound by that descriptor. It is not a canonical control
+graph reference and is never included in the public update kit. The input schema
+is `autostop.j1.cold-telegram-auth-material.v1`: scope, exact binding, role,
+independently qualified `account_self_sha256`, authorization UUID, creation and
+expiry monotonic times, provider-qualified DC/address/port and base64 auth key.
+The issuer must obtain this auth-only material from a separately authorized fresh
+session during the future window. Artifact fields alone do not prove the age or
+provider authorization of a key; this remains an explicit provisioning premise.
+The controller performs no login or conversion of an old session database.
+
+The producer constructs a new Telethon 1.45.0 schema-v8 SQLite database in memory:
+one version row, one six-column session row, no takeout or temporary key, and empty
+entities, sent-files and update-state tables. No old database pages, queues,
+cursor, contacts or sidecars are accepted. The exact new bytes are published once
+as `<fresh-role-state>/account.session`, which matches the qualified Manager's
+session basename. Independent bytes/schema/identity readback precedes use. The
+new file is role-owned 0600 and its parent remains role-owned 0700. A conflicting
+file, symlink, sidecar, wrong account/role/binding or expired input refuses
+preparation. This is auth material installation, not provider acceptance: each
+actual daemon must still prove authorization and the separately expected account
+before its PTS cut and the controller's seven-role acceptance can succeed.
+
 Production wake uses UID 0, matching the qualified Manager service and the
 root-owned kernel socket directory. Its configured group is retained. The
 producer rejects a nonroot wake UID during input validation, before effects;

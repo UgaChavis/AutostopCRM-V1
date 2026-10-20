@@ -1053,13 +1053,102 @@ class NativeBackend:
             os.close(descriptor)
         self.continuity(binding)
 
+    def install_auth_session(self, raw, base, binding, *, role, account, uid, gid):
+        from scripts import j1_forward_cold_producer_inputs as inputs
+
+        self.continuity(binding)
+        content = inputs.auth_session_bytes(
+            raw, binding=binding, role=role, expected_account_sha256=account
+        )
+        io.protected_directory(base.parent)
+        before = base.lstat()
+        cold.need(
+            stat.S_ISDIR(before.st_mode)
+            and before.st_uid == uid
+            and before.st_gid == gid
+            and stat.S_IMODE(before.st_mode) == 0o700,
+            "producer_auth_role_directory",
+        )
+        directory = os.open(base, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            opened = os.fstat(directory)
+            cold.need(
+                (before.st_dev, before.st_ino) == (opened.st_dev, opened.st_ino),
+                "producer_auth_role_replaced",
+            )
+            for name in ("account.session-wal", "account.session-shm", "account.session-journal"):
+                try:
+                    os.stat(name, dir_fd=directory, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise io.Refusal("cold_producer_auth_session_sidecar")
+            target = os.open(
+                "account.session",
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+                dir_fd=directory,
+            )
+            try:
+                view = memoryview(content)
+                while view:
+                    count = os.write(target, view)
+                    cold.need(count > 0, "producer_auth_session_short_write")
+                    view = view[count:]
+                os.fsync(target)
+                os.fchown(target, uid, gid)
+                os.fchmod(target, 0o600)
+                os.fsync(target)
+                actual = os.fstat(target)
+                check = os.open(
+                    "account.session", os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory
+                )
+                try:
+                    readback = os.read(check, inputs.MAX_AUTH_SESSION_BYTES + 1)
+                    cold.need(
+                        readback == content
+                        and native._executable_version(os.fstat(check))
+                        == native._executable_version(actual)
+                        == native._executable_version(
+                            os.stat("account.session", dir_fd=directory, follow_symlinks=False)
+                        )
+                        and actual.st_nlink == 1
+                        and actual.st_uid == uid
+                        and actual.st_gid == gid
+                        and stat.S_IMODE(actual.st_mode) == 0o600,
+                        "producer_auth_session_readback",
+                    )
+                    inputs.inspect_auth_session(readback)
+                    cold.need(
+                        native._executable_version(os.fstat(check))
+                        == native._executable_version(actual)
+                        == native._executable_version(
+                            os.stat("account.session", dir_fd=directory, follow_symlinks=False)
+                        ),
+                        "producer_auth_session_readback",
+                    )
+                finally:
+                    os.close(check)
+                os.fsync(directory)
+            finally:
+                os.close(target)
+            final = base.lstat()
+            cold.need(
+                (final.st_dev, final.st_ino, final.st_uid, final.st_gid, final.st_mode)
+                == (before.st_dev, before.st_ino, before.st_uid, before.st_gid, before.st_mode),
+                "producer_auth_role_replaced",
+            )
+        finally:
+            os.close(directory)
+        self.continuity(binding)
+
     def install_fresh_role_material(self, document, binding, staged):
         from scripts import j1_forward_cold_telegram as telegram
 
         # The expected identities come from separately qualified staged-auth
         # inputs. A current process cut may only be compared with this policy;
         # it cannot authorize itself. Refuse v1 before installing any material.
-        telegram.parse_frontier_policy(
+        accounts = telegram.parse_frontier_policy(
             _read(self.provider, document["telegram_frontier_policy_ref"]), binding=binding
         )
         material = _read(self.provider, document["fresh_role_material_ref"])
@@ -1080,7 +1169,7 @@ class NativeBackend:
                 limit=4096,
             )
         )
-        seen, credentials = set(), set()
+        seen, credentials, sessions = set(), set(), set()
         for row in material["files"]:
             cold.fields(
                 row, {"role", "kind", "name", "content_sha256", "bytes"}, "producer_material_entry"
@@ -1088,7 +1177,7 @@ class NativeBackend:
             role, kind, name = row["role"], row["kind"], row["name"]
             cold.need(
                 role in {"work-telegram", "personal-telegram"}
-                and kind in {"credential", "owner", "model"}
+                and kind in {"credential", "owner", "model", "auth-session"}
                 and type(name) is str
                 and name
                 and not name.startswith("/")
@@ -1110,6 +1199,24 @@ class NativeBackend:
             if kind == "credential":
                 cold.need(name == "credentials", "producer_only_api_credential_file")
                 credentials.add(role)
+            elif kind == "auth-session":
+                cold.need(name == "auth-only.json", "producer_only_auth_material_file")
+                raw = io.read_protected(source / role / kind / name, limit=8192)
+                cold.need(
+                    len(raw) == row["bytes"] and io.sha(raw) == row["content_sha256"],
+                    "producer_material_bytes",
+                )
+                self.install_auth_session(
+                    raw,
+                    Path("/var/lib/autostop-manager-cold") / binding["generation"] / role,
+                    binding,
+                    role=role,
+                    account=accounts[role],
+                    uid=document["credentials"][role]["uid"],
+                    gid=document["credentials"][role]["gid"],
+                )
+                sessions.add(role)
+                continue
             elif kind == "owner":
                 cold.need(
                     role == "work-telegram" and name == "owner.json", "producer_owner_material"
@@ -1146,6 +1253,7 @@ class NativeBackend:
             os.chown(target, uid, gid, follow_symlinks=False)
         cold.need(
             credentials == {"work-telegram", "personal-telegram"}
+            and sessions == credentials
             and ("work-telegram", "owner", "owner.json") in seen
             and {(role, "model", name) for role in credentials for name in MODEL_NAMES} <= seen,
             "producer_fresh_telegram_material_missing",
@@ -1160,6 +1268,8 @@ class NativeBackend:
                 "telegram_frontier_policy_ref": document["telegram_frontier_policy_ref"],
                 "files": len(seen),
                 "old_session_or_queue_copied": False,
+                "auth_only_sessions_created": sorted(sessions),
+                "provider_authorization_verified": False,
             },
         )
 
