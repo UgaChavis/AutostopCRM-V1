@@ -773,30 +773,14 @@ class NativeBackend:
         return {**result, "invocation_id": before["InvocationID"]}
 
     def _verify_unit(self, ticket, context, *, inactive):
-        from scripts import j1_forward_authority
-
         contract.need(
             re.fullmatch(r"autostop-crm-forward-[0-9a-f-]{36}\.service", ticket["unit"]),
             "slot_unit_name",
         )
         properties = (*native.UNIT_PROPERTIES, "Restart", "FragmentPath", "Job")
-        raw = subprocess.run(
-            [
-                "/usr/bin/systemctl",
-                "show",
-                ticket["unit"],
-                "--no-pager",
-                "--all",
-                "--property=" + ",".join(properties),
-            ],
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            timeout=5,
-            check=False,
-            env=BOOTSTRAP_ENVIRONMENT,
+        fields = native.systemd_properties(
+            ticket["unit"], properties, environment=BOOTSTRAP_ENVIRONMENT
         )
-        contract.need(raw.returncode == 0, "slot_loaded_unit_unavailable")
-        fields = j1_forward_authority._systemd_fields(raw.stdout)
         contract.need(set(fields) == set(properties), "slot_loaded_unit_fields")
         command = " ".join(context["worker_argv"])
         contract.need(

@@ -159,6 +159,17 @@ This proves the template and guard OS path only. Source eligibility, restore
 proofs, authenticated kernel operation and application/business acceptance
 remain outside this artificial package's claims.
 
+Loaded-unit reads keep their five-second total budget. Since systemctl can omit
+empty arrays even with `--all`, only a typed Service `GetAll` response with the
+exact property signature and an empty array can fill a known omitted hook or
+`EnvironmentFiles`. A typed Unit response must match the requested identity and
+state. An empty displayed Job becomes `0` only with `(uo) = [0, "/"]`. Two typed
+queries and an unchanged final systemctl read share that budget; missing or
+unknown properties, wrong types, active jobs and changed snapshots refuse.
+The response encoding follows the pinned
+[systemd v255 D-Bus interface](https://www.freedesktop.org/software/systemd/man/255/org.freedesktop.systemd1.html)
+and [busctl JSON encoder](https://github.com/systemd/systemd/blob/v255/src/busctl/busctl.c).
+
 Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
 and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
 checks CRM-to-Store compatibility. Both explicitly report business acceptance

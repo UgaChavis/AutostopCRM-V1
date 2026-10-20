@@ -62,6 +62,164 @@ ACTOR_FIELDS = set(
     "pid start_ticks uid gid groups cgroup mount_namespace exe_ref argv_sha256 "
     "environment_sha256".split()
 )
+_EMPTY_ARRAY_TYPES = {
+    **dict.fromkeys(
+        (
+            "ExecCondition",
+            "ExecStartPre",
+            "ExecStartPost",
+            "ExecStop",
+            "ExecStopPost",
+            "ExecReload",
+        ),
+        "a(sasbttttuii)",
+    ),
+    "EnvironmentFiles": "a(sb)",
+}
+
+
+def systemd_properties(unit, properties, *, environment=None):
+    """Read an exact inventory; omitted arrays need positive typed PID1 evidence.
+
+    systemctl v255 still omits empty command/EnvironmentFiles arrays with --all.
+    Two GetAll calls and a final unchanged show share the original five seconds.
+    No typed result or native observation survives this single call.
+    """
+    from scripts import j1_forward_authority
+
+    deadline = time.monotonic() + 5
+    environment = environment or {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"}
+    contract.need(re.fullmatch(r"[A-Za-z0-9_.@:-]+\.service", unit), "native_unit_name")
+    expected = set(properties)
+
+    def run(argv, *, limit):
+        remaining = deadline - time.monotonic()
+        contract.need(remaining > 0, "native_unit_observation_deadline")
+        result = subprocess.run(
+            argv,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=remaining,
+            env=environment,
+        )
+        contract.need(
+            result.returncode == 0 and len(result.stdout) <= limit and time.monotonic() <= deadline,
+            "native_unit_observation",
+        )
+        return result
+
+    def show():
+        raw = run(
+            [
+                "/usr/bin/systemctl",
+                "show",
+                unit,
+                "--no-pager",
+                "--all",
+                "--property=" + ",".join(properties),
+            ],
+            limit=65535,
+        ).stdout
+        values = j1_forward_authority._systemd_fields(raw)
+        contract.need(
+            set(values) <= expected
+            and expected - set(values) <= set(_EMPTY_ARRAY_TYPES)
+            and values.get("Id") == unit,
+            "native_unit_property_inventory",
+        )
+        return values
+
+    before = show()
+    missing = expected - set(before)
+    if not missing and before.get("Job") != "":
+        return before
+    # systemd's bus_label_escape: only ASCII letters and noninitial digits are literal.
+    label = "".join(
+        char
+        if char.isascii() and (char.isalpha() or (i and char.isdigit()))
+        else "_" + format(ord(char), "02x")
+        for i, char in enumerate(unit)
+    )
+    object_path = "/org/freedesktop/systemd1/unit/" + label
+
+    def get_all(interface):
+        result = run(
+            [
+                "/usr/bin/busctl",
+                "--system",
+                "--json=short",
+                "--auto-start=no",
+                "--allow-interactive-authorization=no",
+                "--timeout=5s",
+                "call",
+                "org.freedesktop.systemd1",
+                object_path,
+                "org.freedesktop.DBus.Properties",
+                "GetAll",
+                "s",
+                "org.freedesktop.systemd1." + interface,
+            ],
+            limit=1024**2,
+        )
+        contract.need(not result.stderr, "native_unit_typed_stderr")
+        value = io.document(result.stdout)
+        contract.need(
+            type(value) is dict
+            and set(value) == {"type", "data"}
+            and value["type"] == "a{sv}"
+            and type(value["data"]) is list
+            and len(value["data"]) == 1
+            and type(value["data"][0]) is dict,
+            "native_unit_typed_getall",
+        )
+        return value["data"][0]
+
+    service, identity = get_all("Service"), get_all("Unit")
+
+    def typed(values, name, signature):
+        value = values.get(name)
+        contract.need(
+            type(value) is dict and set(value) == {"type", "data"} and value["type"] == signature,
+            "native_unit_typed_property",
+        )
+        return value["data"]
+
+    for key in ("Id", "LoadState", "ActiveState", "SubState"):
+        value = typed(identity, key, "s")
+        contract.need(type(value) is str and value == before[key], "native_unit_typed_identity")
+    reload = typed(identity, "NeedDaemonReload", "b")
+    contract.need(
+        type(reload) is bool and ("yes" if reload else "no") == before["NeedDaemonReload"],
+        "native_unit_typed_identity",
+    )
+    for key in ("Type", "ControlGroup"):
+        value = typed(service, key, "s")
+        contract.need(type(value) is str and value == before[key], "native_unit_typed_identity")
+    pid = typed(service, "MainPID", "u")
+    contract.need(
+        type(pid) is int and 0 <= pid <= 2**32 - 1 and str(pid) == before["MainPID"],
+        "native_unit_typed_identity",
+    )
+    normalized = dict(before)
+    for key in missing:
+        value = typed(service, key, _EMPTY_ARRAY_TYPES[key])
+        contract.need(type(value) is list and not value, "native_unit_typed_empty_required")
+        normalized[key] = ""
+    if before.get("Job") == "":
+        job = typed(identity, "Job", "(uo)")
+        contract.need(
+            type(job) is list
+            and len(job) == 2
+            and type(job[0]) is int
+            and job[0] == 0
+            and job[1] == "/",
+            "native_unit_typed_no_job_required",
+        )
+        normalized["Job"] = "0"
+    contract.need(show() == before, "native_unit_observation_changed")
+    contract.need(set(normalized) == expected, "native_unit_property_inventory")
+    return normalized
 
 
 def package_path(attempt):
@@ -356,27 +514,7 @@ class NativeProvider:
             )
         )
         contract.need(unit in contract.UNITS or allowed_kernel, "native_unit_scope")
-        result = subprocess.run(
-            [
-                "/usr/bin/systemctl",
-                "show",
-                unit,
-                "--no-pager",
-                "--all",
-                "--property=" + ",".join(UNIT_PROPERTIES),
-            ],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            check=False,
-            timeout=5,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C"},
-        )
-        contract.need(
-            result.returncode == 0 and len(result.stdout) <= 256 * 1024, "native_unit_observation"
-        )
-        from scripts import j1_forward_authority
-
-        values = j1_forward_authority._systemd_fields(result.stdout)
+        values = systemd_properties(unit, UNIT_PROPERTIES)
         contract.need(
             set(values) == set(UNIT_PROPERTIES)
             and values["Id"] == unit
