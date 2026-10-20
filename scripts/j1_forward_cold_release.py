@@ -718,34 +718,397 @@ def receive_proof(attempt, kind, raw):
     return {"ok": True, "proof": _write_once(directory / (kind + ".json"), body)}
 
 
-def settle(attempt):
-    """Close only the new epoch even after lease expiry; never thaw old units."""
+def _successful_service_exit(environment=None):
+    values = os.environ if environment is None else environment
+    return all(
+        values.get(key) == expected
+        for key, expected in (
+            ("SERVICE_RESULT", "success"),
+            ("EXIT_CODE", "exited"),
+            ("EXIT_STATUS", "0"),
+        )
+    )
+
+
+def _settle_deployment(descriptor):
+    io.require(type(descriptor) is int and descriptor >= 0, "cold_settle_deployment_descriptor")
+    io.protected_directory(forward.LOCK.parent)
+    opened, linked = os.fstat(descriptor), forward.LOCK.lstat()
+    identity = [opened.st_dev, opened.st_ino]
+    io.require(
+        stat.S_ISREG(opened.st_mode)
+        and opened.st_uid == linked.st_uid == io.ROOT_UID
+        and opened.st_nlink == linked.st_nlink == 1
+        and not opened.st_mode & 0o022
+        and (opened.st_dev, opened.st_ino, opened.st_ctime_ns)
+        == (linked.st_dev, linked.st_ino, linked.st_ctime_ns),
+        "cold_settle_deployment_replaced",
+    )
+    native.held_descriptor(native.controller(os.getpid()), descriptor, identity)
+    return identity
+
+
+def _settle_source(plan, baseline, binding, identity, invocation, read):
+    """Replay historical parent identity, never require its exited PID alive."""
+    reference = baseline["controller_request_ref"]
+    request = read(reference)
+    parent.validate_request(request, now=state._timestamp(request["created_at"]))
+    store = parent._store(plan["attempt_id"])
+    snapshot = parent.native.coherent_snapshot(store)
+    context = read(io.reference(store.root / "context.json"))
+    ticket, current = snapshot["ticket"], snapshot["state"]
+    accepted = current["acceptance"]
+    io.require(
+        reference["path"] == str(parent.request_path(plan["attempt_id"]))
+        and request["attempt_id"] == binding["attempt_id"] == plan["attempt_id"]
+        and request["boot_id"] == binding["boot_id"] == parent.native.boot()
+        and request["owner_generation"] == binding["generation"]
+        and request["host"] == plan["host"] == socket.gethostname()
+        and request["candidate"] == plan["candidate"]
+        and request["candidate_manager_sha"] == plan["candidate_manager_sha"]
+        and binding["candidate_crm_sha"] == plan["candidate"]["revision"]
+        and binding["candidate_manager_sha"] == plan["candidate_manager_sha"]
+        and binding["deadline_ns"] <= binding["not_before_ns"] + 600 * 10**9
+        and request["deadline_utc"] == plan["deadline_utc"]
+        and baseline["source_consumers"] == request["source"]["consumers"]
+        and identity == binding["deployment_lock_identity"] == context["deployment_lock_identity"]
+        and context["plan_ref"] == reference == ticket["plan_ref"]
+        and context["schema"] == parent.CONTEXT_SCHEMA
+        and cold.digest(context) == ticket["context_sha256"]
+        and context["consumers"] == request["source"]["consumers"]
+        and context["worker_argv"] == parent.worker_command(plan["attempt_id"])
+        and context["launch_argv"] == parent.launch_command(plan["attempt_id"])
+        and ticket["attempt_id"] == plan["attempt_id"]
+        and ticket["boot_id"] == binding["boot_id"]
+        and ticket["owner_generation"] == binding["generation"]
+        and current["execution_possible"] is True
+        and accepted is not None
+        and accepted == current["claim"]
+        and invocation == accepted["invocation_id"]
+        and ticket["source_sha256"]
+        == binding["consumer_sha256"]
+        == plan["candidate"]["consumer_sha256"]
+        == parent.native._sources(context["consumers"], cold=True),
+        "cold_settle_completed_source",
+    )
+    return context["consumers"]
+
+
+def _settle_kernel(plan, completion, package, provider, read):
+    """Fresh runtime identity after adoption; no empty-thread or new permit."""
+    from scripts import j1_forward_cold_kernel as kernel_source
+    from scripts import j1_forward_cold_kernel_supervisor as supervisor
+
+    binding = package["binding"]
+    custody = read(completion["kernel_custody_ref"])
+    cold.fields(
+        custody,
+        {
+            "schema",
+            "scope",
+            "binding",
+            "package_ref",
+            "kernel_ref",
+            "commit_ref",
+            "cold_completion_ref",
+        },
+        "settle_kernel_custody_fields",
+    )
+    io.require(
+        custody["schema"] == "autostop.j1.cold-kernel-runtime-custody.v1"
+        and custody["scope"] == package["scope"] == "production_native"
+        and custody["binding"] == binding
+        and custody["package_ref"] == plan["cold_authority_package_ref"]
+        and custody["kernel_ref"] == package["kernel_ref"]
+        and custody["commit_ref"] == completion["commit"]
+        and custody["cold_completion_ref"] == completion["cold_completion_ref"]
+        and completion["kernel_custody_ref"]["path"]
+        == str(supervisor.paths(binding)["directory"] / "runtime-custody.json"),
+        "cold_settle_kernel_custody",
+    )
+    kernel = read(package["kernel_ref"])
+    policy = read(kernel["policy_ref"])
+    io.require(
+        kernel["schema"] == "autostop.j1.cold-kernel.v2"
+        and kernel["binding"] == binding
+        and policy["schema"] == "autostop.j1.cold-kernel-policy.v2"
+        and policy["binding"] == binding,
+        "cold_settle_kernel_version",
+    )
+    value = {"package": package, "kernel": kernel, "kernel_policy": policy}
+    before = provider.systemd(kernel["unit"])
+    io.require(
+        before == read(policy["unit_ref"])["properties"]
+        and before["ActiveState"] == "active"
+        and before["SubState"] == "running"
+        and before["MainPID"] == str(kernel["supervisor_actor"]["pid"]),
+        "cold_settle_kernel_unit",
+    )
+    provider._verify_kernel_cache(value)
+    kernel_source.verify_runtime_identity(value, provider)
+    provider._verify_kernel_libraries(value)
+    provider._verify_kernel_cache(value)
+    io.require(provider.systemd(kernel["unit"]) == before, "cold_settle_kernel_changed")
+
+
+def _settle_completed(
+    directory, plan_ref, plan, baseline, package, epoch, fence, provider, identity
+):
+    from scripts import j1_forward_cold_kernel as kernel_source
+    from scripts import j1_forward_cold_runtime as runtime
+    from scripts import j1_forward_recovery_state as recovery
+
+    reader = cold.Reader(provider.read_reference)
+
+    def read(reference):
+        return io.document(reader.raw(reference))
+
+    io.require(
+        read(plan_ref) == plan
+        and read(plan["baseline_ref"]) == baseline
+        and read(plan["cold_authority_package_ref"]) == package
+        and read(plan["dispatch_epoch_ref"]) == epoch,
+        "cold_settle_plan_changed",
+    )
+    consumers = _settle_source(
+        plan, baseline, package["binding"], identity, os.environ.get("INVOCATION_ID"), read
+    )
+    store = transactions.ColdStore(forward.STATE, plan["base_sha256"])
+    paths = store._history_paths()
+    versions = {path: kernel_source.file_version(path.lstat()) for path in paths}
+    head = store.head()
+    commit_ref = {
+        "path": str(store.history / f"{head['sequence']:020d}.json"),
+        "sha256": head["sha256"],
+    }
+    io.require(
+        head["record"]["schema"] == recovery.COMMIT_SCHEMA
+        and head["record"]["plan"] == plan
+        and read(commit_ref) == head["record"],
+        "cold_settle_completed_head",
+    )
+    head_ref = io.reference(store.head_path)
+    io.require(
+        read(head_ref)
+        == {"schema": state.HEAD_SCHEMA, "sequence": head["sequence"], "sha256": head["sha256"]},
+        "cold_settle_head_bytes",
+    )
+    for path in (store.pending_path, store.recovery_path):
+        io.require(not path.exists() and not path.is_symlink(), "cold_settle_pending")
+    completion_ref = io.reference(directory / "completion.json")
+    completion = read(completion_ref)
+    cold.fields(
+        completion,
+        {
+            "ok",
+            "plan_ref",
+            "commit",
+            "cold_completion_ref",
+            "kernel_custody_ref",
+            "old_writer_allowed",
+            "post_open_readonly_ref",
+            "business_acceptance",
+            "production_operational_ready",
+            "post_open_business_acceptance",
+        },
+        "settle_completion_fields",
+    )
+    io.require(
+        completion["ok"] is True
+        and completion["plan_ref"] == plan_ref
+        and completion["commit"] == commit_ref
+        and completion["old_writer_allowed"] is False
+        and completion["business_acceptance"] is False
+        and completion["production_operational_ready"] is False
+        and completion["post_open_business_acceptance"] == "required_in_release_window"
+        and completion["cold_completion_ref"]["path"]
+        == str(Path(epoch["journal_root"]).parent / "complete.json")
+        and completion["post_open_readonly_ref"]["path"]
+        == str(directory / "post-open-readonly.json"),
+        "cold_settle_completion_binding",
+    )
+    progress = read(io.reference(directory / "progress.json"))
+    cold.fields(progress, {"phase", "observed_at", "completion"}, "settle_progress_fields")
+    io.require(
+        progress["phase"] == "complete"
+        and progress["completion"] == completion_ref
+        and state._timestamp(plan["created_at"])
+        <= state._timestamp(progress["observed_at"])
+        < state._timestamp(plan["deadline_utc"]),
+        "cold_settle_completed_progress",
+    )
+    complete = read(completion["cold_completion_ref"])
+    io.require(
+        complete
+        == {
+            "ok": True,
+            "plan_ref": plan_ref,
+            "commit_ref": commit_ref,
+            "epoch_ref": plan["dispatch_epoch_ref"],
+            "old_hold_released": False,
+            "old_barriers_opened": False,
+        },
+        "cold_settle_completed_epoch",
+    )
+    runtime.validate_report(
+        read(completion["post_open_readonly_ref"]),
+        candidate=plan["candidate"],
+        attempt=plan["attempt_id"],
+        phase="open",
+    )
+    opened = read(io.reference(fence["state_path"]))
+    io.require(
+        opened
+        == {
+            "schema": "autostop.j1.cold-dispatch-state.v1",
+            **epochs.common(epoch),
+            "state": "open",
+            "plan_ref": plan_ref,
+            "commit_ref": commit_ref,
+            "admission_ref": opened.get("admission_ref"),
+        }
+        and opened["admission_ref"] is not None,
+        "cold_settle_epoch_not_open",
+    )
+    proof_root = Path(fence["state_path"]).parent / "proofs"
+    io.require(
+        opened["admission_ref"]["path"] == str(proof_root / "admission.json"),
+        "cold_settle_projection_path",
+    )
+    projection = read(opened["admission_ref"])
+    cold.fields(
+        projection,
+        {"schema", *epochs.COMMON, "source_refs", "projected_refs"},
+        "settle_projection_fields",
+    )
+    io.require(
+        projection["schema"] == "autostop.j1.cold-dispatch-admission.v1"
+        and all(projection[key] == epoch[key] for key in epochs.COMMON)
+        and projection["source_refs"]
+        == {
+            "plan": plan_ref,
+            "commit": commit_ref,
+            "head": head_ref,
+            "epoch": plan["dispatch_epoch_ref"],
+        }
+        and set(projection["projected_refs"]) == set(projection["source_refs"])
+        and all(
+            projection["projected_refs"][name]["path"] == str(proof_root / (name + ".json"))
+            for name in projection["source_refs"]
+        ),
+        "cold_settle_projection_binding",
+    )
+    for name, reference in projection["source_refs"].items():
+        io.require(
+            reader.raw(reference) == reader.raw(projection["projected_refs"][name]),
+            "cold_settle_projection_bytes",
+        )
+    _settle_kernel(plan, completion, package, provider, read)
+    reader.recheck()
+    io.require(
+        store._history_paths() == paths
+        and all(
+            kernel_source.file_version(path.lstat()) == version
+            for path, version in versions.items()
+        )
+        and parent.native._sources(consumers, cold=True) == package["binding"]["consumer_sha256"],
+        "cold_settle_completed_changed",
+    )
+    for path in (store.pending_path, store.recovery_path):
+        io.require(not path.exists() and not path.is_symlink(), "cold_settle_pending")
+
+
+def settle(attempt, *, completed_exit=False, deployment_fd=None):
+    """Fence failures; retain only an already finished runtime on exact normal exit."""
+    if deployment_fd is None:
+        with forward.deployment_lock() as descriptor:
+            return settle(attempt, completed_exit=completed_exit, deployment_fd=descriptor)
+    identity = _settle_deployment(deployment_fd)
     directory = forward.attempt_directory(attempt)
     plan_path = directory / "plan.json"
     if not plan_path.exists():
         return {"ok": False, "preparation_incomplete": True, "old_writer_allowed": False}
-    _directory, plan_ref, plan, _baseline, _host, controller = _load(attempt, fresh=False)
-    epoch = io.document(io.referenced(plan["dispatch_epoch_ref"]))
+    plan_ref = io.reference(plan_path)
+    plan = io.document(io.referenced(plan_ref))
+    transactions.validate_plan(plan, plan["base_sha256"])
+    baseline = io.document(io.referenced(plan["baseline_ref"]))
+    provider = native.NativeProvider()
+    package = io.document(provider.read_reference(plan["cold_authority_package_ref"]))
+    binding = package["binding"]
+    cold._binding(binding, now_ns=binding["not_before_ns"])
+    epoch = epochs.read_epoch(plan["dispatch_epoch_ref"], provider)
+    io.require(
+        baseline["schema"] == transactions.BASELINE_SCHEMA
+        and baseline["attempt_id"] == attempt == plan["attempt_id"] == binding["attempt_id"]
+        and baseline["native"]
+        == {
+            "cold_authority_package_ref": plan["cold_authority_package_ref"],
+            "dispatch_epoch_ref": plan["dispatch_epoch_ref"],
+        }
+        and plan["cold_authority_package_ref"]["path"] == str(native.package_path(attempt))
+        and plan["dispatch_epoch_ref"]["path"]
+        == str(native.STATE / "epochs" / binding["generation"] / "epoch.json")
+        and epoch["package_ref"] == plan["cold_authority_package_ref"]
+        and all(epoch[key] == value for key, value in epochs.common(binding).items())
+        and epoch["journal_root"]
+        == str(native.STATE / "epochs" / binding["generation"] / "journals"),
+        "cold_settle_epoch_binding",
+    )
     from scripts import j1_forward_cold_projection
 
     fence = j1_forward_cold_projection._fence(epoch, io.referenced)
     descriptor = epochs.locked_fence(fence, exclusive=True)
     try:
         j1_forward_cold_projection._exclusive(fence, descriptor)
+        if (
+            completed_exit is True
+            and _successful_service_exit()
+            and not (Path(epoch["journal_root"]).parent / "safety-closed.json").exists()
+        ):
+            try:
+                with native.borrow_dispatch(provider, descriptor):
+                    _settle_completed(
+                        directory,
+                        plan_ref,
+                        plan,
+                        baseline,
+                        package,
+                        epoch,
+                        fence,
+                        provider,
+                        identity,
+                    )
+                io.require(
+                    _settle_deployment(deployment_fd) == identity, "cold_settle_deployment_changed"
+                )
+                j1_forward_cold_projection._exclusive(fence, descriptor)
+                return {
+                    "ok": True,
+                    "completed_runtime_retained": True,
+                    "new_dispatch_closed": False,
+                    "old_writer_allowed": False,
+                    "activation_authorized": False,
+                }
+            except Exception:
+                # A success status is only a candidate for retention. Any
+                # unreadable, incomplete, drifted or unknown proof still fences.
+                pass
         # Persist refusal before closing. A still-live controller cannot reopen
         # this epoch after a concurrently requested safety close.
-        _write_once(
-            controller.root / "safety-closed.json",
-            {
-                "schema": "autostop.j1.cold-terminal-safety-close.v1",
-                "attempt_id": attempt,
-                "plan_ref": plan_ref,
-                "epoch_ref": plan["dispatch_epoch_ref"],
-                "old_writer_allowed": False,
-                "activation_authorized": False,
-            },
-        )
-        j1_forward_cold_projection._closed(fence, epoch)
+        try:
+            _write_once(
+                Path(epoch["journal_root"]).parent / "safety-closed.json",
+                {
+                    "schema": "autostop.j1.cold-terminal-safety-close.v1",
+                    "attempt_id": attempt,
+                    "plan_ref": plan_ref,
+                    "epoch_ref": plan["dispatch_epoch_ref"],
+                    "old_writer_allowed": False,
+                    "activation_authorized": False,
+                },
+            )
+        finally:
+            j1_forward_cold_projection._closed(fence, epoch)
     finally:
         os.close(descriptor)
     # No reset, new permit, replay or source/ownership adoption follows a crash.
@@ -870,10 +1233,10 @@ def main():
                         result = coordinator.run()
                     except BaseException:
                         if (coordinator.directory / "plan.json").exists():
-                            settle(args.attempt)
+                            settle(args.attempt, deployment_fd=admitted.deployment_fd)
                         raise
         elif args.command == "settle":
-            result = settle(args.attempt)
+            result = settle(args.attempt, completed_exit=_successful_service_exit())
         elif args.command == "inspect":
             result = inspect(args.attempt, args.stage)
         elif args.command == "receive-proof":
