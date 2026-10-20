@@ -15,7 +15,7 @@ from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 
 
-def _capture_data(fixture, engine, output, context, observer, *, timeout):
+def _capture_data(fixture, engine, output, context, observer, *, timeout, diagnostic_interval=None):
     """Keep actual capture unchanged and report private inventory drift on refusal."""
     io.require(fixture.provider.scope == "native_fixture", "trace_private_provider_required")
     original, initial = engine.build_profile, None
@@ -29,7 +29,10 @@ def _capture_data(fixture, engine, output, context, observer, *, timeout):
 
     engine.build_profile = profile
     try:
-        return engine.capture(output, context, observer, timeout=timeout)
+        arguments = {"timeout": timeout}
+        if engine.COLD_VERSION == 4:
+            arguments["diagnostic_interval"] = diagnostic_interval
+        return engine.capture(output, context, observer, **arguments)
     except engine.BackupRefusal as error:
         if str(error) in {"inventory_changed", "final_inventory_changed"}:
             changed = []
@@ -291,6 +294,7 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
             context,
             interval.observe,
             timeout=min(deadline - time.monotonic(), forward.remaining(plan)),
+            diagnostic_interval=interval,
         )
     captured = {**captured, "capture_interval_ref": interval.completion_ref}
     backup_ref = fixture._write(directory / "backup-evidence.json", captured)

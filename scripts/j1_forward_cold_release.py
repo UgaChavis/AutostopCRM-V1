@@ -222,7 +222,11 @@ class Coordinator:
             self.request["attempt_id"], self.directory / "controller-launch-cut"
         )
         profile = j1_forward_cold_backup.engine(
-            self.request["candidate_manager_sha"], binding["generation"], binding["attempt_id"]
+            self.request["candidate_manager_sha"],
+            binding["generation"],
+            binding["attempt_id"],
+            version=4,
+            package_ref=package_ref,
         )
         baseline = {
             "schema": transactions.BASELINE_SCHEMA,
@@ -350,6 +354,7 @@ class Coordinator:
                 context,
                 interval.observe,
                 timeout=min(capture_deadline - time.monotonic(), forward.remaining(self.plan)),
+                diagnostic_interval=interval,
             )
         captured = {**captured, "capture_interval_ref": interval.completion_ref}
         backup_ref = _write_once(self.directory / "backup-evidence.json", captured)
@@ -385,7 +390,9 @@ class Coordinator:
             logical_root=self.root,
         )
         _write_once(self.directory / "control-closed.json", control)
-        engine = variant.transport_engine(self.plan)
+        engine = variant.transport_engine(
+            self.plan, profile_sha256=self.baseline["backup_profile_sha256"]
+        )
         inventory_ref = (
             io.reference(forward.CACHE_INVENTORY) if forward.CACHE_INVENTORY.exists() else None
         )
@@ -686,7 +693,7 @@ def inspect(attempt, stage):
         "inspection_ref": inspection_ref,
         "evidence": evidence,
         "qualification": io.document(io.referenced(baseline["qualification_ref"])),
-        "backup_context": forward.context(plan),
+        "backup_context": forward.context(plan, profile_sha256=baseline["backup_profile_sha256"]),
         "scope_profile_sha256": baseline["backup_profile_sha256"],
         "recovery": io.document(
             io.referenced(io.reference(forward.STATE / "recoveries" / (attempt + ".json")))

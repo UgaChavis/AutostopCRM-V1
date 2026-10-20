@@ -423,6 +423,43 @@ restored control payloads, verifies their sizes and hashes, and validates both
 full native ends and the complete ordered boundary list before signing. Reading
 the corresponding live controller paths cannot satisfy this restore check.
 
+## Owned kernel diagnostic SQLite snapshot
+
+New cold preparation selects data profile `crm_manager_all_profiles_cold_v4`.
+The prior v3 profile and its forensic decoder retain their exact quiet-source
+contract and hash. V4 adds one explicit policy, included in the signed profile
+hash: the current attempt's kernel2 HOME `.codex/logs_2.sqlite`, produced by the
+pinned Codex binary `ff3a6a3ed13735b8a8938c40141eb38b688efd6b02ee0fd5358187111fe9966a`.
+The selector is derived from the package, kernel, policy, preparation and fresh
+HOME references; neither a caller path nor a filename alone selects a source.
+
+Only this diagnostic database and its already existing WAL/SHM may change
+content during capture. Their three distinct protected file descriptors remain
+open; device/inode, credentials, permissions and linked identities must remain
+equal. The interval's kernel pidfds, source cut, barriers and locks remain held,
+and the actual kernel incarnation and package deadline are checked again at
+each diagnostic checkpoint. Every other source, including old CRM/Manager
+databases and their sidecars, keeps the original full-version drift refusal.
+An extra database, source replacement, lost hold or expired interval still
+prevents a completed capture.
+
+Capture opens this sole source read-only, establishes a SQLite read transaction
+and uses the backup API to produce a standalone payload. It never deletes,
+resets or checkpoints the source database. The manifest records raw DB/WAL/SHM
+vectors before and after the transaction and across capture, the transaction
+interval and payload/schema digests. It explicitly makes no business-quiescence
+or cross-database atomicity claim. The permitted schema is the measured two
+SQLx migrations and diagnostic log tables/indexes of that exact binary.
+
+Independent restore checks actual payload hashes, integrity, foreign keys,
+schema, migration checksums and table identities. Before signing, the custodian
+reconstructs the selector from its independently restored control payloads and
+compares the exact package, binding, actor, source and signed profile hash. It
+also verifies that the snapshot transaction lies inside the authenticated
+completed capture interval. Restored bytes confer no execution permission.
+The 300-second data and 60-second control limits remain unchanged; the full v2
+trace must still demonstrate the complete path under those limits.
+
 ## Exact interpreter transport aliases
 
 Cold control capture explicitly selects codec v5; v3/v4 remain readable. V5 can

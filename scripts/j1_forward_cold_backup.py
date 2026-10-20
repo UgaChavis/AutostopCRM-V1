@@ -1,14 +1,18 @@
-"""Explicit cold-v3 data profile; the original fixed profile is unchanged."""
+"""Explicit cold data profiles; v4 snapshots the owned kernel diagnostic log."""
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import sqlite3
+import stat
 import sys
 import time
 import types
 import uuid
-from pathlib import Path
+from contextlib import closing
+from pathlib import Path, PurePosixPath
 
 from scripts import j1_forward_backup as original
 from scripts import j1_forward_cold_authority as cold
@@ -17,16 +21,565 @@ from scripts import j1_forward_cold_native as native
 from scripts import j1_forward_io as io
 
 PROFILE = "crm_manager_all_profiles_cold_v3"
+PROFILE_V4 = "crm_manager_all_profiles_cold_v4"
 BASE_SHA256 = "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157"
 NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
+DIAGNOSTIC_CODEX_SHA256 = "ff3a6a3ed13735b8a8938c40141eb38b688efd6b02ee0fd5358187111fe9966a"
+DIAGNOSTIC_MAX_BYTES = 64 * 1024**2
+LOG_COLUMNS = (
+    "id ts ts_nanos level target feedback_log_body module_path file line thread_id "
+    "process_uuid estimated_bytes"
+).split()
+LOG_INDEXES = {
+    "idx_logs_ts",
+    "idx_logs_thread_id",
+    "idx_logs_thread_id_ts",
+    "idx_logs_process_uuid_threadless_ts",
+    "sqlite_autoindex__sqlx_migrations_1",
+}
+LOG_MIGRATIONS = (
+    (
+        1,
+        "logs",
+        1,
+        "009639EAFE599BE97D49D1D712E51671BF1BE1C6B8CB7BF1A4136DA88FB0E19308FF3CBCFBFBF589065E0EAFEF2CA164",
+    ),
+    (
+        2,
+        "logs feedback log body",
+        1,
+        "CF6C93AF074A90224564010F49BC9CF905F10BA4C3C4B8B25C12E014EE1522F0B561A1C3D8188F6D2F4BE764F141DAF8",
+    ),
+)
 
 
-def engine(revision, generation, attempt):
+def _diagnostic_rule(package_ref, attempt):
+    return {
+        "schema": "autostop.j1.cold-diagnostic-sqlite-policy.v1",
+        "package_ref": package_ref,
+        "component": "cold_controller_state",
+        "relative_path": f"packages/{attempt}/kernel/home/.codex/logs_2.sqlite",
+        "codex_sha256": DIAGNOSTIC_CODEX_SHA256,
+        "max_bytes": DIAGNOSTIC_MAX_BYTES,
+        "snapshot": "readonly_read_transaction_sqlite_backup",
+        "source_cut": "held_fd_identity_with_observed_mutable_content_versions",
+        "schema_policy_sha256": cold.digest(
+            {"columns": LOG_COLUMNS, "indexes": sorted(LOG_INDEXES), "migrations": LOG_MIGRATIONS}
+        ),
+        "business_quiet_claimed": False,
+        "cross_database_atomic_claimed": False,
+    }
+
+
+def diagnostic_selector(package_ref, read_reference):
+    """Derive the single permitted source from its immutable kernel2 graph.
+
+    Native capture additionally requires the actual CaptureInterval. During
+    restore these bytes carry no execution authority; the complete control
+    graph must already have passed the independent semantic restore.
+    """
+    from scripts import j1_forward_cold_kernel as kernel_contract
+
+    reader = cold.Reader(read_reference)
+    package = reader.doc(package_ref)
+    cold.fields(package, cold.PACKAGE_FIELDS, "diagnostic_package_fields")
+    binding, scope = package["binding"], package["scope"]
+    cold.need(
+        package["schema"] == cold.SCHEMA
+        and package["contract"] == cold.CONTRACT
+        and scope in cold.SCOPES,
+        "diagnostic_package",
+    )
+    kernel = reader.bound(
+        package["kernel_ref"],
+        "kernel",
+        binding,
+        scope,
+        {
+            "actor",
+            "unit",
+            "policy_ref",
+            "ready_ref",
+            "cache_view_ref",
+            "supervisor_actor",
+            "preparation_ref",
+            "empty_thread_ref",
+        },
+        version=2,
+    )
+    policy = reader.bound(
+        kernel["policy_ref"],
+        "kernel-policy",
+        binding,
+        scope,
+        set(
+            "unit source_ref interpreter_ref runtime_index_ref startup_index_ref environment_ref unit_ref argv cwd credentials appserver_ref appserver_argv appserver_environment_ref protocol_index_ref rpc_ref".split()
+        ),
+        version=2,
+    )
+    preparation = reader.bound(
+        kernel["preparation_ref"],
+        "kernel-preparation",
+        binding,
+        scope,
+        kernel_contract.PREPARATION_FIELDS - {"schema", "scope", "binding"},
+    )
+    home = reader.bound(
+        preparation["home_ref"],
+        "kernel-home",
+        binding,
+        scope,
+        kernel_contract.HOME_FIELDS - {"schema", "scope", "binding"},
+    )
+    environment = reader.bound(
+        policy["appserver_environment_ref"], "environment", binding, scope, {"unit", "values"}
+    )
+    native.actor_shape(kernel["actor"])
+    cold.need(
+        kernel["actor"] == preparation["actor"]
+        and kernel["actor"]["exe_ref"] == policy["appserver_ref"]
+        and policy["appserver_ref"]["sha256"]
+        == DIAGNOSTIC_CODEX_SHA256
+        == kernel_contract.BINARY_SHA256
+        and preparation["source_ref"] == policy["source_ref"]
+        and preparation["rpc_ref"] == policy["rpc_ref"]
+        and preparation["protocol_index_ref"] == policy["protocol_index_ref"]
+        and environment["unit"] == policy["unit"] == kernel["unit"]
+        and environment["values"]["HOME"] == home["home"]
+        and environment["values"]["CODEX_HOME"] == home["codex_home"]
+        and home["codex_home"] == str(PurePosixPath(home["home"]) / ".codex"),
+        "diagnostic_kernel_source_binding",
+    )
+    reader.recheck()
+    return {
+        "schema": "autostop.j1.cold-diagnostic-sqlite-selector.v1",
+        "scope": scope,
+        "binding": binding,
+        "package_ref": package_ref,
+        "kernel_ref": package["kernel_ref"],
+        "policy_ref": kernel["policy_ref"],
+        "preparation_ref": kernel["preparation_ref"],
+        "home_ref": preparation["home_ref"],
+        "actor": kernel["actor"],
+        "database_path": str(PurePosixPath(home["codex_home"]) / "logs_2.sqlite"),
+    }
+
+
+def _install_diagnostic_engine(module, package_ref, attempt):
+    profile, capture, restore = module.profile_document, module.capture, module.verify_and_restore
+    rule = _diagnostic_rule(package_ref, attempt)
+    module.PROFILE = PROFILE_V4
+    module.DIAGNOSTIC_RULE = rule
+    module.profile_document = lambda: {
+        **profile(),
+        "policy": "recursive_quiet_data_with_owned_kernel_diagnostic_snapshot_v4",
+        "diagnostic_sqlite": rule,
+    }
+
+    def capture_v4(output, context, observe_closure, *, timeout=1800, diagnostic_interval=None):
+        module.require(0 < timeout <= 300, "cold_capture_budget")
+        module.require(type(diagnostic_interval) is CaptureInterval, "diagnostic_native_interval")
+        interval = diagnostic_interval
+        module.require(
+            interval.status == "active"
+            and interval.value is not None
+            and interval.entry_ref is not None
+            and observe_closure == interval.observe
+            and interval.kernel.descriptors,
+            "diagnostic_active_interval",
+        )
+        selector = diagnostic_selector(package_ref, interval.provider.read_reference)
+        module.require(
+            interval.controller.package_ref == package_ref
+            and selector["binding"] == interval.value["package"]["binding"]
+            and context["attempt_id"] == attempt,
+            "diagnostic_capture_binding",
+        )
+        with _DiagnosticSnapshot(module, selector, gate=interval.gate):
+            return capture(output, context, observe_closure, timeout=timeout)
+
+    def restore_v4(backupdir, expectedmanifestSHA, outputnew, context, *, timeout=3600):
+        module.require(0 < timeout <= 3600, "new_disposable_destination_required")
+        deadline = time.monotonic() + timeout
+        path = backupdir / "manifest.json"
+        module.require(
+            type(expectedmanifestSHA) is str
+            and module.HEX.fullmatch(expectedmanifestSHA)
+            and module.physical(path).st_size <= module.MAX_JSON_BYTES
+            and module.digest(path, deadline) == expectedmanifestSHA,
+            "manifest_hash_mismatch",
+        )
+        manifest = module.document(path.read_bytes())
+        diagnostic = _validate_diagnostic_manifest(manifest, module.profile_document())
+        module.budget(deadline)
+        result = restore(
+            backupdir, expectedmanifestSHA, outputnew, context, timeout=deadline - time.monotonic()
+        )
+        row = next(
+            row
+            for row in manifest["artifacts"]
+            if row["source"] == diagnostic["selector"]["database_path"]
+        )
+        for root in (backupdir, outputnew):
+            with closing(
+                sqlite3.connect((root / row["payload"]).as_uri() + "?mode=ro&immutable=1", uri=True)
+            ) as connection:
+                connection.execute("PRAGMA query_only=ON")
+                connection.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10000)
+                _logs_schema(connection, module.require)
+                module.budget(deadline)
+        return result
+
+    module.capture, module.verify_and_restore = capture_v4, restore_v4
+
+
+def _diagnostic_identity(version):
+    return [version[index] for index in (0, 1, 5, 6, 7)]
+
+
+def _diagnostic_mask(version):
+    return [*version[:2], 0, 0, 0, *version[5:]]
+
+
+def _logs_schema(connection, require):
+    objects = connection.execute(
+        "SELECT type,name FROM sqlite_master ORDER BY type,name"
+    ).fetchall()
+    require(
+        set(objects)
+        == {("index", name) for name in LOG_INDEXES}
+        | {("table", name) for name in ("_sqlx_migrations", "logs", "sqlite_sequence")},
+        "diagnostic_sqlite_objects",
+    )
+    columns = connection.execute("PRAGMA table_info(logs)").fetchall()
+    expected_types = (
+        "INTEGER INTEGER INTEGER TEXT TEXT TEXT TEXT TEXT INTEGER TEXT TEXT INTEGER".split()
+    )
+    require(
+        [row[1] for row in columns] == LOG_COLUMNS
+        and [row[2] for row in columns] == expected_types
+        and [row[5] for row in columns] == [1, *([0] * 11)]
+        and [row[3] for row in columns] == [0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1]
+        and [row[4] for row in columns] == [*([None] * 11), "0"]
+        and connection.execute(
+            "SELECT version,description,success,hex(checksum) FROM _sqlx_migrations ORDER BY version"
+        ).fetchall()
+        == list(LOG_MIGRATIONS),
+        "diagnostic_sqlite_schema",
+    )
+
+
+class _DiagnosticSnapshot:
+    """A capture-local adapter for one source-bound live diagnostic DB only."""
+
+    def __init__(self, module, selector, *, gate):
+        self.module, self.selector, self.gate = module, selector, gate
+        self.original = {
+            name: getattr(module, name) for name in ("version", "snapshot_sqlite", "publish")
+        }
+        self.database = Path(selector["database_path"])
+        self.files, self.inodes, self.snapshot = {}, {}, None
+
+    def _check(self):
+        self.gate()
+        cold._binding(self.selector["binding"], now_ns=time.monotonic_ns())
+        self.module.require(
+            native.actor(self.selector["actor"]["pid"]) == self.selector["actor"],
+            "diagnostic_kernel_changed",
+        )
+        result = {}
+        for path, (descriptor, expected) in self.files.items():
+            try:
+                actual, linked = os.fstat(descriptor), Path(path).lstat()
+            except OSError as error:
+                raise self.module.BackupRefusal("diagnostic_source_identity_changed") from error
+            versions = [self.original["version"](value) for value in (actual, linked)]
+            self.module.require(
+                all(
+                    stat.S_ISREG(info.st_mode)
+                    and info.st_nlink == 1
+                    and info.st_size <= DIAGNOSTIC_MAX_BYTES
+                    for info in (actual, linked)
+                )
+                and all(
+                    _diagnostic_identity(value) == _diagnostic_identity(expected)
+                    for value in versions
+                ),
+                "diagnostic_source_identity_changed",
+            )
+            result[path] = versions[1]
+        self.gate()
+        cold._binding(self.selector["binding"], now_ns=time.monotonic_ns())
+        return result
+
+    def __enter__(self):
+        module, rule = self.module, self.module.DIAGNOSTIC_RULE
+        expected = Path(dict(module.ROOTS)[rule["component"]]) / rule["relative_path"]
+        module.require(
+            not hasattr(module, "_diagnostic_capture")
+            and self.database == expected
+            and self.selector["package_ref"] == rule["package_ref"]
+            and self.selector["actor"]["exe_ref"]["sha256"] == DIAGNOSTIC_CODEX_SHA256,
+            "diagnostic_exact_source_required",
+        )
+        io.protected_directory(self.database.parent)
+        try:
+            for suffix in ("", "-wal", "-shm"):
+                path = str(self.database) + suffix
+                try:
+                    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                except OSError as error:
+                    raise module.BackupRefusal("diagnostic_source_files_required") from error
+                info = os.fstat(descriptor)
+                self.files[path] = (descriptor, self.original["version"](info))
+                module.require(
+                    stat.S_ISREG(info.st_mode)
+                    and info.st_nlink == 1
+                    and not info.st_mode & 0o022
+                    and info.st_uid == self.selector["actor"]["uid"]
+                    and info.st_gid == self.selector["actor"]["gid"],
+                    "diagnostic_source_protection",
+                )
+                self.inodes[(info.st_dev, info.st_ino)] = self.files[path][1]
+            module.require(len(self.inodes) == 3, "diagnostic_source_alias")
+            self.initial = self._check()
+            module._diagnostic_capture = self
+            module.version, module.snapshot_sqlite, module.publish = (
+                self.version,
+                self.copy,
+                self.publish,
+            )
+            return self
+        except BaseException:
+            self.__exit__(*sys.exc_info())
+            raise
+
+    def version(self, info):
+        version = self.original["version"](info)
+        expected = self.inodes.get((info.st_dev, info.st_ino))
+        if expected is not None:
+            self.module.require(
+                info.st_nlink == 1
+                and info.st_size <= DIAGNOSTIC_MAX_BYTES
+                and _diagnostic_identity(version) == _diagnostic_identity(expected),
+                "diagnostic_source_identity_changed",
+            )
+            return _diagnostic_mask(version)
+        return version
+
+    def copy(self, source, target, deadline, remaining):
+        if source != self.database:
+            return self.original["snapshot_sqlite"](source, target, deadline, remaining)
+        module = self.module
+        module.require(self.snapshot is None, "diagnostic_duplicate_snapshot")
+        before, started = self._check(), time.monotonic_ns()
+        module.require(module.sqlite3.sqlite_version_info >= (3, 51, 3), "sqlite_runtime_too_old")
+        with module.new_file(target):
+            pass
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=0)) as src:
+            src.set_progress_handler(lambda: int(time.monotonic() >= deadline), 10000)
+            src.execute("PRAGMA query_only=ON")
+            src.execute("BEGIN")
+            _logs_schema(src, module.require)
+            module.require(
+                src.execute("PRAGMA page_size").fetchone()[0]
+                * src.execute("PRAGMA page_count").fetchone()[0]
+                <= min(DIAGNOSTIC_MAX_BYTES, remaining),
+                "sqlite_size_limit",
+            )
+            with closing(sqlite3.connect(target)) as dst:
+                src.backup(dst, pages=256, progress=lambda *_: module.budget(deadline), sleep=0.01)
+                module.require(
+                    dst.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete",
+                    "standalone_snapshot_required",
+                )
+            src.rollback()
+        with target.open("rb+") as stream:
+            os.fsync(stream.fileno())
+        after, completed = self._check(), time.monotonic_ns()
+        result = {
+            "bytes": target.stat().st_size,
+            "sha256": module.digest(target, deadline),
+            "inspection": module.inspect_sqlite(target, deadline),
+        }
+        module.require(result["bytes"] <= min(DIAGNOSTIC_MAX_BYTES, remaining), "sqlite_size_limit")
+        self.snapshot = {
+            "started_monotonic_ns": started,
+            "completed_monotonic_ns": completed,
+            "before_transaction": before,
+            "after_transaction": after,
+            "payload_sha256": result["sha256"],
+            "schema_sha256": result["inspection"]["schema_sha256"],
+        }
+        return result
+
+    def publish(self, path, document):
+        if path.name == "manifest.json":
+            self.module.require(self.snapshot is not None, "diagnostic_snapshot_missing")
+            document = {
+                **document,
+                "diagnostic_snapshot": {
+                    "schema": "autostop.j1.cold-diagnostic-sqlite-snapshot.v1",
+                    "selector": self.selector,
+                    "initial": self.initial,
+                    "final": self._check(),
+                    **self.snapshot,
+                    "source_readonly": True,
+                    "business_quiet_claimed": False,
+                    "cross_database_atomic_claimed": False,
+                },
+            }
+            _validate_diagnostic_manifest(document, self.module.profile_document())
+        return self.original["publish"](path, document)
+
+    def __exit__(self, *_):
+        for name, value in self.original.items():
+            setattr(self.module, name, value)
+        if getattr(self.module, "_diagnostic_capture", None) is self:
+            del self.module._diagnostic_capture
+        for descriptor, _version in self.files.values():
+            os.close(descriptor)
+        self.files.clear()
+
+
+def _validate_diagnostic_manifest(manifest, profile):
+    """Check the v4 wire contract without reading a live source or granting authority."""
+    try:
+        return _diagnostic_manifest(manifest, profile)
+    except (original.BackupRefusal, io.Refusal):
+        raise
+    except (KeyError, TypeError, IndexError, ValueError) as error:
+        raise original.BackupRefusal("diagnostic_snapshot_shape") from error
+
+
+def _diagnostic_manifest(manifest, profile):
+    original.require(
+        type(manifest) is dict
+        and type(profile) is dict
+        and original.canonical(manifest.get("profile")) == original.canonical(profile)
+        and profile.get("name") == PROFILE_V4,
+        "diagnostic_profile",
+    )
+    value = manifest.get("diagnostic_snapshot")
+    fields = set(
+        "schema selector initial final started_monotonic_ns completed_monotonic_ns before_transaction after_transaction payload_sha256 schema_sha256 source_readonly business_quiet_claimed cross_database_atomic_claimed".split()
+    )
+    original.require(type(value) is dict and set(value) == fields, "diagnostic_snapshot_fields")
+    selector, rule = value["selector"], profile["diagnostic_sqlite"]
+    selector_fields = set(
+        "schema scope binding package_ref kernel_ref policy_ref preparation_ref home_ref actor database_path".split()
+    )
+    original.require(
+        type(selector) is dict and set(selector) == selector_fields, "diagnostic_selector_fields"
+    )
+    binding = selector["binding"]
+    original.require(type(binding) is dict and "attempt_id" in binding, "diagnostic_binding")
+    native.actor_shape(selector["actor"])
+    expected_path = str(
+        PurePosixPath(dict(profile["roots"])[rule["component"]]) / rule["relative_path"]
+    )
+    original.require(
+        value["schema"] == "autostop.j1.cold-diagnostic-sqlite-snapshot.v1"
+        and selector["schema"] == "autostop.j1.cold-diagnostic-sqlite-selector.v1"
+        and selector["scope"] in cold.SCOPES
+        and selector["package_ref"] == rule["package_ref"]
+        and rule == _diagnostic_rule(selector["package_ref"], binding["attempt_id"])
+        and selector["database_path"] == expected_path
+        and selector["actor"]["exe_ref"]["sha256"] == DIAGNOSTIC_CODEX_SHA256
+        and value["source_readonly"] is True
+        and value["business_quiet_claimed"] is value["cross_database_atomic_claimed"] is False,
+        "diagnostic_snapshot_binding",
+    )
+    for key in ("package_ref", "kernel_ref", "policy_ref", "preparation_ref", "home_ref"):
+        cold.reference(selector[key])
+    start, end = value["started_monotonic_ns"], value["completed_monotonic_ns"]
+    original.require(
+        type(start) is int and type(end) is int and start <= end, "diagnostic_snapshot_interval"
+    )
+    cold._binding(binding, now_ns=start)
+    cold._binding(binding, now_ns=end)
+    family = {expected_path + suffix for suffix in ("", "-wal", "-shm")}
+    for key in ("initial", "before_transaction", "after_transaction", "final"):
+        versions = value[key]
+        original.require(
+            type(versions) is dict and set(versions) == family, "diagnostic_source_inventory"
+        )
+        for path, version in versions.items():
+            original.require(
+                type(version) is list
+                and len(version) == 8
+                and all(type(number) is int and number >= 0 for number in version)
+                and 0 < version[1]
+                and version[2] <= DIAGNOSTIC_MAX_BYTES
+                and version[5:7] == [selector["actor"]["uid"], selector["actor"]["gid"]]
+                and not version[7] & 0o022
+                and _diagnostic_identity(version) == _diagnostic_identity(value["initial"][path]),
+                "diagnostic_source_identity",
+            )
+    artifacts = manifest.get("artifacts")
+    original.require(
+        type(artifacts) is list
+        and all(type(row) is dict and type(row.get("source")) is str for row in artifacts),
+        "diagnostic_artifacts",
+    )
+    rows = [row for row in artifacts if row["source"] in family]
+    original.require(
+        len(rows) == 3 and {row["source"] for row in rows} == family,
+        "diagnostic_artifact_inventory",
+    )
+    for row in rows:
+        source = row["source"]
+        original.require(
+            row["component"] == rule["component"]
+            and row["source_version"] == _diagnostic_mask(value["initial"][source])
+            and row["kind"] == ("sqlite" if source == expected_path else "runtime"),
+            "diagnostic_artifact_binding",
+        )
+        if source == expected_path:
+            inspection = row["inspection"]
+            original.require(
+                row["sha256"] == value["payload_sha256"]
+                and inspection["schema_sha256"] == value["schema_sha256"]
+                and inspection["integrity"] == inspection["foreign_keys"] == "ok"
+                and set(inspection["table_rows"]) == {"logs", "_sqlx_migrations", "sqlite_sequence"}
+                and inspection["table_rows"]["_sqlx_migrations"] == 2,
+                "diagnostic_snapshot_inspection",
+            )
+    return value
+
+
+def validate_restored_diagnostic(manifest, response, read_reference):
+    """Bind v4 data to the independently restored, source-validated kernel graph."""
+    if manifest["profile"]["name"] != PROFILE_V4:
+        original.require(manifest["profile"]["name"] == PROFILE, "cold_backup_profile")
+        return None
+    value = _validate_diagnostic_manifest(manifest, manifest["profile"])
+    selector = diagnostic_selector(
+        response["plan"]["cold_authority_package_ref"],
+        getattr(read_reference, "read_source", read_reference),
+    )
+    original.require(
+        value["selector"] == selector
+        and selector["binding"] == response["evidence"]["package"]["binding"]
+        and selector["binding"]["attempt_id"] == response["plan"]["attempt_id"]
+        and hashlib.sha256(original.canonical(manifest["profile"])).hexdigest()
+        == response["scope_profile_sha256"],
+        "diagnostic_restored_source_binding",
+    )
+    return value
+
+
+def engine(revision, generation, attempt, *, version=3, package_ref=None):
     original.require(
         type(revision) is str and cold.SHA1.fullmatch(revision), "cold_backup_revision"
     )
     original.require(cold._uuid(generation) and cold._uuid(attempt), "cold_backup_epoch")
-    key = revision + "_" + generation + "_" + attempt
+    original.require(type(version) is int and version in {3, 4}, "cold_backup_version")
+    if version == 4:
+        cold.reference(package_ref)
+    key = f"v{version}_" + revision + "_" + generation + "_" + attempt
+    if package_ref is not None:
+        key += "_" + package_ref["sha256"]
     name = "_autostop_cold_backup_" + key
     if name in sys.modules:
         return sys.modules[name]
@@ -56,25 +609,34 @@ def engine(revision, generation, attempt):
             for index, unit in enumerate(cold.ALLOWED)
         )
         module.ROOTS = (*original.ROOTS, *roots, *units)
+        module.COLD_VERSION = version
+        if version == 4:
+            _install_diagnostic_engine(module, package_ref, attempt)
         return module
     except BaseException:
         sys.modules.pop(name, None)
         raise
 
 
-def for_plan(plan):
+def for_plan(plan, *, profile_sha256=None):
     path = plan["dispatch_epoch_ref"]["path"]
     match = re.fullmatch(
         r"/var/lib/autostop-crm-forward/cold/v1/epochs/([0-9a-f-]{36})/epoch\.json", path
     )
     original.require(match is not None, "cold_backup_production_epoch_path")
-    return engine(plan["candidate_manager_sha"], match[1], plan["attempt_id"])
+    arguments = (plan["candidate_manager_sha"], match[1], plan["attempt_id"])
+    legacy = engine(*arguments)
+    if profile_sha256 is None or legacy.profile_sha256() == profile_sha256:
+        return legacy
+    current = engine(*arguments, version=4, package_ref=plan["cold_authority_package_ref"])
+    original.require(current.profile_sha256() == profile_sha256, "cold_backup_profile")
+    return current
 
 
-def transport_engine(plan):
+def transport_engine(plan, *, profile_sha256=None):
     from scripts import j1_forward_transport as transport
 
-    backup = for_plan(plan)
+    backup = for_plan(plan, profile_sha256=profile_sha256)
     name = backup.__name__.replace("_backup_", "_transport_")
     if name in sys.modules:
         return sys.modules[name]
@@ -156,6 +718,7 @@ class CaptureInterval:
         self.controller, self.provider = controller, controller.provider
         self.plan_ref, self.directory, self.gate = plan_ref, Path(directory), gate
         self.witnesses, self.kernel, self.completion_ref = [], None, None
+        self.entry_ref, self.status = None, "new"
 
     def _common(self):
         binding = self.value["package"]["binding"]
@@ -208,6 +771,8 @@ class CaptureInterval:
                 )
 
     def __enter__(self):
+        cold.need(self.status == "new", "capture_interval_already_used")
+        self.status = "entering"
         self.gate()
         self.value, self.sources = native._observe_package(
             self.controller.package_ref, provider=self.provider, required_scope=self.provider.scope
@@ -249,6 +814,7 @@ class CaptureInterval:
                     "source_cut_sha256": self.cut,
                 },
             )
+            self.status = "active"
             return self
         except BaseException:
             if self.kernel is not None:
@@ -256,6 +822,7 @@ class CaptureInterval:
             raise
 
     def observe(self):
+        cold.need(self.status == "active", "capture_interval_not_active")
         self.gate()
         for operation in (
             self.provider.verify_closure,
@@ -337,6 +904,7 @@ class CaptureInterval:
         finally:
             if self.kernel is not None:
                 self.kernel.close()
+            self.status = "closed"
 
 
 def _document(read_reference, reference):
@@ -484,6 +1052,15 @@ def validate_restored_interval(data_manifest, response, read_reference):
         previous <= last["observed_monotonic_ns"] <= complete["observed_monotonic_ns"],
         "capture_completion_order",
     )
+    if data_manifest.get("profile", {}).get("name") == PROFILE_V4:
+        diagnostic = validate_restored_diagnostic(data_manifest, response, read_reference)
+        cold.need(
+            entry["observed_monotonic_ns"]
+            <= diagnostic["started_monotonic_ns"]
+            <= diagnostic["completed_monotonic_ns"]
+            <= complete["observed_monotonic_ns"],
+            "diagnostic_capture_interval_binding",
+        )
     return {
         "boundary_count": len(witnesses),
         "source_cut_sha256": entry["source_cut_sha256"],

@@ -173,7 +173,7 @@ def deployment_lock(expected=None, *, on_failure=None):
         os.close(descriptor)
 
 
-def context(plan):
+def context(plan, *, profile_sha256=None):
     return {
         "attempt_id": plan["attempt_id"],
         "predecessor_sha256": plan["predecessor_sha256"],
@@ -181,7 +181,9 @@ def context(plan):
         "candidate_manager_sha": plan.get(
             "candidate_manager_sha", "89af29082e0a6f72c5d85ae448acb6d4deec5d94"
         ),
-        "scope_profile_sha256": variant.backup_engine(plan).profile_sha256(),
+        "scope_profile_sha256": variant.backup_engine(
+            plan, profile_sha256=profile_sha256
+        ).profile_sha256(),
     }
 
 

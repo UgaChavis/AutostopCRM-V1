@@ -1381,7 +1381,9 @@ def validate_response(response, *, attempt, stage):
         and context == expected_context
         and baseline["backup_profile_sha256"]
         == response["scope_profile_sha256"]
-        == variant.backup_engine(plan).profile_sha256(),
+        == variant.backup_engine(
+            plan, profile_sha256=response["scope_profile_sha256"]
+        ).profile_sha256(),
         "worker_backup_context_invalid",
     )
     _remaining(plan)
@@ -1644,7 +1646,9 @@ class Worker:
             "baseline_sha256": response["baseline_ref"]["sha256"],
         }
         if stage == "closed":
-            transport = variant.transport_engine(plan)
+            transport = variant.transport_engine(
+                plan, profile_sha256=response["scope_profile_sha256"]
+            )
             backup = transport.core()
             require(
                 sqlite3.sqlite_version_info >= MIN_SQLITE

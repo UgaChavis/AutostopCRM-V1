@@ -15,7 +15,7 @@ import time
 import zlib
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 from scripts import j1_forward_backup as backup
@@ -477,6 +477,43 @@ def backup_settings(engine, roots, root):
     }
 
 
+def _restored_diagnostic_capture(request, spec, output):
+    """The private custodian uses only bytes restored by its own archive pass."""
+    from scripts import j1_forward_archive as archive
+    from scripts import j1_forward_cold_backup as cold_backup
+    from scripts import j1_forward_cold_worker as cold_worker
+    from scripts import j1_forward_worker as worker
+
+    manifest_path = Path(spec["package"]) / "manifest.json"
+    raw = archive._package_read(manifest_path, worker._physical, archive.MAX_FILE_BYTES)
+    io.require(io.sha(raw) == spec["manifest_sha256"], "rehearsal_control_manifest_changed")
+    rows = io.document(raw)["artifacts"]
+    entries = {row["logical_name"]: row for row in rows}
+    io.require(len(entries) == len(rows), "rehearsal_control_inventory")
+    prefix = str(PurePosixPath(spec["logical_root"]) / "attempts")
+    # This maps the fixture's actual State root. All payload reads retain the
+    # production worker's protected, size/hash-bound restored-entry decoder.
+    plan = io.document(io.referenced(request["plan_ref"]))
+    response = {"plan": plan, "plan_ref": request["plan_ref"]}
+    with patch.object(worker, "ATTEMPTS", prefix):
+        reader = cold_worker._restored_capture_reader(entries, output / "control", response)
+        io.require(io.document(reader(request["plan_ref"])) == plan, "rehearsal_restored_plan")
+        path = str(PurePosixPath(request["plan_ref"]["path"]).parent / "backup-evidence.json")
+        entry = entries[
+            "control/" + PurePosixPath(path).relative_to(spec["logical_root"]).as_posix()
+        ]
+        response.update(
+            scope_profile_sha256=request["context"]["scope_profile_sha256"],
+            evidence={
+                "package": io.document(reader.read_source(plan["cold_authority_package_ref"])),
+                "epoch": io.document(reader.read_source(plan["dispatch_epoch_ref"])),
+                "backup_capture": io.document(reader({"path": path, "sha256": entry["sha256"]})),
+            },
+        )
+        data = backup.document((Path(request["backup"]) / "manifest.json").read_bytes())
+        return cold_backup.validate_restored_interval(data, response, reader)
+
+
 def run_custodian_request(root, request_path):
     """A separate private process restores first, then signs measured results."""
     import sqlite3
@@ -544,11 +581,18 @@ def run_custodian_request(root, request_path):
         from scripts import j1_forward_cold_backup
 
         io.require(
-            request["backup_profile"] == j1_forward_cold_backup.PROFILE, "rehearsal_backup_profile"
+            request["backup_profile"]
+            in {j1_forward_cold_backup.PROFILE, j1_forward_cold_backup.PROFILE_V4},
+            "rehearsal_backup_profile",
         )
         binding = verified["package"]["binding"]
+        version = 4 if request["backup_profile"] == j1_forward_cold_backup.PROFILE_V4 else 3
         engine = j1_forward_cold_backup.engine(
-            binding["candidate_manager_sha"], binding["generation"], binding["attempt_id"]
+            binding["candidate_manager_sha"],
+            binding["generation"],
+            binding["attempt_id"],
+            version=version,
+            package_ref=request["package_ref"] if version == 4 else None,
         )
         io.require(
             [name for name, _path in roots] == [name for name, _path in engine.ROOTS],
@@ -595,6 +639,8 @@ def run_custodian_request(root, request_path):
                 logical_root=spec["logical_root"],
                 custody=PrivateFilesystem(root),
             )
+            if engine is not backup and engine.COLD_VERSION == 4:
+                _restored_diagnostic_capture(request, spec, output)
             payload = {
                 "plan_sha256": request["plan_ref"]["sha256"],
                 "baseline_sha256": io.document(io.referenced(request["plan_ref"]))["baseline_ref"][

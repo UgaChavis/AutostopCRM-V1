@@ -70,6 +70,8 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                     fixture.binding["candidate_manager_sha"],
                     fixture.binding["generation"],
                     fixture.binding["attempt_id"],
+                    version=4,
+                    package_ref=package_ref,
                 )
                 roots = trace.private_profile(fixture, engine, business_roots)
                 aliases.enter_context(rehearsal.PrivateFilesystem(fixture.root, engines=(engine,)))

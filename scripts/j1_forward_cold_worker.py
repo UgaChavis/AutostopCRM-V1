@@ -454,7 +454,7 @@ def validate_response(response, *, attempt, stage):
         worker._hash(profile)
         and response["baseline"]["backup_profile_sha256"]
         == profile
-        == worker.variant.backup_engine(plan).profile_sha256()
+        == worker.variant.backup_engine(plan, profile_sha256=profile).profile_sha256()
         and response["backup_context"]
         == {
             "attempt_id": attempt,
@@ -585,10 +585,8 @@ def _restored_capture_reader(entries, restored, response):
     prefix = worker.ATTEMPTS + "/" + response["plan"]["attempt_id"] + "/"
     root = PurePosixPath(worker.ATTEMPTS).parent
 
-    def read(reference):
+    def payload(reference, name):
         contract.reference(reference)
-        contract.need(reference["path"].startswith(prefix), "worker_capture_reference_path")
-        name = "control/" + PurePosixPath(reference["path"]).relative_to(root).as_posix()
         entry = entries.get(name)
         contract.need(
             type(entry) is dict
@@ -608,6 +606,24 @@ def _restored_capture_reader(entries, restored, response):
         )
         return raw
 
+    def read(reference):
+        contract.reference(reference)
+        contract.need(reference["path"].startswith(prefix), "worker_capture_reference_path")
+        return payload(
+            reference,
+            "control/" + PurePosixPath(reference["path"]).relative_to(root).as_posix(),
+        )
+
+    def source(reference):
+        contract.reference(reference)
+        if reference["path"].startswith(prefix):
+            return read(reference)
+        return payload(reference, "authority" + reference["path"])
+
+    # Interval witnesses remain restricted to this attempt. The selector may
+    # also use exact opaque authority entries of the independently restored
+    # graph, never files at their original source paths.
+    read.read_source = source
     return read
 
 

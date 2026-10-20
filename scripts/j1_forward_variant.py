@@ -83,11 +83,11 @@ def store(root, plan):
     return state.Store(root, plan["base_sha256"])
 
 
-def backup_engine(plan):
+def backup_engine(plan, *, profile_sha256=None):
     if _is_cold(plan):
         from scripts import j1_forward_cold_backup
 
-        return j1_forward_cold_backup.for_plan(plan)
+        return j1_forward_cold_backup.for_plan(plan, profile_sha256=profile_sha256)
     if is_mixed(plan):
         from scripts import j1_forward_mixed_backup
 
@@ -97,11 +97,11 @@ def backup_engine(plan):
     return backup
 
 
-def transport_engine(plan):
+def transport_engine(plan, *, profile_sha256=None):
     if _is_cold(plan):
         from scripts import j1_forward_cold_backup
 
-        return j1_forward_cold_backup.transport_engine(plan)
+        return j1_forward_cold_backup.transport_engine(plan, profile_sha256=profile_sha256)
     if is_mixed(plan):
         from scripts import j1_forward_mixed_backup
 
