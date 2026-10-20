@@ -767,7 +767,7 @@ old/new application combination is unnecessary.
    Store update is needed; pushing Store `main` can trigger `Deploy VPS` and
    belongs only in the maintenance window. Do not invoke the historical J1,
    cold/warm transition or CRM-only release controllers.
-6. Start the applications using their reviewed existing service definitions.
+6. Launch the applications using their reviewed existing service definitions.
    Independently check physical source/image revisions, processes, authorization,
    health and Manager → CRM → Store connectivity. Technical acceptance creates
    no customer messages, orders or payments. After acceptance, restore only a
