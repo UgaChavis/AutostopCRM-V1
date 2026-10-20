@@ -312,7 +312,9 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
         role = "canonical_doc"
     elif normalized.startswith("docs/reports/") and normalized.endswith(".md"):
         role = "historical_report"
-    elif normalized.startswith("tech_debt/") and normalized.endswith(".md"):
+    elif normalized == "docs/maintenance-backlog.md" or (
+        normalized.startswith("tech_debt/") and normalized.endswith(".md")
+    ):
         role = "technical_debt_task"
     elif normalized.startswith("tools/codex/skills/autostopcrm-maintain/"):
         role = "agent_skill"

@@ -39,6 +39,7 @@ start_autostopvpn.ps1
 !MCP_GUIDE.md
 !CHATGPT_CONNECTOR_SETUP.md
 !docs/OPERATIONS_RUNBOOK.md
+!docs/maintenance-backlog.md
 !docs/J1_RELEASE_BOUNDARY.md
 !docs/J1_CRM_FORWARD_RELEASE.md
 !docs/J1_FORWARD_LAUNCH_ADMISSION.md

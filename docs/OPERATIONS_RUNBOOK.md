@@ -4,6 +4,12 @@ This is the operational source of truth for workstation checks, production
 parity, deployment, rollback, live verification, performance gates, and
 maintenance safety.
 
+The owner's current update policy is **full application downtime**. The
+[current maintenance procedure](#deploy) supersedes the retained guarded J1,
+warm-transition and CRM-only deployment references. Those references describe
+existing source for future cleanup; they are not an approved server update path.
+Unresolved historical evidence is in the [maintenance backlog](maintenance-backlog.md).
+
 ## Production Runtime
 
 | Item | Current value |
@@ -27,8 +33,9 @@ maintenance safety.
 The CRM service depends on healthy SearXNG. Static public-page extraction
 uses pinned HTTP directly; browser extraction stays fail-closed until its
 egress isolation is verified. Legacy Crawl4AI is not a runtime dependency.
-A normal release replaces only `autostopcrm`; it does not recreate SearXNG
-or remove an existing legacy Crawl4AI container.
+Replacing CRM changes only `autostopcrm`; the maintenance window also stops
+Manager and Store as described below. SearXNG and unrelated services do not
+need replacement merely because CRM is updated.
 
 Store access uses a separate precreated external network named
 `autostop-store-agent`, created with `internal=true`. Its only allowed members
@@ -70,7 +77,18 @@ if (-not $env:AUTOSTOPCRM_SSH_KEY) {
 ssh -i $env:AUTOSTOPCRM_SSH_KEY -o IdentitiesOnly=yes -o BatchMode=yes root@crm.autostopcrm.ru "cd /opt/autostopcrm && git status --short --branch && git rev-parse HEAD && git rev-parse origin/autostopcrm-v1 && docker compose ps"
 ```
 
-The production preflight is fail-closed for both repositories. CRM must be the
+Use exact checked source revisions and qualified artifacts for a new update.
+Keep existing local code and user work unchanged unless updating that checkout
+is explicitly in scope. A clean candidate may be prepared separately; compare
+the artifact with its exact CI evidence and the installed version independently.
+
+### Historical guarded preflight (reference only)
+
+The following describes the retained `deploy.sh` implementation, not the
+current maintenance procedure. Do not create its clones, environments or
+admissions for an ordinary offline update.
+
+The legacy production preflight is fail-closed for both repositories. CRM must be the
 root checkout on branch `autostopcrm-v1`, clean including untracked files, and
 its `HEAD` must equal a fresh exact fetch of `origin/autostopcrm-v1`.
 The effective `AUTOSTOP_MANAGER_SOURCE_DIR` selects the Manager Git checkout
@@ -157,10 +175,11 @@ flags added in Python 3.12.
 
 Committed state may remain in the WAL while the keeper is alive. Follow the
 [SQLite WAL backup rules](https://sqlite.org/wal.html): copying only the main
-database can omit committed changes. The coordinated release helper uses
+database can omit committed changes. The retained coordinated release helper uses
 `sqlite3.Connection.backup()` for an online snapshot and restores with CRM
-stopped, removing stale WAL/SHM files before replacement. Keep that backup and
-restore path; do not replace a live store's database file in place.
+stopped, removing stale WAL/SHM files before replacement. The current procedure
+still requires one consistent backup and one isolated local restore check;
+do not replace a live store's database file in place or overlay newer data.
 
 Desktop integration settings live in the compatibility data directory's
 `settings.json`. Initial creation and load-time normalization hold the same
@@ -186,7 +205,9 @@ While editing documentation, run:
 ```
 
 Changes to the audit implementation also require its focused tests and Python
-checks. Before publishing the final shared change, use the CI profile below.
+checks. Documentation-only cleanup uses those targeted checks while iterating;
+it does not require repeating full application suites. Preserve required CI
+for a later merged release candidate as described below.
 
 `docs_audit.py` audits this repository only by default. Cross-repository and
 local-environment scans are opt-in:
@@ -695,6 +716,11 @@ credential checks.
 
 ### Manager loopback CRM MCP credential
 
+Preserve the existing root-only credential file and principal identities in the
+current offline procedure. Verify the URL/token pairing privately before start
+and use readiness/readback after start; never print credentials. The following
+guard-admission sequence is a **historical implementation reference only**.
+
 Before the first admitted candidate scheduler start, `deploy.sh`
 atomically writes only `AUTOSTOP_CRM_MCP_URL` and
 `AUTOSTOP_CRM_MCP_BEARER_TOKEN` to the separate root-only
@@ -753,7 +779,59 @@ smoke. A successful GitHub push and CI run are not a production rollout.
 
 ## Deploy
 
-Deploy only with explicit owner intent. Normal sequence:
+### Current maintenance procedure
+
+Deploy only with explicit owner intent for the maintenance window. The owner
+accepts stopping Manager, CRM and Store together; preserving an intermediate
+old/new application combination is unnecessary.
+
+1. Record exact target Git SHAs, qualified package/image hashes and existing
+   successful checks. Review the small delta and run only affected short tests
+   during preparation. Keep required final/post-merge CI; do not repeat a full
+   run without a changed candidate or a concrete failure. Preserve unique work.
+2. Inventory the actual unit/container identities, data/config paths, active
+   credentials and current versions. Calculate this window's peak disk, memory
+   and time, including at least 2 GB free disk reserve. No fixed 30/34 GB budget
+   from the old combined scenario applies.
+3. Preserve SSH and the controlling session. Close task intake, stop application
+   consumers and Manager, CRM and Store, and verify they stopped before copying
+   data or replacing files. Keep unrelated services and normal backups intact.
+   Record uncertain unfinished operations for separate reconciliation.
+4. Make **one consistent backup of necessary data and settings** for the
+   changed components. Validate completeness and perform **one local isolated
+   restore check**, then remove its disposable directory. Do not duplicate
+   backups, images, caches or worktrees. An independent PC is outside this policy.
+5. Install the exact checked artifacts and necessary configuration while the
+   applications remain stopped. Keep working credentials, durable queues and
+   idempotency history. Store stays at its qualified version unless an explicit
+   Store update is needed; pushing Store `main` can trigger `Deploy VPS` and
+   belongs only in the maintenance window. Do not invoke the historical J1,
+   cold/warm transition or CRM-only release controllers.
+6. Start the applications using their reviewed existing service definitions.
+   Independently check physical source/image revisions, processes, authorization,
+   health and Manager → CRM → Store connectivity. Technical acceptance creates
+   no customer messages, orders or payments. Reopen task intake after acceptance.
+7. After overall successful acceptance, remove this window's temporary files,
+   test restore directory and release backup. Preserve ordinary scheduled
+   backups, required runtimes, access files, unique work and a compact receipt.
+
+If stop/readback fails, ownership is unclear, resources are insufficient or an
+operation's result is unknown, stop the affected step and preserve its data.
+Never automatically replay uncertain operations, return an old writer, or
+restore an old database over newer working data. Repair requires a concrete
+assessment of the current state.
+
+### Historical guarded release reference
+
+**Deferred and not executable under the current procedure.** The rest of this
+Deploy section, including the CRM-only and Crawl4AI retirement subsections,
+records the retained implementation. The eight `docs/J1_*.md` documents are
+reference-only contracts for that deferred code. Their admissions, holds,
+snapshots and off-host requirements do not add steps to the current procedure.
+The old sequence below is preserved for review, not as an alternative command
+list to follow during maintenance.
+
+Historical sequence:
 
 1. Verify and commit only intended changes.
 2. Push the commit to `origin/autostopcrm-v1`.
@@ -947,6 +1025,9 @@ have reopened, use a new reviewed forward/revert release rather than restoring
 old business state or manually replacing Compose.
 
 ### CRM-only UI release from an isolated worktree
+
+**Historical reference only.** Do not use this partial-service procedure for the
+current full-downtime update policy.
 
 Use `scripts/deploy_crm_only.py` only for a reviewed UI-only diff in its
 explicit path allowlist. It does not update Manager source, scheduler units,
@@ -1178,7 +1259,7 @@ journalctl -u autostopcrm-watchdog.service -n 100 --no-pager
 - Never reset or delete a dirty parallel checkout.
 - Never trust a copied release document over current code, tests, Git HEAD,
   Compose, or live health.
-- Use GitHub-first changes and the bounded deploy path.
+- Use checked published versions and the current full-downtime procedure.
 
 ## Documentation Policy
 

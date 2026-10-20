@@ -72,6 +72,7 @@ DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
 REPOSITORY_SKILL = "tools/codex/skills/autostopcrm-maintain"
 ACTIVE_DOC_GLOBS = (
+    "docs/maintenance-backlog.md",
     "docs/agent/module_operations/*.md",
     "tech_debt/*.md",
     f"{REPOSITORY_SKILL}/*.md",
