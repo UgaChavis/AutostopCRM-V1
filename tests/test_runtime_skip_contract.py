@@ -65,37 +65,6 @@ class RuntimeSkipContractTests(unittest.TestCase):
                 )(changed_method)
                 self.assertEqual(len(unexpected_skips([(case, reason)], "win32")), 1)
 
-    def test_store_capture_cut_requires_its_exact_linux_family_and_windows(self):
-        reason = "Linux flock/open flags require Linux"
-        for module in (
-            "test_j1_forward_store_capture_cut",
-            "tests.test_j1_forward_store_capture_cut",
-        ):
-            case = type(
-                "StoreCaptureCutTests",
-                (unittest.TestCase,),
-                {
-                    "__module__": module,
-                    "test_case": lambda self: None,
-                },
-            )("test_case")
-            self.assertEqual(unexpected_skips([(case, reason)], "win32"), [])
-            self.assertEqual(len(unexpected_skips([(case, reason)], "linux")), 1)
-            self.assertEqual(len(unexpected_skips([(case, reason + " changed")], "win32")), 1)
-        for module, family in (
-            ("unrelated", "StoreCaptureCutTests"),
-            ("test_j1_forward_store_capture_cut", "AnotherFamily"),
-        ):
-            case = type(
-                family,
-                (unittest.TestCase,),
-                {
-                    "__module__": module,
-                    "test_case": lambda self: None,
-                },
-            )("test_case")
-            self.assertEqual(len(unexpected_skips([(case, reason)], "win32")), 1)
-
     def test_linux_root_owned_launch_exclusion_is_scoped_to_its_two_native_families(self):
         for family in ("LaunchPermissionTests", "NativeLaunchTests"):
             native = type(family, (unittest.TestCase,), {"test_case": lambda self: None})(

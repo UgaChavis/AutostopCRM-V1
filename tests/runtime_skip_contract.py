@@ -127,13 +127,6 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
             continue
         if (
             platform == "win32"
-            and type(test).__module__.removeprefix("tests.") == "test_j1_forward_store_capture_cut"
-            and type(test).__name__ == "StoreCaptureCutTests"
-            and reason == "Linux flock/open flags require Linux"
-        ):
-            continue
-        if (
-            platform == "win32"
             and type(test).__module__.removeprefix("tests.") == "test_automation_center"
             and type(test).__name__ == "AutomationControlClientTests"
             and getattr(test, "_testMethodName", None) in WINDOWS_UNIX_SOCKET_CASES
