@@ -367,6 +367,7 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual({40, 41, 42}, {call.args[0] for call in close.call_args_list})
 
     @patch.object(effectors.native, "STATE", PurePosixPath("/private/cold-state"))
+    @patch.object(effectors.native, "CONFIG", PurePosixPath("/private/cold-config"))
     def test_kernel_custody_needs_actual_public_open_not_only_head_and_complete(self):
         documents = {}
 

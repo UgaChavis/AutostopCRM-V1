@@ -27,12 +27,20 @@ class SourceInventoryTests(unittest.TestCase):
     def test_cold_inventory_includes_only_the_required_additional_helper(self):
         source = Path(release.__file__).resolve().parents[1]
         names = sorted(
-            str(path.relative_to(source)) for path in (source / "scripts").glob("j1_forward_*.py")
+            path.relative_to(source).as_posix()
+            for path in (source / "scripts").glob("j1_forward_*.py")
         )
         result = subprocess.CompletedProcess([], 0, ("\n".join(names) + "\n").encode())
+
+        # This portable inventory test has explicit Git/file-read doubles;
+        # the native family below verifies the protected physical source cut.
+        def reference(path):
+            return {"path": str(path), "sha256": io.sha(Path(path).read_bytes())}
+
         with (
             patch.object(release, "CRM", source),
             patch.object(release.subprocess, "run", return_value=result),
+            patch.object(io, "reference", side_effect=reference),
         ):
             warm = release.source_consumers()
             cold = release.source_consumers(cold=True)
