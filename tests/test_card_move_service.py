@@ -42,6 +42,14 @@ class CardMoveServiceTests(CardServiceCase):
             self.service._serialize_compact_cards_for_columns(cards, counted, ["empty"]), []
         )
         self.assertEqual(counted.iterations, 0)
+        legacy = AuditEvent.from_dict({"action": "legacy_event"})
+        for card_id in ([], {}):
+            with self.subTest(legacy_card_id=card_id):
+                legacy.card_id = card_id
+                actual = self.service._serialize_compact_cards_for_columns(
+                    cards, [*events, legacy], ["inbox"], viewer_username="ALICE"
+                )
+                self.assertEqual(actual, expected)
 
     def test_move_card_can_reorder_within_same_column(self) -> None:
         first = self.service.create_card(

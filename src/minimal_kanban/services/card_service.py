@@ -5259,7 +5259,11 @@ class CardService(
         selected_cards.sort(
             key=lambda item: (item.column, item.position, item.created_at, item.updated_at, item.id)
         )
-        event_counts = Counter(event.card_id for event in events) if selected_cards else {}
+        try:
+            event_counts = Counter(event.card_id for event in events) if selected_cards else {}
+        except TypeError:
+            # Retain the original equality scan for malformed in-memory legacy events.
+            event_counts = None
         return [
             self._serialize_card(
                 card,
