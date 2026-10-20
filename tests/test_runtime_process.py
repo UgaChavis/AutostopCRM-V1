@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,6 +70,209 @@ def alive(pid):
 
 
 class RuntimeProcessTests(unittest.TestCase):
+    @staticmethod
+    def driver_shape(popen, *, pid=None):
+        process = SimpleNamespace(
+            pid=popen.pid if pid is None else pid,
+            _transport=SimpleNamespace(
+                get_extra_info=lambda key: popen if key == "subprocess" else None
+            ),
+        )
+        return SimpleNamespace(
+            _impl_obj=SimpleNamespace(
+                _connection=SimpleNamespace(_transport=SimpleNamespace(_proc=process))
+            )
+        )
+
+    def test_driver_witness_rejects_missing_mismatched_and_boolean_native_identity(self):
+        from tests.runtime_process_windows import _driver_popen
+
+        popen = SimpleNamespace(pid=321, _handle=44)
+        self.assertIs(popen, _driver_popen(self.driver_shape(popen)))
+        for invalid in [
+            SimpleNamespace(),
+            self.driver_shape(popen, pid=True),
+            self.driver_shape(popen, pid=322),
+            self.driver_shape(SimpleNamespace(pid=True, _handle=44), pid=1),
+            self.driver_shape(SimpleNamespace(pid=321, _handle=True)),
+            self.driver_shape(SimpleNamespace(pid=321, _handle=-1)),
+        ]:
+            with self.subTest(shape=invalid), self.assertRaises((AttributeError, ValueError)):
+                _driver_popen(invalid)
+
+    def test_driver_native_readback_uses_readonly_handle_birth_and_signaled_exit(self):
+        """Portable artificial kernel; actual Windows ABI is a separate target."""
+        from tests.runtime_process_windows import _DriverProcess
+
+        kernel = Mock()
+        kernel.GetCurrentProcess.return_value = 7
+        kernel.GetProcessId.return_value = 321
+        kernel.WaitForSingleObject.return_value = 0x102
+        birth = [100]
+
+        def duplicate(*args):
+            args[3]._obj.value = 123
+            return True
+
+        def times(handle, creation, exit_time, _kernel, _user):
+            creation._obj.dwLowDateTime = 90 if handle == 7 else birth[0]
+            exit_time._obj.dwLowDateTime = 160
+            return True
+
+        def image(_handle, _flags, buffer, _size):
+            buffer.value = "C:\\synthetic\\node.exe"
+            return True
+
+        def code(_handle, result):
+            result._obj.value = (
+                259  # a signaled process may actually exit with STILL_ACTIVE's value
+            )
+            return True
+
+        kernel.DuplicateHandle.side_effect = duplicate
+        kernel.GetProcessTimes.side_effect = times
+        kernel.QueryFullProcessImageNameW.side_effect = image
+        kernel.GetExitCodeProcess.side_effect = code
+        with patch("tests.runtime_process_windows._kernel", return_value=kernel):
+            native = _DriverProcess(self.driver_shape(SimpleNamespace(pid=321, _handle=44)))
+            self.assertEqual((7, 44, 7), kernel.DuplicateHandle.call_args.args[:3])
+            self.assertEqual((0x00101000, False, 0), kernel.DuplicateHandle.call_args.args[4:])
+            self.assertFalse(native.read()["signaled"])
+            kernel.WaitForSingleObject.return_value = 0
+            self.assertEqual(259, native.read()["exit_code"])
+            birth[0] = 101
+            with self.assertRaisesRegex(ValueError, "birth_changed"):
+                native.read()
+            native.close()
+            kernel.CloseHandle.assert_called_once_with(123)
+
+    def test_driver_witness_failed_attachment_is_explicit_invalid_without_sensitive_message(self):
+        from tests.runtime_process_windows import DriverWitness
+
+        with (
+            tempfile.TemporaryDirectory() as name,
+            patch.object(sys, "platform", "win32"),
+            patch(
+                "tests.runtime_process_windows._DriverProcess",
+                side_effect=ValueError("private-message-must-not-be-logged"),
+            ),
+            patch("tests.runtime_process_windows.threading.Thread") as thread,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "driver_witness_invalid"):
+                DriverWitness(object(), destination=Path(name), label="synthetic-attachment")
+            text = next(Path(name).glob("*.json")).read_text()
+            self.assertFalse(json.loads(text)["valid_witness"])
+            self.assertNotIn("private-message", text)
+            thread.assert_not_called()
+
+    def test_driver_witness_marks_intentional_before_success_and_setup_failure_cleanup(self):
+        import importlib.util
+
+        # Execute the actual fixture in a private module with an explicit fake
+        # API runtime. Never cache that fake under tests.browser_ui_support.
+        spec = importlib.util.spec_from_file_location(
+            "_synthetic_driver_cleanup_fixture", ROOT / "tests/browser_ui_support.py"
+        )
+        ui = importlib.util.module_from_spec(spec)
+        with (
+            patch.dict(
+                sys.modules, {"browser_smoke_runtime": SimpleNamespace(start_temp_runtime=Mock())}
+            ),
+            patch.object(sys, "path", list(sys.path)),
+        ):
+            spec.loader.exec_module(ui)
+
+        for failure in [None, "browser", "runtime"]:
+            events = []
+            playwright = SimpleNamespace(stop=lambda: events.append("playwright"))
+            browser = SimpleNamespace(close=lambda: events.append("browser"))
+            playwright.chromium = SimpleNamespace(executable_path=__file__, launch=Mock())
+            playwright.chromium.launch.side_effect = (
+                RuntimeError("synthetic-browser-setup")
+                if failure == "browser"
+                else lambda **kw: browser
+            )
+            runtime = SimpleNamespace(close=lambda: events.append("runtime"))
+            witness = SimpleNamespace(close=lambda: events.append("witness"))
+            sdk = SimpleNamespace(sync_playwright=lambda: SimpleNamespace(start=lambda: playwright))
+            fixture = type("SyntheticWitnessFixture", (ui.UiBrowserTestCase,), {})
+            with (
+                self.subTest(failure=failure),
+                patch.dict(sys.modules, {"playwright.sync_api": sdk}),
+                patch.object(sys, "platform", "win32"),
+                patch.object(ui.asyncio, "WindowsProactorEventLoopPolicy", create=True),
+                patch.object(ui.asyncio, "set_event_loop_policy"),
+                patch("tests.runtime_process_windows.DriverWitness", return_value=witness),
+                patch.object(
+                    ui,
+                    "start_temp_runtime",
+                    side_effect=(
+                        RuntimeError("synthetic-runtime-setup")
+                        if failure == "runtime"
+                        else lambda **kw: runtime
+                    ),
+                ),
+            ):
+                try:
+                    if failure:
+                        with self.assertRaisesRegex(RuntimeError, "synthetic-.*-setup"):
+                            fixture.setUpClass()
+                    else:
+                        fixture.setUpClass()
+                finally:
+                    fixture.doClassCleanups()
+            expected = ["witness"] + (["runtime"] if failure is None else [])
+            expected += (["browser"] if failure != "browser" else []) + ["playwright"]
+            self.assertEqual(expected, events)
+
+    @unittest.skipUnless(os.name == "nt", "Windows job handle lifetime")
+    def test_driver_native_handle_retains_actual_birth_and_exit_codes(self):
+        from tests.runtime_process_windows import _DriverProcess
+
+        for expected in (0, 7, 259):
+            with subprocess.Popen(
+                [CONTROLLER_PYTHON, "-c", f"raise SystemExit({expected})"]
+            ) as child:
+                native = _DriverProcess(self.driver_shape(child))
+                try:
+                    creation = native.birth
+                    self.assertEqual(expected, child.wait(timeout=5))
+                    result = native.read()
+                    self.assertEqual(
+                        (child.pid, creation), (result["pid"], result["creation_filetime"])
+                    )
+                    self.assertTrue(result["signaled"])
+                    self.assertEqual(expected, result["exit_code"])
+                    self.assertGreater(result["exit_filetime"], 0)
+                finally:
+                    native.close()
+
+    @unittest.skipUnless(os.name == "nt", "Windows job handle lifetime")
+    def test_driver_witness_close_does_not_close_original_handle_or_stop_owned_child(self):
+        from tests.runtime_process_windows import DriverWitness
+
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            release = directory / "release"
+            code = (
+                "import sys,time;from pathlib import Path\nfor _ in range(400):\n"
+                " if Path(sys.argv[1]).exists(): break\n time.sleep(.01)"
+            )
+            with subprocess.Popen([CONTROLLER_PYTHON, "-c", code, str(release)]) as child:
+                witness = DriverWitness(
+                    self.driver_shape(child), destination=directory, label="synthetic-child"
+                )
+                try:
+                    witness.close()
+                    report = json.loads(witness.path.read_text())
+                    self.assertTrue(report["valid_witness"])
+                    self.assertIsNone(report["native_exit"])
+                    self.assertGreater(report["intentional_cleanup_begin_ns"], report["started_ns"])
+                    self.assertIsNone(child.poll())
+                finally:
+                    release.touch()
+                    self.assertEqual(0, child.wait(timeout=5))
+
     def test_windows_early_wait_timeout_does_not_reject_a_live_budget(self):
         from tests.runtime_process_windows import WindowsProcess
 
