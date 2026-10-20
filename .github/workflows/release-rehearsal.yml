@@ -288,6 +288,12 @@ jobs:
           assert cold["source_sha"] == os.environ["GITHUB_SHA"], cold
           assert cold["ok"] is True and cold["cleanup_complete"] is True, cold
           assert cold["production_acceptance"] is False, cold
+          kernel_credentials = cold["kernel_credentials"]
+          assert type(kernel_credentials) is dict and set(kernel_credentials) == {"passed", "cleanup_complete", "observed", "settings", "production_acceptance"}, kernel_credentials
+          assert kernel_credentials["passed"] is True and kernel_credentials["cleanup_complete"] is True, kernel_credentials
+          assert kernel_credentials["observed"] == {"uid": 0, "gid": 0, "groups": [0]}, kernel_credentials
+          assert kernel_credentials["settings"] == {"User": "root", "Group": "root", "SupplementaryGroups": "root"}, kernel_credentials
+          assert kernel_credentials["production_acceptance"] is False, kernel_credentials
           expected_cold = {"one_entry", "source_corrupt_before_a", "parent_r_before_a", "kernel_dead_before_a"}
           seen_cold = set()
           for case in cold["cases"]:

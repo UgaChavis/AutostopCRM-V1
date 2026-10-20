@@ -521,6 +521,62 @@ def guard_exit_status(unit):
     return 2
 
 
+def probe_kernel_credentials():
+    """Apply the actual kernel unit's credential settings on this hosted VM."""
+    boundary()
+    from scripts import j1_forward_cold_producer_native as producer
+    from scripts import j1_isolated_systemd_rehearsal as hosted
+
+    unit = "autostop-cold-kernel-credentials-" + str(uuid.uuid4()) + ".service"
+    source = "import json,os;print(json.dumps(dict(uid=os.geteuid(),gid=os.getegid(),groups=sorted(os.getgroups()))))"
+    require(
+        hosted.unit_status(unit)["LoadState"] == "not-found", "kernel_credential_probe_collision"
+    )
+    try:
+        result = subprocess.run(
+            [
+                "/usr/bin/systemd-run",
+                "--quiet",
+                "--wait",
+                "--pipe",
+                "--collect",
+                "--unit=" + unit,
+                "--property=Type=exec",
+                "--property=Restart=no",
+                *[
+                    "--property=" + key + "=" + value
+                    for key, value in producer.KERNEL_UNIT_CREDENTIALS
+                ],
+                "/usr/bin/python3",
+                "-I",
+                "-S",
+                "-B",
+                "-c",
+                source,
+            ],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        require(
+            result.returncode == 0 and len(result.stdout) < 1024, "kernel_credential_probe_failed"
+        )
+        observed = json.loads(result.stdout)
+        require(observed == {"uid": 0, "gid": 0, "groups": [0]}, "kernel_credential_probe_mismatch")
+    finally:
+        subprocess.run(
+            ["/usr/bin/systemctl", "stop", unit], capture_output=True, check=False, timeout=10
+        )
+        require(hosted.unit_status(unit)["MainPID"] == "0", "kernel_credential_probe_cleanup")
+    return {
+        "passed": True,
+        "observed": observed,
+        "cleanup_complete": True,
+        "settings": dict(producer.KERNEL_UNIT_CREDENTIALS),
+        "production_acceptance": False,
+    }
+
+
 def run_case(mode):
     from scripts import j1_forward_cold_authority as cold
     from scripts import j1_forward_cold_lifecycle as lifecycle
@@ -670,6 +726,7 @@ def main(argv=None):
         ],
     }
     try:
+        report["kernel_credentials"] = probe_kernel_credentials()
         for mode in CASES:
             case = run_case(mode)
             report["cases"].append(case)

@@ -36,6 +36,11 @@ from scripts.j1_forward_cold_catalog_native import (
 ENVIRONMENT = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
 CRM_PRODUCTION_BRANCH = "autostopcrm-v1"
 MODEL_NAMES = frozenset({"config.json", "model.bin", "tokenizer.json", "vocabulary.txt"})
+KERNEL_UNIT_CREDENTIALS = (
+    ("User", "root"),
+    ("Group", "root"),
+    ("SupplementaryGroups", "root"),
+)
 
 
 def model_hashes(raw):
@@ -1349,6 +1354,7 @@ class NativeBackend:
             + "\n[Service]\nType=notify\nNotifyAccess=main\nRestart=no\nKillMode=control-group\nTimeoutStartSec=30\nTimeoutStopSec=10\nWorkingDirectory="
             + cwd
             + "\n"
+            + "".join(key + "=" + value + "\n" for key, value in KERNEL_UNIT_CREDENTIALS)
             + "".join(
                 "Environment=" + quoted(key + "=" + value) + "\n"
                 for key, value in sorted(home_environment.items())
@@ -1476,6 +1482,8 @@ class NativeBackend:
             and self.kernel_actor["argv_sha256"]
             == io.sha(b"\0".join(value.encode() for value in argv) + b"\0")
             and self.kernel_actor["uid"] == 0
+            and self.kernel_actor["gid"] == 0
+            and self.kernel_actor["groups"] == [0]
             and self.kernel_actor["cgroup"] == "0::" + actual["ControlGroup"],
             "producer_kernel_supervisor_not_owned",
         )

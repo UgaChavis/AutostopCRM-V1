@@ -212,6 +212,13 @@ class ColdSystemdEvidenceGateTests(unittest.TestCase):
             "ok": True,
             "cleanup_complete": True,
             "production_acceptance": False,
+            "kernel_credentials": {
+                "passed": True,
+                "cleanup_complete": True,
+                "observed": {"uid": 0, "gid": 0, "groups": [0]},
+                "settings": {"User": "root", "Group": "root", "SupplementaryGroups": "root"},
+                "production_acceptance": False,
+            },
             "cases": [
                 {
                     "name": name,
@@ -255,6 +262,7 @@ class ColdSystemdEvidenceGateTests(unittest.TestCase):
             ("cleanup_complete", False),
             ("production_acceptance", True),
             ("cases", []),
+            ("kernel_credentials", {}),
             ("case.passed", False),
             ("case.systemd_launches", 2),
             ("case.exec_condition", "/foreign/check"),
