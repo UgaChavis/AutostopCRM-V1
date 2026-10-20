@@ -758,6 +758,11 @@ def _settle_source(plan, baseline, binding, identity, invocation, read):
     context = read(io.reference(store.root / "context.json"))
     ticket, current = snapshot["ticket"], snapshot["state"]
     accepted = current["acceptance"]
+    consumers = context["consumers"]
+    core = {
+        name: consumers["scripts/j1_forward_cold_" + name + ".py"]
+        for name in ("authority", "native", "guard", "history", "hold")
+    }
     io.require(
         reference["path"] == str(parent.request_path(plan["attempt_id"]))
         and request["attempt_id"] == binding["attempt_id"] == plan["attempt_id"]
@@ -785,10 +790,10 @@ def _settle_source(plan, baseline, binding, identity, invocation, read):
         and accepted is not None
         and accepted == current["claim"]
         and invocation == accepted["invocation_id"]
+        and binding["consumer_sha256"] == cold.digest(core)
         and ticket["source_sha256"]
-        == binding["consumer_sha256"]
         == plan["candidate"]["consumer_sha256"]
-        == parent.native._sources(context["consumers"], cold=True),
+        == parent.native._sources(consumers, cold=True),
         "cold_settle_completed_source",
     )
     return context["consumers"]
@@ -952,7 +957,7 @@ def _settle_completed(
     )
     runtime.validate_report(
         read(completion["post_open_readonly_ref"]),
-        candidate=plan["candidate"],
+        candidate={key: plan["candidate"][key] for key in ("image", "revision", "tree")},
         attempt=plan["attempt_id"],
         phase="open",
     )
@@ -1011,7 +1016,7 @@ def _settle_completed(
             kernel_source.file_version(path.lstat()) == version
             for path, version in versions.items()
         )
-        and parent.native._sources(consumers, cold=True) == package["binding"]["consumer_sha256"],
+        and parent.native._sources(consumers, cold=True) == plan["candidate"]["consumer_sha256"],
         "cold_settle_completed_changed",
     )
     for path in (store.pending_path, store.recovery_path):

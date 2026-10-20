@@ -60,6 +60,26 @@ class ColdSettleTests(unittest.TestCase):
         self.custody = parent_tests.rehearsal.PrivateFilesystem(self.root)
         self.system_directory = parent.journal._directory
         self.install(patch.object(parent.journal, "_directory", self.private_directory))
+        for name in ("authority", "native", "guard", "history", "hold"):
+            path = self.scripts / ("j1_forward_cold_" + name + ".py")
+            raw = ("# private fixture " + name + ", never executed\n").encode()
+            parent.journal._new(path, raw)
+            self.consumers["scripts/" + path.name] = io.sha(raw)
+        self.request["candidate"]["consumer_sha256"] = cold.digest(self.consumers)
+        source = {
+            **{name: self.request["source"][name] for name in ("revision", "tree")},
+            "consumer_sha256": self.request["candidate"]["consumer_sha256"],
+        }
+        qualification = parent_tests.qualification.measure(
+            source,
+            quality_run=101,
+            rehearsal_run=102,
+            fetch=parent_tests.qualified.responses().__getitem__,
+        )
+        self.request["qualification_ref"] = io.atomic_replace(
+            Path(self.request["qualification_ref"]["path"]), qualification
+        )
+        self.reference = io.atomic_replace(parent.request_path(self.attempt), self.request)
         self.launch_store = parent_tests.ColdControllerAdmissionTests.accepted(self)
         snapshot = self.launch_store.read()
         for event in ("claim", "enter"):
@@ -87,7 +107,12 @@ class ColdSettleTests(unittest.TestCase):
             "generation": self.request["owner_generation"],
             "candidate_crm_sha": self.request["candidate"]["revision"],
             "candidate_manager_sha": self.request["candidate_manager_sha"],
-            "consumer_sha256": self.request["candidate"]["consumer_sha256"],
+            "consumer_sha256": cold.digest(
+                {
+                    name: self.consumers["scripts/j1_forward_cold_" + name + ".py"]
+                    for name in ("authority", "native", "guard", "history", "hold")
+                }
+            ),
             "deployment_lock_identity": self.baseline["deployment_lock_identity"],
             "not_before_ns": time.monotonic_ns() - 10**9,
             "deadline_ns": time.monotonic_ns() + 120 * 10**9,
@@ -232,7 +257,11 @@ class ColdSettleTests(unittest.TestCase):
         post_open_ref = self.write(
             self.directory / "post-open-readonly.json",
             runtime_tests.report(
-                candidate=self.plan["candidate"], attempt=self.attempt, phase="open"
+                candidate={
+                    key: self.plan["candidate"][key] for key in ("image", "revision", "tree")
+                },
+                attempt=self.attempt,
+                phase="open",
             ),
         )
         self.completion_ref = self.write(
@@ -356,6 +385,9 @@ class ColdSettleTests(unittest.TestCase):
         self.assertTrue((self.epoch_root / "safety-closed.json").is_file())
 
     def test_completed_normal_exit_keeps_only_the_existing_open_runtime(self):
+        self.assertNotEqual(
+            self.binding["consumer_sha256"], self.plan["candidate"]["consumer_sha256"]
+        )
         original = Path(self.fence["state_path"]).read_bytes()
         with patch.object(
             parent.native,
