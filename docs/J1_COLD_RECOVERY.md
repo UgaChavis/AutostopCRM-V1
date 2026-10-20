@@ -46,7 +46,11 @@ the same epoch. An unknown submitted outcome never permits another submission.
 * `j1_forward_cold_release.py issue-request` replays the exact-source GitHub
   qualification before publishing a request ticket. `launch` reserves one
   transient controller submission; `controller` is its fixed native consumer.
-  `settle` only closes the new dispatch epoch and records a terminal refusal.
+  `settle` acquires the existing deployment lock and the new epoch's exclusive
+  fence. On an exact successful service exit it retains an already completed
+  runtime only after replaying HEAD/completion, source, invocation and current
+  kernel custody. Missing, failed, incomplete or changed evidence closes that
+  epoch and records a terminal refusal. It never issues a new launch permit.
   `inspect` and the Windows custodian use the separate typed cold contract.
 
 The qualification binds the full CRM source inventory and exact Git revision
@@ -506,9 +510,10 @@ and a fresh `--output-dir` are required. This large Linux-only rehearsal is
 opt-in; ordinary test discovery runs its small contract regressions instead.
 
 The runner checks a source-pinned Manager revision/capsule pair and the alpha.11
-executable against the reviewed artifact identity. The current fixture's 5bf9570c
-pins are historical; the final Manager decoder fix requires new fixed source and
-capsule pins and a complete rerun before release. Artifact directory arguments
+executable against the reviewed artifact identity. The fixture pins Manager
+`51752bdb2048e0012e23b10bc770ff59f781874a` and its sealed runtime capsule
+`6158d4a79c3d798fb9dc816053f67bc5b43343bb07069e61bef307c13360dfd5`;
+the complete trace must pass for the final CRM source before release. Artifact directory arguments
 do not accept an arbitrary replacement runtime or grant authority.
 The fixture creates its own offline appserver and supervisor, performs actual
 socket/RPC/owned-thread measurements, and reads all six private durable catalog
