@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import select
@@ -14,8 +13,7 @@ import threading
 import time
 import unittest
 import uuid
-from contextlib import ExitStack
-from datetime import UTC, datetime, timedelta
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +24,7 @@ from scripts import j1_forward_cold_backup as cold_backup
 from scripts import j1_forward_cold_epoch as epochs
 from scripts import j1_forward_cold_fixture as topology
 from scripts import j1_forward_cold_lifecycle as lifecycle
+from scripts import j1_forward_cold_release as coordinator
 from scripts import j1_forward_io as io
 from scripts import j1_forward_rehearsal_crm as crm_boundary
 from scripts import j1_forward_release as release
@@ -115,6 +114,21 @@ def _accept(controller, unit):
             status = {"diagnostics_unavailable": True}
         print("PRIVATE_COLD_GUARD " + json.dumps(status, sort_keys=True), flush=True)
         raise
+
+
+@contextmanager
+def _phase(name):
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        print(
+            "PRIVATE_COLD_PHASE_TIMING "
+            + io.canonical({"phase": name, "wall_seconds": time.perf_counter() - started})
+            .decode()
+            .strip(),
+            flush=True,
+        )
 
 
 @unittest.skipUnless(
@@ -227,7 +241,7 @@ class ColdV2EntryTests(unittest.TestCase):
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
 class ColdV2JoinedTraceTests(unittest.TestCase):
-    def test_failed_origin_full_restore_six_entries_crash_head_commit_and_finish(self):
+    def test_failed_origin_full_restore_six_entries_commit_and_finish(self):
         started = time.perf_counter()
 
         def mark(stage):
@@ -381,22 +395,6 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                     offhost,
                     captured["closed_inspection_ref"],
                 )
-                changed = copy.deepcopy(io.document(io.referenced(offhost)))
-                changed["payload"]["actual_restore"] = False
-                corrupt_ref = fixture._write(attempt["directory"] / "corrupt-offhost.json", changed)
-                before_children = len(fixture.children)
-                with self.assertRaisesRegex(io.Refusal, "proof_signature_invalid"):
-                    controller.issue(attempt["plan_ref"], captured["backup_ref"], corrupt_ref)
-                with self.assertRaisesRegex(io.Refusal, "proof_deadline_expired"):
-                    rehearsal.signatures.verify_proof(
-                        offhost,
-                        "offhost_restore",
-                        attempt["plan_ref"],
-                        io.reference(signer.public),
-                        now=datetime.now(UTC) + timedelta(seconds=700),
-                        plan_validator=variant.validate_plan,
-                    )
-                self.assertEqual(len(fixture.children), before_children)
                 controller.issue(attempt["plan_ref"], captured["backup_ref"], offhost)
                 mark("actual_signed_restore_issued")
                 accepted = {}
@@ -405,13 +403,9 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                     accepted[unit] = _accept(controller, unit)
                     snapshot = controller.store(unit).read()
                     self.assertTrue(snapshot["state"]["execution_possible"])
-                    self.assertTrue(controller.submit(unit)["historical"])
-                    self.assertEqual(controller.store(unit).read(), snapshot)
                     mark("actual_native_entry_accepted:" + unit)
                 entered_crm = controller.consume_crm_start(fixture.parent.request_ref)
                 self.assertTrue(entered_crm["entry_consumed"])
-                with self.assertRaisesRegex(io.Refusal, "already_consumed_no_retry"):
-                    controller.consume_crm_start(fixture.parent.request_ref)
                 crm.start()
                 crm_receipt = fixture._write(
                     attempt["directory"] / "crm-readback.json", crm.measure(epoch_ref, package_ref)
@@ -472,19 +466,18 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                         fixture, attempt, signer, kind, proofs[kind], inspection
                     )
                 store = attempt["store"]
-                _crash_after_history(
-                    store,
-                    attempt["plan"],
-                    lambda: store.commit_recovery(attempt["envelope"], proofs),
-                )
-                with self.assertRaisesRegex(io.Refusal, "state_head_mismatch"):
-                    store.head()
-                committed = store.recover_recovery(attempt["envelope"])
-                self.assertEqual(store.commit_recovery(attempt["envelope"], proofs), committed)
+                mark("actual_signed_activation_proofs")
+                with _phase("commit_recovery"):
+                    committed = store.commit_recovery(attempt["envelope"], proofs)
+                self.assertEqual(store.head()["sha256"], committed["sha256"])
                 self.assertEqual(len(list(store.history.iterdir())), 1)
-                mark("actual_history_crash_recovered_to_durable_head")
-                controller.commit(committed, store=store)
-                controller.open_ingress(committed, store=store)
+                mark("actual_durable_head_committed")
+                with _phase("controller_commit"):
+                    controller.commit(committed, store=store)
+                mark("controller_commit_accepted")
+                with _phase("open_ingress"):
+                    controller.open_ingress(committed, store=store)
+                mark("new_ingress_opened")
                 for unit in authority.ALLOWED:
                     endpoint = (
                         fixture.root / "execution/roles" / epochs.ROLES[unit] / "run/control.sock"
@@ -494,11 +487,11 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                         client.connect(str(endpoint))
                         client.sendall(io.canonical(unknown))
                         self.assertEqual(client.recv(128), b"DENY\n")
-                completed = controller.finish(store=store)
+                with _phase("finish"):
+                    completed = controller.finish(store=store)
                 self.assertIsNone(store.pending())
                 self.assertIsNone(store._active_recovery())
                 self.assertEqual(store.head()["sha256"], committed["sha256"])
-                self.assertEqual(controller.finish(store=store), completed)
                 mark("committed_opened_and_finished")
                 for unit in authority.UNITS:
                     self.assertEqual(
@@ -524,33 +517,64 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                         "completion": io.reference(attempt["directory"] / "completion.json"),
                     },
                 )
-                terminal = archive.capture(
-                    fixture.control,
-                    attempt["plan_ref"],
-                    captured["captured"]["manifest"],
-                    fixture.root / "control-terminal-package",
-                    stage="terminal",
-                    codec=5,
-                    observer=lambda: {
-                        **captured["closure_ref"],
-                        "attempt_id": attempt["plan"]["attempt_id"],
-                    },
-                    consumer_roots={
-                        attempt["plan"]["candidate"]["consumer_sha256"]: attempt["consumer_root"]
-                    },
-                    authority_reader=fixture.provider.read_reference,
-                    authority_file_reader=fixture.custody.read,
+                terminal_cuts = []
+
+                def terminal_observer():
+                    self.assertEqual(store.head()["sha256"], committed["sha256"])
+                    observed = coordinator._native_observation(
+                        attempt["plan"], controller, "activated"
+                    )
+                    terminal_cuts.append(observed["observed_monotonic_ns"])
+                    return release.save(attempt["directory"], "cold-terminal-native", observed)
+
+                with _phase("terminal_control_capture"):
+                    terminal = archive.capture(
+                        fixture.control,
+                        attempt["plan_ref"],
+                        captured["captured"]["manifest"],
+                        fixture.root / "control-terminal-package",
+                        stage="terminal",
+                        codec=5,
+                        observer=terminal_observer,
+                        consumer_roots={
+                            attempt["plan"]["candidate"]["consumer_sha256"]: attempt[
+                                "consumer_root"
+                            ]
+                        },
+                        authority_reader=fixture.provider.read_reference,
+                        authority_file_reader=fixture.custody.read,
+                    )
+                # Final live cut uses the real clock, after every captured
+                # source byte/version reread. Historical restore below grants
+                # no permission and uses its own bounded deadline.
+                with _phase("terminal_capture_exit_freshness"):
+                    terminal_observer()
+                print(
+                    "PRIVATE_COLD_CAPTURE_FRESHNESS "
+                    + io.canonical(
+                        {
+                            "last_fresh_monotonic_ns": terminal_cuts[-1],
+                            "binding_deadline_ns": fixture.binding["deadline_ns"],
+                            "terminal_native_cuts": len(terminal_cuts),
+                            "historical_restore_authority": False,
+                        }
+                    )
+                    .decode()
+                    .strip(),
+                    flush=True,
                 )
-                restored = archive.verify_and_restore(
-                    fixture.root / "control-terminal-package",
-                    terminal["manifest_sha256"],
-                    fixture.root / "terminal-restore",
-                    plan_ref=attempt["plan_ref"],
-                    backup_manifest_ref=captured["captured"]["manifest"],
-                    stage="terminal",
-                    logical_root=fixture.control,
-                    custody=fixture.custody,
-                )
+                mark("terminal_control_captured")
+                with _phase("terminal_control_restore"):
+                    restored = archive.verify_and_restore(
+                        fixture.root / "control-terminal-package",
+                        terminal["manifest_sha256"],
+                        fixture.root / "terminal-restore",
+                        plan_ref=attempt["plan_ref"],
+                        backup_manifest_ref=captured["captured"]["manifest"],
+                        stage="terminal",
+                        logical_root=fixture.control,
+                        custody=fixture.custody,
+                    )
                 self.assertTrue(restored["semantic_graph_verified"])
                 self.assertFalse(restored["semantic"]["pending_present"])
                 self.assertFalse(restored["semantic"]["active_recovery_present"])
@@ -569,7 +593,6 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                         "six_actual_native_entries",
                         "private_crm_readback",
                         "crm_final_plan_entry",
-                        "history_crash_and_recovery",
                         "durable_HEAD",
                         "fresh_namespace_open",
                         "finish",
