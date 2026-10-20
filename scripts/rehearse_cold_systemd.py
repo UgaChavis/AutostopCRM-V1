@@ -105,6 +105,7 @@ class HostedFixtureBackend:
         self.injected = False
         self.launch_started = self.launch_finished = self.wrapper_observed = None
         self.observation_errors = {}
+        self.process_mismatch = None
 
     def _verify_unit(self, ticket, context, *, inactive):
         require(ticket["unit"] == self.unit, "unowned_cold_systemd_unit")
@@ -153,11 +154,48 @@ class HostedFixtureBackend:
         except (OSError, ValueError) as error:
             failure = code(error)
             self.observation_errors[failure] = self.observation_errors.get(failure, 0) + 1
+            if failure == "cold_slot_native_process" and self.process_mismatch is None:
+                try:
+                    self.process_mismatch = self.process_diagnostic(ticket, context, started)
+                except BaseException as diagnostic_error:
+                    self.process_mismatch = {"failure_code": code(diagnostic_error)}
             raise
         if not started and self.wrapper_observed is None:
             self.wrapper_observed = time.monotonic()
             self.before_a(ticket)
         return result
+
+    def process_diagnostic(self, ticket, context, started):
+        """Synthetic owned-unit comparison, without argv/environment content."""
+        from scripts import j1_forward_cold_native as native
+        from scripts import j1_forward_io as io
+        from scripts import j1_forward_launch_native as launch
+
+        require(ticket["unit"] == self.unit, "unowned_cold_process_diagnostic")
+        before = launch._unit(self.unit)
+        require(before["Id"] == self.unit, "diagnostic_unit_identity")
+        pid = int(before["MainPID"])
+        observed = native.actor(pid)
+        expected_argv = context["application_argv"] if started else context["worker_argv"]
+        expected_exe = context[
+            "application_interpreter_ref" if started else "bootstrap_interpreter_ref"
+        ]
+        credentials = context["credentials"] if started else context["bootstrap_credentials"]
+        comparisons = {
+            "argv_matches": observed["argv_sha256"]
+            == io.sha(b"\0".join(os.fsencode(arg) for arg in expected_argv) + b"\0"),
+            "executable_path_matches": observed["exe_ref"]["path"] == expected_exe["path"],
+            "executable_hash_matches": observed["exe_ref"]["sha256"] == expected_exe["sha256"],
+            "cwd_matches": os.readlink(Path("/proc") / str(pid) / "cwd")
+            == context["application_cwd" if started else "worker_cwd"],
+            "credentials_observed": {key: observed[key] for key in credentials},
+            "credentials_expected": credentials,
+        }
+        require(
+            native.actor(pid) == observed and launch._unit(self.unit) == before,
+            "diagnostic_process_changed",
+        )
+        return comparisons
 
     def before_a(self, ticket):
         from scripts import j1_forward_cold_lifecycle as lifecycle
@@ -260,6 +298,7 @@ class HostedFixtureBackend:
             ],
             "guard_errors": errors,
             "observation_errors": dict(getattr(self, "observation_errors", {})),
+            "process_mismatch": getattr(self, "process_mismatch", None),
         }
 
     def stop(self):

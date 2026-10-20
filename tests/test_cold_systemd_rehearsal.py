@@ -168,16 +168,19 @@ class ColdSystemdBoundaryTests(unittest.TestCase):
     def test_observer_failure_preserves_the_original_refusal_and_only_counts_safe_codes(self):
         backend = object.__new__(stand.HostedFixtureBackend)
         backend.actual = SimpleNamespace(
-            observe=Mock(side_effect=io.Refusal("slot_native_process"))
+            observe=Mock(side_effect=io.Refusal("cold_slot_native_process"))
         )
         backend.observation_errors = {}
-        with self.assertRaisesRegex(io.Refusal, "slot_native_process"):
+        backend.process_mismatch = None
+        backend.process_diagnostic = Mock(return_value={"argv_matches": False})
+        with self.assertRaisesRegex(io.Refusal, "cold_slot_native_process"):
             backend.observe({}, {})
-        self.assertEqual(backend.observation_errors, {"slot_native_process": 1})
+        self.assertEqual(backend.observation_errors, {"cold_slot_native_process": 1})
+        backend.process_diagnostic.assert_called_once_with({}, {}, False)
         backend.actual.observe.side_effect = OSError("private-placeholder")
         with self.assertRaisesRegex(OSError, "private-placeholder"):
             backend.observe({}, {})
-        self.assertEqual(backend.observation_errors, {"slot_native_process": 1, "OSError": 1})
+        self.assertEqual(backend.observation_errors, {"cold_slot_native_process": 1, "OSError": 1})
 
 
 class ColdSystemdEvidenceGateTests(unittest.TestCase):
