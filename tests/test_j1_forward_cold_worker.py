@@ -31,6 +31,13 @@ class ColdWorkerTests(unittest.TestCase):
     def response(self, stage="closed"):
         response = self.fixture.response(stage)
         plan, baseline = response["plan"], response["baseline"]
+        baseline["source_consumers"].update(
+            {
+                name: io.sha((Path(worker.__file__).parents[1] / name).read_bytes())
+                for name in worker.variant.COLD_SUPPLEMENTAL
+            }
+        )
+        plan["candidate"]["consumer_sha256"] = io.sha(io.canonical(baseline["source_consumers"]))
         generation = "00000000-0000-4000-8000-000000000007"
         boot = "00000000-0000-4000-8000-000000000008"
         epoch_path = "/var/lib/autostop-crm-forward/cold/v1/epochs/" + generation + "/epoch.json"

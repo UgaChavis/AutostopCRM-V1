@@ -17,7 +17,7 @@ from pathlib import Path
 BOOTSTRAP_HASHES = {
     "j1_forward_io": "fb688dc77e0e48623b2d009b1bd8f0ef1ebda5dff3037c62369d32df7954a63b",
     "j1_forward_authority": "98bf737d3a3cca4482ee8ae6158fde3b85034fba4587321e818b9c84eea32e08",
-    "j1_forward_cold_authority": "fd20eac9f95b3673ddf61dd7b411199b281fcd83a873b766f3c010c7dad7e8f7",
+    "j1_forward_cold_authority": "cf27b05a40469ad0330a4fa819d7cdf11990790c90d00286f56c6cc7cb138154",
     "j1_forward_cold_runtime_capsule": "115decb5e6c2a012250d3c10eef481794cfdb53b31efaac224be75fe748e40d2",
     "j1_forward_cold_native": "c4fd36aa35044b7275b3ec5dd037b569a3ffdd432226c30631eedeb54e6002d1",
     "j1_forward_process_scope": "94b9d1d427b36977a22e26dc229ef7cc71ea0d28c8567b628bacce97606858d8",
@@ -31,7 +31,7 @@ BOOTSTRAP_HASHES = {
     "j1_forward_cold_lifecycle": "1c763f6dcad575b723da8e2c1fb227e5c512c6ae8507725b4ce27cd7f6fe8377",
     "j1_forward_cold_fixture": "9823ab1bd327c19adc0be6b963101c9dc446a88b204fbbcdcbd6010af1617ed2",
     "j1_forward_backup": "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157",
-    "j1_forward_variant": "4a9282d2b39e19a262d1e0abf19f47c05fc6747b5fd5fb32caea2f70ac8a565d",
+    "j1_forward_variant": "d95f043c7963239cc59414ea2761565ee5ac14159fd67551a56ff9510de54cf3",
     "j1_forward_cold_kernel_rpc": "db9c5069c635976d399bcbb82ac5894492f66ef0f3b3a7ee464b6fb62b969b4c",
     "j1_forward_cold_kernel": "d16209ece01488d3d618d1be03e84bf44b7cc98c850ac50de9749bdaeb97e65b",
     "j1_forward_cold_kernel_bootstrap": "dff9c7f34d4945cc64dfa5dd2d6297f0ce96b743b870c0fdb6407f4c061fbeda",
