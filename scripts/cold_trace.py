@@ -286,6 +286,7 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
         forward.remaining(plan)
         io.require(time.monotonic() < deadline, "cold_capture_deadline")
 
+    data_started = time.perf_counter()
     with backup.CaptureInterval(controller, plan_ref, directory, gate=gate) as interval:
         captured = _capture_data(
             fixture,
@@ -296,6 +297,19 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
             timeout=min(deadline - time.monotonic(), forward.remaining(plan)),
             diagnostic_interval=interval,
         )
+    print(
+        "PRIVATE_COLD_CAPTURE_TIMING "
+        + io.canonical(
+            {
+                "kind": "data_interval",
+                "wall_seconds": time.perf_counter() - data_started,
+                "limit_seconds": 300,
+            }
+        )
+        .decode()
+        .strip(),
+        flush=True,
+    )
     captured = {**captured, "capture_interval_ref": interval.completion_ref}
     backup_ref = fixture._write(directory / "backup-evidence.json", captured)
 
@@ -306,6 +320,7 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
             coordinator._native_observation(plan, controller, "closed"),
         )
 
+    control_started = time.perf_counter()
     archived = archive.capture(
         fixture.control,
         plan_ref,
@@ -318,6 +333,19 @@ def capture_closed(fixture, attempt, controller, *, codec=5):
         authority_reader=fixture.provider.read_reference,
         authority_file_reader=fixture.custody.read,
         timeout=min(60, forward.remaining(plan)),
+    )
+    print(
+        "PRIVATE_COLD_CAPTURE_TIMING "
+        + io.canonical(
+            {
+                "kind": "control_archive",
+                "wall_seconds": time.perf_counter() - control_started,
+                "limit_seconds": 60,
+            }
+        )
+        .decode()
+        .strip(),
+        flush=True,
     )
     fixture._write(directory / "control-closed.json", archived)
     return {

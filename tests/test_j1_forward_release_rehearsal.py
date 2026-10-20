@@ -21,6 +21,54 @@ from scripts import j1_forward_state as state
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
 class ReleaseRehearsalFilesystemTests(unittest.TestCase):
+    def test_custodian_entry_native_rollout_read_is_inside_its_private_custody(self):
+        from scripts import j1_forward_cold_native as native
+
+        class EntryObserved(Exception):
+            pass
+
+        with rehearsal.TraceFixture() as fixture:
+            with fixture.custody:
+                marker = fixture._copy(
+                    fixture.root / "kernel/home/.codex/rollout.jsonl", b"private kernel metadata\n"
+                )
+                fixture._write(
+                    fixture.root / "custodian-request.json",
+                    {
+                        "schema": "autostop.j1.private-custodian-request.v1",
+                        "package_ref": marker,
+                        "plan_ref": marker,
+                        "roots": [["data", str(fixture.root / "data")]],
+                        "backup": str(fixture.root / "backup"),
+                        "manifest_sha256": "a" * 64,
+                        "context": {},
+                        "output": str(fixture.root / "output"),
+                        "public_key": str(fixture.root / "config/reviewer.pem"),
+                        "private_key": str(fixture.root / "custodian/private.pem"),
+                        "proof": str(fixture.root / "proof.json"),
+                        "control": None,
+                        "backup_profile": rehearsal.backup.PROFILE,
+                        "sqlite_runtime_ref": marker,
+                    },
+                )
+
+            def native_entry(_ref, *, provider, required_scope):
+                self.assertEqual(provider.root, fixture.root)
+                self.assertEqual(required_scope, "native_fixture")
+                self.assertEqual(io.read_protected(marker["path"]), b"private kernel metadata\n")
+                raise EntryObserved
+
+            # No native success, restore or signing is mocked into existence.
+            # Stop after a real protected file read at the initial OS boundary.
+            with (
+                patch.object(rehearsal, "verify_private_sqlite", return_value={}),
+                patch.object(native, "verify_package", side_effect=native_entry),
+                self.assertRaises(EntryObserved),
+            ):
+                rehearsal.run_custodian_request(
+                    fixture.root, fixture.root / "custodian-request.json"
+                )
+
     def test_private_custodian_pins_host_interpreter_and_actual_dynamic_sqlite(self):
         with rehearsal.TraceFixture() as fixture, fixture.custody:
             reference = rehearsal.private_sqlite_runtime(fixture)

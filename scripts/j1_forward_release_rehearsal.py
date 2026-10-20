@@ -574,9 +574,10 @@ def run_custodian_request(root, request_path):
         "rehearsal_private_signer_not_a_backup_source",
     )
     begin = time.perf_counter()
-    verified = native.verify_package(
-        request["package_ref"], provider=provider, required_scope="native_fixture"
-    )
+    with PrivateFilesystem(root):
+        verified = native.verify_package(
+            request["package_ref"], provider=provider, required_scope="native_fixture"
+        )
     engine = backup
     if request["backup_profile"] != backup.PROFILE:
         from scripts import j1_forward_cold_backup
