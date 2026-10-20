@@ -16,6 +16,7 @@ import select
 import socket
 import stat
 import subprocess
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
@@ -1352,6 +1353,25 @@ def verify_package(reference, *, provider=None, required_scope="production_nativ
 
 
 def _observe_package(reference, *, provider=None, required_scope="production_native"):
+    value, sources, _reader = _qualify_package(
+        reference, provider=provider, required_scope=required_scope
+    )
+    return value, sources
+
+
+def _mutable_package(provider, validated):
+    for operation in (
+        provider.verify_closure,
+        provider.verify_retirement,
+        provider.verify_ingress,
+        provider.verify_original_hold,
+        provider.verify_pending,
+        provider.verify_kernel,
+    ):
+        operation(validated)
+
+
+def _qualify_package(reference, *, provider=None, required_scope="production_native"):
     provider = NativeProvider() if provider is None else provider
     provider.boundary(reference)
     # Captured semantic results belong to this observation only. Every typed
@@ -1365,21 +1385,102 @@ def _observe_package(reference, *, provider=None, required_scope="production_nat
         "native_scope_or_boot",
     )
     sources.trees = provider.verify_files(validated)
-    for operation in (
-        provider.verify_closure,
-        provider.verify_retirement,
-        provider.verify_ingress,
-        provider.verify_original_hold,
-        provider.verify_pending,
-        provider.verify_kernel,
-    ):
-        operation(validated)
+    _mutable_package(provider, validated)
     # Establish the same interval at exit, including source and proof rereads.
     reader.recheck()
     sources.check_versions()
     provider.verify_closure(validated)
     contract._binding(validated["package"]["binding"], now_ns=time.monotonic_ns())
-    return validated, sources
+    return validated, sources, reader
+
+
+class PackageObservation:
+    """One ready call: immutable qualification, fresh native gates at every cut.
+
+    The captured Reader is local to this context. Its pure decoding is reused;
+    native facts are not. Both ends hash every accepted leaf and installed tree.
+    Complete version cuts between them also reject same-byte replacements and
+    writes reverted before the next observation. Nothing survives context exit.
+    """
+
+    def __init__(self, reference, *, provider, required_scope):
+        self.reference, self.provider, self.scope = dict(reference), provider, required_scope
+        self.status, self.failed, self.count = "new", False, 0
+        self.owner = (os.getpid(), threading.get_ident())
+        self.value = self.sources = self.reader = None
+
+    def _active(self):
+        contract.need(
+            self.status == "active"
+            and not self.failed
+            and self.owner == (os.getpid(), threading.get_ident()),
+            "package_observation_not_active",
+        )
+
+    def __enter__(self):
+        contract.need(self.status == "new", "package_observation_already_used")
+        self.status = "entering"
+        try:
+            self.value, self.sources, self.reader = _qualify_package(
+                self.reference, provider=self.provider, required_scope=self.scope
+            )
+            self.semantic_sha256 = contract.digest(self.value)
+            self.status = "active"
+            self._active()
+            return self
+        except BaseException:
+            self._close()
+            raise
+
+    def _fresh(self):
+        self.provider.boundary(self.reference)
+        binding = self.value["package"]["binding"]
+        contract.need(
+            self.provider.scope == self.scope and self.provider.boot() == binding["boot_id"],
+            "native_scope_or_boot",
+        )
+        contract.need(
+            contract.digest(self.value) == self.semantic_sha256,
+            "package_observation_semantics_changed",
+        )
+        contract._binding(binding, now_ns=time.monotonic_ns())
+        self.sources.check_versions()
+        _mutable_package(self.provider, self.value)
+        self.sources.check_versions()
+        self.provider.verify_closure(self.value)
+        contract._binding(binding, now_ns=time.monotonic_ns())
+
+    def observe(self, reference, provider):
+        try:
+            self._active()
+            contract.need(
+                reference == self.reference and provider is self.provider,
+                "package_observation_binding",
+            )
+            self.count += 1
+            contract.need(self.count <= 9, "package_observation_limit")
+            self._fresh()
+            return self.value
+        except BaseException:
+            self.failed = True
+            raise
+
+    def _close(self):
+        self.status = "closed"
+        self.value = self.sources = self.reader = None
+
+    def __exit__(self, error_type, _error, _trace):
+        try:
+            if error_type is None:
+                self._active()
+                self.sources.check_versions()
+                # Fresh complete installed bytes, without decoding an identical
+                # capsule again. The original entry versions remain the cut.
+                self.provider.verify_files(self.value)
+                self.reader.recheck()
+                self._fresh()
+        finally:
+            self._close()
 
 
 class CheckedDispatcher:

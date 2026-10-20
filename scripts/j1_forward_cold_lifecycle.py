@@ -935,13 +935,24 @@ class Controller:
             "slot_native_backend_required",
         )
 
-    def verify(self):
+    def verify(self, observation=None):
         contract.need(
             not (self.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
         )
-        value = native.verify_package(
-            self.package_ref, provider=self.provider, required_scope=self.provider.scope
+        if observation is None:
+            value = native.verify_package(
+                self.package_ref, provider=self.provider, required_scope=self.provider.scope
+            )
+        else:
+            contract.need(type(observation) is native.PackageObservation, "slot_observation_type")
+            value = observation.observe(self.package_ref, self.provider)
+        return self._verify_epoch(value)
+
+    def _verify_epoch(self, value):
+        contract.need(
+            not (self.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
         )
+        contract._binding(value["package"]["binding"], now_ns=time.monotonic_ns())
         contract.need(
             epochs.read_epoch(self.epoch_ref, self.provider) == self.epoch, "slot_epoch_changed"
         )
@@ -1262,8 +1273,8 @@ class Controller:
         store, snapshot, _context = self.context(unit)
         return _transition(store, snapshot["ticket"], "revoke", {})
 
-    def accept(self, unit):
-        self.verify()
+    def accept(self, unit, *, _observation=None):
+        self.verify() if _observation is None else self.verify(_observation)
         store, snapshot, context = self.context(unit)
         ticket = snapshot["ticket"]
         until = min(time.monotonic() + 10, ticket["expires_at"])
@@ -1300,12 +1311,12 @@ class Controller:
             self.root,
         )
 
-    def telegram_frontiers(self, accepted):
+    def telegram_frontiers(self, accepted, *, _observation=None):
         """Read both actual transport cuts; a started guard alone is insufficient."""
         from scripts import j1_forward_cold_telegram as telegram
 
         contract.need(self.provider.scope == "production_native", "telegram_native_scope")
-        value, _fence = self.verify()
+        value, _fence = self.verify() if _observation is None else self.verify(_observation)
         package, binding = value["package"], value["package"]["binding"]
         source = io.document(self.provider.read_reference(package["source_package_ref"]))
         inputs = io.document(self.provider.read_reference(source["producer_inputs_ref"]))
@@ -1358,7 +1369,7 @@ class Controller:
             except FileNotFoundError:
                 contract.need(time.monotonic() < until, "telegram_transport_not_ready")
                 time.sleep(0.1)
-        self.verify()
+        self.verify() if _observation is None else self.verify(_observation)
         result["source"] = {
             "source_package_ref": package["source_package_ref"],
             "source_package": source,
@@ -1368,8 +1379,18 @@ class Controller:
         return result
 
     def ready(self):
-        self.verify()
-        accepted = {unit: self.accept(unit) for unit in contract.ALLOWED}
+        with native.PackageObservation(
+            self.package_ref, provider=self.provider, required_scope=self.provider.scope
+        ) as observation:
+            result = self._ready(observation)
+            value = observation.value
+            # The context's full-byte exit must succeed before result escapes.
+        self._verify_epoch(value)
+        return result
+
+    def _ready(self, observation):
+        self.verify(observation)
+        accepted = {unit: self.accept(unit, _observation=observation) for unit in contract.ALLOWED}
         crm_raw = _read(self.root / "crm-accepted.json", self.root)
         crm_ref = {"path": str(self.root / "crm-accepted.json"), "sha256": io.sha(crm_raw)}
         crm = self.backend.observe_crm(crm_ref, self.epoch_ref, self.package_ref)
@@ -1386,7 +1407,9 @@ class Controller:
             "activation_authorized": False,
         }
         if self.provider.scope == "production_native":
-            result["telegram_frontiers"] = self.telegram_frontiers(accepted)
+            result["telegram_frontiers"] = self.telegram_frontiers(
+                accepted, _observation=observation
+            )
         return result
 
     def accept_crm(self, evidence_ref):

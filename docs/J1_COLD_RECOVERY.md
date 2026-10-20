@@ -115,6 +115,23 @@ no descriptor per graph entry. Off-host restoration uses captured bytes only;
 it never stats a logical production path or grants native authority. The native
 closure checks before and after capture remain mandatory.
 
+`Controller.ready()` owns one bounded `PackageObservation`. It decodes the
+immutable package/capsule once and admits at most nine nested observations in
+the same process and thread. Every observation freshly measures closure,
+retirement, ingress, the original scheduler hold, pending quarantine and the
+kernel, including its actual account/thread RPC and mapped-file checks. The
+epoch and each role's acceptance and Telegram frontier remain fresh too.
+Complete source/runtime file versions are checked around these measurements;
+new runtime state directories are outside the immutable source/runtime roots.
+Before returning, all captured source/opaque/capsule bytes and every installed
+source/runtime byte are independently reread, followed by fresh native and
+epoch checks. Identical capsule bytes need no second decompression. An observed
+change or expired binding refuses, including same-byte inode replacement and a
+byte mutation reverted before the next cut. The context is poisoned on failure
+or exit and cannot be reused by another operation, provider, process or thread.
+Standalone verification and child E admission retain their full qualification;
+this optimization neither extends a deadline nor grants execution authority.
+
 Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
 and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
 checks CRM-to-Store compatibility. Both explicitly report business acceptance
