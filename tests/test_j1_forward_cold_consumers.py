@@ -120,7 +120,7 @@ class SourceInventoryTests(unittest.TestCase):
         self.assertEqual((fixture.restored / restored_helper["payload"]).read_bytes(), helper_raw)
 
 
-@unittest.skipUnless(os.name == "posix", "Requires private POSIX file custody")
+@unittest.skipUnless(os.name == "posix", "Requires private native Linux fixture")
 class NativeColdSourceTests(unittest.TestCase):
     setUp = launch_tests.NativeLaunchTests.setUp
 

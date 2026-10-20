@@ -49,15 +49,19 @@ class RuntimeSkipContractTests(unittest.TestCase):
         )
 
     def test_private_cold_exclusion_requires_exact_module_class_reason_and_windows(self):
-        cold = type(
-            "ColdRecoveryStateTests",
-            (unittest.TestCase,),
-            {"__module__": "test_j1_forward_cold_state", "test_case": lambda self: None},
-        )("test_case")
-        self.assertEqual(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "win32"), [])
-        self.assertEqual(len(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "linux")), 1)
+        for module, family in (
+            ("test_j1_forward_cold_state", "ColdRecoveryStateTests"),
+            ("test_j1_forward_cold_consumers", "NativeColdSourceTests"),
+        ):
+            cold = type(
+                family,
+                (unittest.TestCase,),
+                {"__module__": module, "test_case": lambda self: None},
+            )("test_case")
+            self.assertEqual(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "win32"), [])
+            self.assertEqual(len(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "linux")), 1)
+            self.assertEqual(len(unexpected_skips([(cold, "another private reason")], "win32")), 1)
         self.assertEqual(len(unexpected_skips([(self, PRIVATE_COLD_REASON)], "win32")), 1)
-        self.assertEqual(len(unexpected_skips([(cold, "another private reason")], "win32")), 1)
 
     def test_retained_wal_exclusions_require_the_exact_linux_only_storage_case(self):
         from tests.runtime_skip_contract import WINDOWS_LINUX_STORAGE_CASES
