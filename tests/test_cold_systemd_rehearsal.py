@@ -6,6 +6,7 @@ import contextlib
 import io as streams
 import json
 import os
+import subprocess
 import tempfile
 import textwrap
 import unittest
@@ -142,6 +143,27 @@ class ColdSystemdBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(io.Refusal, "corrupt_chain"):
                 stand.journal_counts(SimpleNamespace(root=Path("/private/unreachable")))
         listing.assert_not_called()
+
+    def test_failure_diagnostic_excludes_environment_values_and_unparsed_logs(self):
+        backend = object.__new__(stand.HostedFixtureBackend)
+        backend.unit = "autostop-crm-forward-" + str(uuid.uuid4()) + ".service"
+        raw = (
+            "Id=" + backend.unit + "\nEnvironment=TOKEN=private-placeholder\nMainPID=0\n"
+        ).encode()
+        logs = b"Refusal: cold_fixture_reference_digest\nAuthorization: private-placeholder\nraw private output\n"
+
+        def observe(argv, **_kwargs):
+            payload = logs if argv[0] == "/usr/bin/journalctl" else raw
+            return subprocess.CompletedProcess(argv, 0, payload, b"")
+
+        with patch.object(stand.subprocess, "run", side_effect=observe) as command:
+            result = backend.diagnostic()
+        self.assertNotIn("private-placeholder", str(result))
+        self.assertNotIn("raw private output", str(result))
+        self.assertEqual(result["guard_errors"], ["Refusal: cold_fixture_reference_digest"])
+        self.assertIn("ExecCondition", result["missing_properties"])
+        self.assertIn("--all", command.call_args_list[0].args[0])
+        self.assertIn("--unit=" + backend.unit, command.call_args_list[1].args[0])
 
 
 class ColdSystemdEvidenceGateTests(unittest.TestCase):

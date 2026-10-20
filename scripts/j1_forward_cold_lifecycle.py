@@ -786,6 +786,7 @@ class NativeBackend:
                 "show",
                 ticket["unit"],
                 "--no-pager",
+                "--all",
                 "--property=" + ",".join(properties),
             ],
             capture_output=True,

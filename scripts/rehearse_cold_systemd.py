@@ -184,6 +184,77 @@ class HostedFixtureBackend:
             self.fixture._retire(child, native.actor(child.pid))
         self.injected = True
 
+    def diagnostic(self):
+        """Only owned-unit scalar facts and normalized guard errors are exported."""
+        if self.unit is None:
+            return {}
+        from scripts import j1_forward_cold_native as native
+
+        properties = (*native.UNIT_PROPERTIES, "FragmentPath", "Job", "ExecMainStatus")
+        result = subprocess.run(
+            [
+                "/usr/bin/systemctl",
+                "show",
+                self.unit,
+                "--no-pager",
+                "--all",
+                "--property=" + ",".join(properties),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=3,
+        )
+        fields = dict(line.split("=", 1) for line in result.stdout.decode().splitlines())
+        scalar = {
+            "Id",
+            "Type",
+            "LoadState",
+            "NeedDaemonReload",
+            "ActiveState",
+            "SubState",
+            "MainPID",
+            "User",
+            "Group",
+            "SupplementaryGroups",
+            "WorkingDirectory",
+            "Restart",
+            "Job",
+            "RuntimeMaxUSec",
+            "KillMode",
+            "NotifyAccess",
+            "ExecMainStatus",
+        }
+        journal = subprocess.run(
+            [
+                "/usr/bin/journalctl",
+                "--unit=" + self.unit,
+                "--no-pager",
+                "--output=cat",
+                "--lines=12",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=3,
+        )
+        errors = []
+        for line in journal.stdout[:16384].decode("utf-8", "replace").splitlines():
+            if re.fullmatch(
+                r"(?:Refusal|ValueError|RuntimeError|FileNotFoundError|ProcessLookupError|PermissionError): [a-z][a-z0-9_]{0,127}",
+                line,
+            ):
+                errors.append(line)
+        return {
+            "missing_properties": sorted(set(properties) - set(fields)),
+            "unexpected_properties": sorted(set(fields) - set(properties)),
+            "scalars": {name: fields[name] for name in sorted(scalar & set(fields))},
+            "nonempty_hooks": [
+                name
+                for name in fields
+                if name.startswith("Exec") and name != "ExecMainStatus" and fields[name]
+            ],
+            "guard_errors": errors,
+        }
+
     def stop(self):
         if self.unit is None:
             return
@@ -480,6 +551,11 @@ def run_case(mode):
             )
     except BaseException as error:
         result.update(failure_type=type(error).__name__, failure_code=code(error))
+        if backend is not None:
+            try:
+                result["unit_observation"] = backend.diagnostic()
+            except BaseException as diagnostic_error:
+                result["unit_observation_error"] = code(diagnostic_error)
     finally:
         try:
             if backend is not None:

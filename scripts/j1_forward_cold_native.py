@@ -362,6 +362,7 @@ class NativeProvider:
                 "show",
                 unit,
                 "--no-pager",
+                "--all",
                 "--property=" + ",".join(UNIT_PROPERTIES),
             ],
             stdin=subprocess.DEVNULL,

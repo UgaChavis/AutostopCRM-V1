@@ -78,15 +78,27 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
         self.backend = lifecycle.NativeBackend(native.NativeProvider())
 
     def check(self):
-        raw = "".join(key + "=" + value + "\n" for key, value in self.fields.items()).encode()
-        with patch.object(
-            lifecycle.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, raw, b"")
-        ) as execute:
+        def show(argv, **_kwargs):
+            # systemctl show suppresses empty hooks unless --all is requested.
+            raw = "".join(
+                key + "=" + value + "\n"
+                for key, value in self.fields.items()
+                if value or "--all" in argv
+            ).encode()
+            return subprocess.CompletedProcess([], 0, raw, b"")
+
+        with patch.object(lifecycle.subprocess, "run", side_effect=show) as execute:
             self.backend.closed(self.ticket, self.context)
         self.assertEqual(execute.call_args.args[0][:2], ["/usr/bin/systemctl", "show"])
+        self.assertIn("--all", execute.call_args.args[0])
 
     def test_exact_no_restart_root_bootstrap_has_no_application_environment(self):
         self.check()
+
+    def test_missing_empty_hook_field_is_not_assumed_to_be_absent(self):
+        del self.fields["ExecCondition"]
+        with self.assertRaisesRegex(io.Refusal, "loaded_unit_fields"):
+            self.check()
 
     def test_staged_private_unit_has_one_guard_entry_and_no_pre_entry_condition(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -130,6 +142,43 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
                 self.fields = {**original, key: value}
                 with self.assertRaises(io.Refusal):
                     self.check()
+
+
+class ColdNativePropertyInventory(unittest.TestCase):
+    def test_original_and_kernel_observers_explicitly_request_empty_properties(self):
+        for unit in ("autostop-j1.service", native.kernel_unit(str(uuid.uuid4()))):
+            with self.subTest(unit=unit):
+                expected = dict.fromkeys(native.UNIT_PROPERTIES, "")
+                expected.update(Id=unit, LoadState="loaded", NeedDaemonReload="no")
+
+                def show(argv, **_kwargs):
+                    raw = "".join(
+                        key + "=" + value + "\n"
+                        for key, value in expected.items()
+                        if value or "--all" in argv
+                    ).encode()
+                    return subprocess.CompletedProcess([], 0, raw, b"")
+
+                with patch.object(native.subprocess, "run", side_effect=show) as execute:
+                    self.assertEqual(native.NativeProvider().systemd(unit), expected)
+                self.assertIn("--all", execute.call_args.args[0])
+
+    def test_still_rejects_an_omitted_or_unexpected_property(self):
+        unit = "autostop-j1.service"
+        expected = dict.fromkeys(native.UNIT_PROPERTIES, "")
+        expected.update(Id=unit, LoadState="loaded", NeedDaemonReload="no")
+        omitted = dict(expected)
+        del omitted["ExecCondition"]
+        for actual in (omitted, {**expected, "UnknownProperty": ""}):
+            with self.subTest(keys=set(actual)):
+                raw = "".join(key + "=" + value + "\n" for key, value in actual.items()).encode()
+                with patch.object(
+                    native.subprocess,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, raw, b""),
+                ):
+                    with self.assertRaisesRegex(io.Refusal, "native_unit_not_loaded"):
+                        native.NativeProvider().systemd(unit)
 
 
 if __name__ == "__main__":
