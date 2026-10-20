@@ -1172,34 +1172,6 @@ class AutomotiveLookupService:
             for item in candidates[:6]
         ]
 
-    def _enrich_part_catalog_results(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        enriched: list[dict[str, Any]] = []
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            updated = dict(item)
-            existing_text = " ".join(
-                str(part or "")
-                for part in (
-                    updated.get("title"),
-                    updated.get("snippet"),
-                    updated.get("page_excerpt"),
-                )
-            )
-            if self._extract_part_numbers(existing_text):
-                enriched.append(updated)
-                continue
-            try:
-                excerpt_payload = self._search.fetch_page_excerpt(
-                    str(updated.get("url", "") or ""), max_chars=1800
-                )
-            except InternetToolError:
-                enriched.append(updated)
-                continue
-            updated["page_excerpt"] = str(excerpt_payload.get("excerpt", "") or "")[:600]
-            enriched.append(updated)
-        return enriched
-
     def _extract_part_numbers(self, text: str) -> list[str]:
         values: list[str] = []
         seen: set[str] = set()
