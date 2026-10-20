@@ -12,6 +12,7 @@ import re
 import socket
 import stat
 import subprocess
+import threading
 import time
 import types
 import uuid
@@ -328,7 +329,7 @@ def _parent_material(controller, admission):
     return store, ticket, context, acceptance, request, names
 
 
-def _parent_native_actor(ticket, context):
+def _parent_native_actor(ticket, context, *, measure_executable=None):
     properties = ("Id", "LoadState", "ActiveState", "InvocationID", "MainPID", "ControlGroup")
     result = subprocess.run(
         [
@@ -356,7 +357,10 @@ def _parent_native_actor(ticket, context):
         and values["MainPID"].isdecimal(),
         "parent_unit_changed",
     )
-    observed = native.actor(int(values["MainPID"]))
+    pid = int(values["MainPID"])
+    observed = (
+        native.actor(pid) if measure_executable is None else native._actor(pid, measure_executable)
+    )
     proc = Path("/proc") / str(observed["pid"])
     environment = native._environment((proc / "environ").read_bytes())
     contract.need(
@@ -382,15 +386,90 @@ def _parent_native_actor(ticket, context):
 
 
 def _active_parent(controller):
-    """Prepare immutable bindings; native checks run after ordered O acquisition."""
+    """Qualify once before O; remeasure parent and immutable versions under O."""
     admission = controller.admitted()
+    material = native._ObservationSources(controller.provider)
+    material.read_reference(
+        {
+            "path": str(controller.root / "release-admission.json"),
+            "sha256": contract.digest(admission),
+        }
+    )
+    plan = io.document(material.read_reference(admission["plan_ref"]))
+    baseline = io.document(material.read_reference(plan["baseline_ref"]))
+    for name in ("controller_request_ref", "controller_launch_ref"):
+        material.read_reference(baseline[name])
     store, ticket, context, acceptance, request, names = _parent_material(controller, admission)
-    value, _fence = controller.verify()
+    current = coherent(store)
+    journal.require(
+        current["ticket"] == ticket
+        and current["state"]["execution_possible"] is True
+        and current["state"]["revoked"] is False
+        and current["state"]["admission_closed"] is False
+        and current["state"]["acceptance"] == current["state"]["claim"] == acceptance,
+        "launch_parent_not_active",
+    )
+    for reference in names.values():
+        material.read_reference(reference)
+    fixture = controller.provider.scope == "native_fixture"
+    interpreter = context["actor"]["exe_ref"] if fixture else context["interpreter"]
+    material.read_opaque_reference(interpreter)
+    parent_actor = native.actor(acceptance["pid"])
+    contract.need(
+        parent_actor["pid"] == acceptance["pid"]
+        and parent_actor["start_ticks"] == acceptance["start_ticks"]
+        and parent_actor["exe_ref"] == interpreter
+        and (not fixture or parent_actor == context["actor"]),
+        "fixture_parent_incarnation_changed" if fixture else "parent_native_incarnation",
+    )
+    if not fixture:
+        for name, digest in context["consumers"].items():
+            contract.need(
+                re.fullmatch(
+                    r"scripts/(?:j1_forward_[a-z_]+|j1_manager_[a-z_]+(?:_v2)?)\.py", name
+                ),
+                "parent_source_name",
+            )
+            material.read_reference({"path": str(PARENT_SOURCE / name), "sha256": digest})
+        for name, reference in names.items():
+            if name != "state.json":
+                material.read_reference(
+                    {"path": str(store.root / name), "sha256": reference["sha256"]}
+                )
+    # The one full immutable/native qualification belongs immediately before
+    # paired O acquisition. Pure ticket/admission reads grant no application E.
+    value, sources = native._observe_package(
+        controller.package_ref,
+        provider=controller.provider,
+        required_scope=controller.provider.scope,
+    )
+    controller._verify_epoch(value)
+    material.check_versions()
     binding, hold = value["package"]["binding"], value["hold"]
     marker = io.document(controller.provider.read_reference(hold["marker_ref"]))
-    fixture = controller.provider.scope == "native_fixture"
+
+    def executable(path):
+        version = native._executable_version(Path(path).lstat())
+        contract.need(
+            str(path) == interpreter["path"] and material.versions[str(path)] == version,
+            "parent_executable_changed",
+        )
+        return interpreter["sha256"], version
+
+    def quiet_hold():
+        for suffix in ("-wal", "-shm", "-journal"):
+            try:
+                Path(value["hold_checkpoint"]["database_ref"]["path"] + suffix).lstat()
+            except FileNotFoundError:
+                continue
+            raise io.Refusal("cold_hold_database_not_quiet_checkpoint")
 
     def check_current(_snapshot):
+        contract.need(controller.provider.boot() == binding["boot_id"], "parent_boot_changed")
+        sources.check_versions()
+        material.check_versions()
+        quiet_hold()
+        controller._verify_epoch(value)
         contract.need(controller.admitted() == admission, "parent_final_plan_changed")
         contract.need(
             not (controller.root / "safety-closed.json").exists(), "slot_safety_terminal_closed"
@@ -407,7 +486,7 @@ def _active_parent(controller):
         contract.need(io.sha(actual_context) == ticket["context_sha256"], "parent_context_changed")
         if fixture:
             contract.need(
-                native.actor(acceptance["pid"]) == context["actor"]
+                native._actor(acceptance["pid"], executable) == context["actor"]
                 and context["request_ref"] == ticket["plan_ref"],
                 "fixture_parent_incarnation_changed",
             )
@@ -434,24 +513,7 @@ def _active_parent(controller):
                 and ticket["host"] == request["host"] == socket.gethostname(),
                 "parent_context_scope",
             )
-            for name, digest in context["consumers"].items():
-                contract.need(
-                    re.fullmatch(
-                        r"scripts/(?:j1_forward_[a-z_]+|j1_manager_[a-z_]+(?:_v2)?)\.py", name
-                    ),
-                    "parent_source_name",
-                )
-                contract.need(
-                    io.sha(journal._read(PARENT_SOURCE / name, 0)) == digest,
-                    "parent_source_changed",
-                )
-            for name, reference in names.items():
-                if name != "state.json":
-                    contract.need(
-                        io.sha(journal._read(store.root / name, 0)) == reference["sha256"],
-                        "parent_capsule_changed",
-                    )
-            observed = _parent_native_actor(ticket, context)
+            observed = _parent_native_actor(ticket, context, measure_executable=executable)
         contract.need(
             observed == {key: acceptance[key] for key in observed}
             and hold["controller"] == {key: acceptance[key] for key in ("pid", "start_ticks")}
@@ -461,6 +523,14 @@ def _active_parent(controller):
         native.held_descriptor(
             hold["controller"], marker["deployment_descriptor"], binding["deployment_lock_identity"]
         )
+        dispatch = Path(hold["dispatch_lock_ref"]["path"]).stat()
+        native.held_descriptor(
+            hold["controller"], hold["descriptor"], [dispatch.st_dev, dispatch.st_ino]
+        )
+        sources.check_versions()
+        material.check_versions()
+        quiet_hold()
+        contract.need(controller.provider.boot() == binding["boot_id"], "parent_boot_changed")
 
     return store, ticket, acceptance, check_current
 
@@ -476,6 +546,43 @@ def active_parent(controller):
         )
 
 
+def _child_material(controller, store, ticket):
+    sources = native._ObservationSources(controller.provider)
+    sources.read_reference(
+        {
+            "path": str(store.root / "ticket.json"),
+            "sha256": journal.sha(journal.canonical(ticket)),
+        }
+    )
+    context = io.document(
+        sources.read_reference(
+            {"path": str(store.root / "context.json"), "sha256": ticket["context_sha256"]}
+        )
+    )
+    contract.need(
+        context["package_ref"] == controller.package_ref
+        and context["epoch_ref"] == controller.epoch_ref,
+        "slot_child_context_binding",
+    )
+    return sources
+
+
+class _ChildAdmissionCut:
+    """A private callback valid only while this operation owns both O locks."""
+
+    def __init__(self, parent, check):
+        self.parent, self._check = parent, check
+        self.owner = (os.getpid(), threading.get_ident())
+        self.active = True
+
+    def checkpoint(self):
+        contract.need(
+            self.active and self.owner == (os.getpid(), threading.get_ident()),
+            "slot_child_checkpoint_closed",
+        )
+        self._check()
+
+
 @contextmanager
 def child_admission(controller, store, ticket):
     """Acquire D -> parent O -> child O without waiting under either O.
@@ -484,6 +591,7 @@ def child_admission(controller, store, ticket):
     Once C can be published, errors are terminal/unknown and are never retried.
     """
     entered = False
+    child_sources = _child_material(controller, store, ticket)
     parent_store, parent_ticket, acceptance, check_current = _active_parent(controller)
     until = min(time.monotonic() + 2, ticket["expires_at"])
     while True:
@@ -494,12 +602,40 @@ def child_admission(controller, store, ticket):
                 check_current=check_current,
                 child=store,
             ):
+                child_sources.check_versions()
                 contract.need(store.read()["ticket"] == ticket, "slot_child_ticket_changed")
                 entered = True
-                yield (
+                parent = (
                     {key: acceptance[key] for key in ("pid", "start_ticks", "invocation_id")},
                     acceptance["evidence_ref"],
                 )
+
+                def checkpoint():
+                    snapshot = parent_store.read()
+                    parent_store._fresh(
+                        parent_ticket,
+                        boot_id=parent_ticket["boot_id"],
+                        generation=parent_ticket["owner_generation"],
+                    )
+                    contract.need(
+                        snapshot["ticket"] == parent_ticket
+                        and snapshot["state"]["execution_possible"] is True
+                        and snapshot["state"]["revoked"] is False
+                        and snapshot["state"]["admission_closed"] is False
+                        and snapshot["state"]["acceptance"]
+                        == snapshot["state"]["claim"]
+                        == acceptance,
+                        "slot_parent_changed_before_entry",
+                    )
+                    check_current(snapshot)
+                    child_sources.check_versions()
+                    contract.need(store.read()["ticket"] == ticket, "slot_child_ticket_changed")
+
+                cut = _ChildAdmissionCut(parent, checkpoint)
+                try:
+                    yield cut
+                finally:
+                    cut.active = False
             return
         except BlockingIOError:
             if entered:
@@ -573,13 +709,10 @@ class NativeBackend:
             )
             entries.append('Environment="' + escaped + '"\n')
         command = " ".join(context["worker_argv"])
-        check = command.replace(" launch ", " check ", 1)
         raw = (
             "[Unit]\nDescription=AutoStop cold guarded execution slot\n[Service]\nType=exec\nUser=root\nWorkingDirectory=/\nRestart=no\n"
             + "".join(entries)
-            + "ExecCondition="
-            + check
-            + "\nExecStart="
+            + "ExecStart="
             + command
             + "\n"
         ).encode()
@@ -665,7 +798,6 @@ class NativeBackend:
         fields = j1_forward_authority._systemd_fields(raw.stdout)
         contract.need(set(fields) == set(properties), "slot_loaded_unit_fields")
         command = " ".join(context["worker_argv"])
-        check = command.replace(" launch ", " check ", 1)
         contract.need(
             fields["Id"] == ticket["unit"]
             and fields["LoadState"] == "loaded"
@@ -674,7 +806,7 @@ class NativeBackend:
             and fields["Restart"] == "no"
             and fields["FragmentPath"] == "/etc/systemd/system/" + ticket["unit"]
             and native.commands(fields["ExecStart"]) == [command]
-            and native.commands(fields["ExecCondition"]) == [check]
+            and not fields["ExecCondition"]
             and all(
                 not fields[key]
                 for key in (
@@ -1448,7 +1580,6 @@ class Controller:
         Request E alone cannot reach this method's effect boundary. Lost reply
         after this E never permits a second replacement or a new operation ID.
         """
-        self.verify()
         admission = self.admitted()
         plan = io.document(self.provider.read_reference(admission["plan_ref"]))
         baseline = io.document(self.provider.read_reference(plan["baseline_ref"]))
@@ -1542,12 +1673,12 @@ class Controller:
         )
         worker = {**observed, "evidence_ref": evidence_ref}
         _transition(store, ticket, "accept", {"receipt": worker})
-        self.verify()
         self.admitted()
-        with child_admission(self, store, ticket) as current_parent:
-            contract.need(current_parent == (observed, parent_acceptance_ref), "crm_parent_raced")
+        with child_admission(self, store, ticket) as cut:
+            contract.need(cut.parent == (observed, parent_acceptance_ref), "crm_parent_raced")
             claim = _transition_child(store, ticket, "claim", {"worker": worker})
             contract.need(not claim["historical"], "crm_entry_already_claimed")
+            cut.checkpoint()
             entered = _transition_child(store, ticket, "enter", {"worker": worker})
             contract.need(entered["action_authorized"], "crm_replacement_already_consumed_no_retry")
         return {
@@ -1713,7 +1844,6 @@ class Controller:
 
 def consume(controller, unit):
     """Actual worker gate: fresh native parent locks, then C/E under the short O."""
-    controller.verify()
     controller.admitted()
     store, snapshot, context = controller.context(unit)
     ticket = snapshot["ticket"]
@@ -1727,10 +1857,10 @@ def consume(controller, unit):
         worker["pid"] == os.getpid() and worker["start_ticks"] == native.birth(os.getpid()),
         "slot_unaccepted_worker",
     )
-    controller.verify()
-    with child_admission(controller, store, ticket):
+    with child_admission(controller, store, ticket) as cut:
         result = _transition_child(store, ticket, "claim", {"worker": worker})
         contract.need(not result["historical"], "slot_claim_already_consumed")
+        cut.checkpoint()
         result = _transition_child(store, ticket, "enter", {"worker": worker})
         contract.need(result["action_authorized"], "slot_execution_already_consumed")
     return context

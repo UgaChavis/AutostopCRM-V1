@@ -28,7 +28,7 @@ BOOTSTRAP_HASHES = {
     "j1_forward_recovery_state": "24aa6cfe915b925ffb34453f3472f8de8d3e828232ed82cc61e710ec585a333c",
     "j1_forward_state": "a647919a8c2e6a42b452bdc73c3d0c937d72e7afeec9a03d65f55c71ed018988",
     "j1_forward_cold_state": "0f48384a2a7101719b8ceb62005d29551c55a2ff61772c72faeb003e887b61ba",
-    "j1_forward_cold_lifecycle": "97987c5dfcfc36d59180ff0af9ad19b7393c850cb9a65a6a0b84a1db35b586bb",
+    "j1_forward_cold_lifecycle": "1c763f6dcad575b723da8e2c1fb227e5c512c6ae8507725b4ce27cd7f6fe8377",
     "j1_forward_cold_fixture": "9823ab1bd327c19adc0be6b963101c9dc446a88b204fbbcdcbd6010af1617ed2",
     "j1_forward_backup": "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157",
     "j1_forward_variant": "4a9282d2b39e19a262d1e0abf19f47c05fc6747b5fd5fb32caea2f70ac8a565d",
@@ -227,9 +227,9 @@ def main(argv=None):
         else native.io.reference(epoch_path)
     )
     controller = lifecycle.Controller(package_ref, epoch_ref, provider=provider, backend=backend)
-    controller.verify()
-    controller.admitted()
     if args.command == "check":
+        controller.verify()
+        controller.admitted()
         controller.context(args.unit)
         return 0
     context = lifecycle.consume(controller, args.unit)

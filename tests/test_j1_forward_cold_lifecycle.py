@@ -43,6 +43,11 @@ class ColdBootstrapPins(unittest.TestCase):
             return SimpleNamespace(active_parent=paired), {}, acceptance, lambda: None
 
         with (
+            patch.object(
+                lifecycle,
+                "_child_material",
+                return_value=SimpleNamespace(check_versions=lambda: None),
+            ),
             patch.object(lifecycle, "_active_parent", side_effect=prepare),
             patch.object(lifecycle.time, "monotonic", side_effect=lambda: clock[0]),
             patch.object(
@@ -54,7 +59,7 @@ class ColdBootstrapPins(unittest.TestCase):
             with lifecycle.child_admission(
                 None, SimpleNamespace(read=lambda: {"ticket": ticket}), ticket
             ) as result:
-                self.assertEqual(result[0]["pid"], 1)
+                self.assertEqual(result.parent[0]["pid"], 1)
         self.assertEqual(len(attempts), 2)
 
     def test_all_fixed_bootstrap_sources_are_exact(self):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 import unittest
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import j1_forward_cold_lifecycle as lifecycle
@@ -71,7 +73,7 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
                 key + "=" + value for key, value in lifecycle.BOOTSTRAP_ENVIRONMENT.items()
             ),
             ExecStart=command(argv),
-            ExecCondition=command(argv.replace(" launch ", " check ", 1)),
+            ExecCondition="",
         )
         self.backend = lifecycle.NativeBackend(native.NativeProvider())
 
@@ -86,6 +88,29 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
     def test_exact_no_restart_root_bootstrap_has_no_application_environment(self):
         self.check()
 
+    def test_staged_private_unit_has_one_guard_entry_and_no_pre_entry_condition(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            units = Path(temporary)
+            context = {
+                **self.context,
+                "interpreter": str(Path("/usr/bin/python3").resolve()),
+            }
+
+            def path(value):
+                return units if str(value) == "/etc/systemd/system" else Path(value)
+
+            with (
+                patch.object(lifecycle, "Path", side_effect=path),
+                patch.object(io, "protected_directory", return_value=units),
+                patch.object(lifecycle.subprocess, "run") as execute,
+            ):
+                self.backend.stage("autostop-j1.service", context, self.ticket, units)
+            raw = (units / self.ticket["unit"]).read_text()
+            self.assertNotIn("ExecCondition=", raw)
+            self.assertEqual(raw.count("ExecStart="), 1)
+            self.assertIn("ExecStart=" + " ".join(context["worker_argv"]), raw)
+            self.assertEqual(execute.call_args.args[0], ["/usr/bin/systemctl", "daemon-reload"])
+
     def test_pending_jobs_restart_and_command_prefixes_are_refused(self):
         original = dict(self.fields)
         for key, value in (
@@ -98,6 +123,8 @@ class ColdLoadedUnitPolicy(unittest.TestCase):
                 command("/usr/bin/touch /tmp/unwanted") + " " + original["ExecCondition"],
             ),
             ("ExecStart", command(" ".join(self.context["worker_argv"]), ignore="yes")),
+            ("ExecStart", command("/usr/bin/touch /tmp/foreign-application")),
+            ("ExecCondition", command(" ".join(self.context["worker_argv"]))),
         ):
             with self.subTest(key=key):
                 self.fields = {**original, key: value}

@@ -132,6 +132,19 @@ or exit and cannot be reused by another operation, provider, process or thread.
 Standalone verification and child E admission retain their full qualification;
 this optimization neither extends a deadline nor grants execution authority.
 
+New execution-slot units use a single fixed `ExecStart` for `guard launch` and
+strictly reject any `ExecCondition` or extra hook. The diagnostic `guard check`
+still performs its full independent qualification. A is the independently
+observed bootstrap process; it does not assert application entry. The worker
+reads its ticket and A, then performs one full package/native qualification in
+`_active_parent`, immediately before the ordered parent O / child O boundary.
+The parent reference graph, final plan, child context and ticket are pinned too.
+Under O, the callback reads actual parent identity and ownership, epoch, safety
+and complete immutable file versions. It repeats that checkpoint after durable
+C and before E. A failed checkpoint leaves C durable, E false, and never reaches
+application credentials, cwd or exec. All large file hashing stays outside O.
+An unknown S still cannot submit again. The original eight units are unchanged.
+
 Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
 and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
 checks CRM-to-Store compatibility. Both explicitly report business acceptance
