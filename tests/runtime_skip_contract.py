@@ -82,6 +82,12 @@ WINDOWS_NATIVE_METADATA_CASES = frozenset(
             "test_kernel_lock_conflict_blocks_shared_validation_and_cloexec_is_set",
             "Linux flock/open flags require Linux",
         ),
+        (
+            "test_j1_forward_store_wire",
+            "StoreKernelOwnershipTests",
+            "test_kernel_proves_accepted_socket_belongs_to_own_process",
+            "Own-process /proc socket proof requires Linux",
+        ),
     }
 )
 

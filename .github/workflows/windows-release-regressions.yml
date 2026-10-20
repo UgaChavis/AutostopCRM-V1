@@ -93,6 +93,8 @@ jobs:
             tests.test_j1_forward_cold_archive tests.test_j1_forward_mixed_archive `
             tests.test_j1_forward_cold_interpreter_alias tests.test_j1_forward_cold_consumers `
             tests.test_j1_forward_cold_producer `
+            tests.test_j1_forward_authority.RuntimeInventoryTests tests.test_runtime_skip_contract `
+            tests.test_j1_forward_store_wire.StoreKernelOwnershipTests `
             tests.test_j1_forward_launch_permission.LogicalTicketRestoreTests tests.test_runtime_core_cohorts `
             tests.test_runtime_process `
             tests.test_printing_async_context tests.test_repair_order_number_audit `

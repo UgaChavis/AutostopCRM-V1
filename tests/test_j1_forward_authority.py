@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import stat
 import sys
 import tempfile
@@ -1143,10 +1144,11 @@ class RuntimeInventoryTests(unittest.TestCase):
             source = root / "module.py"
             source.write_bytes(b"accepted bytes\n")
             source.chmod(0o444)
+            original_metadata = source.stat()
             record = {
                 "relative": source.name,
                 "kind": "file",
-                "metadata": authority._metadata(source.stat()),
+                "metadata": authority._metadata(original_metadata),
                 "sha256": sha(source.read_bytes()),
             }
             inventory = {
@@ -1184,7 +1186,17 @@ class RuntimeInventoryTests(unittest.TestCase):
                 )
                 source.chmod(0o644)
                 source.write_bytes(b"tampered bytes\n")
+                # An immediate same-size write can retain its timestamp on
+                # Windows. This case specifically requires metadata drift.
+                os.utime(
+                    source,
+                    ns=(
+                        original_metadata.st_atime_ns,
+                        original_metadata.st_mtime_ns + 2_000_000_000,
+                    ),
+                )
                 source.chmod(0o444)
+                self.assertNotEqual(record["metadata"], authority._metadata(source.stat()))
                 with patch.object(
                     authority, "_file_digest", wraps=authority._file_digest
                 ) as digest:

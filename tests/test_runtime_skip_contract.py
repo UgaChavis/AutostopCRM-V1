@@ -33,10 +33,10 @@ class RuntimeSkipContractTests(unittest.TestCase):
                 with self.subTest(platform=platform, reason=reason):
                     self.assertEqual(len(unexpected_skips([(self, reason)], platform)), 1)
 
-    def test_native_metadata_exclusions_match_only_two_exact_windows_cases(self):
+    def test_native_metadata_exclusions_match_only_exact_windows_cases(self):
         from tests.runtime_skip_contract import WINDOWS_NATIVE_METADATA_CASES
 
-        self.assertEqual(len(WINDOWS_NATIVE_METADATA_CASES), 2)
+        self.assertEqual(len(WINDOWS_NATIVE_METADATA_CASES), 3)
         for module, family, method, reason in WINDOWS_NATIVE_METADATA_CASES:
             for prefix in ("", "tests."):
                 case = type(
