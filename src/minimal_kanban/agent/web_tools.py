@@ -1414,36 +1414,6 @@ def _safe_error_message(exc: BaseException) -> str:
     return _MULTISPACE_PATTERN.sub(" ", str(exc or "")).strip()[:400]
 
 
-def _provider_error_message(exc: BaseException) -> str:
-    if isinstance(exc, httpx.HTTPStatusError):
-        status_code = getattr(getattr(exc, "response", None), "status_code", "")
-        return f"HTTP {status_code}".strip()
-    if isinstance(exc, httpx.HTTPError):
-        return exc.__class__.__name__
-    return _redact_configured_secrets(_safe_error_message(exc))
-
-
-def _redact_configured_secrets(message: str) -> str:
-    redacted = str(message or "")
-    for env_name in (
-        "BRAVE_SEARCH_API_KEY",
-        "BRAVE_API_KEY",
-        "TAVILY_API_KEY",
-        "GOOGLE_CUSTOM_SEARCH_API_KEY",
-        "GOOGLE_CSE_API_KEY",
-        "AUTOSTOP_MARGINALIA_API_KEY",
-        "MARGINALIA_API_KEY",
-        "AUTOSTOP_CRAWL4AI_API_TOKEN",
-        "CRAWL4AI_API_TOKEN",
-        "AUTOSTOP_CRAWL4AI_SECRET_KEY",
-        "CRAWL4AI_SECRET_KEY",
-    ):
-        secret = _first_env(env_name)
-        if secret and len(secret) >= 4:
-            redacted = redacted.replace(secret, "[redacted]")
-    return redacted
-
-
 def _first_env(*names: str) -> str:
     for name in names:
         value = str(os.environ.get(name) or "").strip()

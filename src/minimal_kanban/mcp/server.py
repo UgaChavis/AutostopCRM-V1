@@ -20,7 +20,6 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from ..cold_http_ingress import load_http_ingress
 from ..config import (
     get_mcp_bearer_token,
     get_mcp_host,
@@ -59,13 +58,12 @@ from .card_attachment_reads import (
     register_card_attachment_reads,
 )
 from .client import BoardApiClient, BoardApiTransportError, _normalize_int
-from .cold_ingress import ColdAwareFastMCP, local_endpoint
 from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
     register_connector_diagnostics,
 )
 from .manager_registration import _try_register_autostop_manager_tools
-from .oauth_consent import consent_page_for
+from .oauth_consent import _oauth_consent_page
 from .oauth_provider import (
     DEFAULT_KANBAN_SCOPES,
     OAUTH_CONSENT_PATH,
@@ -364,9 +362,6 @@ def create_mcp_server(
     allowed_origins: list[str] | tuple[str, ...] | None = None,
     oauth_state_file: Path | None = None,
 ) -> FastMCP:
-    cold_ingress = load_http_ingress()
-    if cold_ingress is not None:
-        public_base_url, public_endpoint_url, path = cold_ingress.mcp_urls()
     resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
     resolved_host = host or get_mcp_host()
     resolved_port = port or get_mcp_port()
@@ -388,6 +383,11 @@ def create_mcp_server(
         raw_resource_url if raw_resource_url and not resource_url else effective_resource_url
     )
     connector_name = _connector_name_from_url(connector_name_url)
+    local_bind_host = (
+        f"[{resolved_host}]"
+        if ":" in resolved_host and not resolved_host.startswith("[")
+        else resolved_host
+    )
     connector_identity = {
         "connector_name": connector_name,
         "product_name": "AutoStop CRM",
@@ -398,7 +398,7 @@ def create_mcp_server(
         "resource_url": effective_resource_url,
         "server_base_url": server_base_url,
         "streamable_http_path": resolved_path,
-        "local_bind": local_endpoint(cold_ingress, resolved_host, resolved_port, resolved_path),
+        "local_bind": f"http://{local_bind_host}:{resolved_port}{resolved_path}",
         "board_api_base_url": board_api.base_url,
         "auth_mode": (
             "oauth_2_1_pkce"
@@ -457,8 +457,7 @@ def create_mcp_server(
                 client_id=gateway_policy.service_identity,
             )
 
-    server = ColdAwareFastMCP(
-        cold_http_ingress=cold_ingress,
+    server = FastMCP(
         name=connector_name,
         instructions=(
             _external_product_text(
@@ -491,7 +490,6 @@ def create_mcp_server(
         log_level="WARNING",
     )
     if isinstance(auth_server_provider, ProductionOAuthAuthorizationServerProvider):
-        consent_page = consent_page_for(cold_ingress)
         failed_attempts_by_request: dict[str, list[float]] = {}
         failed_attempts_by_host: dict[str, list[float]] = {}
         failed_attempts_lock = threading.Lock()
@@ -534,7 +532,7 @@ def create_mcp_server(
             scopes = [str(item) for item in pending.get("scopes") or []]
             if request.method == "GET":
                 return HTMLResponse(
-                    consent_page(request_id, client_name=client_name, scopes=scopes),
+                    _oauth_consent_page(request_id, client_name=client_name, scopes=scopes),
                     headers=_OAUTH_CONSENT_HEADERS,
                 )
 
@@ -590,7 +588,7 @@ def create_mcp_server(
                         while len(attempts_by_key) > _OAUTH_CONSENT_RATE_LIMIT_MAX_KEYS:
                             attempts_by_key.pop(next(iter(attempts_by_key)), None)
                 return HTMLResponse(
-                    consent_page(
+                    _oauth_consent_page(
                         request_id,
                         client_name=client_name,
                         scopes=scopes,

@@ -91,8 +91,9 @@ constructor reads a compatible copy. The first save writes the new file. It
 does not change or delete the older setting. An invalid older graph causes an
 error rather than an empty replacement.
 
-Coordinated release backup includes `manager_structure.json`; rollback restores
-the saved file or removes one first created by the failed candidate.
+The necessary-data backup includes `manager_structure.json`. The explicit
+restore helper restores the saved file or removes one absent from that backup;
+it must never be used to overwrite newer working data automatically.
 
 The root `tool_statuses` map stores stable tool IDs with server-created
 `state`, `updated_at` and `updated_by`. Graph operations preserve it, complete
@@ -239,7 +240,7 @@ Use the offline instruction-refresh helper for the portable template/blueprint.
 
 A GitHub publication leaves the installed catalog and live graph on their
 existing revision. Follow the [operations runbook](../../OPERATIONS_RUNBOOK.md)
-for a later explicitly authorized coordinated release. After that release,
+for a later explicitly authorized offline maintenance window. After that update,
 reread the full live graph, prepare fresh instruction-only preview/apply requests
 against its current version, and verify instructions and catalog pin together.
 Keep geometry, manual paths and commissioning records intact.

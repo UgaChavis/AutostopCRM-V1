@@ -426,11 +426,11 @@ class DisplayDashboardWebContractTests(unittest.TestCase):
         self.assertIn("КОНСТРУКТОР СТРУКТУРЫ МЕНЕДЖЕРА", BOARD_WEB_APP_HTML)
         self.assertNotIn("РЕДАКТИРОВАТЬ ДОСКУ СООБЩЕНИЙ", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "window.open(autostopBoardUrl('/dashboard'), 'autostop-display-dashboard')",
+            "window.open('/dashboard', 'autostop-display-dashboard')",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "window.open(autostopBoardUrl('/manager-structure'), 'autostop-manager-structure')",
+            "window.open('/manager-structure', 'autostop-manager-structure')",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("openDisplayDashboardButton?.addEventListener", BOARD_WEB_APP_HTML)

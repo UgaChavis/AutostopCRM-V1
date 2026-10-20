@@ -27,19 +27,6 @@ def instruction_text(path: Path) -> str:
     return text
 
 
-def route_for(source: dict, target: dict) -> dict:
-    ax = source["x"] + source["width"] / 2
-    ay = source["y"] + source["height"] / 2
-    bx = target["x"] + target["width"] / 2
-    by = target["y"] + target["height"] / 2
-    midpoint = (ax + bx) / 2
-    return {
-        "path": f"M{ax:g} {ay:g} H{midpoint:g} V{by:g} H{bx:g}",
-        "label_x": midpoint,
-        "label_y": (ay + by) / 2,
-    }
-
-
 def find_item(items: list[dict], ident: str, name: str) -> dict:
     item = next((item for item in items if item["id"] == ident), None)
     if item is None:

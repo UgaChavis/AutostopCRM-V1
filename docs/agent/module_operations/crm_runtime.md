@@ -22,9 +22,9 @@ open CRM records or inspect private logs for a general health check.
 
 The Compose project has two services: `autostopcrm` and `searxng` (container
 `autostop-searxng`). Store and PostgreSQL are separate projects. Legacy
-Crawl4AI retirement requires the coordinated release and cold recovery procedure
-in the [runbook](../../OPERATIONS_RUNBOOK.md#retiring-the-legacy-crawl4ai-container).
-Source tests do not establish its actual removal or live health.
+Crawl4AI is not a runtime dependency. Any remaining host cleanup follows the
+[offline maintenance procedure](../../OPERATIONS_RUNBOOK.md#deploy) after checking
+actual use. Source tests do not establish live removal or health.
 
 ## Diagnose and recover
 
@@ -54,13 +54,12 @@ live in [`test_module_map_browser.py`](https://github.com/UgaChavis/AutostopCRM-
    Store API/flags. A missing token is configuration; HTTP 5xx is downstream;
    a quote revision conflict is domain/concurrency. Do not connect to the
    Store database.
-4. Use targeted synthetic tests. If release gates fail, stop. `deploy.sh`
-   seals the Manager candidate, runs its offline catalog sync and disk check
-   before maintenance, then handles checkpoint, bounded pause, activation,
-   verification and rollback. Manager MCP activation defaults to enabled;
-   only an explicitly scoped CRM-only release sets
-   `AUTOSTOP_MANAGER_MCP_ACTIVATE_ON_DEPLOY=0`. Preserve volumes; never
-   manually replace production state to repair a probe.
+4. Use targeted synthetic tests. If required checks fail, stop. Installation uses
+   the runbook's authorized offline window: stop application intake and services,
+   preserve one necessary-data/config backup, check one isolated local restore,
+   install qualified artifacts and verify the applications before reopening intake.
+   `deploy.sh` is retired and exits without changing services. Preserve volumes,
+   durable queues and uncertain operations; never restore old data over new writes.
 
 Production environment names are documented in the
 [runbook authentication section](../../OPERATIONS_RUNBOOK.md#production-authentication):

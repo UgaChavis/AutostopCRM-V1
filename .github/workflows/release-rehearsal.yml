@@ -31,10 +31,6 @@ jobs:
             scenario: windows-profile
             python_version: "3.12.10"
             timeout_minutes: 45
-          - os: ubuntu-latest
-            scenario: linux-systemd
-            python_version: "3.12.15"
-            timeout_minutes: 15
     defaults:
       run:
         shell: pwsh
@@ -193,7 +189,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Actual linked native runtime verification failed.' }
 
       - name: Run the complete canonical CI profile once
-        if: matrix.scenario != 'linux-systemd'
         run: |
           Start-Transcript -Path output/release-rehearsal/ci-profile.txt
           try {
@@ -202,18 +197,6 @@ jobs:
           finally {
             Stop-Transcript
           }
-
-      - name: Exercise the required real isolated Linux systemd fixture
-        if: matrix.scenario == 'linux-systemd'
-        shell: bash
-        run: |
-          sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" .venv/bin/python scripts/j1_isolated_systemd_rehearsal.py --output-dir output/release-rehearsal/systemd
-
-      - name: Exercise the required cold execution-slot systemd template and guard
-        if: matrix.scenario == 'linux-systemd'
-        shell: bash
-        run: |
-          sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" /usr/bin/python3 -B scripts/rehearse_cold_systemd.py --output-dir output/release-rehearsal/cold-systemd
 
       - name: Verify tracked source remains the selected commit
         run: |
@@ -252,7 +235,7 @@ jobs:
     needs: rehearsal
     runs-on: ubuntu-latest
     steps:
-      - name: Require every profile and the native fixture
+      - name: Require every Linux and Windows profile
         env:
           REHEARSAL_RESULT: ${{ needs.rehearsal.result }}
         run: test "$REHEARSAL_RESULT" = success
@@ -270,7 +253,7 @@ jobs:
           import os
           from pathlib import Path
 
-          expected = {"linux-profile", "windows-profile", "linux-systemd"}
+          expected = {"linux-profile", "windows-profile"}
           seen = set()
           for path in Path("downloaded-rehearsals").rglob("rehearsal-complete.json"):
               receipt = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -281,32 +264,5 @@ jobs:
               assert receipt["scope"] == "disposable-rehearsal-only", receipt
               seen.add(scenario)
           assert seen == expected, {"missing_scenarios": sorted(expected - seen)}
-          cold_paths = list(Path("downloaded-rehearsals").rglob("cold-systemd/report.json"))
-          assert len(cold_paths) == 1, {"cold_systemd_reports": len(cold_paths)}
-          cold = json.loads(cold_paths[0].read_text(encoding="utf-8"))
-          assert cold["schema"] == "autostopcrm.hosted-cold-unit-rehearsal.v1", cold
-          assert cold["source_sha"] == os.environ["GITHUB_SHA"], cold
-          assert cold["ok"] is True and cold["cleanup_complete"] is True, cold
-          assert cold["production_acceptance"] is False, cold
-          kernel_credentials = cold["kernel_credentials"]
-          assert type(kernel_credentials) is dict and set(kernel_credentials) == {"passed", "cleanup_complete", "observed", "settings", "production_acceptance"}, kernel_credentials
-          assert kernel_credentials["passed"] is True and kernel_credentials["cleanup_complete"] is True, kernel_credentials
-          assert kernel_credentials["observed"] == {"uid": 0, "gid": 0, "groups": [0]}, kernel_credentials
-          assert kernel_credentials["settings"] == {"User": "root", "Group": "root", "SupplementaryGroups": "root"}, kernel_credentials
-          assert kernel_credentials["production_acceptance"] is False, kernel_credentials
-          expected_cold = {"one_entry", "source_corrupt_before_a", "parent_r_before_a", "kernel_dead_before_a"}
-          seen_cold = set()
-          for case in cold["cases"]:
-              assert case["name"] in expected_cold and case["name"] not in seen_cold, case
-              assert case["passed"] is True and case["cleanup_complete"] is True, case
-              assert case["systemd_launches"] == 1, case
-              assert case["exec_condition"] == "" and case["exact_guard_exec_start"] is True, case
-              assert 0 <= case["mainpid_observed_within_seconds"] < 10, case
-              assert 0 <= case["a_published_within_seconds"] < 10, case
-              assert case["guard_exit_status"] == (None if case["name"] == "one_entry" else 2), case
-              expected_journal = {"S": 1, "A": 1, "C": 1, "E": 1} if case["name"] == "one_entry" else {"S": 1, "A": 1, "C": 0, "E": 0}
-              assert case["journal"] == expected_journal, case
-              seen_cold.add(case["name"])
-          assert seen_cold == expected_cold, {"missing_cold_cases": sorted(expected_cold - seen_cold)}
           print("Every required rehearsal scenario completed on the selected commit.")
           PY

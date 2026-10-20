@@ -6,6 +6,7 @@ import fnmatch
 import json
 import os
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -38,14 +39,6 @@ CRM_CANONICAL_DOCS = (
     "MCP_GUIDE.md",
     "README.md",
     "docs/OPERATIONS_RUNBOOK.md",
-    "docs/J1_RELEASE_BOUNDARY.md",
-    "docs/J1_CRM_FORWARD_RELEASE.md",
-    "docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
-    "docs/J1_FORWARD_LAUNCH_ADMISSION.md",
-    "docs/J1_COLD_RECOVERY.md",
-    "docs/J1_STORE54_BOUNDARY.md",
-    "docs/J1_COLD_KERNEL_PREPARATION.md",
-    "docs/J1_COLD_NATIVE_PREPARATION.md",
 )
 
 CRM_DOCUMENTATION_MANIFESTS = (
@@ -72,6 +65,7 @@ DOCUMENTATION_SUFFIXES = (".md", ".txt", ".rst", ".adoc")
 
 REPOSITORY_SKILL = "tools/codex/skills/autostopcrm-maintain"
 ACTIVE_DOC_GLOBS = (
+    "docs/maintenance-backlog.md",
     "docs/agent/module_operations/*.md",
     "tech_debt/*.md",
     f"{REPOSITORY_SKILL}/*.md",
@@ -307,7 +301,7 @@ FORBIDDEN_TEXT_PATTERNS = (
     (
         "stale_deploy_env",
         re.compile(r"\bAUTOSTOP_GIT_BRANCH\b"),
-        "old deploy env var; the target branch is fixed by CRM_DEPLOY_BRANCH in deploy.sh",
+        "removed deploy env var; use the authorized offline maintenance procedure",
     ),
     (
         "stale_deploy_env",
@@ -566,20 +560,8 @@ RUNBOOK_REQUIRED_TEXT = (
         "production SSH command does not force the documented identity",
     ),
     (
-        "CRM_DEPLOY_BRANCH",
-        "fixed CRM deploy branch is not documented",
-    ),
-    (
         "AUTOSTOP_DEPLOY_LOCK_PATH",
-        "deploy/watchdog lock path env var is not documented",
-    ),
-    (
-        "AUTOSTOP_SMOKE_ATTEMPTS",
-        "deploy smoke retry count env var is not documented",
-    ),
-    (
-        "AUTOSTOP_SMOKE_DELAY_SECONDS",
-        "deploy smoke retry delay env var is not documented",
+        "watchdog maintenance suppression lock path is not documented",
     ),
     (
         "validate_production_env.py",
@@ -1254,7 +1236,7 @@ def _manager_catalog_issues(
 
 def _registered_runtime_contract(root: Path, manager_root: Path) -> dict[str, Any]:
     probe = r"""
-import hashlib, json, logging, sys
+import hashlib, json, logging, os, sys
 from pathlib import Path
 crm_root, manager_root = sys.argv[1:3]
 sys.path[:0] = [f"{crm_root}/src", manager_root]
@@ -1273,7 +1255,8 @@ def surface(server):
 manager = build_server()
 crm = create_mcp_server(
     BoardApiClient("http://127.0.0.1:9"), logging.getLogger("schema-probe"),
-    host="127.0.0.1", port=41831, path="/mcp", bearer_token="schema-probe",
+    host="127.0.0.1", port=41831, path="/mcp",
+    bearer_token=os.environ["MINIMAL_KANBAN_MCP_BEARER_TOKEN"],
     public_endpoint_url="https://crm.example/mcp",
 )
 print(json.dumps({
@@ -1293,7 +1276,7 @@ print(json.dumps({
             "AUTOSTOP_AGENT_GATEWAY_DESTRUCTIVE_ENABLED": "1",
             "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "1",
             "AUTOSTOP_MCP_OAUTH_ENABLED": "0",
-            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": "schema-probe",
+            "MINIMAL_KANBAN_MCP_BEARER_TOKEN": secrets.token_urlsafe(48),
         }
     )
     completed = subprocess.run(

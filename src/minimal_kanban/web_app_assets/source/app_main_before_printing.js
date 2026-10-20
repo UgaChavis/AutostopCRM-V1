@@ -1,6 +1,5 @@
 
   <script>
-    // @include cold_board_url.js
     // Legacy actor localStorage flow removed in favor of operator sessions.
     const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
     const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
@@ -2108,7 +2107,7 @@
           }, apiReadTimeoutMs());
         }
         try {
-          response = await fetch(autostopBoardUrl(path), requestAttempt);
+          response = await fetch(path, requestAttempt);
           rawText = await response.text();
           break;
         } catch (error) {
@@ -2231,7 +2230,7 @@
     }
 
     function withAccessToken(path) {
-      const url = new URL(autostopBoardUrl(path), window.location.origin);
+      const url = new URL(path, window.location.origin);
       if (state.apiToken) url.searchParams.set('access_token', state.apiToken);
       return url.pathname + url.search + url.hash;
     }
@@ -2288,7 +2287,7 @@
       try {
         let response;
         try {
-          response = await fetch(autostopBoardUrl(url), { headers, cache: 'no-store', signal: controller.signal });
+          response = await fetch(url, { headers, cache: 'no-store', signal: controller.signal });
         } catch (_) {
           throw new Error(networkErrorMessage);
         }
@@ -14807,7 +14806,7 @@
     }
 
     function openDisplayDashboard() {
-      const popup = window.open(autostopBoardUrl('/dashboard'), 'autostop-display-dashboard');
+      const popup = window.open('/dashboard', 'autostop-display-dashboard');
       if (!popup) {
         setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ДАШБОРДА.', true);
         return;
@@ -14816,7 +14815,7 @@
     }
 
     function openModuleMap() {
-      const popup = window.open(autostopBoardUrl('/module-map'), 'autostop-module-map');
+      const popup = window.open('/module-map', 'autostop-module-map');
       if (!popup) {
         setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО ИНФРАСТРУКТУРЫ МЕНЕДЖЕРА.', true);
         return;
@@ -14825,7 +14824,7 @@
     }
 
     function openManagerStructure() {
-      const popup = window.open(autostopBoardUrl('/manager-structure'), 'autostop-manager-structure');
+      const popup = window.open('/manager-structure', 'autostop-manager-structure');
       if (!popup) {
         setStatus('БРАУЗЕР ЗАБЛОКИРОВАЛ ОКНО КОНСТРУКТОРА СТРУКТУРЫ МЕНЕДЖЕРА.', true);
         return;

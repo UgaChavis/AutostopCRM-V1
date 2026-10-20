@@ -78,7 +78,7 @@ documented Store API boundary, never Store PostgreSQL.
 
 ## Safe release smoke and failures
 
-From the exact candidate checkout after the runbook's preflight and activation:
+From the installed checked revision after the runbook's offline update:
 
 ```bash
 cd /opt/autostopcrm
@@ -86,9 +86,10 @@ docker compose exec -T autostopcrm python scripts/check_agent_gateway_v2.py \
   --mcp-url https://crm.autostopcrm.ru/mcp --exhaustive --require-store --require-web
 ```
 
-The maintenance-safe variant with revision and attempt ID belongs **inside**
-`deploy.sh` while the maintenance marker is active. Run Gateway unit tests in
-a disposable local environment:
+The maintenance-safe variant is separate from ordinary live acceptance. It
+requires an active maintenance marker, revision-bound proof and unique attempt
+ID; the retired controller no longer invokes it. Never bypass that marker or
+reuse an old attempt. Run Gateway unit tests in a disposable local environment:
 
 ```bash
 cd /opt/autostopcrm

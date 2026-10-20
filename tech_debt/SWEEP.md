@@ -623,14 +623,13 @@ exact-SHA hosted acceptance are pending.
   current image and clean isolated source; compare the actual installed-to-target
   diff with the exact reviewed path list. The 579a2573 source comparison is
   not evidence of the installed server revision.
-- Run the runbook's read-only CRM-only preflight with the exact guarded Manager
-  controller source. Check current health, Compose/mounts, available space,
-  Manager/catalog compatibility and the active Telegram target. Record the
-  private preflight result without credentials or customer data.
-- The update procedure includes a temporary CRM/Telegram duty pause. Use the
-  existing lock, verified snapshot and rollback image through deploy_crm_only.py;
-  require the preflight-pinned Telegram target and approved SHA. Do not replace
-  this with an ad hoc restart or restore live data after new writes are allowed.
+- The historical guarded CRM-only controller has been retired. Use the current
+  runbook's explicitly authorized full-downtime maintenance window. Check actual
+  installed revisions, dependencies, capacity and the qualified target artifacts.
+- Stop application intake and Manager, CRM and Store while preserving SSH. Keep
+  one consistent copy of necessary data/settings and check one local isolated
+  restore. Preserve durable queues and unknown outcomes; do not replay uncertain
+  operations or restore an old database over newer writes.
 - After update, prove image revision, health, HTTPS/Gateway/authentication,
   unchanged neighboring services and affected UI behavior under the runbook.
   These live checks, backup and update have not been executed during preparation.

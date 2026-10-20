@@ -265,10 +265,6 @@ class DocsAuditTests(unittest.TestCase):
         self.assertIn("!MCP_GUIDE.md", rules)
         self.assertIn("!CHATGPT_CONNECTOR_SETUP.md", rules)
         self.assertIn("!docs/OPERATIONS_RUNBOOK.md", rules)
-        self.assertIn("!docs/J1_RELEASE_BOUNDARY.md", rules)
-        self.assertIn("!docs/J1_FORWARD_LAUNCH_ADMISSION.md", rules)
-        self.assertIn("!docs/J1_COLD_RECOVERY.md", rules)
-        self.assertIn("!docs/J1_MANAGER_AUTHORITY_TRANSITION.md", rules)
 
     @unittest.skipUnless(
         os.environ.get("AUTOSTOPCRM_DOCKER_CONTEXT_TESTS") == "1",
@@ -349,14 +345,6 @@ class DocsAuditTests(unittest.TestCase):
                 "Docker image excludes canonical documentation: !CHATGPT_CONNECTOR_SETUP.md",
                 "Docker image excludes canonical documentation: !MCP_GUIDE.md",
                 "Docker image excludes canonical documentation: !docs/OPERATIONS_RUNBOOK.md",
-                "Docker image excludes canonical documentation: !docs/J1_RELEASE_BOUNDARY.md",
-                "Docker image excludes canonical documentation: !docs/J1_CRM_FORWARD_RELEASE.md",
-                "Docker image excludes canonical documentation: !docs/J1_FORWARD_LAUNCH_ADMISSION.md",
-                "Docker image excludes canonical documentation: !docs/J1_COLD_RECOVERY.md",
-                "Docker image excludes canonical documentation: !docs/J1_STORE54_BOUNDARY.md",
-                "Docker image excludes canonical documentation: !docs/J1_COLD_KERNEL_PREPARATION.md",
-                "Docker image excludes canonical documentation: !docs/J1_COLD_NATIVE_PREPARATION.md",
-                "Docker image excludes canonical documentation: !docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
             },
             {issue.detail for issue in issues},
         )
@@ -863,10 +851,7 @@ class DocsAuditTests(unittest.TestCase):
                 "audit archive data directory is not documented: audit-archive",
                 "canonical production SSH identity is not documented: autostopcrm_server_ed25519",
                 "production SSH command does not force the documented identity: IdentitiesOnly=yes",
-                "fixed CRM deploy branch is not documented: CRM_DEPLOY_BRANCH",
-                "deploy/watchdog lock path env var is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
-                "deploy smoke retry count env var is not documented: AUTOSTOP_SMOKE_ATTEMPTS",
-                "deploy smoke retry delay env var is not documented: AUTOSTOP_SMOKE_DELAY_SECONDS",
+                "watchdog maintenance suppression lock path is not documented: AUTOSTOP_DEPLOY_LOCK_PATH",
                 "production environment validator is not documented: validate_production_env.py",
                 "Gateway v2 release verifier is not documented: check_agent_gateway_v2.py",
                 "blocked repair-order correction contract is not documented: repair_order_number_immutable",
@@ -1231,7 +1216,13 @@ class DocsAuditTests(unittest.TestCase):
 
         self.assertEqual(payload, result)
         self.assertEqual("/dev/null", run.call_args.kwargs["env"]["AUTOSTOP_MANAGER_ENV_FILE"])
+        from minimal_kanban.deployment_security import bearer_token_is_strong
+
+        self.assertTrue(
+            bearer_token_is_strong(run.call_args.kwargs["env"]["MINIMAL_KANBAN_MCP_BEARER_TOKEN"])
+        )
         probe = run.call_args.args[0][2]
+        self.assertIn('bearer_token=os.environ["MINIMAL_KANBAN_MCP_BEARER_TOKEN"]', probe)
         self.assertIn("from autostop_manager.diagnostics import instruction_paths", probe)
         self.assertIn("list(instruction_paths(Path(manager_root)))", probe)
         self.assertIn('"tool_names"', probe)

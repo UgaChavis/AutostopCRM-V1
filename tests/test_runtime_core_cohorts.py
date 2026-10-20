@@ -102,7 +102,7 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             self.assertFalse(result["exact_disjoint_id_receipts"])
 
     def test_selected_application_import_does_not_depend_on_discovery_order(self):
-        identity = "tests.test_cold_manager.ColdManagerTests.test_sealed_source_calls_independent_manager_validator"
+        identity = "tests.test_deployment_security.DeploymentSecurityTests.test_standalone_container_imports_from_unrelated_directory_without_pythonpath"
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             environment = self._environment(root)

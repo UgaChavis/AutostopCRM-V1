@@ -69,7 +69,7 @@ jobs:
               test ! -e /app/docs/reports
               for document in \
                 AGENTS.md README.md API_GUIDE.md MCP_GUIDE.md CHATGPT_CONNECTOR_SETUP.md \
-                docs/OPERATIONS_RUNBOOK.md docs/J1_RELEASE_BOUNDARY.md \
+                docs/OPERATIONS_RUNBOOK.md \
                 docs/agent/module_operations/README.md \
                 docs/agent/module_operations/crm_commands.md \
                 docs/agent/module_operations/crm_gateway.md \
@@ -376,38 +376,6 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: python scripts/coverage_audit.py --format text
 
-      - name: Store pre-stop branch coverage
-        if: ${{ matrix.suite == 'unit' }}
-        run: |
-          python -m tests.runtime_process --timeout-seconds 180 --label store-drain -- python -m coverage run \
-            --data-file "$RUNNER_TEMP/store-drain.coverage" --source=scripts.j1_forward_store -m unittest \
-            tests.test_j1_forward_store tests.test_j1_forward_store_wire tests.test_j1_forward_store_integration -v
-          coverage combine --data-file "$RUNNER_TEMP/store-drain.coverage"
-          coverage report --data-file "$RUNNER_TEMP/store-drain.coverage" --fail-under=90 | tee coverage-store-drain.txt
-          coverage json --data-file "$RUNNER_TEMP/store-drain.coverage" -o coverage-store-drain.json
-
-      - name: Manager authority preparation branch coverage
-        if: ${{ matrix.suite == 'unit' }}
-        run: |
-          python -m tests.runtime_process --timeout-seconds 180 --label manager-authority -- python -m coverage run \
-            --data-file "$RUNNER_TEMP/manager-authority.coverage" \
-            --source=scripts.j1_manager_transition,scripts.j1_manager_transition_source -m unittest \
-            tests.test_j1_manager_transition tests.test_j1_manager_transition_source -v
-          coverage combine --data-file "$RUNNER_TEMP/manager-authority.coverage"
-          coverage report --data-file "$RUNNER_TEMP/manager-authority.coverage" --fail-under=90 | tee coverage-manager-authority.txt
-          coverage json --data-file "$RUNNER_TEMP/manager-authority.coverage" -o coverage-manager-authority.json
-
-      - name: Manager successor guard branch coverage
-        if: ${{ matrix.suite == 'unit' }}
-        run: |
-          python -m tests.runtime_process --timeout-seconds 180 --label manager-successor -- python -m coverage run \
-            --data-file "$RUNNER_TEMP/manager-successor.coverage" \
-            --source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native -m unittest \
-            tests.test_j1_manager_successor_guard tests.test_j1_manager_successor_native -v
-          coverage combine --data-file "$RUNNER_TEMP/manager-successor.coverage"
-          coverage report --data-file "$RUNNER_TEMP/manager-successor.coverage" --fail-under=90 | tee coverage-manager-successor.txt
-          coverage json --data-file "$RUNNER_TEMP/manager-successor.coverage" -o coverage-manager-successor.json
-
       - name: Upload coverage evidence
         if: ${{ always() && matrix.suite == 'unit' }}
         uses: actions/upload-artifact@v7
@@ -419,12 +387,6 @@ jobs:
             coverage-runtime.xml
             coverage-release.txt
             coverage-release.json
-            coverage-store-drain.txt
-            coverage-store-drain.json
-            coverage-manager-authority.txt
-            coverage-manager-authority.json
-            coverage-manager-successor.txt
-            coverage-manager-successor.json
             htmlcov/
           if-no-files-found: warn
 

@@ -168,15 +168,6 @@ CANONICAL_DOCS = frozenset(
         "MCP_GUIDE.md",
         "README.md",
         "docs/OPERATIONS_RUNBOOK.md",
-        "docs/J1_RELEASE_BOUNDARY.md",
-        "docs/J1_CRM_FORWARD_RELEASE.md",
-        "docs/J1_FORWARD_LAUNCH_ADMISSION.md",
-        "docs/J1_COLD_RECOVERY.md",
-        "docs/J1_STORE54_BOUNDARY.md",
-        "docs/J1_COLD_KERNEL_PREPARATION.md",
-        "docs/J1_COLD_NATIVE_PREPARATION.md",
-        "docs/J1_MANAGER_AUTHORITY_TRANSITION.md",
-        "docs/j1_kernel_release_interface_v1.json",
         "docs/agent/module_operations/README.md",
         "docs/agent/module_operations/crm_gateway.md",
         "docs/agent/module_operations/crm_runtime.md",
@@ -312,7 +303,9 @@ def classify_repository_file(path: str) -> TrackedFileClassification:
         role = "canonical_doc"
     elif normalized.startswith("docs/reports/") and normalized.endswith(".md"):
         role = "historical_report"
-    elif normalized.startswith("tech_debt/") and normalized.endswith(".md"):
+    elif normalized == "docs/maintenance-backlog.md" or (
+        normalized.startswith("tech_debt/") and normalized.endswith(".md")
+    ):
         role = "technical_debt_task"
     elif normalized.startswith("tools/codex/skills/autostopcrm-maintain/"):
         role = "agent_skill"

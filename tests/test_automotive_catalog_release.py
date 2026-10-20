@@ -102,21 +102,3 @@ class AutomotiveCatalogReleaseTests(unittest.TestCase):
         ):
             checker.main()
         producer.assert_not_called()
-
-    def test_coordinated_and_crm_only_preflight_compare_exact_selected_manager(self):
-        deploy = (ROOT / "deploy.sh").read_text()
-        start = deploy.index("run_isolated_manager_knowledge_preflight() (")
-        end = deploy.index("\n)\n\nsync_current_manager_knowledge()", start)
-        preflight = deploy[start:end]
-        self.assertIn('"$ROOT_DIR/scripts/check_automotive_tool_catalog.py"', preflight)
-        self.assertIn('--expected-source-revision "$manager_revision"', preflight)
-        self.assertIn('--manager-root "$manager_release_dir"', preflight)
-        self.assertIn('--manager-python "$MANAGER_RELEASE_PYTHON"', preflight)
-        call = deploy.index("\nrun_isolated_manager_knowledge_preflight\n", end)
-        self.assertLess(call, deploy.index("maintenance_started=1"))
-        self.assertLess(call, deploy.index("| docker build"))
-        crm_only = (ROOT / "scripts/deploy_crm_only.py").read_text()
-        preflight_start = crm_only.index("    def preflight(self)")
-        preflight_end = crm_only.index("    def build_candidate(", preflight_start)
-        self.assertIn("check_automotive_tool_catalog.py", crm_only[preflight_start:preflight_end])
-        self.assertIn("str(MANAGER_LINK.resolve())", crm_only[preflight_start:preflight_end])

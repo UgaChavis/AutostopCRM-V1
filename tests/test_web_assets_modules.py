@@ -384,7 +384,6 @@ function claimMobileMorePanelIntent(){return {};}
 function isModalOpen(){return false;}
 """
             + functions("app_main_before_printing.js", "beginCashboxMoneyRequest")
-            + read_board_source("cold_board_url.js")
             + loader
             + "\nconst moduleSource = "
             + json.dumps(module)
@@ -592,7 +591,6 @@ function buildBoardModuleSharedContext(){return {};}
 function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
 function isModalOpen(key){return state.modalStack.some(entry=>entry.key===key);}
 """
-            + read_board_source("cold_board_url.js")
             + loader
             + """
 (async()=>{
@@ -667,7 +665,6 @@ function setStatus(){}
 function buildBoardModuleSharedContext(){return {};}
 function claimMobileMorePanelIntent(){const intent={};state.mobileMorePanelIntent=intent;return intent;}
 """
-            + read_board_source("cold_board_url.js")
             + loader
             + """
 (async()=>{

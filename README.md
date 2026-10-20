@@ -15,6 +15,8 @@ Use current code and focused checks first:
 - [API guide](API_GUIDE.md) — HTTP contracts;
 - [MCP guide](MCP_GUIDE.md) — Gateway v2, Store boundary, and action guards;
 - [ChatGPT/Responses compatibility](CHATGPT_CONNECTOR_SETUP.md) — OAuth setup.
+- [maintenance backlog](docs/maintenance-backlog.md) — unresolved evidence and
+  deferred cleanup retained from removed historical reports.
 
 The single [CRM development skill](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tools/codex/skills/autostopcrm-maintain/SKILL.md)
 is versioned here; the runbook describes checking or installing its local copy.

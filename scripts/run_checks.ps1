@@ -178,58 +178,6 @@ try {
         "scripts/coverage_audit.py", "--format", "text"
     )
 
-    $storeDrainCoverage = Join-Path $ciPycachePath "store-drain.coverage"
-    Invoke-Python -StepName "Store pre-stop branch coverage" -Arguments @(
-        "-m", "coverage", "run", "--data-file", $storeDrainCoverage,
-        "--source=scripts.j1_forward_store", "-m", "unittest",
-        "tests.test_j1_forward_store", "tests.test_j1_forward_store_wire",
-        "tests.test_j1_forward_store_integration", "-v"
-    ) -TimeoutSeconds 180
-    Invoke-Python -StepName "Combine Store pre-stop coverage" -Arguments @(
-        "-m", "coverage", "combine", "--data-file", $storeDrainCoverage
-    )
-    Invoke-Python -StepName "Report Store pre-stop coverage" -Arguments @(
-        "-m", "coverage", "report", "--data-file", $storeDrainCoverage, "--fail-under=90"
-    )
-    Invoke-Python -StepName "Write Store pre-stop coverage JSON" -Arguments @(
-        "-m", "coverage", "json", "--data-file", $storeDrainCoverage,
-        "-o", "coverage-store-drain.json"
-    )
-
-    $managerAuthorityCoverage = Join-Path $ciPycachePath "manager-authority.coverage"
-    Invoke-Python -StepName "Manager authority preparation branch coverage" -Arguments @(
-        "-m", "coverage", "run", "--data-file", $managerAuthorityCoverage,
-        "--source=scripts.j1_manager_transition,scripts.j1_manager_transition_source", "-m", "unittest",
-        "tests.test_j1_manager_transition", "tests.test_j1_manager_transition_source", "-v"
-    ) -TimeoutSeconds 180
-    Invoke-Python -StepName "Combine Manager authority preparation coverage" -Arguments @(
-        "-m", "coverage", "combine", "--data-file", $managerAuthorityCoverage
-    )
-    Invoke-Python -StepName "Report Manager authority preparation coverage" -Arguments @(
-        "-m", "coverage", "report", "--data-file", $managerAuthorityCoverage, "--fail-under=90"
-    )
-    Invoke-Python -StepName "Write Manager authority preparation coverage JSON" -Arguments @(
-        "-m", "coverage", "json", "--data-file", $managerAuthorityCoverage,
-        "-o", "coverage-manager-authority.json"
-    )
-
-    $managerSuccessorCoverage = Join-Path $ciPycachePath "manager-successor.coverage"
-    Invoke-Python -StepName "Manager successor guard branch coverage" -Arguments @(
-        "-m", "coverage", "run", "--data-file", $managerSuccessorCoverage,
-        "--source=scripts.j1_manager_successor_guard,scripts.j1_manager_successor_native", "-m", "unittest",
-        "tests.test_j1_manager_successor_guard", "tests.test_j1_manager_successor_native", "-v"
-    ) -TimeoutSeconds 180
-    Invoke-Python -StepName "Combine Manager successor guard coverage" -Arguments @(
-        "-m", "coverage", "combine", "--data-file", $managerSuccessorCoverage
-    )
-    Invoke-Python -StepName "Report Manager successor guard coverage" -Arguments @(
-        "-m", "coverage", "report", "--data-file", $managerSuccessorCoverage, "--fail-under=90"
-    )
-    Invoke-Python -StepName "Write Manager successor guard coverage JSON" -Arguments @(
-        "-m", "coverage", "json", "--data-file", $managerSuccessorCoverage,
-        "-o", "coverage-manager-successor.json"
-    )
-
     Invoke-Python -StepName "Repository code health" -Arguments @(
         "scripts/code_health_audit.py", "--format", "text"
     )

@@ -121,7 +121,7 @@
       const loaded = await Promise.all(imageIds.map(async (fileId) => {
         try {
           const response = await fetch(
-            autostopBoardUrl('/api/shared_file?file_id=' + encodeURIComponent(fileId) + '&disposition=inline'),
+            '/api/shared_file?file_id=' + encodeURIComponent(fileId) + '&disposition=inline',
             { headers, cache: 'no-store' },
           );
           if (!response.ok) return null;

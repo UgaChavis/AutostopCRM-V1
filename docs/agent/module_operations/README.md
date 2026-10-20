@@ -37,9 +37,13 @@ handoff. The Store API and its deployment belong to the Store repository.
    target, authorization, native revision/idempotency guard and independent
    readback. No synthetic customer, quote, order or payment is created live.
 
-Stop a release at a failed gate. The release script owns its backup checkpoint,
-maintenance hold and rollback; do not substitute an ad hoc container restart or
-manual data restore. See the [runbook release sequence](../../OPERATIONS_RUNBOOK.md#release-checklist).
+Stop a release at a failed gate. The owner's current procedure stops Manager,
+CRM and Store together, preserves SSH, uses one necessary-data/config backup
+and one local isolated restore check, then verifies the installed applications.
+Old J1/guarded release controllers have been removed from the source candidate;
+`deploy.sh` only reports the current procedure and exits without effects.
+See the [current procedure](../../OPERATIONS_RUNBOOK.md#deploy) and
+[remaining maintenance evidence](../../maintenance-backlog.md).
 
 ## Verification record
 

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.runtime_skip_contract import NATIVE_LAUNCH_REASON, PRIVATE_COLD_REASON, unexpected_skips
+from tests.runtime_skip_contract import unexpected_skips
 from tests.runtime_suite_runner import record_result
 
 
@@ -17,7 +17,7 @@ class RuntimeSkipContractTests(unittest.TestCase):
         skipped = [(self, "Windows job handle lifetime")]
         self.assertEqual(unexpected_skips(skipped, "linux"), [])
         self.assertEqual(len(unexpected_skips(skipped, "win32")), 1)
-        skipped = [(self, "Requires real Linux flock, AF_UNIX and SO_PEERCRED")]
+        skipped = [(self, "POSIX file modes only")]
         self.assertEqual(unexpected_skips(skipped, "win32"), [])
         self.assertEqual(len(unexpected_skips(skipped, "linux")), 1)
 
@@ -33,67 +33,11 @@ class RuntimeSkipContractTests(unittest.TestCase):
                 with self.subTest(platform=platform, reason=reason):
                     self.assertEqual(len(unexpected_skips([(self, reason)], platform)), 1)
 
-    def test_native_metadata_exclusions_match_only_exact_windows_cases(self):
-        from tests.runtime_skip_contract import WINDOWS_NATIVE_METADATA_CASES
-
-        self.assertEqual(len(WINDOWS_NATIVE_METADATA_CASES), 3)
-        for module, family, method, reason in WINDOWS_NATIVE_METADATA_CASES:
-            for prefix in ("", "tests."):
-                case = type(
-                    family,
-                    (unittest.TestCase,),
-                    {
-                        "__module__": prefix + module,
-                        method: lambda self: None,
-                    },
-                )(method)
-                self.assertEqual(unexpected_skips([(case, reason)], "win32"), [])
-                self.assertEqual(len(unexpected_skips([(case, reason)], "linux")), 1)
-                self.assertEqual(len(unexpected_skips([(case, reason + " changed")], "win32")), 1)
-            for changed_module, changed_family, changed_method in (
-                ("unrelated", family, method),
-                (module, "Unrelated", method),
-                (module, family, "test_future_metadata_case"),
-            ):
-                case = type(
-                    changed_family,
-                    (unittest.TestCase,),
-                    {
-                        "__module__": changed_module,
-                        changed_method: lambda self: None,
-                    },
-                )(changed_method)
-                self.assertEqual(len(unexpected_skips([(case, reason)], "win32")), 1)
-
-    def test_linux_root_owned_launch_exclusion_is_scoped_to_its_two_native_families(self):
-        for family in ("LaunchPermissionTests", "NativeLaunchTests"):
-            native = type(family, (unittest.TestCase,), {"test_case": lambda self: None})(
-                "test_case"
-            )
-            self.assertEqual(unexpected_skips([(native, NATIVE_LAUNCH_REASON)], "win32"), [])
-            self.assertEqual(len(unexpected_skips([(native, NATIVE_LAUNCH_REASON)], "linux")), 1)
-        self.assertEqual(len(unexpected_skips([(self, NATIVE_LAUNCH_REASON)], "win32")), 1)
-
     def test_unknown_platform_and_new_reasons_remain_closed(self):
         self.assertEqual(len(unexpected_skips([(self, "new unsupported scenario")], "linux")), 1)
         self.assertEqual(
             len(unexpected_skips([(self, "Windows job handle lifetime")], "darwin")), 1
         )
-
-    def test_private_cold_exclusion_requires_exact_module_class_reason_and_windows(self):
-        for module, family in (
-            ("test_j1_forward_cold_state", "ColdRecoveryStateTests"),
-            ("test_j1_forward_cold_consumers", "NativeColdSourceTests"),
-        ):
-            cold = type(
-                family,
-                (unittest.TestCase,),
-                {"__module__": module, "test_case": lambda self: None},
-            )("test_case")
-            self.assertEqual(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "win32"), [])
-            self.assertEqual(len(unexpected_skips([(cold, PRIVATE_COLD_REASON)], "linux")), 1)
-            self.assertEqual(len(unexpected_skips([(cold, "another private reason")], "win32")), 1)
-        self.assertEqual(len(unexpected_skips([(self, PRIVATE_COLD_REASON)], "win32")), 1)
 
     def test_retained_wal_exclusions_require_the_exact_linux_only_storage_case(self):
         from tests.runtime_skip_contract import WINDOWS_LINUX_STORAGE_CASES
@@ -173,20 +117,3 @@ class RuntimeSkipContractTests(unittest.TestCase):
             ),
         ):
             self.assertEqual(record_result(result), 1)
-
-    def test_installed_barrier_file_cases_require_the_exact_windows_exclusion(self):
-        from tests.runtime_skip_contract import WINDOWS_INSTALLED_BARRIER_CASES
-
-        reason = "Linux installed-barrier files"
-        methods = {name: lambda self: None for name in WINDOWS_INSTALLED_BARRIER_CASES}
-        family = type(
-            "BarrierInspectionTests",
-            (unittest.TestCase,),
-            {"__module__": "tests.test_j1_forward_barrier_inspection", **methods},
-        )
-        for name in WINDOWS_INSTALLED_BARRIER_CASES:
-            test = family(name)
-            self.assertEqual(unexpected_skips([(test, reason)], "win32"), [])
-            self.assertEqual(len(unexpected_skips([(test, reason)], "linux")), 1)
-            self.assertEqual(len(unexpected_skips([(test, reason + " changed")], "win32")), 1)
-        self.assertEqual(len(unexpected_skips([(self, reason)], "win32")), 1)
