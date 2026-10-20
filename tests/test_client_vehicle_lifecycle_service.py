@@ -8,6 +8,51 @@ from minimal_kanban.services.card_service import ServiceError
 
 
 class ClientVehicleLifecycleTests(CardServiceCase):
+    def test_relinking_client_clears_only_the_previous_clients_vehicle_link(self) -> None:
+        clients = [
+            self.service.create_client(
+                {"display_name": name, "vehicles": [{"vehicle": f"{name} car"}]}
+            )["client"]
+            for name in ("Synthetic A", "Synthetic B")
+        ]
+        original, destination = clients
+        original_vehicle_id = original["vehicles"][0]["id"]
+        destination_vehicle_id = destination["vehicles"][0]["id"]
+        card = self.service.create_card(
+            {
+                "title": "Synthetic relink",
+                "client_id": original["id"],
+                "client_vehicle_id": original_vehicle_id,
+            }
+        )["card"]
+
+        def link(client, **extra):
+            return self.service.link_card_to_client(
+                {
+                    "card_id": card["id"],
+                    "client_id": client["id"],
+                    "sync_fields": False,
+                    **extra,
+                }
+            )["card"]
+
+        self.assertEqual(link(original)["client_vehicle_id"], original_vehicle_id)
+        relinked = link(destination)
+        self.assertEqual(relinked["client_id"], destination["id"])
+        self.assertEqual(relinked["client_vehicle_id"], "")
+        self.assertEqual(
+            self.service.get_card({"card_id": card["id"]})["card"]["client_vehicle_id"],
+            "",
+        )
+        self.assertEqual(
+            link(original, client_vehicle_id=original_vehicle_id)["client_vehicle_id"],
+            original_vehicle_id,
+        )
+        self.assertEqual(
+            link(destination, client_vehicle_id=destination_vehicle_id)["client_vehicle_id"],
+            destination_vehicle_id,
+        )
+
     def test_card_can_link_to_specific_client_vehicle(self) -> None:
         client = self.service.create_client(
             {
