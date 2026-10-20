@@ -31,6 +31,7 @@ def main(argv=None):
     parser.add_argument("--installed-dir", required=True)
     parser.add_argument("--codex", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--whisper-dir", help="Opt-in exact four public Whisper input files")
     args = parser.parse_args(argv)
     io.require(
         sys.platform.startswith("linux") and sys.dont_write_bytecode, "v2_linux_and_B_required"
@@ -62,6 +63,11 @@ def main(argv=None):
         CRM_COLD_V2_INSTALLED=str(Path(args.installed_dir).resolve()),
         CRM_COLD_V2_CODEX=str(Path(args.codex).resolve(strict=True)),
     )
+    os.environ.pop("CRM_COLD_V2_MODELS", None)
+    if args.whisper_dir:
+        models = Path(args.whisper_dir)
+        io.require(models.is_dir() and not models.is_symlink(), "v2_private_model_inputs")
+        os.environ["CRM_COLD_V2_MODELS"] = str(models.resolve(strict=True))
     started = time.monotonic()
     log_path = output / "trace.log"
     with (
@@ -93,6 +99,7 @@ def main(argv=None):
         "production_authority": False,
         "authenticated_real_account": False,
         "production_applications_exercised": False,
+        "actual_pinned_voice_models_requested": bool(args.whisper_dir),
     }
     with rehearsal.PrivateFilesystem(output):
         receipt["log_ref"] = io.reference(log_path)

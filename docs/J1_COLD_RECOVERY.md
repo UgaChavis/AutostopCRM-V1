@@ -504,3 +504,19 @@ expired proofs, duplicate entry, an actual child crash after history write,
 HEAD recovery, commit, OPEN, finish and independent terminal graph restore.
 A deadline failure remains a failed receipt. Archive restore validates opaque
 runtime bytes and reconstructs interpreter aliases without executing them.
+
+The optional runner argument `--whisper-dir` selects exactly four public files
+of `Systran/faster-whisper-small` revision
+`536b0662742c02347bc0e980a01041f333bce120`. Every file's pinned size/hash is
+stream-checked before two independent physical copies are placed in the work
+and personal Telegram fixture state/model directories. No model is loaded.
+Without this option a successful trace does not cover model-data footprint.
+
+The existing explicit fixture aliases cover each physical model file in three
+logical profile components. A model trace therefore records 972,424,744 unique
+physical bytes and 2,917,274,232 logical payload bytes (24 payloads), rather than
+claiming that these are the exact production layout. Both the local disposable
+DATA restore and the separate custodian DATA restore hash every occurrence.
+The hosted workflow requires at least 14 GiB free before running this option.
+All 300/600/60-second limits remain; a failed model trace cannot qualify a
+release or be replaced by the smaller functional trace.

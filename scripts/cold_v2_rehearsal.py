@@ -10,10 +10,13 @@ No current account files, model turns or production services are accessed.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import select
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import time
@@ -38,6 +41,114 @@ INSTALLED = REPORTS / "installed-runtime-5bf9570c-independent-restore"
 BINARY = Path(
     "/root/.codex/packages/standalone/releases/0.163.0-alpha.11-x86_64-unknown-linux-musl/bin/codex"
 )
+MODEL_REVISION = "536b0662742c02347bc0e980a01041f333bce120"
+MODEL_FILES = {
+    "config.json": (2370, "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828"),
+    "model.bin": (483546902, "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671"),
+    "tokenizer.json": (2203239, "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab"),
+    "vocabulary.txt": (459861, "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"),
+}
+MODEL_ROLES = ("work-telegram", "personal-telegram")
+
+
+def _voice_leaf(path, size, digest, *, target=None, deadline=None):
+    """Stream a single public fixture-data leaf; never execute a model."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    output = None
+    try:
+        before = os.fstat(descriptor)
+        cold.need(
+            stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and before.st_size == size,
+            "fixture_model_leaf",
+        )
+        if target is not None:
+            output = os.fdopen(
+                os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb"
+            )
+        value, count = hashlib.sha256(), 0
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
+            while block := source.read(1024**2):
+                cold.need(deadline is None or time.monotonic() < deadline, "fixture_model_deadline")
+                count += len(block)
+                cold.need(count <= size, "fixture_model_grew")
+                value.update(block)
+                if output is not None:
+                    output.write(block)
+        cold.need(
+            count == size
+            and value.hexdigest() == digest
+            and io.unchanged_read(before, before, os.fstat(descriptor), Path(path).lstat()),
+            "fixture_model_changed_or_hash",
+        )
+        if output is not None:
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        if output is not None:
+            output.close()
+        os.close(descriptor)
+
+
+def stage_voice_models(fixture, source):
+    """Two actual private role copies; current aliases intentionally capture each three times."""
+    source = Path(source)
+    cold.need(
+        source.is_dir()
+        and not source.is_symlink()
+        and set(p.name for p in source.iterdir()) == set(MODEL_FILES),
+        "fixture_model_inventory",
+    )
+    for name, (size, digest) in MODEL_FILES.items():
+        _voice_leaf(source / name, size, digest)
+    entries = []
+    for role in MODEL_ROLES:
+        state = fixture.root / "execution/roles" / role / "state"
+        fixture.custody.directory(state)
+        destination = state / "models/faster-whisper-small"
+        destination.mkdir(mode=0o700, parents=True)
+        fixture.custody.directory(destination)
+        for name, (size, digest) in MODEL_FILES.items():
+            target = destination / name
+            _voice_leaf(source / name, size, digest, target=target)
+            _voice_leaf(target, size, digest)
+            entries.append({"role": role, "source": str(target), "bytes": size, "sha256": digest})
+    return entries
+
+
+def verify_restored_models(entries, manifest, restored, *, deadline):
+    """Check every logical occurrence in an actual independent DATA restore."""
+    total, files = 0, 0
+    for entry in entries:
+        rows = [row for row in manifest["artifacts"] if row["source"] == entry["source"]]
+        cold.need(
+            len(rows) == 3
+            and {row["component"] for row in rows}
+            == {"cold_config", "cold_state", "cold_controller_state"},
+            "fixture_model_backup_coverage",
+        )
+        for row in rows:
+            cold.need(
+                row.get("sha256") == entry["sha256"]
+                and row.get("bytes") == entry["bytes"]
+                and type(row.get("payload")) is str
+                and re.fullmatch(r"[0-9]{6}\.bin", row["payload"]),
+                "fixture_model_backup_binding",
+            )
+            _voice_leaf(
+                Path(restored) / row["payload"], entry["bytes"], entry["sha256"], deadline=deadline
+            )
+            total += entry["bytes"]
+            files += 1
+    return {
+        "model_revision": MODEL_REVISION,
+        "roles": len({entry["role"] for entry in entries}),
+        "physical_model_bytes": sum(entry["bytes"] for entry in entries),
+        "logical_model_payload_bytes": total,
+        "logical_model_payload_files": files,
+        "all_payload_hashes_verified": bool(entries),
+        "model_loaded": False,
+    }
+
 
 SUPERVISOR = r"""
 import json, os, pathlib, select, signal, subprocess, sys, time

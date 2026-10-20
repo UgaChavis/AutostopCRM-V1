@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import io as text_io
 import os
 import sys
@@ -13,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import cold_trace
+from scripts import cold_v2_rehearsal as typed
 from scripts import j1_forward_cold_authority as cold
 from scripts import j1_forward_cold_backup as backup
 from scripts import j1_forward_cold_fixture as topology
@@ -168,6 +170,105 @@ class FixtureBoundaryTests(unittest.TestCase):
             self.assertIn('"logical_name":"private.fixture"', output.getvalue())
             self.assertNotIn("changed private bytes", output.getvalue())
             self.assertFalse((root / "backup/manifest.json").exists())
+
+
+@unittest.skipUnless(os.name == "posix", "Release checks require POSIX ownership and permissions")
+class VoiceModelDataTests(unittest.TestCase):
+    def data(self, root):
+        source = root / "inputs"
+        source.mkdir(mode=0o700)
+        pins = {}
+        for name in typed.MODEL_FILES:
+            raw = b'{"synthetic":true}' if name.endswith(".json") else b"synthetic-data-only"
+            (source / name).write_bytes(raw)
+            pins[name] = len(raw), hashlib.sha256(raw).hexdigest()
+        for role in typed.MODEL_ROLES:
+            (root / "execution/roles" / role / "state").mkdir(parents=True, mode=0o700)
+        fixture = SimpleNamespace(root=root, custody=rehearsal.PrivateFilesystem(root))
+        return fixture, source, pins
+
+    def test_both_physical_copies_and_all_three_logical_occurrences_restore_twice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture, source, pins = self.data(root)
+            attempt, generation = str(uuid.uuid4()), str(uuid.uuid4())
+            engine = backup.engine("2" * 40, generation, attempt)
+            roles = str(root / "execution/roles")
+            roots = (
+                ("cold_config", roles),
+                ("cold_state", roles),
+                ("cold_controller_state", str(root / "execution")),
+            )
+            with (
+                patch.object(typed, "MODEL_FILES", pins),
+                patch.object(engine, "ROOTS", roots),
+                patch.object(engine, "OPTIONAL_ROOTS", ()),
+                patch.object(engine, "SELECTORS", ()),
+                rehearsal.PrivateFilesystem(root, engines=(engine,)),
+            ):
+                entries = typed.stage_voice_models(fixture, source)
+                self.assertEqual(len(entries), 8)
+                self.assertEqual(len({Path(row["source"]).stat().st_ino for row in entries}), 8)
+                context = {
+                    "attempt_id": attempt,
+                    "predecessor_sha256": "0" * 64,
+                    "candidate_crm_sha": "1" * 40,
+                    "candidate_manager_sha": "2" * 40,
+                    "scope_profile_sha256": engine.profile_sha256(),
+                }
+                fence = {
+                    "attempt_id": attempt,
+                    "path": str(root / "fixture-fence"),
+                    "sha256": "3" * 64,
+                }
+                captured = engine.capture(root / "backup", context, lambda: fence, timeout=10)
+                manifest = io.document(io.referenced(captured["manifest"]))
+                for name in ("first", "second"):
+                    restored = root / name
+                    engine.verify_and_restore(
+                        root / "backup", captured["manifest_sha256"], restored, context, timeout=10
+                    )
+                    result = typed.verify_restored_models(
+                        entries, manifest, restored, deadline=typed.time.monotonic() + 5
+                    )
+                    self.assertEqual(result["logical_model_payload_files"], 24)
+                    self.assertEqual(
+                        result["logical_model_payload_bytes"], 3 * result["physical_model_bytes"]
+                    )
+                    self.assertIs(result["all_payload_hashes_verified"], True)
+                bad = copy.deepcopy(manifest)
+                del bad["artifacts"][
+                    next(
+                        index
+                        for index, row in enumerate(bad["artifacts"])
+                        if row["source"] == entries[0]["source"]
+                    )
+                ]
+                with self.assertRaisesRegex(io.Refusal, "fixture_model_backup_coverage"):
+                    typed.verify_restored_models(
+                        entries, bad, root / "first", deadline=typed.time.monotonic() + 5
+                    )
+                row = next(
+                    row for row in manifest["artifacts"] if row["source"] == entries[0]["source"]
+                )
+                (root / "second" / row["payload"]).write_bytes(b"changed")
+                with self.assertRaises(io.Refusal):
+                    typed.verify_restored_models(
+                        entries, manifest, root / "second", deadline=typed.time.monotonic() + 5
+                    )
+
+    def test_wrong_input_bytes_or_extra_inventory_refuses_before_role_copies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture, source, pins = self.data(root)
+            with patch.object(typed, "MODEL_FILES", pins):
+                (source / "model.bin").write_bytes(b"changed bytes")
+                with self.assertRaises(io.Refusal):
+                    typed.stage_voice_models(fixture, source)
+                self.assertFalse((root / "execution/roles/work-telegram/state/models").exists())
+                (source / "extra").write_bytes(b"unapproved")
+                with self.assertRaisesRegex(io.Refusal, "fixture_model_inventory"):
+                    typed.stage_voice_models(fixture, source)
 
 
 if __name__ == "__main__":

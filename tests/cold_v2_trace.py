@@ -25,7 +25,7 @@ from scripts import j1_forward_release as release
 from scripts import j1_forward_release_faults as faults
 from scripts import j1_forward_release_rehearsal as rehearsal
 from scripts import j1_forward_variant as variant
-from scripts.cold_v2_rehearsal import TypedFixture
+from scripts.cold_v2_rehearsal import TypedFixture, stage_voice_models, verify_restored_models
 
 
 @unittest.skipUnless(
@@ -49,6 +49,11 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
             package_ref = fixture.produce()
             mark("old_scope_retired_package_produced")
             with fixture.custody, ExitStack() as aliases:
+                models = (
+                    stage_voice_models(fixture, os.environ["CRM_COLD_V2_MODELS"])
+                    if os.environ.get("CRM_COLD_V2_MODELS")
+                    else []
+                )
                 original_pending = fixture.store.pending_path.read_bytes()
                 package = io.document(fixture.provider.read_reference(package_ref))
                 pending = io.document(fixture.provider.read_reference(package["pending_ref"]))
@@ -98,6 +103,25 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 mark("cold_recovery_and_six_journals_staged")
                 captured = trace.capture_closed(fixture, attempt, controller)
                 mark("actual_full_data_and_control_captured")
+                data_manifest = io.document(io.referenced(captured["captured"]["manifest"]))
+                first_restore = attempt["directory"] / "local-data-restore"
+                first = engine.verify_and_restore(
+                    Path(captured["captured"]["manifest"]["path"]).parent,
+                    captured["captured"]["manifest_sha256"],
+                    first_restore,
+                    captured["context"],
+                    timeout=min(120, release.remaining(attempt["plan"])),
+                )
+                self.assertTrue(first["provided_artifacts_restored_exactly"])
+                model_receipts = [
+                    verify_restored_models(
+                        models,
+                        data_manifest,
+                        first_restore,
+                        deadline=time.monotonic() + release.remaining(attempt["plan"]),
+                    )
+                ]
+                mark("local_actual_data_restore")
                 control = {
                     "package": str(Path(captured["archived"]["manifest"]["path"]).parent),
                     "manifest_sha256": captured["archived"]["manifest_sha256"],
@@ -118,6 +142,19 @@ class ColdV2JoinedTraceTests(unittest.TestCase):
                 )
                 self.assertNotEqual(peer["pid"], os.getpid())
                 self.assertTrue(peer["control_restore"]["semantic_graph_verified"])
+                model_receipts.append(
+                    verify_restored_models(
+                        models,
+                        data_manifest,
+                        fixture.root / "peer-restore/data",
+                        deadline=time.monotonic() + release.remaining(attempt["plan"]),
+                    )
+                )
+                if models:
+                    print(
+                        "PRIVATE_MODEL_RESTORES " + io.canonical(model_receipts).decode().strip(),
+                        flush=True,
+                    )
                 # Legacy launch journals are absent from this genuine older
                 # predecessor. The cold graph validator checks all six exact
                 # current epoch journals separately, including their events.
