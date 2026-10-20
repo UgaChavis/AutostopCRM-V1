@@ -181,7 +181,7 @@ class ColdProjectionTests(unittest.TestCase):
             "plan_ref": {**self.plan_ref, "sha256": "f" * 64},
         }
         head = self.store.head_path.read_bytes()
-        for method in ("commit_recovery", "recover_recovery"):
+        for method in ("begin_recovery", "commit_recovery", "recover_recovery"):
             for envelope, reason in (
                 ({}, "cold_recovery_fields"),
                 (changed_plan, "cold_state_reference_hash"),
@@ -196,6 +196,51 @@ class ColdProjectionTests(unittest.TestCase):
                     )
                     self.assertEqual(head, self.store.head_path.read_bytes())
                     self.assertNotIn("_historical_validation", self.store.__dict__)
+
+    def test_begin_memo_initialization_failure_closes_open_before_reading_package(self):
+        descriptor = epochs.locked_fence(self.fence, exclusive=True)
+        try:
+            admission = self.publish(descriptor)
+        finally:
+            os.close(descriptor)
+        io.atomic_replace(
+            self.fence["state_path"],
+            {
+                **self.closed,
+                "state": "open",
+                "plan_ref": self.plan_ref,
+                "commit_ref": self.commit_ref,
+                "admission_ref": admission,
+            },
+        )
+        envelope = {
+            **{name: dict(self.plan_ref) for name in recovery.REFERENCE_FIELDS},
+            "schema": cold.RECOVERY_SCHEMA,
+            "recovery_id": str(uuid.uuid4()),
+            "nonce": "c" * 64,
+            "deployment_lock_identity": [1, 123],
+            "plan_ref": self.plan_ref,
+        }
+        before = {path: path.read_bytes() for path in self.store.root.rglob("*") if path.is_file()}
+
+        def fail_initialization(*_arguments):
+            self.assertEqual(self.closed, io.document(io.read_protected(self.fence["state_path"])))
+            with self.assertRaises(BlockingIOError):
+                epochs.locked_fence(self.fence, exclusive=False)
+            raise io.Refusal("private_history_initialization_failure")
+
+        with patch.object(
+            cold, "_HistoricalValidation", side_effect=fail_initialization
+        ) as initialize:
+            with self.assertRaisesRegex(io.Refusal, "private_history_initialization_failure"):
+                self.store.begin_recovery(envelope)
+            initialize.assert_called_once()
+        self.assertEqual(self.closed, io.document(io.read_protected(self.fence["state_path"])))
+        self.assertEqual(
+            before,
+            {path: path.read_bytes() for path in self.store.root.rglob("*") if path.is_file()},
+        )
+        self.assertNotIn("_historical_validation", self.store.__dict__)
 
     def test_recovery_of_history_before_head_closes_unpublished_epoch(self):
         # Actual durable commit is present, but simulate process death before

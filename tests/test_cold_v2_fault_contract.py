@@ -176,7 +176,35 @@ def _isolated_check(case, root):
             signer = rehearsal.TemporaryCustodian(
                 fixture.root / "signer", fixture.root / "reviewer/public.pem"
             )
-            attempt = trace.prepare_attempt(fixture, package, epoch, spec, signer)
+            begin_counts = None
+            if case == "begin":
+                pending_before = fixture.store.pending_path.read_bytes()
+                head_path = fixture.store.head_path
+                head_before = head_path.read_bytes() if head_path.exists() else None
+                with patch.object(
+                    authority, "_decode_package", wraps=authority._decode_package
+                ) as decode:
+                    attempt = trace.prepare_attempt(fixture, package, epoch, spec, signer)
+                    begin_counts = [decode.call_count]
+                    io.require(
+                        not hasattr(attempt["store"], "_historical_validation"),
+                        "private_begin_retained_scope",
+                    )
+                    decode.reset_mock()
+                    repeated = attempt["store"].begin_recovery(attempt["envelope"])
+                    begin_counts.append(decode.call_count)
+                io.require(repeated == attempt["recovery_ref"], "private_begin_not_idempotent")
+                io.require(
+                    fixture.store.pending_path.read_bytes() == pending_before
+                    and (head_path.read_bytes() if head_path.exists() else None) == head_before,
+                    "private_begin_changed_origin",
+                )
+                io.require(
+                    not hasattr(attempt["store"], "_historical_validation"),
+                    "private_repeat_begin_retained_scope",
+                )
+            else:
+                attempt = trace.prepare_attempt(fixture, package, epoch, spec, signer)
             io.require(
                 attempt["envelope"]["schema"] == transactions.RECOVERY_SCHEMA
                 and attempt["plan"]["schema"] == transactions.PLAN_SCHEMA,
@@ -191,7 +219,12 @@ def _isolated_check(case, root):
                 "epoch_ref": epoch,
                 "plan_ref": attempt["plan_ref"],
             }
-            if case == "recover":
+            if case == "begin":
+                receipt["begin_decode_counts"] = begin_counts
+                receipt["original_pending_sha256"] = io.sha(pending_before)
+                receipt["head_unchanged"] = True
+                receipt["actual_uid"] = os.geteuid()
+            elif case == "recover":
                 receipt.update(_recover(attempt, signer))
             elif case == "owner":
                 with attempt["store"].historical_validation(attempt["plan_ref"]):
@@ -305,6 +338,17 @@ class RecoveryCrashContractTests(_ColdFixtureTests):
 
 
 class HistoricalValidationTests(_ColdFixtureTests):
+    def test_each_public_begin_decodes_once_and_preserves_original_state(self):
+        receipt = self.isolated("begin")
+        self.assertEqual(receipt["begin_decode_counts"], [1, 1])
+        self.assertTrue(receipt["head_unchanged"])
+        with rehearsal.PrivateFilesystem(self.root):
+            store, _provider = _private_store(receipt)
+            self.assertEqual(
+                io.sha(store.pending_path.read_bytes()), receipt["original_pending_sha256"]
+            )
+            self.assertFalse(hasattr(store, "_historical_validation"))
+
     def test_each_public_finish_decodes_once_and_preserves_open_dispatch(self):
         receipt = self.isolated("recover")
         with rehearsal.PrivateFilesystem(self.root):

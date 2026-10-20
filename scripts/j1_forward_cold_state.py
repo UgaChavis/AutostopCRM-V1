@@ -301,7 +301,7 @@ class ColdStore(state.Store):
         return self._mutation(super().recover, plan)
 
     def begin_recovery(self, envelope):
-        return self._mutation(super().begin_recovery, envelope)
+        return self._mutation(self._historical_recovery, super().begin_recovery, envelope)
 
     @staticmethod
     def _recovery_plan_ref(envelope):
