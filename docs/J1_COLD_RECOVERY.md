@@ -436,7 +436,7 @@ the corresponding live controller paths cannot satisfy this restore check.
 
 ## Owned kernel diagnostic SQLite snapshot
 
-The diagnostic data profile is `crm_manager_all_profiles_cold_v4`.
+New cold preparation selects data profile `crm_manager_all_profiles_cold_v4`.
 The prior v3 profile and its forensic decoder retain their exact quiet-source
 contract and hash. V4 adds one explicit policy, included in the signed profile
 hash: the current attempt's kernel2 HOME `.codex/logs_2.sqlite`, produced by the
@@ -473,32 +473,6 @@ also verifies that the snapshot transaction lies inside the authenticated
 completed capture interval. Restored bytes confer no execution permission.
 The 300-second data and 60-second control limits remain unchanged; the full v2
 trace must still demonstrate the complete path under those limits.
-
-## Store pre-update data in the cold capture
-
-The Store-qualified controller selects the explicit data profile
-`crm_manager_store_all_profiles_cold_v5`. V3 and V4 remain separate readable
-profiles. V5 retains the exact V4 diagnostic rule and adds the fixed directory
-`/var/lib/autostop-store-cold/attempts/<Manager-attempt>/backup`. Its only
-permitted leaves are `database.dump`, `uploads.tar.gz`, optional `photos.tar.gz`,
-`env.bin`, `source.tar.gz` and `manifest.json`. Extra entries, aliases, missing
-required exports or different bytes prevent a completed capture.
-
-The source3 Store preparation graph supplies every export's exact digest and
-byte count. Capture compares those descriptors with actual stable copies while
-the original native capture interval remains active. Independent restoration
-copies the opaque exports into a new private destination and reconstructs the
-same selector from independently restored control bytes before signing. It
-never reads Store's live paths to supply that proof and never restores a dump
-over a production database. The Store helper separately performs a real
-disposable PostgreSQL and file restore before migration; the data profile's
-opaque-copy checks do not substitute for that database qualification.
-
-The profile hash binds the attempt, package and exact policy. It must be
-derived for each future preparation. Selecting a profile or passing synthetic
-file tests does not attest current production closure, backup completeness or
-release readiness. The original 600-second attempt, 300-second data capture
-and 60-second control capture bounds also apply to this combined path.
 
 ## Exact interpreter transport aliases
 

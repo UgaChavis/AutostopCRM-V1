@@ -1,4 +1,4 @@
-"""Explicit cold profiles, diagnostic snapshots and immutable Store backups."""
+"""Explicit cold data profiles; v4 snapshots the owned kernel diagnostic log."""
 
 from __future__ import annotations
 
@@ -22,16 +22,6 @@ from scripts import j1_forward_io as io
 
 PROFILE = "crm_manager_all_profiles_cold_v3"
 PROFILE_V4 = "crm_manager_all_profiles_cold_v4"
-PROFILE_V5 = "crm_manager_store_all_profiles_cold_v5"
-STORE_ARTIFACT_SCHEMA = "autostop.j1.cold-store-data-artifacts.v1"
-STORE_FILES = {
-    "database": "database.dump",
-    "uploads": "uploads.tar.gz",
-    "photos": "photos.tar.gz",
-    "env": "env.bin",
-    "source": "source.tar.gz",
-    "manifest": "manifest.json",
-}
 BASE_SHA256 = "e9691dd10f4a655ebe87b89fede6ba530f45361d0ef6602c35e22f2129f42157"
 NAMESPACE = uuid.UUID("8770ab7b-a54d-41ce-9525-a9cf66494f18")
 DIAGNOSTIC_CODEX_SHA256 = "ff3a6a3ed13735b8a8938c40141eb38b688efd6b02ee0fd5358187111fe9966a"
@@ -86,202 +76,6 @@ def _diagnostic_rule(package_ref, attempt):
         "business_quiet_claimed": False,
         "cross_database_atomic_claimed": False,
     }
-
-
-def _store_rule(package_ref, attempt):
-    return {
-        "schema": "autostop.j1.cold-store-backup-policy.v1",
-        "package_ref": package_ref,
-        "component": "store_backup",
-        "root": f"/var/lib/autostop-store-cold/attempts/{attempt}/backup",
-        "selector_schema": STORE_ARTIFACT_SCHEMA,
-        "files": dict(STORE_FILES),
-        "optional": ["photos"],
-        "snapshot": "exact_closed_preupdate_artifacts",
-        "restore": "opaque_new_destination_then_independent_control_graph_binding",
-        "production_restore_authorized": False,
-    }
-
-
-def store_selector(package_ref, read_reference):
-    """Pure reconstruction from the Store source3/control graph, never live data."""
-    from scripts import j1_forward_cold_store
-
-    return j1_forward_cold_store.data_artifacts(package_ref, read_reference)
-
-
-def _store_selector_shape(selector, rule):
-    original.require(
-        type(selector) is dict
-        and set(selector) == {"schema", "store_prepared_ref", "backup_ref", "root", "files"}
-        and selector["schema"] == STORE_ARTIFACT_SCHEMA
-        and selector["root"] == rule["root"]
-        and type(selector["files"]) is dict
-        and set(selector["files"]) == set(STORE_FILES),
-        "store_backup_selector",
-    )
-    for name in ("store_prepared_ref", "backup_ref"):
-        cold.reference(selector[name])
-    for name, leaf in STORE_FILES.items():
-        value = selector["files"][name]
-        if name == "photos" and value is None:
-            continue
-        original.require(
-            type(value) is dict
-            and set(value) == {"file", "sha256", "bytes"}
-            and value["file"] == str(PurePosixPath(rule["root"]) / leaf)
-            and type(value["sha256"]) is str
-            and original.HEX.fullmatch(value["sha256"])
-            and type(value["bytes"]) is int
-            and 0 <= value["bytes"] <= original.MAX_FILE_BYTES,
-            "store_backup_artifact_selector",
-        )
-    return selector
-
-
-def _validate_store_manifest(manifest, profile):
-    try:
-        return _store_manifest(manifest, profile)
-    except (original.BackupRefusal, io.Refusal):
-        raise
-    except (KeyError, TypeError, IndexError, ValueError) as error:
-        raise original.BackupRefusal("store_backup_manifest_shape") from error
-
-
-def _store_manifest(manifest, profile):
-    original.require(
-        type(manifest) is dict
-        and type(profile) is dict
-        and profile.get("name") == PROFILE_V5
-        and original.canonical(manifest.get("profile")) == original.canonical(profile),
-        "store_backup_profile",
-    )
-    rule = profile.get("store_backup")
-    original.require(
-        rule
-        == _store_rule(
-            profile["diagnostic_sqlite"]["package_ref"], manifest["context"]["attempt_id"]
-        )
-        and dict(profile["roots"]).get("store_backup") == rule["root"],
-        "store_backup_scope",
-    )
-    selector = _store_selector_shape(manifest.get("store_backup"), rule)
-    rows = [row for row in manifest["artifacts"] if row.get("component") == "store_backup"]
-    expected = {value["file"]: value for value in selector["files"].values() if value is not None}
-    original.require(
-        len(rows) == len(expected) + 1
-        and len({row.get("source") for row in rows}) == len(rows)
-        and {row.get("source") for row in rows} == {rule["root"], *expected},
-        "store_backup_inventory",
-    )
-    for row in rows:
-        if row["source"] == rule["root"]:
-            original.require(
-                row["logical_name"] == "." and row["kind"] == "directory" and "payload" not in row,
-                "store_backup_directory",
-            )
-        else:
-            value = expected[row["source"]]
-            original.require(
-                row["logical_name"] == PurePosixPath(row["source"]).name
-                and row["kind"] == "file"
-                and row["sha256"] == value["sha256"]
-                and row["bytes"] == value["bytes"],
-                "store_backup_artifact_binding",
-            )
-    return selector
-
-
-def _install_store_engine(module, package_ref, attempt):
-    profile, capture, restore, publish = (
-        module.profile_document,
-        module.capture,
-        module.verify_and_restore,
-        module.publish,
-    )
-    rule = _store_rule(package_ref, attempt)
-    module.PROFILE = PROFILE_V5
-    module.ROOTS = (*module.ROOTS, ("store_backup", rule["root"]))
-    module.profile_document = lambda: {
-        **profile(),
-        "policy": "recursive_quiet_data_with_owned_kernel_diagnostic_and_store_backup_v5",
-        "store_backup": rule,
-    }
-
-    def publish_v5(path, value):
-        if type(value) is dict and value.get("schema") == module.SCHEMA:
-            module.require(hasattr(module, "_store_capture_selector"), "store_backup_capture_scope")
-            value = {**value, "store_backup": module._store_capture_selector}
-            _validate_store_manifest(value, module.profile_document())
-        return publish(path, value)
-
-    def capture_v5(output, context, observe_closure, *, timeout=1800, diagnostic_interval=None):
-        module.require(0 < timeout <= 300, "cold_capture_budget")
-        module.require(type(diagnostic_interval) is CaptureInterval, "store_native_interval")
-        interval = diagnostic_interval
-        module.require(
-            interval.status == "active"
-            and interval.controller.package_ref == package_ref
-            and observe_closure == interval.observe
-            and context["attempt_id"] == attempt,
-            "store_capture_binding",
-        )
-        module.require(not hasattr(module, "_store_capture_selector"), "store_capture_reentered")
-        deadline = time.monotonic() + timeout
-        interval.gate()
-        selector = _store_selector_shape(
-            store_selector(package_ref, interval.provider.read_reference), rule
-        )
-        module.budget(deadline)
-        module._store_capture_selector = selector
-        try:
-            result = capture(
-                output,
-                context,
-                observe_closure,
-                timeout=deadline - time.monotonic(),
-                diagnostic_interval=interval,
-            )
-            module.require(
-                store_selector(package_ref, interval.provider.read_reference) == selector,
-                "store_capture_source_changed",
-            )
-            interval.gate()
-            module.budget(deadline)
-            return result
-        finally:
-            del module._store_capture_selector
-
-    def restore_v5(backupdir, expectedmanifestSHA, outputnew, context, *, timeout=3600):
-        module.require(0 < timeout <= 3600, "new_disposable_destination_required")
-        deadline = time.monotonic() + timeout
-        path = backupdir / "manifest.json"
-        module.require(
-            module.physical(path).st_size <= module.MAX_JSON_BYTES
-            and module.digest(path, deadline) == expectedmanifestSHA,
-            "manifest_hash_mismatch",
-        )
-        _validate_store_manifest(module.document(path.read_bytes()), module.profile_document())
-        module.budget(deadline)
-        return restore(
-            backupdir, expectedmanifestSHA, outputnew, context, timeout=deadline - time.monotonic()
-        )
-
-    module.publish, module.capture, module.verify_and_restore = publish_v5, capture_v5, restore_v5
-
-
-def validate_restored_store(manifest, response, read_reference):
-    selector = _validate_store_manifest(manifest, manifest["profile"])
-    expected = store_selector(
-        response["plan"]["cold_authority_package_ref"],
-        getattr(read_reference, "read_source", read_reference),
-    )
-    original.require(
-        expected == selector
-        and io.sha(original.canonical(manifest["profile"])) == response["scope_profile_sha256"],
-        "store_restored_source_binding",
-    )
-    return selector
 
 
 def diagnostic_selector(package_ref, read_reference):
@@ -674,7 +468,7 @@ def _diagnostic_manifest(manifest, profile):
         type(manifest) is dict
         and type(profile) is dict
         and original.canonical(manifest.get("profile")) == original.canonical(profile)
-        and profile.get("name") in {PROFILE_V4, PROFILE_V5},
+        and profile.get("name") == PROFILE_V4,
         "diagnostic_profile",
     )
     value = manifest.get("diagnostic_snapshot")
@@ -767,7 +561,7 @@ def _diagnostic_manifest(manifest, profile):
 
 def validate_restored_diagnostic(manifest, response, read_reference):
     """Bind v4 data to the independently restored, source-validated kernel graph."""
-    if manifest["profile"]["name"] not in {PROFILE_V4, PROFILE_V5}:
+    if manifest["profile"]["name"] != PROFILE_V4:
         original.require(manifest["profile"]["name"] == PROFILE, "cold_backup_profile")
         return None
     value = _validate_diagnostic_manifest(manifest, manifest["profile"])
@@ -791,8 +585,8 @@ def engine(revision, generation, attempt, *, version=3, package_ref=None):
         type(revision) is str and cold.SHA1.fullmatch(revision), "cold_backup_revision"
     )
     original.require(cold._uuid(generation) and cold._uuid(attempt), "cold_backup_epoch")
-    original.require(type(version) is int and version in {3, 4, 5}, "cold_backup_version")
-    if version in {4, 5}:
+    original.require(type(version) is int and version in {3, 4}, "cold_backup_version")
+    if version == 4:
         cold.reference(package_ref)
     key = f"v{version}_" + revision + "_" + generation + "_" + attempt
     if package_ref is not None:
@@ -827,10 +621,8 @@ def engine(revision, generation, attempt, *, version=3, package_ref=None):
         )
         module.ROOTS = (*original.ROOTS, *roots, *units)
         module.COLD_VERSION = version
-        if version in {4, 5}:
+        if version == 4:
             _install_diagnostic_engine(module, package_ref, attempt)
-        if version == 5:
-            _install_store_engine(module, package_ref, attempt)
         return module
     except BaseException:
         sys.modules.pop(name, None)
@@ -847,13 +639,9 @@ def for_plan(plan, *, profile_sha256=None):
     legacy = engine(*arguments)
     if profile_sha256 is None or legacy.profile_sha256() == profile_sha256:
         return legacy
-    for version in (4, 5):
-        current = engine(
-            *arguments, version=version, package_ref=plan["cold_authority_package_ref"]
-        )
-        if current.profile_sha256() == profile_sha256:
-            return current
-    raise original.BackupRefusal("cold_backup_profile")
+    current = engine(*arguments, version=4, package_ref=plan["cold_authority_package_ref"])
+    original.require(current.profile_sha256() == profile_sha256, "cold_backup_profile")
+    return current
 
 
 def transport_engine(plan, *, profile_sha256=None):
@@ -1275,7 +1063,7 @@ def validate_restored_interval(data_manifest, response, read_reference):
         previous <= last["observed_monotonic_ns"] <= complete["observed_monotonic_ns"],
         "capture_completion_order",
     )
-    if data_manifest.get("profile", {}).get("name") in {PROFILE_V4, PROFILE_V5}:
+    if data_manifest.get("profile", {}).get("name") == PROFILE_V4:
         diagnostic = validate_restored_diagnostic(data_manifest, response, read_reference)
         cold.need(
             entry["observed_monotonic_ns"]
@@ -1284,8 +1072,6 @@ def validate_restored_interval(data_manifest, response, read_reference):
             <= complete["observed_monotonic_ns"],
             "diagnostic_capture_interval_binding",
         )
-    if data_manifest.get("profile", {}).get("name") == PROFILE_V5:
-        validate_restored_store(data_manifest, response, read_reference)
     return {
         "boundary_count": len(witnesses),
         "source_cut_sha256": entry["source_cut_sha256"],
