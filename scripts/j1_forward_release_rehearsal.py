@@ -82,9 +82,21 @@ class PrivateFilesystem:
         return cold_fixture._safe_file(path, self.root, limit=limit)
 
     def __call__(self, path, *, directory=False):
+        """Archive custody; its typed reader owns the payload byte budget."""
         if directory:
             return self.directory(path)
-        return self.read(path)
+        path = Path(path)
+        self.directory(self.root, private=True)
+        self.directory(path.parent)
+        info = path.lstat()
+        io.require(
+            stat.S_ISREG(info.st_mode)
+            and info.st_uid == self.identity[2]
+            and info.st_nlink == 1
+            and not info.st_mode & 0o022
+            and not getattr(info, "st_file_attributes", 0) & 0x400,
+            "rehearsal_file_custody",
+        )
 
     def __enter__(self):
         self.depth += 1

@@ -4,6 +4,7 @@ import copy
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -21,6 +22,41 @@ from scripts import j1_forward_state as state
     "Requires real Linux flock, AF_UNIX and SO_PEERCRED",
 )
 class ReleaseRehearsalFilesystemTests(unittest.TestCase):
+    def test_archive_custody_keeps_typed_reader_budget_and_physical_protection(self):
+        from scripts import j1_forward_archive as archive
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            root.chmod(0o700)
+            source = root / "opaque-payload"
+            source.write_bytes(b"\x7fELF" + b"x" * 20)
+            source.chmod(0o600)
+            custody = rehearsal.PrivateFilesystem(root)
+            with patch.object(custody, "read", side_effect=AssertionError("duplicate full read")):
+                self.assertEqual(
+                    archive._package_read(source, custody, limit=32), source.read_bytes()
+                )
+                with self.assertRaisesRegex(io.Refusal, "physical_payload_required"):
+                    archive._package_read(source, custody, limit=16)
+                root.chmod(0o755)
+                with self.assertRaisesRegex(io.Refusal, "private_directory"):
+                    archive._package_read(source, custody)
+                root.chmod(0o700)
+                outside = root.parent / "outside-custody"
+                with self.assertRaisesRegex(io.Refusal, "outside_custody"):
+                    custody(outside)
+                link = root / "symlink"
+                link.symlink_to(source)
+                with self.assertRaisesRegex(io.Refusal, "file_custody"):
+                    archive._package_read(link, custody)
+                source.chmod(0o666)
+                with self.assertRaisesRegex(io.Refusal, "file_custody"):
+                    archive._package_read(source, custody)
+                source.chmod(0o600)
+                os.link(source, root / "hardlink")
+                with self.assertRaisesRegex(io.Refusal, "file_custody"):
+                    archive._package_read(source, custody)
+
     def test_custodian_entry_native_rollout_read_is_inside_its_private_custody(self):
         from scripts import j1_forward_cold_native as native
 
