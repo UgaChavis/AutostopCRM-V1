@@ -33,11 +33,11 @@ from scripts import j1_forward_cold_runtime_capsule as capsule
 from scripts import j1_forward_io as io
 from scripts import j1_forward_release_rehearsal as rehearsal
 
-MANAGER = "5bf9570cb2029deda70b80a775d6c534d0dca56d"
-CAPSULE_SHA256 = "612a4da4beea96664d960b8783c6c14292aad7082680066d4d5e755248ede43c"
+MANAGER = "51752bdb2048e0012e23b10bc770ff59f781874a"
+CAPSULE_SHA256 = "6158d4a79c3d798fb9dc816053f67bc5b43343bb07069e61bef307c13360dfd5"
 REPORTS = Path("/var/tmp/autostop-release-prep-20261019T183954Z/reports/manager-cold")
-ARTIFACT = REPORTS / "installed-runtime-5bf9570c/cold-installed-runtime"
-INSTALLED = REPORTS / "installed-runtime-5bf9570c-independent-restore"
+ARTIFACT = REPORTS / "installed-runtime-51752bdb/cold-installed-runtime"
+INSTALLED = REPORTS / "installed-runtime-51752bdb-independent-restore"
 BINARY = Path(
     "/root/.codex/packages/standalone/releases/0.163.0-alpha.11-x86_64-unknown-linux-musl/bin/codex"
 )
