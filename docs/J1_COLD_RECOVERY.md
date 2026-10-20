@@ -145,6 +145,20 @@ C and before E. A failed checkpoint leaves C durable, E false, and never reaches
 application credentials, cwd or exec. All large file hashing stays outside O.
 An unknown S still cannot submit again. The original eight units are unchanged.
 
+The required hosted Linux systemd job also runs `scripts/rehearse_cold_systemd.py`
+with the fixed `/usr/bin/python3` bootstrap. It delegates the actual new unit
+template, systemd start and native unit/cgroup/process observers. The standalone
+guard consumes a real private parent S/A/C/E journal and continuously held D.
+The synthetic child context declares cwd `/` before its initial ticket; no
+accepted ticket is rewritten. After observing the actual wrapper, the test OS
+adapter can corrupt its private application source, retire its owned artificial
+kernel, or revoke its parent before publishing A. Each must leave child C/E
+false despite the empty ExecCondition. The positive case records one S/A/C/E,
+one entry sentinel and one systemd submission, including a duplicate caller.
+This proves the template and guard OS path only. Source eligibility, restore
+proofs, authenticated kernel operation and application/business acceptance
+remain outside this artificial package's claims.
+
 Before OPEN, runtime checks use only health, UI hashes, authenticated metadata
 and the MCP tool catalog. After OPEN, the bounded `get_runtime_status` relay
 checks CRM-to-Store compatibility. Both explicitly report business acceptance

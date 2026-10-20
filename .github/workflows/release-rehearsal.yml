@@ -209,6 +209,12 @@ jobs:
         run: |
           sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" .venv/bin/python scripts/j1_isolated_systemd_rehearsal.py --output-dir output/release-rehearsal/systemd
 
+      - name: Exercise the required cold execution-slot systemd template and guard
+        if: matrix.scenario == 'linux-systemd'
+        shell: bash
+        run: |
+          sudo -E env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" /usr/bin/python3 -B scripts/rehearse_cold_systemd.py --output-dir output/release-rehearsal/cold-systemd
+
       - name: Verify tracked source remains the selected commit
         run: |
           $head = git rev-parse HEAD
@@ -275,5 +281,26 @@ jobs:
               assert receipt["scope"] == "disposable-rehearsal-only", receipt
               seen.add(scenario)
           assert seen == expected, {"missing_scenarios": sorted(expected - seen)}
+          cold_paths = list(Path("downloaded-rehearsals").rglob("cold-systemd/report.json"))
+          assert len(cold_paths) == 1, {"cold_systemd_reports": len(cold_paths)}
+          cold = json.loads(cold_paths[0].read_text(encoding="utf-8"))
+          assert cold["schema"] == "autostopcrm.hosted-cold-unit-rehearsal.v1", cold
+          assert cold["source_sha"] == os.environ["GITHUB_SHA"], cold
+          assert cold["ok"] is True and cold["cleanup_complete"] is True, cold
+          assert cold["production_acceptance"] is False, cold
+          expected_cold = {"one_entry", "source_corrupt_before_a", "parent_r_before_a", "kernel_dead_before_a"}
+          seen_cold = set()
+          for case in cold["cases"]:
+              assert case["name"] in expected_cold and case["name"] not in seen_cold, case
+              assert case["passed"] is True and case["cleanup_complete"] is True, case
+              assert case["systemd_launches"] == 1, case
+              assert case["exec_condition"] == "" and case["exact_guard_exec_start"] is True, case
+              assert 0 <= case["mainpid_observed_within_seconds"] < 10, case
+              assert 0 <= case["a_published_within_seconds"] < 10, case
+              assert case["guard_exit_status"] == (None if case["name"] == "one_entry" else 2), case
+              expected_journal = {"S": 1, "A": 1, "C": 1, "E": 1} if case["name"] == "one_entry" else {"S": 1, "A": 1, "C": 0, "E": 0}
+              assert case["journal"] == expected_journal, case
+              seen_cold.add(case["name"])
+          assert seen_cold == expected_cold, {"missing_cold_cases": sorted(expected_cold - seen_cold)}
           print("Every required rehearsal scenario completed on the selected commit.")
           PY
