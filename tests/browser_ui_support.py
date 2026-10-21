@@ -53,7 +53,7 @@ class UiBrowserTestCase(unittest.TestCase):
                 raise unittest.SkipTest("Playwright Chromium is not installed")
             cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
             cls.addClassCleanup(cls.browser.close)
-            cls.runtime = start_temp_runtime(start_port=45031)
+            cls.runtime = start_temp_runtime(start_port=0)
             cls.addClassCleanup(cls.runtime.close)
         except BaseException:
             if witness is not None:

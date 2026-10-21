@@ -31,6 +31,22 @@ def load_browser_smoke_module() -> ModuleType:
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
+    def test_zero_start_port_skips_listener_probe(self) -> None:
+        load_browser_smoke_module()
+        runtime = sys.modules["browser_smoke_runtime"]
+        with patch.object(
+            runtime, "_port_has_listener", side_effect=AssertionError("unexpected TCP probe")
+        ) as probe:
+            self.assertEqual(runtime._first_free_port(0), 0)
+        probe.assert_not_called()
+
+        with patch.object(runtime, "_port_has_listener", side_effect=[True, False]) as probe:
+            self.assertEqual(runtime._first_free_port(42731), 42732)
+        self.assertEqual(
+            probe.call_args_list,
+            [call("127.0.0.1", 42731), call("127.0.0.1", 42732)],
+        )
+
     def test_loader_restores_previous_module_entry(self) -> None:
         module_name = "browser_smoke"
         previous_module = sys.modules.get(module_name)
