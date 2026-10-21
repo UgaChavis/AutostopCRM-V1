@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 
@@ -274,6 +277,55 @@ class CardLogServiceTests(CardServiceCase):
         self.assertEqual(full_entry["details"]["before"], original_description)
         self.assertEqual(full_entry["details"]["after"], updated_description)
         self.assertEqual(full_log["meta"]["include_full_details"], True)
+
+    def test_card_log_hydrates_only_returned_archive_events(self) -> None:
+        card_id = ""
+        descriptions = [f"Synthetic description {index}. " * 80 for index in range(3)]
+        for index, description in enumerate(descriptions):
+            moment = datetime(2026, 10, 21, tzinfo=UTC) + timedelta(seconds=index)
+            with ExitStack() as stack:
+                for clock_patch in self._patch_time(moment):
+                    stack.enter_context(clock_patch)
+                if not card_id:
+                    card_id = self.service.create_card(
+                        {"title": "Synthetic archive page", "description": description}
+                    )["card"]["id"]
+                else:
+                    self.service.update_card({"card_id": card_id, "description": description})
+
+        archive = self.service._audit_archive
+        for compact in (False, True):
+            with self.subTest(compact=compact):
+                request = {"card_id": card_id, "compact": compact, "include_full_details": True}
+                with patch.object(archive, "load_details", wraps=archive.load_details) as loads:
+                    complete = self.service.get_card_log(request)
+                self.assertEqual(2, loads.call_count)
+                self.assertFalse(complete["meta"]["has_more"])
+
+                with patch.object(archive, "load_details", wraps=archive.load_details) as loads:
+                    page = self.service.get_card_log({**request, "limit": 1})
+                self.assertEqual(1, loads.call_count)
+                self.assertEqual(page["entries"][0]["id"], loads.call_args.kwargs["event_id"])
+                self.assertEqual(complete["entries"][:1], page["entries"])
+                self.assertEqual(page["entries"], page["timeline"])
+                self.assertEqual(complete["meta"]["events_total"], page["meta"]["events_total"])
+                self.assertEqual(1, page["meta"]["events_returned"])
+                self.assertTrue(page["meta"]["has_more"])
+                self.assertTrue(page["meta"]["include_full_details"])
+                if not compact:
+                    self.assertEqual(complete["events"][:1], page["events"])
+                    self.assertEqual(descriptions[1], page["events"][0]["details"]["before"])
+                    self.assertEqual(descriptions[2], page["events"][0]["details"]["after"])
+
+        for options in (
+            {"include_full_details": False},
+            {"include_full_details": True, "_operator_session": {"permissions": []}},
+        ):
+            with self.subTest(options=options):
+                with patch.object(archive, "load_details", wraps=archive.load_details) as loads:
+                    page = self.service.get_card_log({"card_id": card_id, "limit": 1, **options})
+                loads.assert_not_called()
+                self.assertFalse(page["meta"]["include_full_details"])
 
     def test_get_card_log_humanizes_vehicle_profile_snapshots(self) -> None:
         created = self.service.create_card(
