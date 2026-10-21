@@ -285,6 +285,8 @@ class CardServiceClientsMixin:
                 vehicle = self._find_client_vehicle(client, client_vehicle_id)
 
             changed = card.client_id != client.id
+            if changed:
+                card.client_vehicle_id = ""
             card.client_id = client.id
             if client_vehicle_id and card.client_vehicle_id != client_vehicle_id:
                 card.client_vehicle_id = client_vehicle_id

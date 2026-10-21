@@ -354,6 +354,7 @@ jobs:
         if: ${{ matrix.suite == 'unit' }}
         run: |
           coverage erase
+          # Includes every discovered browser test and requires exact unskipped receipts.
           python -m tests.runtime_suite_runner
           coverage combine
           coverage report --show-missing | tee coverage-runtime.txt
@@ -388,6 +389,7 @@ jobs:
             coverage-release.txt
             coverage-release.json
             htmlcov/
+            output/runtime-process/browser-coverage-*.json
           if-no-files-found: warn
 
       - name: Code health audit
@@ -407,56 +409,6 @@ jobs:
         run: |
           python scripts/crm_capability_parity.py --require-complete
           python scripts/crm_change_feed_producer_parity.py --require-complete
-
-      - name: Manager infrastructure map browser regression
-        if: ${{ matrix.suite == 'browser-performance' }}
-        env:
-          AUTOSTOP_REQUIRE_MODULE_MAP_BROWSER: "1"
-        run: python -m tests.runtime_process --timeout-seconds 300 --label module-map -- python -m unittest tests.test_module_map_browser -v
-
-      - name: Manager structure constructor browser regression
-        if: ${{ matrix.suite == 'browser-performance' }}
-        env:
-          AUTOSTOP_REQUIRE_MANAGER_STRUCTURE_BROWSER: "1"
-        run: >-
-          python -m tests.runtime_process --timeout-seconds 300 --label manager-browser -- python -m unittest
-          tests.test_manager_structure_browser
-          tests.test_manager_tool_concurrency_browser
-          tests.test_manager_instruction_links_browser
-          tests.test_manager_canvas_navigation_browser
-          tests.test_manager_dialog_recovery_browser
-          tests.test_manager_dialog_focus_browser
-          tests.test_manager_read_freshness_browser
-          tests.test_manager_editor_recovery_browser -v
-
-      - name: Card hydration and print browser regression
-        if: ${{ matrix.suite == 'browser-performance' }}
-        run: python -m tests.runtime_process --timeout-seconds 300 --label print-hydration -- python -m unittest tests.test_printing_hydration_overlap_browser -v
-
-      - name: Card and client save browser regressions
-        if: ${{ matrix.suite == 'browser-performance' }}
-        env:
-          AUTOSTOP_REQUIRE_UI_BROWSER: "1"
-        run: |
-          python -m tests.runtime_process --timeout-seconds 300 --label card-client-browser -- python -m unittest \
-            tests.test_card_save_browser tests.test_card_badges_browser \
-            tests.test_clients_creation_browser tests.test_clients_profile_browser \
-            tests.test_client_vehicles_browser tests.test_card_files_browser \
-            tests.test_shared_files_browser tests.test_printing_loading_browser \
-            tests.test_cashbox_actions_browser tests.test_payroll_actions_browser \
-            tests.test_employee_profile_browser tests.test_employee_workspace_recovery_browser \
-            tests.test_employee_delete_browser tests.test_inventory_actions_browser \
-            tests.test_dashboard_message_browser tests.test_sticky_actions_browser \
-            tests.test_inventory_material_browser tests.test_operator_admin_browser \
-            tests.test_browser_lab_cleanup -v
-
-      - name: Client search browser regression
-        if: ${{ matrix.suite == 'browser-performance' }}
-        env:
-          AUTOSTOP_REQUIRE_CLIENTS_SEARCH_BROWSER: "1"
-        run: |
-          python -m tests.runtime_process --timeout-seconds 300 --label mobile-clients -- python -m unittest \
-            tests.test_mobile_clients_search_browser tests.test_mobile_client_search_draft -v
 
       - name: Mandatory core browser smoke
         if: ${{ matrix.suite == 'browser-performance' }}

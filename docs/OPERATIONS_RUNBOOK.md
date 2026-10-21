@@ -246,6 +246,12 @@ Hosted static, unit/coverage, browser/performance and Docker gates run in
 parallel. The final `quality` job requires every gate to succeed, including
 when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
 are cached; the Docker candidate is loaded only for tests, never pushed.
+All discovered browser regressions run once under runtime branch coverage,
+with the existing per-class process isolation and timeout. The runtime runner
+requires current-run receipts matching every planned and executed browser ID,
+with no skipped cases, and exports `browser-coverage-*.json` with the coverage
+evidence. The browser/performance job retains mandatory core smoke and performance
+gates without repeating those covered regression modules.
 
 The `release-rehearsal.yml` workflow runs the complete canonical CI
 profile on separate disposable Ubuntu and Windows runners. Every job checks out the workflow's exact commit and

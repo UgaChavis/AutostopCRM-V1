@@ -489,8 +489,15 @@ class RuntimeProcessTests(unittest.TestCase):
                 self.assertLess(report["elapsed_seconds"], 8)
                 self.assertGreaterEqual(len(report["owned_before_cleanup"]), 2)
                 self.assertEqual([], report["owned_after_cleanup"])
-                for path in ("worker.json", "grandchild.json"):
-                    self.assertFalse(alive(self.wait_json(directory / path)["pid"]), path)
+                # Timeout can kill the child before its Python entrypoint publishes JSON.
+                worker = self.wait_json(directory / "worker.json")
+                pids = {worker["pid"], worker["child_pid"]}
+                self.assertEqual(2, len(pids))
+                owned_pids = {member["pid"] for member in report["owned_before_cleanup"]}
+                for pid in pids:
+                    self.assertGreater(pid, 0)
+                    self.assertIn(pid, owned_pids)
+                    self.assertFalse(alive(pid), pid)
                 self.assertIsNone(
                     sentinel.poll(), "unrelated child must survive controller cleanup"
                 )
