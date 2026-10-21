@@ -52,6 +52,8 @@ class ChangeFeedService:
                 details={"field": "consumer_id"},
             )
         consumer = payload.get("consumer_id")
+        if isinstance(consumer, str):
+            consumer = consumer.strip()
         automation_service = payload.get("_automation_service") is True
         if automation_service and consumer != AUTOMATION_CHANGE_FEED_CONSUMER:
             raise ServiceError(
@@ -87,9 +89,10 @@ class ChangeFeedService:
         """Return feed metadata without opening a delivery or advancing ACK state."""
 
         request = self._payload(payload)
+        consumer = self._consumer(request)
         try:
             self._before_read()
-            result = self._store.bootstrap(self._consumer(request))
+            result = self._store.bootstrap(consumer)
         except (ChangeFeedProtocolError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
             raise self._translate_error(exc) from exc
         return {"format": "crm_change_feed_bootstrap_v1", **result}
@@ -120,10 +123,8 @@ class ChangeFeedService:
                 status_code=400,
                 details={"field": "start_at"},
             )
-        if (
-            request.get("consumer_id") == AUTOMATION_CHANGE_FEED_CONSUMER
-            and start_at.strip().casefold() != "latest"
-        ):
+        consumer = self._consumer(request)
+        if consumer == AUTOMATION_CHANGE_FEED_CONSUMER and start_at.strip().casefold() != "latest":
             raise ServiceError(
                 "change_feed_start_at_not_allowed",
                 "Технический consumer регистрируется только с текущей позиции.",
@@ -132,7 +133,7 @@ class ChangeFeedService:
             )
         try:
             self._before_read()
-            result = self._store.register_consumer(self._consumer(request), start_at=start_at)
+            result = self._store.register_consumer(consumer, start_at=start_at)
         except (ChangeFeedProtocolError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
             raise self._translate_error(exc) from exc
         return {"format": "crm_change_feed_registration_v1", **result}
@@ -148,10 +149,11 @@ class ChangeFeedService:
                 details={"field": "cursor"},
             )
         limit = request.get("limit", CHANGE_FEED_PAGE_DEFAULT)
+        consumer = self._consumer(request)
         try:
             self._before_read()
             result = self._store.read_page(
-                self._consumer(request),
+                consumer,
                 cursor=cursor,
                 limit=limit,
             )
@@ -169,9 +171,10 @@ class ChangeFeedService:
                 status_code=400,
                 details={"field": "ack"},
             )
+        consumer = self._consumer(request)
         try:
             self._before_read()
-            result = self._store.acknowledge(self._consumer(request), ack_token)
+            result = self._store.acknowledge(consumer, ack_token)
         except (ChangeFeedProtocolError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
             raise self._translate_error(exc) from exc
         return {"format": "crm_change_feed_ack_v1", **result}
@@ -186,9 +189,10 @@ class ChangeFeedService:
                 status_code=400,
                 details={"field": "ack"},
             )
+        consumer = self._consumer(request)
         try:
             self._before_read()
-            result = self._store.summarize_delivery(self._consumer(request), ack_token)
+            result = self._store.summarize_delivery(consumer, ack_token)
         except (ChangeFeedProtocolError, sqlite3.Error, OSError, RuntimeError, ValueError) as exc:
             raise self._translate_error(exc) from exc
         return result
