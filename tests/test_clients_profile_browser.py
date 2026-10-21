@@ -19,7 +19,10 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         self.page.evaluate("clearOperatorSession()")
         self.assertFalse(self.page.locator("#clientDisplayNameInput").is_disabled())
         self.assertIsNone(self.page.evaluate("state.clientProfileSaveCheckpoint"))
-        held.pop().continue_()
+        with self.page.expect_response("**/api/create_client") as response:
+            held.pop().continue_()
+        response.value.body()
+        self.assertEqual(response.value.status, 200)
         self.page.wait_for_timeout(180)
         self.assertEqual(self.page.evaluate("state.clientsActiveId"), "")
         self.assertFalse(

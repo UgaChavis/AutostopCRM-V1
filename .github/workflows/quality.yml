@@ -16,6 +16,11 @@ on:
         description: "Run the full temp-data browser smoke in addition to mandatory core"
         required: false
         default: "false"
+      export_tested_image:
+        description: "Preserve the exact tested candidate image as a release artifact"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -163,8 +168,8 @@ jobs:
                   browser.close()
           PY
 
-      - name: Seal the tested post-merge image without publishing a registry tag
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+      - name: Seal the tested image without publishing a registry tag
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1') || (github.event_name == 'workflow_dispatch' && inputs.export_tested_image) }}
         shell: bash
         run: |
           image="autostopcrm-ci:${GITHUB_SHA}"
@@ -178,8 +183,8 @@ jobs:
           cd release-image
           sha256sum autostopcrm-*.tar.gz image-identity.txt runtime-requirements.txt > SHA256SUMS
 
-      - name: Preserve the exact tested post-merge image
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1' }}
+      - name: Preserve the exact tested image
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/autostopcrm-v1') || (github.event_name == 'workflow_dispatch' && inputs.export_tested_image) }}
         uses: actions/upload-artifact@v7
         with:
           name: autostopcrm-image-${{ github.sha }}
