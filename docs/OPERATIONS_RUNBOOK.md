@@ -270,7 +270,8 @@ It runs on an explicit dispatch or a push to `autostopcrm-v1` or
 so a new workflow can be verified before it reaches the default branch.
 The final gate requires matching completion evidence from both platform scenarios;
 a skipped, absent or failed scenario cannot produce a ready result.
-The main-branch quality run also exports the exact Docker image that passed
+The main-branch quality run, or a manual quality run with
+`export_tested_image=true`, also exports the exact Docker image that passed
 its runtime checks, its image identity, installed dependency versions and
 SHA-256 checksums as a build artifact. This performs no registry push or
 server update. Use that image archive in the release kit; a later rebuild
@@ -291,19 +292,11 @@ on Windows. Linux root-owned launch-journal exclusions apply only to the two
 native launch test families on Windows. Linux exercises Docker packaging;
 Windows records that separate packaging boundary. Missing Node, Chromium,
 Playwright, supported SQLite, or an unknown skip reason fails the rehearsal.
-The real systemd fixture is required; an absent script or failed fixture cannot
-produce a ready result. Existing hosted `quality` gates remain required.
-The systemd job has a 15-minute bound and creates only UUID-scoped transient
-units and root-owned `/run` fixtures on a disposable hosted Linux VM. It runs
-the actual reviewed native journal/observer against a fixed synthetic consumer,
-with a sentinel effect only after E. Cases cover S/A/C/E, revoke before S and
-between C/E under the real deployment flock, honest late revoke, lost submit
-acknowledgement without resubmission, duplicate entry, stale worker incarnation,
-expiry and corrupt acceptance. Cleanup must stop every owned unit before
-removing private evidence; only sanitized readable reports are uploaded.
-This establishes the fixture's native admission protocol behavior. Full
-production consumer, archive/recovery semantics and production acceptance
-require their separate evidence.
+Each platform profile has a 45-minute bound. The `rehearsal-ready` aggregate
+requires both successful profiles and their exact-source completion evidence
+from the current workflow attempt. Existing hosted `quality` gates remain
+required. These profiles establish behavior on disposable runners; production
+acceptance requires separate evidence.
 
 The repository-health audit classifies every tracked file as a canonical doc,
 manifest, runtime code/asset, operations tool, test, or deploy configuration.

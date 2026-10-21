@@ -1,5 +1,5 @@
 {
-  "content_hash": "d50db7ec6881fadd5f6c7251c9b4bc1dc94311da298e94ecd5dc8ce68495e729",
+  "content_hash": "5018f9e7ec0e0b46614dd92ca06e63962661aaecd1e1ccc42532bee34f263c93",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -5062,7 +5062,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "69a59511bcf7c91ed8827bf2b5bd382416d903fd",
+  "source_revision": "c69d2bb547956d078b9d7d7cc49c66d6822abb2a",
   "tools": [
     {
       "also_used_in": [],
@@ -10430,7 +10430,8 @@
       },
       "errors": [
         "invalid_input без policy.version/allowed basis/rate или при malformed inputs",
-        "partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal"
+        "partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal",
+        "invalid_input с missing_fields=[\"calculation_overflow\"] и data={} при результате, непредставимом конечным числом; произвольный лимит цены не вводится"
       ],
       "example": {
         "hourly_rate": 1000,
@@ -10460,9 +10461,9 @@
         "unknown_costs"
       ],
       "input_schema_ref": "calculate_work_price",
-      "instruction_hash": "2ef9df19c1fb52b3db0ca2d56e8eb0b6d992031f41804987f11aba2bf6df901c",
+      "instruction_hash": "7ff07ee781b115b041fd6a88bf62110d622e48b21bd241a4ea3f243c3a35b1c6",
       "instruction_ref": "docs/agent/tools/manager-calculate-work-price.md",
-      "instruction_text": "# manager.calculate_work_price — Расчёт по явной ставке и политике\n\nОсновной модуль: [E13](../modules/E13.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: pure.\n\nВызов: native Manager MCP `calculate_work_price`.\n\nВходы: `labor`, `policy`, `hourly_rate`, `observations`, `unknown_costs`.\nDefaults: `{\"hourly_rate\":null,\"observations\":null,\"unknown_costs\":null}`.\nОбязательные facade поля: `labor`, `policy`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"hourly_rate\":1000,\"labor\":[{\"hours\":2,\"operation_id\":\"demo\",\"operation_name\":\"DEMO работа\"}],\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"hourly_rate\":1000,\"labor\":null,\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\n\nВыход: Envelope: schema_version/tool_id/ok/outcome/data/evidence/missing_fields/conflicts/warnings/execution; paths ниже относятся к data.; basis/hourly_rate/policy/currency/operations[{operation_id,operation_name,price,range}]; known_subtotal/total/range/exclusions/unknown_costs; policy остается явным входом, version/coefficient/rounding не являются отдельными полями выхода.\nОшибки и неполнота: invalid_input без policy.version/allowed basis/rate или при malformed inputs; partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal.\n\n- Неизвестный расход не ноль; pure calculation не читает experience/CRM.\n- basis: hourly_rate или public_observations; coefficient/rounding берутся из policy, default1, finite positive. hourly_rate явный; цена включает только труд.\n- public_observations требует matching operation_name, finite price_rub, labor_only=true и includes_parts=false. Неизвестный явный range_hours не заменяется hours.\n- Duplicate/included operations исключаются; overlap требует явного overlap_resolved. No network/experience/CRM reads.\n\nПодробный контракт: [справочник](../references/work-pricing.md).\n",
+      "instruction_text": "# manager.calculate_work_price — Расчёт по явной ставке и политике\n\nОсновной модуль: [E13](../modules/E13.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: pure.\n\nВызов: native Manager MCP `calculate_work_price`.\n\nВходы: `labor`, `policy`, `hourly_rate`, `observations`, `unknown_costs`.\nDefaults: `{\"hourly_rate\":null,\"observations\":null,\"unknown_costs\":null}`.\nОбязательные facade поля: `labor`, `policy`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"hourly_rate\":1000,\"labor\":[{\"hours\":2,\"operation_id\":\"demo\",\"operation_name\":\"DEMO работа\"}],\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"hourly_rate\":1000,\"labor\":null,\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\n\nВыход: Envelope: schema_version/tool_id/ok/outcome/data/evidence/missing_fields/conflicts/warnings/execution; paths ниже относятся к data.; basis/hourly_rate/policy/currency/operations[{operation_id,operation_name,price,range}]; known_subtotal/total/range/exclusions/unknown_costs; policy остается явным входом, version/coefficient/rounding не являются отдельными полями выхода.\nОшибки и неполнота: invalid_input без policy.version/allowed basis/rate или при malformed inputs; partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal; invalid_input с missing_fields=[\"calculation_overflow\"] и data={} при результате, непредставимом конечным числом; произвольный лимит цены не вводится.\n\n- Неизвестный расход не ноль; pure calculation не читает experience/CRM.\n- basis: hourly_rate или public_observations; coefficient/rounding берутся из policy, default1, finite positive. hourly_rate явный; цена включает только труд.\n- public_observations требует matching operation_name, finite price_rub, labor_only=true и includes_parts=false. Неизвестный явный range_hours не заменяется hours.\n- Duplicate/included operations исключаются; overlap требует явного overlap_resolved. No network/experience/CRM reads.\n\nПодробный контракт: [справочник](../references/work-pricing.md).\n",
       "invalid_example": {
         "hourly_rate": 1000,
         "labor": null,

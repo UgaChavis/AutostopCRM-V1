@@ -1082,12 +1082,10 @@ class SnapshotService:
             full_details_included = bool(
                 include_full_details and operator_can_access_employees_cashboxes(payload)
             )
+            page_events = card_events[:limit] if limit is not None else card_events
             if full_details_included and self._hydrate_event_details is not None:
-                card_events = [self._hydrate_event_details(event) for event in card_events]
-            events = [
-                event.to_dict()
-                for event in (card_events[:limit] if limit is not None else card_events)
-            ]
+                page_events = [self._hydrate_event_details(event) for event in page_events]
+            events = [event.to_dict() for event in page_events]
             entries = self._card_log_projection._card_log_entries(events, card=card)
             if compact:
                 entries = self._card_log_projection._compact_card_log_entries(entries)
