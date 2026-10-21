@@ -50,7 +50,7 @@ class ManagerStructureBrowserTests(unittest.TestCase):
             raise unittest.SkipTest("Playwright Chromium is not installed")
         cls.browser = cls.playwright.chromium.launch(headless=True, args=["--no-sandbox"])
         cls.addClassCleanup(cls.browser.close)
-        cls.runtime = start_temp_runtime(start_port=43131)
+        cls.runtime = start_temp_runtime(start_port=0)
         cls.addClassCleanup(cls.runtime.close)
 
     def setUp(self) -> None:

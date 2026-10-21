@@ -129,6 +129,8 @@ def _port_has_listener(host: str, port: int) -> bool:
 
 
 def _first_free_port(start_port: int, *, host: str = "127.0.0.1", limit: int = 50) -> int:
+    if start_port == 0:
+        return 0
     for candidate in range(start_port, start_port + limit):
         if not _port_has_listener(host, candidate):
             return candidate
