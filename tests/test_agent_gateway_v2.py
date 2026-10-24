@@ -1318,6 +1318,31 @@ def _register_fake_store_workflow_tools(server, state: dict) -> None:
                 "summary": {"state_version": run["state_version"]},
                 "warnings": ["state_version_conflict"],
             }
+        if status == run["status"]:
+            return {
+                "ok": True,
+                "run_id": run_id,
+                "status": status,
+                "summary": {"state_version": run["state_version"]},
+            }
+        allowed = {
+            "planned": {"executing", "failed", "cancelled"},
+            "executing": {"external_wait", "verifying", "compensating", "failed", "cancelled"},
+            "external_wait": {"executing", "verifying", "compensating", "failed", "cancelled"},
+            "verifying": {"completed", "compensating", "failed", "cancelled"},
+            "compensating": {"completed", "failed", "cancelled"},
+            "running": {
+                "executing",
+                "external_wait",
+                "verifying",
+                "compensating",
+                "completed",
+                "failed",
+                "cancelled",
+            },
+        }
+        if status not in allowed.get(run["status"], set()):
+            return {"ok": False, "warnings": ["invalid_workflow_transition"]}
         run["status"] = status
         run["state_version"] += 1
         return {
