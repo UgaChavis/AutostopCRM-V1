@@ -16,7 +16,11 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.mcp.server import create_mcp_server
-from minimal_kanban.mcp.workflow_guards import finance_dry_run_proof, invoice_document_guard
+from minimal_kanban.mcp.workflow_guards import (
+    bind_finance_preview,
+    finance_dry_run_proof,
+    invoice_document_guard,
+)
 from minimal_kanban.printing.document_guard import invoice_guard
 from tests.test_agent_gateway_v2 import (
     GATEWAY_ENV,
@@ -293,6 +297,110 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
             "finance_dry_run_proof_already_consumed", reused.structuredContent["warnings"]
         )
         self.assertEqual(1, self.board_api.update_calls)
+
+    async def test_binding_resumes_only_the_original_request_after_interruption(self) -> None:
+        for stopped in ("executing", "verifying", "completed"):
+            with self.subTest(stopped=stopped):
+                payload = self._payload(self.board_api.card_updated_at)
+                preview = await self._workflow(
+                    "update_repair_order", f"resume-preview-{stopped}", payload, mode="dry_run"
+                )
+                arguments = {
+                    "operation": "update_repair_order",
+                    "payload": payload,
+                    "mode": "apply",
+                    "idempotency_key": f"resume-apply-{stopped}",
+                    "dry_run_proof": preview.structuredContent["data"]["dry_run_proof"],
+                    "dry_run_idempotency_key": f"resume-preview-{stopped}",
+                }
+
+                async def interrupt(*args, transition, **kwargs):
+                    async def stop(run_id, status, **fields):
+                        if status == stopped:
+                            return {"ok": False}
+                        return await transition(run_id, status, **fields)
+
+                    return await bind_finance_preview(*args, transition=stop, **kwargs)
+
+                before = self.board_api.update_calls
+                with patch("minimal_kanban.mcp.agent_gateway_v2.bind_finance_preview", interrupt):
+                    blocked = await self._finance(arguments)
+                self.assertIn(
+                    "finance_dry_run_proof_binding_failed", blocked.structuredContent["warnings"]
+                )
+                self.assertEqual(before, self.board_api.update_calls)
+                other = await self._finance({**arguments, "idempotency_key": f"other-{stopped}"})
+                self.assertIn(
+                    "finance_dry_run_proof_already_consumed", other.structuredContent["warnings"]
+                )
+                for _ in range(2):
+                    self.assertTrue((await self._finance(arguments)).structuredContent["ok"])
+                self.assertEqual(before + 1, self.board_api.update_calls)
+
+    async def test_failed_or_cancelled_binding_is_not_resumed(self) -> None:
+        for terminal in ("failed", "cancelled"):
+            payload = self._payload()
+            preview_key = f"terminal-preview-{terminal}"
+            preview = await self._workflow(
+                "update_repair_order", preview_key, payload, mode="dry_run"
+            )
+            proof = preview.structuredContent["data"]["dry_run_proof"]
+            arguments = {
+                "operation": "update_repair_order",
+                "payload": payload,
+                "mode": "apply",
+                "idempotency_key": f"terminal-apply-{terminal}",
+                "dry_run_proof": proof,
+                "dry_run_idempotency_key": preview_key,
+            }
+
+            async def stop_binding(*args, start_workflow, transition, **kwargs):
+                async def stop(run_id, status, **fields):
+                    return await transition(
+                        run_id, terminal if status == "executing" else status, **fields
+                    )
+
+                return await bind_finance_preview(
+                    *args, start_workflow=start_workflow, transition=stop, **kwargs
+                )
+
+            with patch("minimal_kanban.mcp.agent_gateway_v2.bind_finance_preview", stop_binding):
+                self.assertFalse((await self._finance(arguments)).structuredContent["ok"])
+            self.assertFalse((await self._finance(arguments)).structuredContent["ok"])
+            self.assertEqual(0, self.board_api.update_calls)
+
+    async def test_binding_requires_an_integer_state_version(self) -> None:
+        for invalid in (None, "2", True, 0):
+            with self.subTest(version=invalid):
+                key = f"invalid-version-{type(invalid).__name__}"
+                payload = self._payload()
+                preview = await self._workflow("update_repair_order", key, payload, mode="dry_run")
+
+                async def malformed(*args, start_workflow, **kwargs):
+                    async def start(**fields):
+                        run_id, result, replay = await start_workflow(**fields)
+                        if fields["workflow_id"] == "finance:proof":
+                            result = {
+                                **result,
+                                "summary": {**result.get("summary", {}), "state_version": invalid},
+                            }
+                        return run_id, result, replay
+
+                    return await bind_finance_preview(*args, start_workflow=start, **kwargs)
+
+                with patch("minimal_kanban.mcp.agent_gateway_v2.bind_finance_preview", malformed):
+                    blocked = await self._workflow(
+                        "update_repair_order",
+                        f"apply-{key}",
+                        payload,
+                        mode="apply",
+                        dry_run_proof=preview.structuredContent["data"]["dry_run_proof"],
+                        dry_run_idempotency_key=key,
+                    )
+                self.assertIn(
+                    "finance_dry_run_proof_binding_failed", blocked.structuredContent["warnings"]
+                )
+                self.assertEqual(0, self.board_api.update_calls)
 
     async def test_strict_preview_rejects_extras_and_stale_revision(self) -> None:
         unexpected_update = await self._workflow(

@@ -375,32 +375,39 @@ async def bind_finance_preview(
         return "finance_dry_run_proof_already_consumed"
     if binding_replay and binding.get("status") == "completed":
         return None
-    if binding_run_id is None or binding.get("status") != "planned":
+    if binding_run_id is None or binding.get("status") not in {"planned", "executing", "verifying"}:
         return "finance_dry_run_proof_binding_failed"
-    executing = await transition(
-        binding_run_id,
-        "executing",
-        expected_state_version=_state_version(binding),
-        message="execute finance proof binding",
-    )
-    if not executing.get("ok"):
-        return "finance_dry_run_proof_binding_failed"
-    completed = await transition(
-        binding_run_id,
-        "completed",
-        expected_state_version=_state_version(executing),
-        message="completed finance proof binding",
-        verification={
-            "apply_key_sha256": apply_key_hash,
-            "passed": True,
-            "preview_run_ref": f"run:{preview_run_id}",
-            "proof_sha256": request_fingerprint({"proof": proof}),
-        },
-        summary="finance:proof",
-    )
+    verification = {
+        "apply_key_sha256": apply_key_hash,
+        "passed": True,
+        "preview_run_ref": f"run:{preview_run_id}",
+        "proof_sha256": request_fingerprint({"proof": proof}),
+    }
+    # Exact idempotent replays can finish a binding interrupted before the
+    # business workflow starts. Never restart a failed or cancelled binding.
+    for current, following in (
+        ("planned", "executing"),
+        ("executing", "verifying"),
+        ("verifying", "completed"),
+    ):
+        if binding.get("status") != current:
+            continue
+        version = _state_version(binding)
+        if type(version) is not int or version < 1:
+            return "finance_dry_run_proof_binding_failed"
+        binding = await transition(
+            binding_run_id,
+            following,
+            expected_state_version=version,
+            message=f"{following} finance proof binding",
+            verification=verification if following == "completed" else None,
+            summary="finance:proof" if following == "completed" else "",
+        )
+        if not binding.get("ok"):
+            return "finance_dry_run_proof_binding_failed"
     return (
         None
-        if completed.get("ok") and completed.get("status") == "completed"
+        if binding.get("ok") and binding.get("status") == "completed"
         else "finance_dry_run_proof_binding_failed"
     )
 
