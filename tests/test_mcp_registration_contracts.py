@@ -48,7 +48,7 @@ _RAW_REGISTRATION_ENV = {
     "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "0",
 }
 _RAW_REGISTRATION_CONTRACT_SHA256 = (
-    "c7c68b2b73880c7a8d958b6596b7e2d61e37ebd11570ec782ee684355de2fa5d"
+    "cc740555bf88d08aa4cffa2cc107f60b5ec60bc8cba9fbdb32ab5faf139ef794"
 )
 _EXPECTED_MANAGER_WRITE_TOOL_NAMES = frozenset(
     {
@@ -193,6 +193,14 @@ class McpRegistrationContractTests(unittest.TestCase):
             _RAW_REGISTRATION_CONTRACT_SHA256,
             _contract_digest(contracts),
             json.dumps(per_tool_digests, ensure_ascii=False, sort_keys=True, indent=2),
+        )
+        cleanup_schema = tool_map["cleanup_card"].inputSchema
+        self.assertEqual(cleanup_schema["required"], ["card_id"])
+        self.assertFalse(cleanup_schema["properties"]["content_only"]["default"])
+        self.assertEqual(cleanup_schema["properties"]["mode"]["default"], "dry_run")
+        self.assertTrue(
+            {"content_only", "idempotency_key", "repair_order_names", "client_vehicle_patch"}
+            <= cleanup_schema["properties"].keys()
         )
 
         legacy_descriptions = [

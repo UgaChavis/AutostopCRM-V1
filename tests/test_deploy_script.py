@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -118,9 +119,50 @@ class DeployScriptTests(unittest.TestCase):
         self.assertIn("path: ~/.cache/ms-playwright", workflow)
         aggregate = workflow[workflow.index("\n  quality:\n") :]
         self.assertIn("if: ${{ always() }}", aggregate)
-        self.assertIn("needs: [checks, docker-runtime-assets]", aggregate)
+        self.assertIn("needs: [pull-request, checks, docker-runtime-assets]", aggregate)
+        self.assertIn('test "$PR_RESULT" = success', aggregate)
         self.assertIn('test "$CHECKS_RESULT" = success', aggregate)
         self.assertIn('test "$DOCKER_RESULT" = success', aggregate)
+        triggers = workflow.split("\npermissions:", 1)[0]
+        self.assertIn("\n  pull_request:", triggers)
+        self.assertIn("\n  workflow_dispatch:", triggers)
+        self.assertNotIn("\n  push:", triggers)
+
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
+    def test_ci_aggregate_requires_success_for_the_selected_event_gates(self) -> None:
+        workflow = (PROJECT_ROOT / ".github/workflows/quality.yml").read_text(encoding="utf-8")
+        aggregate = workflow[workflow.index("\n  quality:\n") :]
+        script = textwrap.dedent(aggregate.split("        run: |\n", 1)[1])
+        cases = (
+            ("pull_request", "success", "skipped", "skipped", True),
+            ("pull_request", "failure", "skipped", "skipped", False),
+            ("pull_request", "cancelled", "skipped", "skipped", False),
+            ("pull_request", "skipped", "skipped", "skipped", False),
+            ("pull_request", "success", "success", "skipped", False),
+            ("workflow_dispatch", "skipped", "success", "success", True),
+            ("workflow_dispatch", "skipped", "failure", "success", False),
+            ("workflow_dispatch", "skipped", "success", "failure", False),
+            ("workflow_dispatch", "skipped", "skipped", "success", False),
+            ("workflow_dispatch", "skipped", "success", "cancelled", False),
+            ("push", "skipped", "success", "success", False),
+        )
+        for event, pr, checks, docker, passed in cases:
+            with self.subTest(event=event, pr=pr, checks=checks, docker=docker):
+                result = subprocess.run(
+                    [shutil.which("bash"), "-eu", "-c", script],
+                    env={
+                        **os.environ,
+                        "EVENT_NAME": event,
+                        "PR_RESULT": pr,
+                        "CHECKS_RESULT": checks,
+                        "DOCKER_RESULT": docker,
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                self.assertEqual(result.returncode == 0, passed, result.stderr)
 
     def test_compose_declares_only_primary_crm_service(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -732,7 +774,9 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn("--operator-username admin --operator-password admin", runbook)
         self.assertIn("run_checks.ps1 -Profile ci", runbook)
         self.assertIn("run_checks.ps1 -Profile ci", readme)
-        self.assertIn("run_checks.ps1 -Profile ci", agents)
+        self.assertIn("PR checks stay fast", agents)
+        self.assertIn("`quality.yml` once by dispatch", agents)
+        self.assertIn("`autostopcrm-v1` SHA", agents)
         self.assertIn("Ubuntu/Python 3.12", runbook)
         self.assertIn("docker-runtime-assets", runbook)
         self.assertIn("never runs live probes", runbook)
