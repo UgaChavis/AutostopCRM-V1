@@ -112,9 +112,12 @@ and the current version. `layout_element` may adjust x/y to a nearby free,
 routeable position and returns `adjusted: true` plus `accepted_element`.
 Both layout operations return calculated `routes` (relation ID to saved SVG
 path) for readback verification. If routing fails, HTTP 422 leaves the
-prior diagram intact. Existing v1 paths remain readable; text-only upserts
-preserve them. Automatic routes remain orthogonal, and the browser draws a bridge
-at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
+prior diagram intact. For an existing node, an upsert containing only `id` and
+`instruction`, `description`, or both text fields preserves all existing paths
+without reanchoring, even if previously saved manual geometry has a conflict. It
+does not accept or repair geometry; creating a node or supplying other fields
+uses normal route checks. Automatic routes remain orthogonal, and the browser
+draws a bridge at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
 curves; their saved paths are preserved, with endpoints and adjacent control
 points adjusted when a connected module moves. See the
 [constructor contract](docs/agent/module_operations/manager_structure.md#programmatic-operations)
