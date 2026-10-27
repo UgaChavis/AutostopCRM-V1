@@ -729,10 +729,22 @@ class ManagerStructureService:
                         new_item.setdefault("label_y", 0)
                     items.append(new_item)
                 else:
-                    text_only = operation == "upsert_element" and set(item) in (
-                        {"id", "instruction"},
-                        {"id", "description"},
-                        {"id", "instruction", "description"},
+                    text_only = (
+                        operation == "upsert_element"
+                        and set(item)
+                        in (
+                            {"id", "instruction"},
+                            {"id", "description"},
+                            {"id", "instruction", "description"},
+                        )
+                    ) or (
+                        operation == "upsert_relation"
+                        and set(item)
+                        in (
+                            {"id", "description"},
+                            {"id", "protocol"},
+                            {"id", "description", "protocol"},
+                        )
                     )
                     items[match] = {**items[match], **copy.deepcopy(item)}
             else:

@@ -116,7 +116,10 @@ prior diagram intact. For an existing node, an upsert containing only `id` and
 `instruction`, `description`, or both text fields preserves all existing paths
 without reanchoring, even if previously saved manual geometry has a conflict. It
 does not accept or repair geometry; creating a node or supplying other fields
-uses normal route checks. Automatic routes remain orthogonal, and the browser
+uses normal route checks. The same rule applies to an existing relation upsert
+containing only `id` and `description`, `protocol`, or both. Relation text updates
+preserve existing manual-geometry conflicts; labels, endpoints and route changes
+still use normal checks. Automatic routes remain orthogonal, and the browser
 draws a bridge at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
 curves; their saved paths are preserved, with endpoints and adjacent control
 points adjusted when a connected module moves. See the
