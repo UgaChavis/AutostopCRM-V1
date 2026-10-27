@@ -52,6 +52,8 @@ _SAFE_JOB_KEYS = frozenset(
         "name",
         "template_id",
         "kind",
+        "control_mode",
+        "source_role",
         "desired_state",
         "actual_state",
         "revision",
