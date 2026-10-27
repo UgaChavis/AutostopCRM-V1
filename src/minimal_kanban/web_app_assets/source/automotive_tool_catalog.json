@@ -1,5 +1,5 @@
 {
-  "content_hash": "c680ae151815d19f424dea82025b451db8b4cc6c22aedd7115026bd4ab9fc17c",
+  "content_hash": "7c4cb027ca57c65d94b2817a2d15bb4ae5a527743fa9fb99ad88ccc157a07216",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -91,9 +91,9 @@
       "input_notes": [
         "Сохрани raw phrase/number, quantity/unit/axle/side/position; неизвестное не единица."
       ],
-      "instruction_hash": "14b06965feed1ca15896bc0289a5a38335bb74db40f54c61a515f8bdaee3a477",
+      "instruction_hash": "a5f487db2fdbedd8f5cb52d822558a2a4441af8eff8ccf8d5a1d89fbd1745a70",
       "instruction_ref": "docs/agent/modules/E3.md",
-      "instruction_text": "# E3 — Запрос детали и маркировки\n\nВсе позиции, количества, стороны, номера и EAN\nРодитель: [E1](E1.md). Устойчивый ключ: `parts_request`.\n\n## Входы\n\nСохрани raw phrase/number, quantity/unit/axle/side/position; неизвестное не единица.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartnameByBrandNumber](../tools/partsapi-get-partname-by-brand-number.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=part_name_by_brand_number` |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getProductGroupsByBrandNumber](../tools/partsapi-get-product-groups-by-brand-number.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getProductGroupsByBrandNumber` |\n| [FindEAN13](../tools/partsapi--find-e-a-n13.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=FindEAN13` |\n| [PartSuggest](../tools/partsapi--part-suggest.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=PartSuggest` |\n| [DecodeEAN13](../tools/partsapi--decode-e-a-n13.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=DecodeEAN13` |\n| [partNameSuggest](../tools/partsapi-part-name-suggest.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=partNameSuggest` |\n| [Сохранить все позиции запроса](../tools/manager-normalize-parts-request.md) | manager · pure · implemented | `normalize_parts_request` |\n\n## Достаточность и границы\n\n- Маркировка/EAN/наименование сами не становятся OEM.\n\n## Следующий выбор\n\nНе потеряй ни одну позицию и её количество. По задаче выбирай [каталоги E4](E4.md), [новые предложения E9](E9.md) или [объявления E10](E10.md); известный артикул не требует VIN decode.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E3 — Запрос детали и маркировки\n\nВсе позиции, количества, стороны, номера и EAN\nРодитель: [E1](E1.md). Устойчивый ключ: `parts_request`.\n\n## Входы\n\nСохрани raw phrase/number, quantity/unit/axle/side/position; неизвестное не единица.\nКоличество не извлекается после `-`/`−` или из дробного хвоста после цифры/минуса и `.`/`,`:\nотрицательная запись и числовой хвост маркировки не становятся положительным количеством.\nЗапятая между названием детали и количеством поддержана также без пробела.\nНеразобранное количество остаётся unknown; явные `quantity: null` и `0` сохраняются.\nПоля `axle`, `side`, `position` внутри `items` принимают строку или `null`.\nДругой тип даёт `invalid_input` с путём поля; пустые строки и неизвестные строковые подсказки допускаются.\nУже поддержанные `л`, `литр`, `литра`, `литров` отмечают отдельную именованную позицию\nпосле существующих союзов: `масляный фильтр и масло 4 л` сохраняет обе позиции,\nколичество фильтра остаётся unknown. Quantity-only подпись после запятой остаётся\nс предыдущей позицией; английское `l` не получает новой конверсии единиц.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartnameByBrandNumber](../tools/partsapi-get-partname-by-brand-number.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=part_name_by_brand_number` |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getProductGroupsByBrandNumber](../tools/partsapi-get-product-groups-by-brand-number.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getProductGroupsByBrandNumber` |\n| [FindEAN13](../tools/partsapi--find-e-a-n13.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=FindEAN13` |\n| [PartSuggest](../tools/partsapi--part-suggest.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=PartSuggest` |\n| [DecodeEAN13](../tools/partsapi--decode-e-a-n13.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=DecodeEAN13` |\n| [partNameSuggest](../tools/partsapi-part-name-suggest.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=partNameSuggest` |\n| [Сохранить все позиции запроса](../tools/manager-normalize-parts-request.md) | manager · pure · implemented | `normalize_parts_request` |\n\n## Достаточность и границы\n\n- Маркировка/EAN/наименование сами не становятся OEM.\n\n## Следующий выбор\n\nНе потеряй ни одну позицию и её количество. По задаче выбирай [каталоги E4](E4.md), [новые предложения E9](E9.md) или [объявления E10](E10.md); известный артикул не требует VIN decode.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "parts_request",
       "parent": "E1",
       "purpose": "Все позиции, количества, стороны, номера и EAN",
@@ -161,9 +161,9 @@
       "input_notes": [
         "Готовые номера и source/qualifiers; условия двигателя/даты не терять."
       ],
-      "instruction_hash": "e2bb40210b74c3016fae9c72b3c128933894383406843e100ec0a5bdf153055d",
+      "instruction_hash": "191a0dbb84f37421811df180ec0c1c010a52a70b02786619b0bfceb8aa0fcc72",
       "instruction_ref": "docs/agent/modules/E5.md",
-      "instruction_text": "# E5 — Кроссы, аналоги и замены номеров\n\nТипизированные связи номеров и их направление\nРодитель: [E1](E1.md). Устойчивый ключ: `part_relations`.\n\n## Входы\n\nГотовые номера и source/qualifiers; условия двигателя/даты не терять.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getCrosses](../tools/partsapi-get-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses` |\n| [getCrossesWithBrand](../tools/partsapi-get-crosses-with-brand.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_with_brand` |\n| [getCrossesTitle](../tools/partsapi-get-crosses-title.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_title` |\n| [getArticleCrosses](../tools/partsapi-get-article-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_crosses` |\n| [tecdocCrosses](../tools/partsapi-tecdoc-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=tecdocCrosses` |\n| [Типы связей и конфликты номеров](../tools/manager-compare-part-relations.md) | manager · pure · implemented | `compare_part_relations` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n\n## Достаточность и границы\n\n- Cross/analog/oe_reference/supersession различны; замена требует направления и первичного свидетельства.\n\nСтрока Elcats `Economy`, сервисный комплект и базовая позиция сравниваются отдельно.\nEconomy допустим как явно указанный каталогом вариант с собственными совпавшими\nусловиями; соседство строк или похожий номер не доказывают кросс или supersession.\nДля замены нужны направление и первичное указание; даты/PR/options/ось сохраняй.\nПодробности: [Elcats](../references/elcats.md).\n\n## Следующий выбор\n\nУсловия установки проверяет [E6](E6.md); предложения доступны через [E9](E9.md)/[E10](E10.md). Не объединяй направление замены и обычный кросс в одно утверждение.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличные каталоги: [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E5 — Кроссы, аналоги и замены номеров\n\nТипизированные связи номеров и их направление\nРодитель: [E1](E1.md). Устойчивый ключ: `part_relations`.\n\n## Входы\n\nГотовые номера и source/qualifiers; условия двигателя/даты не терять.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getCrosses](../tools/partsapi-get-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses` |\n| [getCrossesWithBrand](../tools/partsapi-get-crosses-with-brand.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_with_brand` |\n| [getCrossesTitle](../tools/partsapi-get-crosses-title.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=crosses_title` |\n| [getArticleCrosses](../tools/partsapi-get-article-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_crosses` |\n| [tecdocCrosses](../tools/partsapi-tecdoc-crosses.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=tecdocCrosses` |\n| [Типы связей и конфликты номеров](../tools/manager-compare-part-relations.md) | manager · pure · implemented | `compare_part_relations` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n\n## Достаточность и границы\n\n- Cross/analog/oe_reference/supersession различны; замена требует направления и первичного свидетельства.\n\nВ первичном свидетельстве `source.from.number` и `source.to.number` связывают по одному\nномеру: массив, объект или boolean не подтверждают supersession. Нормализация строк\nи существующее преобразование числовых значений сохраняются. Непроверенная связь\nостаётся `unverified_supersession` и не создаёт ветвь замен; исходные evidence и\nqualifiers сохраняются. Связь номеров не подтверждает применимость детали.\n\nСтрока Elcats `Economy`, сервисный комплект и базовая позиция сравниваются отдельно.\nEconomy допустим как явно указанный каталогом вариант с собственными совпавшими\nусловиями; соседство строк или похожий номер не доказывают кросс или supersession.\nДля замены нужны направление и первичное указание; даты/PR/options/ось сохраняй.\nПодробности: [Elcats](../references/elcats.md).\n\n## Следующий выбор\n\nУсловия установки проверяет [E6](E6.md); предложения доступны через [E9](E9.md)/[E10](E10.md). Не объединяй направление замены и обычный кросс в одно утверждение.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличные каталоги: [MANN/DENSO](../references/public-aftermarket-catalogs.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "part_relations",
       "parent": "E1",
       "purpose": "Типизированные связи номеров и их направление",
@@ -189,9 +189,9 @@
       "input_notes": [
         "Vehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing."
       ],
-      "instruction_hash": "63b69d07a5d89e31fbb1c84b1065713f4d4ee3bc6bdf5c71a563017c62615aff",
+      "instruction_hash": "b5b7574c7e3f767c0e92a2c845d214c330faf1a3590677a4d6ad38929d07e4d0",
       "instruction_ref": "docs/agent/modules/E6.md",
-      "instruction_text": "# E6 — Применимость и сравнение деталей\n\nСопоставление машины, изделия и ограничений\nРодитель: [E1](E1.md). Устойчивый ключ: `part_fitment`.\n\n## Входы\n\nVehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getApplicability](../tools/partsapi-get-applicability.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability` |\n| [getApplicability2](../tools/partsapi-get-applicability2.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability2` |\n| [Оценка веб-свидетельств номеров](../tools/manager-verify-oem-candidates-web.md) | public_web · composed · implemented | `verify_oem_candidates_web` |\n| [Применимость по готовым evidence](../tools/manager-assess-part-fitment.md) | manager · pure · implemented | `assess_part_fitment` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n| [Elcats: номера и условия на схеме](../tools/elcats-list-parts.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_parts` |\n| [Elcats: кандидаты по названию детали](../tools/elcats-lookup-candidates.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=lookup_candidates` |\n\n## Достаточность и границы\n\n- Нет явного запрета не означает supported; family не exact_identifier.\n- Конкретное условие требует достаточно конкретного факта: Automatic без числа\n  передач не подтверждает 6AT, ROW не подтверждает Europe, семейная модель не\n  подтверждает её поколение. Известное число передач уточняет тип КПП.\n- Диапазоны поддерживают только from/to. Дополнительный неизвестный ключ оставляет\n  условие unknown; новые операторы не выполняются неявно.\n\nПубличная строка Elcats/Japancats/Ssangyong сохраняет фактическое происхождение и scope.\nСверяй engine/KPP/date/market/PR/options/ось и каталоговый parent/ref; неизвестное условие\nне получает значение по умолчанию. Групповой подбор и публичная HTML-строка не создают\nofficial_epc/exact_identifier утверждение. Конфликтующую модификацию не выбирай первой.\n\n## Следующий выбор\n\nСохраняй scope, missing и конфликты проверки. Для предложений выбирай [E9](E9.md)/[E10](E10.md), для оценки рынка — [E11](E11.md); цена не подтверждает применимость.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличная сверка номера: [oem-web](../references/oem-web.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n\nПубличные каталоги и матрица доступа: [Elcats/Japancats/Ssangyong](../references/elcats.md).\n",
+      "instruction_text": "# E6 — Применимость и сравнение деталей\n\nСопоставление машины, изделия и ограничений\nРодитель: [E1](E1.md). Устойчивый ключ: `part_fitment`.\n\n## Входы\n\nVehicle+part+criteria/evidence; двигатель/КПП/ось/дата/рынок и missing.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getArticleCriteria](../tools/partsapi-get-article-criteria.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=article_criteria` |\n| [getArticleMedia](../tools/partsapi-get-article-media.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getArticleMedia` |\n| [getApplicability](../tools/partsapi-get-applicability.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability` |\n| [getApplicability2](../tools/partsapi-get-applicability2.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getApplicability2` |\n| [Оценка веб-свидетельств номеров](../tools/manager-verify-oem-candidates-web.md) | public_web · composed · implemented | `verify_oem_candidates_web` |\n| [Применимость по готовым evidence](../tools/manager-assess-part-fitment.md) | manager · pure · implemented | `assess_part_fitment` |\n| [MANN каталог](../tools/aftermarket-mann.md) | mann · network_read · implemented | `public_aftermarket_catalog_lookup · provider=mann` |\n| [DENSO каталог](../tools/aftermarket-denso.md) | denso · network_read · implemented | `public_aftermarket_catalog_lookup · provider=denso` |\n| [Elcats: номера и условия на схеме](../tools/elcats-list-parts.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=list_parts` |\n| [Elcats: кандидаты по названию детали](../tools/elcats-lookup-candidates.md) | elcats_catalog · network_read · implemented | `elcats_catalog_query · operation=lookup_candidates` |\n\n## Достаточность и границы\n\n- Нет явного запрета не означает supported; family не exact_identifier.\n- Конкретное условие требует достаточно конкретного факта: Automatic без числа\n  передач не подтверждает 6AT, ROW не подтверждает Europe, семейная модель не\n  подтверждает её поколение. Известное число передач уточняет тип КПП.\n- Диапазоны поддерживают только from/to. Дополнительный неизвестный ключ оставляет\n  условие unknown; новые операторы не выполняются неявно.\n\nВыбранное значение номера `part` (`number`, `part_number`, `normalized_number`, `raw_number`)\nсвязывает одно изделие: массив, объект или boolean не склеиваются в номер и не дают\nsupported по первичному свидетельству. Прежний выбор alias и преобразование числовых\nзначений сохраняются; исходный `part` остаётся в ответе.\n\nПубличная строка Elcats/Japancats/Ssangyong сохраняет фактическое происхождение и scope.\nСверяй engine/KPP/date/market/PR/options/ось и каталоговый parent/ref; неизвестное условие\nне получает значение по умолчанию. Групповой подбор и публичная HTML-строка не создают\nofficial_epc/exact_identifier утверждение. Конфликтующую модификацию не выбирай первой.\n\n## Следующий выбор\n\nСохраняй scope, missing и конфликты проверки. Для предложений выбирай [E9](E9.md)/[E10](E10.md), для оценки рынка — [E11](E11.md); цена не подтверждает применимость.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nПубличная сверка номера: [oem-web](../references/oem-web.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n\nПубличные каталоги и матрица доступа: [Elcats/Japancats/Ssangyong](../references/elcats.md).\n",
       "module_key": "part_fitment",
       "parent": "E1",
       "purpose": "Сопоставление машины, изделия и ограничений",
@@ -793,6 +793,22 @@
         "manager.manager_automations"
       ],
       "tool_name": "manager_automations"
+    },
+    {
+      "classification": "outside",
+      "reference": "docs/agent/references/manager-roles.md",
+      "tool_ids": [
+        "manager.manager_role_action"
+      ],
+      "tool_name": "manager_role_action"
+    },
+    {
+      "classification": "outside",
+      "reference": "docs/agent/references/manager-roles.md",
+      "tool_ids": [
+        "manager.manager_roles"
+      ],
+      "tool_name": "manager_roles"
     },
     {
       "classification": "active",
@@ -3163,6 +3179,130 @@
       "title": "manager_automations_toolArguments",
       "type": "object"
     },
+    "manager_role_action": {
+      "properties": {
+        "actor": {
+          "enum": [
+            "owner",
+            "M1",
+            "M2"
+          ],
+          "title": "Actor",
+          "type": "string"
+        },
+        "expected_revision": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Revision"
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "operation": {
+          "enum": [
+            "bind",
+            "start",
+            "stop",
+            "stop_all",
+            "sleep",
+            "checkpoint",
+            "task_create",
+            "task_claim",
+            "task_result",
+            "task_accept",
+            "task_return",
+            "task_cancel",
+            "question_create",
+            "question_resolve",
+            "approval_create",
+            "approval_decide",
+            "approval_consume",
+            "note",
+            "learn",
+            "permission_record",
+            "reconcile_turn"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload"
+        },
+        "role": {
+          "enum": [
+            "M1",
+            "M2"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "role",
+        "actor",
+        "idempotency_key"
+      ],
+      "title": "manager_role_action_toolArguments",
+      "type": "object"
+    },
+    "manager_roles": {
+      "properties": {
+        "limit": {
+          "default": 30,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "operation": {
+          "default": "status",
+          "enum": [
+            "status",
+            "tasks",
+            "questions",
+            "approvals",
+            "notes",
+            "permissions",
+            "owner_receipt"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "reference_id": {
+          "default": "",
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "role": {
+          "default": "M1",
+          "enum": [
+            "M1",
+            "M2"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "title": "manager_roles_toolArguments",
+      "type": "object"
+    },
     "normalize_labor_time": {
       "properties": {
         "rows": {
@@ -5062,7 +5202,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "65f233029f4f1aa110344585307096701b86d7ca",
+  "source_revision": "b1e286e4121055b732fe2772e76e068f43dac837",
   "tools": [
     {
       "also_used_in": [],
@@ -10461,9 +10601,9 @@
         "unknown_costs"
       ],
       "input_schema_ref": "calculate_work_price",
-      "instruction_hash": "7ff07ee781b115b041fd6a88bf62110d622e48b21bd241a4ea3f243c3a35b1c6",
+      "instruction_hash": "3d162775d571630983d6ebcb193ca2fda3e0e55d05fe2b13971ddac3faa8ed57",
       "instruction_ref": "docs/agent/tools/manager-calculate-work-price.md",
-      "instruction_text": "# manager.calculate_work_price — Расчёт по явной ставке и политике\n\nОсновной модуль: [E13](../modules/E13.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: pure.\n\nВызов: native Manager MCP `calculate_work_price`.\n\nВходы: `labor`, `policy`, `hourly_rate`, `observations`, `unknown_costs`.\nDefaults: `{\"hourly_rate\":null,\"observations\":null,\"unknown_costs\":null}`.\nОбязательные facade поля: `labor`, `policy`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"hourly_rate\":1000,\"labor\":[{\"hours\":2,\"operation_id\":\"demo\",\"operation_name\":\"DEMO работа\"}],\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"hourly_rate\":1000,\"labor\":null,\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\n\nВыход: Envelope: schema_version/tool_id/ok/outcome/data/evidence/missing_fields/conflicts/warnings/execution; paths ниже относятся к data.; basis/hourly_rate/policy/currency/operations[{operation_id,operation_name,price,range}]; known_subtotal/total/range/exclusions/unknown_costs; policy остается явным входом, version/coefficient/rounding не являются отдельными полями выхода.\nОшибки и неполнота: invalid_input без policy.version/allowed basis/rate или при malformed inputs; partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal; invalid_input с missing_fields=[\"calculation_overflow\"] и data={} при результате, непредставимом конечным числом; произвольный лимит цены не вводится.\n\n- Неизвестный расход не ноль; pure calculation не читает experience/CRM.\n- basis: hourly_rate или public_observations; coefficient/rounding берутся из policy, default1, finite positive. hourly_rate явный; цена включает только труд.\n- public_observations требует matching operation_name, finite price_rub, labor_only=true и includes_parts=false. Неизвестный явный range_hours не заменяется hours.\n- Duplicate/included operations исключаются; overlap требует явного overlap_resolved. No network/experience/CRM reads.\n\nПодробный контракт: [справочник](../references/work-pricing.md).\n",
+      "instruction_text": "# manager.calculate_work_price — Расчёт по явной ставке и политике\n\nОсновной модуль: [E13](../modules/E13.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: pure.\n\nВызов: native Manager MCP `calculate_work_price`.\n\nВходы: `labor`, `policy`, `hourly_rate`, `observations`, `unknown_costs`.\nDefaults: `{\"hourly_rate\":null,\"observations\":null,\"unknown_costs\":null}`.\nОбязательные facade поля: `labor`, `policy`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"hourly_rate\":1000,\"labor\":[{\"hours\":2,\"operation_id\":\"demo\",\"operation_name\":\"DEMO работа\"}],\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"hourly_rate\":1000,\"labor\":null,\"policy\":{\"basis\":\"hourly_rate\",\"currency\":\"RUB\",\"version\":\"demo-v1\"},\"unknown_costs\":[\"диагностика\"]}\n```\n\nВыход: Envelope: schema_version/tool_id/ok/outcome/data/evidence/missing_fields/conflicts/warnings/execution; paths ниже относятся к data.; basis/hourly_rate/policy/currency/operations[{operation_id,operation_name,price,range}]; known_subtotal/total/range/exclusions/unknown_costs; policy остается явным входом, version/coefficient/rounding не являются отдельными полями выхода.\nОшибки и неполнота: invalid_input без policy.version/allowed basis/rate или при malformed inputs; partial при неизвестной цене/часах/range/расходах/нерешенном overlap; total и range=null, известная часть сохраняется known_subtotal; invalid_input с missing_fields=[\"calculation_overflow\"] и data={} при результате, непредставимом конечным числом; произвольный лимит цены не вводится.\n\n- Неизвестный расход не ноль; pure calculation не читает experience/CRM.\n- basis: hourly_rate или public_observations; coefficient/rounding берутся из policy, default1, finite positive. hourly_rate явный; цена включает только труд.\n- После числовой нормализации суммы рассчитываются в десятичной арифметике; каждая операция округляется до policy.rounding с половиной вверх (HALF_UP), затем округлённые операции суммируются. Например, 0.29 часа × ставка50 при шаге1 дают15.\n- public_observations требует matching operation_name, finite price_rub, labor_only=true и includes_parts=false. Неизвестный явный range_hours не заменяется hours.\n- Duplicate/included operations исключаются; overlap требует явного overlap_resolved. No network/experience/CRM reads.\n\nПодробный контракт: [справочник](../references/work-pricing.md).\n",
       "invalid_example": {
         "hourly_rate": 1000,
         "labor": null,
@@ -10483,6 +10623,7 @@
       "limitations": [
         "Неизвестный расход не ноль; pure calculation не читает experience/CRM.",
         "basis: hourly_rate или public_observations; coefficient/rounding берутся из policy, default1, finite positive. hourly_rate явный; цена включает только труд.",
+        "После числовой нормализации суммы рассчитываются в десятичной арифметике; каждая операция округляется до policy.rounding с половиной вверх (HALF_UP), затем округлённые операции суммируются. Например, 0.29 часа × ставка50 при шаге1 дают15.",
         "public_observations требует matching operation_name, finite price_rub, labor_only=true и includes_parts=false. Неизвестный явный range_hours не заменяется hours.",
         "Duplicate/included operations исключаются; overlap требует явного overlap_resolved. No network/experience/CRM reads."
       ],
@@ -12179,6 +12320,112 @@
       "reference": "docs/agent/references/elcats.md",
       "title": "Elcats: кандидаты по названию детали",
       "tool_id": "elcats.lookup_candidates"
+    },
+    {
+      "also_used_in": [],
+      "classification": "outside",
+      "defaults": {
+        "limit": 30,
+        "operation": "status",
+        "reference_id": "",
+        "role": "M1"
+      },
+      "errors": [
+        "role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable"
+      ],
+      "example": {},
+      "execution_kind": "composed",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "role",
+        "reference_id",
+        "limit"
+      ],
+      "input_schema_ref": "manager_roles",
+      "instruction_hash": "54c2019b8e0691e064edda689fab63b84a9e6f7a3f027e0695e443d84a2ca885",
+      "instruction_ref": "docs/agent/references/manager-manager_roles.md",
+      "instruction_text": "# manager.manager_roles — manager_roles\n\nСостояние кабинетов M1/M2, задачи, согласования и рабочие знания\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_roles`.\n\nВходы: `operation`, `role`, `reference_id`, `limit`.\nDefaults: `{\"limit\":30,\"operation\":\"status\",\"reference_id\":\"\",\"role\":\"M1\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Обе роли после установки OFF; чтение не запускает дежурство.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "invalid_example": {
+        "operation": "__invalid__"
+      },
+      "invocation": {
+        "tool_name": "manager_roles",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.",
+        "Рабочие знания и наблюдения не расширяют полномочия.",
+        "Обе роли после установки OFF; чтение не запускает дежурство."
+      ],
+      "outputs": [
+        "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
+      ],
+      "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
+      "primary_module": "outside",
+      "provider_id": "manager",
+      "purpose": "Состояние кабинетов M1/M2, задачи, согласования и рабочие знания",
+      "reference": "docs/agent/references/manager-roles.md",
+      "title": "manager_roles",
+      "tool_id": "manager.manager_roles"
+    },
+    {
+      "also_used_in": [],
+      "classification": "outside",
+      "defaults": {
+        "expected_revision": null,
+        "payload": null
+      },
+      "errors": [
+        "role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable"
+      ],
+      "example": {
+        "actor": "M1",
+        "idempotency_key": "synthetic-note-1",
+        "operation": "note",
+        "payload": {
+          "kind": "idea",
+          "source_ref": "test:1",
+          "text": "Synthetic operational idea"
+        },
+        "role": "M1"
+      },
+      "execution_kind": "composed",
+      "implementation_state": "implemented",
+      "input_fields": [
+        "operation",
+        "role",
+        "actor",
+        "idempotency_key",
+        "payload",
+        "expected_revision"
+      ],
+      "input_schema_ref": "manager_role_action",
+      "instruction_hash": "c66022b2cbed9198d02de50c352492c4e41d651ed47b0037f9de61cd6eeb40d0",
+      "instruction_ref": "docs/agent/references/manager-manager_role_action.md",
+      "instruction_text": "# manager.manager_role_action — manager_role_action\n\nУправление дежурствами, поручениями M1/M2 и конкретными согласованиями владельца\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_role_action`.\n\nВходы: `operation`, `role`, `actor`, `idempotency_key`, `payload`, `expected_revision`.\nDefaults: `{\"expected_revision\":null,\"payload\":null}`.\nОбязательные facade поля: `operation`, `role`, `actor`, `idempotency_key`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"actor\":\"M1\",\"idempotency_key\":\"synthetic-note-1\",\"operation\":\"note\",\"payload\":{\"kind\":\"idea\",\"source_ref\":\"test:1\",\"text\":\"Synthetic operational idea\"},\"role\":\"M1\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Обе роли после установки OFF; чтение не запускает дежурство.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "invalid_example": {
+        "operation": "__invalid__"
+      },
+      "invocation": {
+        "tool_name": "manager_role_action",
+        "transport": "manager_mcp"
+      },
+      "limitations": [
+        "Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.",
+        "Рабочие знания и наблюдения не расширяют полномочия.",
+        "Обе роли после установки OFF; чтение не запускает дежурство."
+      ],
+      "outputs": [
+        "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
+      ],
+      "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
+      "primary_module": "outside",
+      "provider_id": "manager",
+      "purpose": "Управление дежурствами, поручениями M1/M2 и конкретными согласованиями владельца",
+      "reference": "docs/agent/references/manager-roles.md",
+      "title": "manager_role_action",
+      "tool_id": "manager.manager_role_action"
     }
   ]
 }

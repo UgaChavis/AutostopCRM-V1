@@ -90,6 +90,8 @@ class ManagerStructureTextOnlyTests(unittest.TestCase):
             {"instruction": "New instruction"},
             {"description": "New description"},
             {"instruction": "Both instruction", "description": "Both description"},
+            {"lines": ["New summary", "Second line"]},
+            {"instruction": "New role", "description": "New role summary", "lines": ["Duty"]},
         )
         for index, fields in enumerate(cases):
             with self.subTest(fields=fields):

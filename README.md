@@ -180,8 +180,13 @@ artifacts offline from a fresh full technical graph and canonical Manager docs.
 Pass `--bundle` to require parity with the already exported immutable package.
 `--refresh-templates` updates repository artifacts; `--check` only reads them.
 `--check-saved` reads stored texts and exits nonzero with changed node IDs on drift.
-An optional `--patch-output` outside the repository prepares instruction-only
+An optional `--patch-output` outside the repository prepares text-only
 preview/write request bodies for a later authorized release, never sends them.
+`--text-updates` accepts a JSON object with optional `elements` and `relations`
+maps keyed by existing IDs. Node updates allow only `description` and `lines`;
+relation updates allow only `description` and `protocol`. Instructions always
+come from canonical Manager docs. The patch includes the text scope and a digest
+of the remaining graph, including its geometry and commissioning marks.
 Fresh full readback and current version guards are required before application.
 The retained L30/L36 route conflict is preserved; instruction refresh does not
 reroute the owner's graph.
