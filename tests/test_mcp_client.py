@@ -16,6 +16,33 @@ from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError, _n
 
 
 class BoardApiClientTests(unittest.TestCase):
+    def test_editorial_cleanup_forwards_exact_fields_without_legacy_summary_default(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+        names = {"works": [{"row_id": "work-1", "name": "Correction"}]}
+        with patch.object(client, "_request_with_identity", return_value={}) as request:
+            client.cleanup_card(
+                card_id="card-1",
+                content_only=True,
+                idempotency_key="editorial-1",
+                expected_updated_at="revision-1",
+                mode="apply",
+                refresh_summary=False,
+                repair_order_names=names,
+                actor_name="CODEX",
+            )
+        request.assert_called_once_with(
+            "/api/cleanup_card",
+            {
+                "card_id": "card-1",
+                "content_only": True,
+                "idempotency_key": "editorial-1",
+                "expected_updated_at": "revision-1",
+                "mode": "apply",
+                "repair_order_names": names,
+            },
+            actor_name="CODEX",
+        )
+
     def test_update_repair_order_forwards_card_and_cashbox_revisions(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 

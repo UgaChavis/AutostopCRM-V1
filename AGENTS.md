@@ -17,6 +17,17 @@ and [C2 CRM](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/d
 Use their canonical instructions and journal procedure for the selected role;
 old plans and duplicated skills do not override them.
 
+M1 may normalize authorized card content and vehicle evidence through
+`cleanup_card` with `content_only=true`, fresh revisions and an idempotency key;
+see [the editorial API contract](API_GUIDE.md#director-editorial-changes).
+Keep technical facts concise and mark assumptions explicitly. Preserve prices,
+payments, payroll, inventory, card stages and order lifecycle. Owner Telegram
+identity and M1 permissions come from the current canonical Manager routing;
+the retired client-only owner test configuration is not an authorization source.
+M2 may prepare fixes and commits within the task. A later duty release or
+application restart needs the owner's specific approval for that package;
+approval already given for an implementation-and-rollout package remains valid.
+
 - Inspect the worktree and preserve unrelated user work. Keep secrets,
   production data, attachments, ledgers, and private context out of Git/output.
 - Preserve needed behavior, data durability, authentication, and native guards
@@ -26,8 +37,11 @@ old plans and duplicated skills do not override them.
 - Compatibility names `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
   `Start Kanban.exe` still serve deployed clients and data. Retire them only
   with migration and rollback evidence.
-- Match verification to the changed behavior; use `run_checks.ps1 -Profile ci`
-  for the final shared change. Report measured effects and verification gaps.
+- Match local verification to the changed behavior. PR checks stay fast; run
+  `quality.yml` once by dispatch on the final `autostopcrm-v1` SHA before release.
+  Its full checks and tested image belong to that exact SHA. Do not repeat the
+  full local CI profile or Windows rehearsal without a concrete need. Report
+  measured effects and verification gaps.
 - When deployment is in the user's scope, finish the runbook release and
   prove target Git revision, live endpoint behavior, health, and logs.
   Repository publication alone does not imply a production rollout.

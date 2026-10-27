@@ -2735,10 +2735,10 @@ class WebAssetsTests(unittest.TestCase):
             "(group.title ? '<div class=\"vehicle-group__title\">' + escapeHtml(group.title) + '</div>' : '')",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("els.vehiclePanelSummary.textContent = '';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.vehiclePanelSummary.textContent = tentative;", BOARD_WEB_APP_HTML)
         self.assertNotIn("const display = vehicleDisplayFromProfile(profile);", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "els.vehiclePanelSummary.style.display = 'none';",
+            "els.vehiclePanelSummary.style.display = tentative ? '' : 'none';",
             BOARD_WEB_APP_HTML,
         )
 

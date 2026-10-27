@@ -150,6 +150,13 @@ class ClientVehiclePayload(BaseModel):
     gearbox_model: str | None = Field(default=None, max_length=160)
     drivetrain: str | None = Field(default=None, max_length=160)
     notes: str | None = Field(default=None, max_length=2000)
+    manual_fields: list[str] | None = None
+    autofilled_fields: list[str] | None = None
+    tentative_fields: list[str] | None = None
+    field_sources: dict[str, str] | None = None
+    source_summary: str | None = None
+    source_confidence: float | None = None
+    source_links_or_refs: list[str] | None = None
 
 
 class ClientProfilePayload(BaseModel):

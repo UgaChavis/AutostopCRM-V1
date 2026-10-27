@@ -1713,6 +1713,27 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
                 tools = await session.list_tools()
                 tool_names = {tool.name for tool in tools.tools}
                 self.assertNotIn("cleanup_card_content", tool_names)
+                card = created.structuredContent["data"]["card"]
+                payload = {
+                    "card_id": card["id"],
+                    "content_only": True,
+                    "expected_updated_at": card["updated_at"],
+                    "idempotency_key": "mcp-editorial-1",
+                    "mode": "apply",
+                    "actor_name": "ОПЕРАТОР",
+                    "description": "Течь антифриза. Проверить радиатор.",
+                }
+                applied = await session.call_tool("cleanup_card", payload)
+                self.assertFalse(applied.isError)
+                self.assertTrue(applied.structuredContent["ok"])
+                self.assertEqual(applied.structuredContent["data"]["changed"], 1)
+                readback = await session.call_tool("get_card", {"card_id": card["id"]})
+                self.assertEqual(
+                    readback.structuredContent["data"]["card"]["description"],
+                    payload["description"],
+                )
+                replay = await session.call_tool("cleanup_card", payload)
+                self.assertTrue(replay.structuredContent["data"]["meta"]["idempotent_replay"])
 
     async def test_mcp_returns_structured_validation_errors(self) -> None:
         async with create_test_mcp_http_client(

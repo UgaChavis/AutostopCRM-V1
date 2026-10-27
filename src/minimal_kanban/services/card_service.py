@@ -127,6 +127,7 @@ from .card_service_dashboard import (
     DISPLAY_DASHBOARD_MESSAGE_KEY,
     CardServiceDashboardMixin,
 )
+from .card_service_editorial import CardServiceEditorialMixin
 from .card_service_finance import (
     _GATEWAY_ATTESTATION_RUN_RE,
     CardServiceFinanceMixin,
@@ -396,6 +397,7 @@ def _json_dumps(
 
 
 class CardService(
+    CardServiceEditorialMixin,
     TelegramBehaviorGraphMixin,
     CardAttachmentsMixin,
     RepairOrderArtifactsMixin,
@@ -2022,6 +2024,8 @@ class CardService(
 
     def cleanup_card(self, payload: dict | None = None) -> dict:
         payload = payload or {}
+        if self._validated_optional_bool(payload, "content_only", default=False):
+            return self._cleanup_card_editorial(payload)
         mode = self._manager_operation_mode(payload)
         actor_name, _source = self._manager_actor_identity(payload, mode=mode)
         card_id = normalize_text(payload.get("card_id"), default="", limit=128)

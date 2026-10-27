@@ -3867,12 +3867,20 @@
         + '</div>';
     }
 
+    function vehicleTentativeSummary(profile) {
+      const labels = { make_display: 'Марка', model_display: 'Модель' };
+      const fields = Array.isArray(profile?.tentative_fields) ? profile.tentative_fields : [];
+      const names = fields.map((field) => (VEHICLE_FIELD_MAP[field]?.label || labels[field] || field) + (profile[field] ? (' — ' + profile[field]) : ''));
+      return names.length ? ('Предположительно: ' + names.join(', ')) : '';
+    }
+
     function renderClientVehicleItem(vehicle, index) {
       const key = clientProfileVehicleKey(vehicle, index);
       const editor = state.clientVehicleEditor || {};
       if (editor.key === key) return clientVehicleFormHtml(vehicle, key);
       const title = String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
       const meta = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан';
+      const tentative = vehicleTentativeSummary(vehicle);
       const isStored = Boolean(String(vehicle?.id || '').trim());
       const source = isStored ? 'профиль клиента' : 'из связанной карточки';
       const deleteButton = isStored
@@ -3880,7 +3888,8 @@
         : '<button class="btn btn--ghost" type="button" disabled title="Сначала сохраните машину в профиль клиента">УДАЛИТЬ</button>';
       return '<div class="client-mini client-mini--vehicle" data-client-vehicle-key="' + escapeHtml(key) + '">'
         + '<div class="client-mini__vehicle-head">'
-        + '<div><div class="client-mini__vehicle-title">' + escapeHtml(title) + '</div><div class="client-mini__meta">' + escapeHtml(meta) + '</div><div class="client-mini__vehicle-source">' + escapeHtml(source) + '</div></div>'
+        + '<div><div class="client-mini__vehicle-title">' + escapeHtml(title) + '</div><div class="client-mini__meta">' + escapeHtml(meta) + '</div><div class="client-mini__vehicle-source">' + escapeHtml(source) + '</div>'
+        + (tentative ? '<div class="client-mini__meta" data-vehicle-tentative="true">' + escapeHtml(tentative) + '</div>' : '') + '</div>'
         + '<div class="client-mini__vehicle-actions">'
         + '<button class="btn" type="button" data-client-vehicle-edit="' + escapeHtml(key) + '">РЕДАКТ.</button>'
         + deleteButton

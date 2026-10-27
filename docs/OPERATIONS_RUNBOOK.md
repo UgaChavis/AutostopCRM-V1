@@ -224,8 +224,8 @@ Use the fast changed-file profile while iterating:
 .\scripts\run_checks.ps1
 ```
 
-For shared behavior and before publishing a substantial slice, run the one
-canonical local CI profile:
+For a local diagnosis that needs the entire suite, the canonical local CI
+profile remains available:
 
 ```powershell
 .\scripts\run_checks.ps1 -Profile ci
@@ -238,12 +238,23 @@ and bounded local performance gates. It uses an isolated Python cache so
 coverage and compile cannot race on Windows. It never runs live probes, edits
 `.env`, or accesses production.
 
-The local profile is not a complete hosted attestation. GitHub CI remains
-required for the Ubuntu/Python 3.12 harness, production Compose configuration,
-and `docker-runtime-assets` container contract.
+Ordinary preparation uses affected tests and the changed-file profile. Do not
+repeat the full local profile merely because the same candidate will be merged.
+The required final attestation is one manual `quality.yml` run on the exact
+final `autostopcrm-v1` commit, with `export_tested_image=true`. It includes the
+Ubuntu/Python 3.12 harness, production Compose configuration and
+`docker-runtime-assets` container contract.
+
+Pull requests run fast source contracts and changed non-browser regression
+modules. Browser changes receive focused local verification and the final
+browser suite. Neither a successful PR `quality` check nor an older branch
+SHA qualifies a final merged commit for deployment. Pushes do not launch a
+second full suite. After merge, dispatch once, compare the run's `headSha`
+with the final remote SHA, then use only its matching image artifact. A source
+change or concrete failed gate justifies a new final run.
 
 Hosted static, unit/coverage, browser/performance and Docker gates run in
-parallel. The final `quality` job requires every gate to succeed, including
+parallel in the manual final run. Its `quality` job requires every full gate to succeed, including
 when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
 are cached; the Docker candidate is loaded only for tests, never pushed.
 All discovered browser regressions run once under runtime branch coverage,
@@ -253,7 +264,7 @@ with no skipped cases, and exports `browser-coverage-*.json` with the coverage
 evidence. The browser/performance job retains mandatory core smoke and performance
 gates without repeating those covered regression modules.
 
-The `release-rehearsal.yml` workflow runs the complete canonical CI
+The optional `release-rehearsal.yml` workflow runs the complete canonical CI
 profile on separate disposable Ubuntu and Windows runners. Every job checks out the workflow's exact commit and
 publishes source, dependency, native-library and failure evidence. It uses
 Python 3.12.15 on Linux and 3.12.10 on Windows, the project requirements
@@ -265,13 +276,12 @@ The first Windows bootstrap failed because the official
 has no Windows 3.12.15 payload. Windows therefore uses the latest available
 3.12 Windows binary, 3.12.10; the measured runtime receipt records that choice.
 The workflow has no deployment, production probes or production credentials.
-It runs on an explicit dispatch or a push to `autostopcrm-v1` or
-`codex/release-rehearsal/**`,
-so a new workflow can be verified before it reaches the default branch.
+It runs only on an explicit dispatch when a Windows/native change needs this
+additional cross-platform evidence. It is not repeated for an ordinary
+Linux application rollout and is not triggered by pushes.
 The final gate requires matching completion evidence from both platform scenarios;
 a skipped, absent or failed scenario cannot produce a ready result.
-The main-branch quality run, or a manual quality run with
-`export_tested_image=true`, also exports the exact Docker image that passed
+The manual main-branch quality run with `export_tested_image=true` exports the exact Docker image that passed
 its runtime checks, its image identity, installed dependency versions and
 SHA-256 checksums as a build artifact. This performs no registry push or
 server update. Use that image archive in the release kit; a later rebuild
@@ -723,12 +733,16 @@ if ($LASTEXITCODE -ne 0) { throw "Candidate is not a fast-forward of autostopcrm
 git push origin HEAD:autostopcrm-v1
 ```
 
-Never force-push the production branch. Confirm that the exact remote ref equals
-`$candidateSha`, then find the `quality.yml` push run for that commit with
-`gh run list --branch autostopcrm-v1 --event push --commit $candidateSha`. Wait
-for it with `gh run watch --exit-status` and verify that the completed successful
-workflow reports the same `headSha`. A run for an older commit is not release
-evidence.
+Never force-push the production branch. Confirm the final exact remote ref and
+record its SHA after the merge or fast-forward. Dispatch
+`gh workflow run quality.yml --ref autostopcrm-v1 -f export_tested_image=true`,
+then find that manual run with
+`gh run list --workflow quality.yml --branch autostopcrm-v1 --event workflow_dispatch --commit <final-sha>`.
+Wait with `gh run watch --exit-status` and verify its completed successful
+`headSha`, source tree and `autostopcrm-image-<final-sha>` artifact against the
+selected final commit. If the branch moved before dispatch, reassess and test
+the new final candidate. A run for a PR merge ref or an older commit is not
+release evidence.
 
 This path does not authorize SSH, `deploy.sh`, a server fast-forward, or live
 smoke. A successful GitHub push and CI run are not a production rollout.

@@ -508,6 +508,13 @@ class ClientVehicle:
     gearbox_model: str = ""
     drivetrain: str = ""
     notes: str = ""
+    manual_fields: list[str] = field(default_factory=list)
+    autofilled_fields: list[str] = field(default_factory=list)
+    tentative_fields: list[str] = field(default_factory=list)
+    field_sources: dict[str, str] = field(default_factory=dict)
+    source_summary: str = ""
+    source_confidence: float = 0.0
+    source_links_or_refs: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.id = normalize_entity_id(self.id)
@@ -533,8 +540,22 @@ class ClientVehicle:
         )
         self.drivetrain = normalize_text(self.drivetrain, default="", limit=CLIENT_FIELD_LIMIT)
         self.notes = normalize_text(self.notes, default="", limit=CLIENT_NOTE_LIMIT)
+        metadata = VehicleProfile.from_dict(self.source_metadata())
+        if metadata.tentative_fields:
+            metadata.autofilled_fields = sorted(
+                set(metadata.autofilled_fields) | set(metadata.tentative_fields)
+            )
+            metadata.manual_fields = sorted(
+                set(metadata.manual_fields) - set(metadata.tentative_fields)
+            )
+        for name in CLIENT_VEHICLE_METADATA_FIELDS:
+            setattr(self, name, getattr(metadata, name))
 
-    def to_dict(self) -> dict[str, str]:
+    def source_metadata(self) -> dict[str, Any]:
+        """Use VehicleProfile field names for provenance on both representations."""
+        return {name: deepcopy(getattr(self, name)) for name in CLIENT_VEHICLE_METADATA_FIELDS}
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "vehicle": self.vehicle,
@@ -552,6 +573,7 @@ class ClientVehicle:
             "gearbox_model": self.gearbox_model,
             "drivetrain": self.drivetrain,
             "notes": self.notes,
+            **self.source_metadata(),
         }
 
     @classmethod
@@ -581,6 +603,11 @@ class ClientVehicle:
                 gearbox_model=value.get("gearbox_model") or "",
                 drivetrain=value.get("drivetrain") or value.get("drive_type") or "",
                 notes=value.get("notes") or value.get("comment") or "",
+                **{
+                    name: value.get(name)
+                    for name in CLIENT_VEHICLE_METADATA_FIELDS
+                    if name in value
+                },
             )
         else:
             vehicle = cls(vehicle=value)
@@ -597,6 +624,17 @@ class ClientVehicle:
         ):
             return None
         return vehicle
+
+
+CLIENT_VEHICLE_METADATA_FIELDS = (
+    "manual_fields",
+    "autofilled_fields",
+    "tentative_fields",
+    "field_sources",
+    "source_summary",
+    "source_confidence",
+    "source_links_or_refs",
+)
 
 
 def normalize_client_vehicles(value) -> list[ClientVehicle]:
