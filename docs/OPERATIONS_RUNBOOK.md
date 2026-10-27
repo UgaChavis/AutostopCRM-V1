@@ -807,8 +807,9 @@ source and evidence remain in Git and the separately preserved private receipts.
 The CRM image contains the self-contained automotive bundle in
 `src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json`. Export it
 from a clean, exact published Manager snapshot; prepare and check the CRM pin
-while Manager CI runs, then require its success before merging the CRM candidate.
-Run the canonical CRM hosted gates once on the final merged CRM SHA. The
+while Manager CI runs. Run the canonical CRM hosted gates once on the final
+merged CRM SHA. The exact final Manager and CRM gates may run in parallel;
+activation requires both to succeed. The
 catalog content hash excludes `source_revision` and `content_hash`; changing the
 Manager SHA alone does not pretend that instruction content changed.
 
