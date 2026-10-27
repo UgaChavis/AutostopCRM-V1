@@ -24,7 +24,6 @@ from .agent_gateway_support import (
     STORE_VIN_PHOTO_PREVIEW_OPERATION,
     WORKFLOW_TERMINAL_STATES,
     _as_dict,
-    _board_mode,
     _board_workflow_arguments,
     _compact_object,
     _contains_value,
@@ -50,6 +49,9 @@ from .agent_gateway_support import (
     _store_owner_transport_matches_binding,
     _subset_matches,
     _tool_risk,
+    _workflow_next_actions,
+    _workflow_preview_warnings,
+    _workflow_safe_result,
     _write_annotations,
 )
 from .agent_gateway_support import (
@@ -73,9 +75,6 @@ from .gateway_media import (
 )
 from .gateway_media import (
     tool_result_with_image as _tool_result_with_image,
-)
-from .gateway_media import (
-    without_binary_content as _without_binary_content,
 )
 from .gateway_store_context import (
     bootstrap_store_context_requests,
@@ -156,6 +155,7 @@ from .workflow_guards import (
     finance_revision_preflight,
     invoice_document_guard,
     workflow_error_result,
+    workflow_request_error,
 )
 
 COMPLETION_ACT_WORKFLOW_OPERATIONS = frozenset(
@@ -1229,24 +1229,9 @@ def register_agent_gateway_v2(
     ) -> CallToolResult:
         if is_maintenance_mode():
             return workflow_error_result(workflow_id, "maintenance_mode_domain_writes_blocked")
-        if operation not in allowed:
-            return workflow_error_result(
-                workflow_id,
-                "operation_not_allowed_for_workflow",
-                status="failed",
-                summary={"workflow_id": workflow_id, "operation": operation},
-            )
-        if workflow_id == "board" and any(
-            _board_mode(payload[field]) != mode
-            for field in ("mode", "apply_mode")
-            if field in payload
-        ):
-            return workflow_error_result(
-                workflow_id,
-                "board_workflow_mode_conflict",
-                summary={"workflow_id": workflow_id, "operation": operation},
-                next_actions=["Use one matching mode for the board workflow and its payload"],
-            )
+        request_error = workflow_request_error(workflow_id, operation, payload, mode, allowed)
+        if request_error:
+            return request_error
         completion_act_operation = (
             workflow_id == "document" and operation in COMPLETION_ACT_WORKFLOW_OPERATIONS
         )
@@ -1759,33 +1744,14 @@ def register_agent_gateway_v2(
         overall_ok = result_ok and ledger_closed
         result_data = normalized_store_data(result) if store_operation else result
         document_guard = invoice_document_guard(result_data)
-        binary_document_operation = workflow_id == "document" and operation in {
-            "create_document_without_card_pdf",
-            "download_repair_order_print_pdf",
-            "download_shared_file",
-        }
-        editorial_preview = (
-            workflow_id == "board"
-            and operation == "cleanup_card"
-            and mode == "dry_run"
-            and payload.get("content_only") is True
-        )
-        preview_truncated = [False]
-        safe_result = (
-            _without_binary_content(result_data)
-            if is_store_vin_photo_preview or (binary_document_operation and not allow_large_output)
-            else result_data
-            if allow_large_output
-            else _compact_object(
-                result_data,
-                max_depth=12,
-                item_limit=500,
-                key_limit=500,
-                string_limit=20000,
-                _truncated=preview_truncated,
-            )
-            if editorial_preview
-            else _compact_object(result_data)
+        safe_result, preview_truncated = _workflow_safe_result(
+            result_data,
+            workflow_id=workflow_id,
+            operation=operation,
+            mode=mode,
+            payload=payload,
+            is_store_vin_photo_preview=is_store_vin_photo_preview,
+            allow_large_output=allow_large_output,
         )
         safe_result.update({"document_guard": document_guard} if document_guard else {})
         source_warnings = (
@@ -1802,8 +1768,6 @@ def register_agent_gateway_v2(
             if result_ok
             else ["executor_failed"]
         )
-        if editorial_preview and preview_truncated[0]:
-            workflow_warnings.append("editorial_preview_incomplete_do_not_apply")
         payload = _envelope(
             ok=overall_ok,
             status=workflow_status,
@@ -1821,12 +1785,12 @@ def register_agent_gateway_v2(
                 "ledger_closed": ledger_closed,
                 **verification,
             },
-            warnings=[*source_warnings, *workflow_warnings],
-            next_actions=["Do not apply: obtain a complete preview of the proposed changes"]
-            if editorial_preview and preview_truncated[0]
-            else []
-            if overall_ok
-            else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
+            warnings=[
+                *source_warnings,
+                *workflow_warnings,
+                *_workflow_preview_warnings(preview_truncated),
+            ],
+            next_actions=_workflow_next_actions(overall_ok, preview_truncated, run_id),
             meta={
                 "mode": mode or "apply",
                 "dry_run": mode == "dry_run",

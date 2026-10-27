@@ -43,6 +43,7 @@ from minimal_kanban.mcp.store_gateway import (
     STORE_READ_CAPABILITY_NAMES,
     verify_store_readback,
 )
+from tests.gateway_v2_editorial_preview_contracts import GatewayV2EditorialPreviewContractsMixin
 from tests.gateway_v2_oauth_contracts import GatewayV2OAuthContractTestsMixin
 from tests.gateway_v2_read_contracts import GatewayV2ReadContractTestsMixin
 from tests.gateway_v2_store_quote_conductor_support import (
@@ -1455,6 +1456,7 @@ def register_fake_store_manager_tools(server, logger, state: dict) -> None:
 
 
 class AgentGatewayV2Tests(
+    GatewayV2EditorialPreviewContractsMixin,
     StoreQuoteConductorCasesMixin,
     GatewayV2TelegramBehaviorContractsMixin,
     GatewayV2OAuthContractTestsMixin,
@@ -4095,124 +4097,6 @@ class AgentGatewayV2Tests(
             "idempotency_reused_completed_result", duplicate.structuredContent["warnings"]
         )
         self.assertEqual(len(board_api.raw_requests), 1)
-
-    async def test_editorial_board_preview_preserves_fields_and_warns_if_incomplete(self) -> None:
-        state = {"status": "planned"}
-
-        def register_ledger(server, _logger):
-            @server.tool(name="start_workflow")
-            def start_workflow(
-                workflow_id: str,
-                intent: str,
-                idempotency_key: str,
-                query: str = "",
-                actor: str = "",
-                scope: dict | None = None,
-                metadata: dict | None = None,
-                dry_run: bool = False,
-            ) -> dict:
-                return {
-                    "ok": True,
-                    "run_id": 91,
-                    "status": state["status"],
-                    "summary": {"id": 91, "deduplicated": False},
-                }
-
-            @server.tool(name="workflow_transition")
-            def workflow_transition(
-                run_id: int,
-                status: str,
-                message: str = "",
-                verification: dict | None = None,
-                summary: str = "",
-                expected_state_version: int | None = None,
-            ) -> dict:
-                state["status"] = status
-                return {"ok": True, "run_id": run_id, "status": status, "summary": {}}
-
-        self.manager_register.side_effect = register_ledger
-        board_api = FakeBoardApi()
-        long_text = "a" * 5000
-        response = {
-            "ok": True,
-            "data": {
-                "items": [
-                    {
-                        "planned_fields": ["title", "description"],
-                        "card": {"title": "New title", "description": long_text},
-                    }
-                ],
-                "verification": {"passed": True},
-            },
-        }
-        server = create_mcp_server(
-            board_api,
-            self.logger,
-            host="127.0.0.1",
-            port=41838,
-            path="/mcp",
-            public_endpoint_url="https://crm.example/mcp",
-        )
-        owner_token = OwnerAccessToken(
-            token="oauth-owner-token",
-            client_id="test-client",
-            subject="CODEX",
-            family_id="test-family",
-            scopes=["kanban:read", "kanban:write"],
-            resource="https://crm.example/mcp",
-        )
-        context_token = auth_context_var.set(AuthenticatedUser(owner_token))
-        try:
-            with patch.object(
-                board_api, "run_manager_operation", return_value=response
-            ) as operation:
-                result = await server._tool_manager.get_tool("agent_board_workflow").run(
-                    {
-                        "operation": "cleanup_card",
-                        "payload": {
-                            "content_only": True,
-                            "card_id": "synthetic",
-                            "expected_updated_at": "revision",
-                            "description": long_text,
-                        },
-                        "idempotency_key": "preview-1",
-                        "mode": "dry_run",
-                    },
-                    convert_result=False,
-                )
-            self.assertEqual(operation.call_args.kwargs["payload"]["response_mode"], "full")
-            self.assertTrue(result.structuredContent["ok"])
-            self.assertIn(
-                '"planned_fields": ["title", "description"]', json.dumps(result.structuredContent)
-            )
-            self.assertIn(long_text, json.dumps(result.structuredContent))
-            self.assertNotIn(
-                "editorial_preview_incomplete_do_not_apply", result.structuredContent["warnings"]
-            )
-
-            state["status"] = "planned"
-            response["data"]["items"][0]["card"]["description"] = "b" * 20001
-            with patch.object(board_api, "run_manager_operation", return_value=response):
-                truncated = await server._tool_manager.get_tool("agent_board_workflow").run(
-                    {
-                        "operation": "cleanup_card",
-                        "payload": {
-                            "content_only": True,
-                            "card_id": "synthetic",
-                            "expected_updated_at": "revision",
-                            "description": "x",
-                        },
-                        "idempotency_key": "preview-2",
-                        "mode": "dry_run",
-                    },
-                    convert_result=False,
-                )
-            self.assertIn(
-                "editorial_preview_incomplete_do_not_apply", truncated.structuredContent["warnings"]
-            )
-            self.assertTrue(truncated.structuredContent["next_actions"])
-        finally:
-            auth_context_var.reset(context_token)
 
     async def test_named_board_dry_run_is_recorded_and_reported_without_parent_ledger(self) -> None:
         state = {"status": "planned", "start_arguments": None}

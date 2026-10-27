@@ -133,6 +133,7 @@ from .card_service_finance import (
     CardServiceFinanceMixin,
 )
 from .card_service_inventory import CardServiceInventoryMixin
+from .card_service_manager import CardServiceManagerMixin
 from .card_service_payment_links import CardServicePaymentLinksMixin
 from .card_service_payroll import CardServicePayrollMixin
 from .card_service_repair_order_search import (
@@ -397,6 +398,7 @@ def _json_dumps(
 
 
 class CardService(
+    CardServiceManagerMixin,
     CardServiceEditorialMixin,
     TelegramBehaviorGraphMixin,
     CardAttachmentsMixin,
@@ -2233,21 +2235,7 @@ class CardService(
             )
         operation_payload = payload.get("payload")
         operation_payload = dict(operation_payload) if isinstance(operation_payload, dict) else {}
-        supplied_modes = [
-            self._manager_operation_mode({"mode": source[field]})
-            for source, fields in (
-                (payload, ("mode",)),
-                (operation_payload, ("mode", "apply_mode")),
-            )
-            for field in fields
-            if field in source
-        ]
-        if len(set(supplied_modes)) > 1:
-            self._fail(
-                "validation_error",
-                "Режимы операции и вложенных данных должны совпадать.",
-                details={"field": "mode"},
-            )
+        self._validate_manager_operation_modes(payload, operation_payload)
         if "mode" in payload and "mode" not in operation_payload:
             operation_payload["mode"] = payload.get("mode")
         if "actor_name" in payload and "actor_name" not in operation_payload:

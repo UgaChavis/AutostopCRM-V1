@@ -20,6 +20,7 @@ from .gateway_contract import (
     DEFAULT_CARD_FIELDS,
     FINANCE_WORKFLOW_OPERATIONS,
 )
+from .gateway_media import without_binary_content
 from .raw_gateway import DESTRUCTIVE_CAPABILITY_MARKERS, DESTRUCTIVE_CAPABILITY_NAMES
 
 
@@ -446,6 +447,55 @@ def _compact_object(
         return value
     budget[0] -= min(len(str(value)), 64)
     return value
+
+
+def _workflow_safe_result(
+    value: Any,
+    *,
+    workflow_id: str,
+    operation: str,
+    mode: str | None,
+    payload: Mapping[str, Any],
+    is_store_vin_photo_preview: bool,
+    allow_large_output: bool,
+) -> tuple[Any, bool]:
+    binary_document = workflow_id == "document" and operation in {
+        "create_document_without_card_pdf",
+        "download_repair_order_print_pdf",
+        "download_shared_file",
+    }
+    if is_store_vin_photo_preview or (binary_document and not allow_large_output):
+        return without_binary_content(value), False
+    if allow_large_output:
+        return value, False
+    editorial = (
+        workflow_id == "board"
+        and operation == "cleanup_card"
+        and mode == "dry_run"
+        and payload.get("content_only") is True
+    )
+    if not editorial:
+        return _compact_object(value), False
+    truncated = [False]
+    compact = _compact_object(
+        value,
+        max_depth=12,
+        item_limit=500,
+        key_limit=500,
+        string_limit=20000,
+        _truncated=truncated,
+    )
+    return compact, truncated[0]
+
+
+def _workflow_preview_warnings(truncated: bool) -> list[str]:
+    return ["editorial_preview_incomplete_do_not_apply"] if truncated else []
+
+
+def _workflow_next_actions(overall_ok: bool, truncated: bool, run_id: Any) -> list[str]:
+    if truncated:
+        return ["Do not apply: obtain a complete preview of the proposed changes"]
+    return [] if overall_ok else [f"workflow_status(run_id={run_id}) and reconcile exact target"]
 
 
 def _find_value(value: Any, keys: frozenset[str], *, depth: int = 0) -> Any:

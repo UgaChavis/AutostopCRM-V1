@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .agent_gateway_support import _envelope
+from .agent_gateway_support import _board_mode, _envelope
 from .gateway_contract import FINANCE_VIRTUAL_OPERATIONS, FINANCE_WORKFLOW_OPERATIONS
 from .gateway_media import tool_result
 from .raw_gateway import (
@@ -302,6 +302,38 @@ def workflow_error_result(
         ),
         label=label,
     )
+
+
+def board_workflow_mode_error(
+    workflow_id: str, operation: str, payload: Mapping[str, Any], mode: str | None
+) -> Any | None:
+    if workflow_id == "board" and any(
+        _board_mode(payload[field]) != mode for field in ("mode", "apply_mode") if field in payload
+    ):
+        return workflow_error_result(
+            workflow_id,
+            "board_workflow_mode_conflict",
+            summary={"workflow_id": workflow_id, "operation": operation},
+            next_actions=["Use one matching mode for the board workflow and its payload"],
+        )
+    return None
+
+
+def workflow_request_error(
+    workflow_id: str,
+    operation: str,
+    payload: Mapping[str, Any],
+    mode: str | None,
+    allowed: frozenset[str],
+) -> Any | None:
+    if operation not in allowed:
+        return workflow_error_result(
+            workflow_id,
+            "operation_not_allowed_for_workflow",
+            status="failed",
+            summary={"workflow_id": workflow_id, "operation": operation},
+        )
+    return board_workflow_mode_error(workflow_id, operation, payload, mode)
 
 
 def finance_preview_result(
