@@ -78,6 +78,41 @@ class EditorialPreviewGatewayTests(CardServiceCase):
                 self.service.cleanup_card(self.payload(**fields))
             self.assertEqual(before, self.store.read_bundle())
 
+    def test_direct_manager_dispatch_rejects_conflicting_modes_before_writing(self):
+        before = deepcopy(self.store.read_bundle())
+        payload = self.payload()
+        payload.pop("mode")
+        for outer, inner in (("dry_run", "apply"), ("apply", "dry_run")):
+            for field in ("mode", "apply_mode"):
+                with self.subTest(outer=outer, field=field):
+                    with self.assertRaises(ServiceError) as error:
+                        self.service.run_manager_operation(
+                            {
+                                "operation": "cleanup_card",
+                                "mode": outer,
+                                "payload": {**payload, field: inner},
+                                "actor_name": "DIRECTOR",
+                            }
+                        )
+                    self.assertEqual(error.exception.code, "validation_error")
+                    self.assertEqual(error.exception.details, {"field": "mode"})
+                    self.assertEqual(before, self.store.read_bundle())
+
+    def test_direct_manager_dispatch_accepts_matching_apply_mode_aliases(self):
+        before = deepcopy(self.store.read_bundle())
+        for outer, alias in (("dry_run", "preview"), ("apply", "commit")):
+            with self.subTest(outer=outer):
+                result = self.service.run_manager_operation(
+                    {
+                        "operation": "bulk_set_deadline_if_below",
+                        "mode": outer,
+                        "payload": {"apply_mode": alias, "card_ids": ["missing"]},
+                        "actor_name": "DIRECTOR",
+                    }
+                )
+                self.assertEqual(result["result"]["run"]["mode"], outer)
+                self.assertEqual(before, self.store.read_bundle())
+
 
 class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
     def setUp(self):
@@ -86,12 +121,15 @@ class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
             {"title": "Synthetic repair", "description": "Old text"}
         )["card"]
         service = self.service
+        self.calls = {"ledger_start": 0, "backend": 0}
+        calls = self.calls
 
         class ServiceBoardApi(FakeBoardApi):
             def run_manager_operation(
                 self, *, operation, payload=None, mode="dry_run", actor_name=None, limit=None
             ):
                 del limit
+                calls["backend"] += 1
                 try:
                     result = service.run_manager_operation(
                         {
@@ -117,6 +155,7 @@ class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
                 metadata: dict | None = None,
                 dry_run: bool = False,
             ) -> dict:
+                calls["ledger_start"] += 1
                 return {
                     "ok": True,
                     "run_id": 91,
@@ -153,7 +192,7 @@ class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
             public_endpoint_url="https://crm.example/mcp",
         )
 
-    async def call_preview(self, payload, key):
+    async def call_preview(self, payload, key, *, mode="dry_run", operation="cleanup_card"):
         token = OwnerAccessToken(
             token="synthetic",
             client_id="test-client",
@@ -166,15 +205,81 @@ class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
         try:
             return await self.server._tool_manager.get_tool("agent_board_workflow").run(
                 {
-                    "operation": "cleanup_card",
+                    "operation": operation,
                     "payload": payload,
-                    "mode": "dry_run",
+                    "mode": mode,
                     "idempotency_key": key,
                 },
                 convert_result=False,
             )
         finally:
             auth_context_var.reset(context)
+
+    async def assert_conflicting_mode_is_rejected(self, outer, nested, field="mode"):
+        before = deepcopy(self.store.read_bundle())
+        base_payload = {
+            "card_id": self.card["id"],
+            "content_only": True,
+            "expected_updated_at": self.card["updated_at"],
+            "description": "Should never be written",
+        }
+        result = await self.call_preview(
+            {**base_payload, field: nested},
+            f"conflict-{outer}-{field}-{nested}",
+            mode=outer,
+        )
+        self.assertFalse(result.structuredContent["ok"], "Conflicting modes must be rejected")
+        self.assertIn("board_workflow_mode_conflict", result.structuredContent["warnings"])
+        self.assertEqual(self.calls, {"ledger_start": 0, "backend": 0})
+        self.assertEqual(before, self.store.read_bundle())
+
+    async def test_dry_run_rejects_nested_apply_before_ledger_and_backend(self):
+        await self.assert_conflicting_mode_is_rejected("dry_run", "apply")
+
+    async def test_apply_rejects_nested_dry_run_before_ledger_and_backend(self):
+        await self.assert_conflicting_mode_is_rejected("apply", "dry_run")
+
+    async def test_dry_run_rejects_nested_apply_mode_before_ledger_and_backend(self):
+        await self.assert_conflicting_mode_is_rejected("dry_run", "apply", "apply_mode")
+
+    async def test_apply_rejects_nested_dry_apply_mode_before_ledger_and_backend(self):
+        await self.assert_conflicting_mode_is_rejected("apply", "dry_run", "apply_mode")
+
+    async def test_matching_nested_mode_preserves_preview_and_apply(self):
+        before = deepcopy(self.store.read_bundle())
+        payload = {
+            "card_id": self.card["id"],
+            "content_only": True,
+            "expected_updated_at": self.card["updated_at"],
+            "description": "Corrected synthetic text",
+        }
+        preview = await self.call_preview(
+            {**payload, "mode": "preview"}, "matching-dry", mode="dry_run"
+        )
+        self.assertTrue(preview.structuredContent["ok"], preview.structuredContent)
+        self.assertEqual(before, self.store.read_bundle())
+        applied = await self.call_preview(
+            {**payload, "mode": "commit"}, "matching-apply", mode="apply"
+        )
+        self.assertTrue(applied.structuredContent["ok"], applied.structuredContent)
+        card = next(
+            card for card in self.store.read_bundle()["cards"] if card.id == self.card["id"]
+        )
+        self.assertEqual(card.description, payload["description"])
+        self.assertEqual(self.calls, {"ledger_start": 2, "backend": 2})
+
+    async def test_other_board_operation_accepts_matching_apply_mode_aliases(self):
+        before = deepcopy(self.store.read_bundle())
+        for outer, alias in (("dry_run", "preview"), ("apply", "commit")):
+            with self.subTest(outer=outer):
+                result = await self.call_preview(
+                    {"apply_mode": alias, "card_ids": ["missing"]},
+                    f"matching-apply-mode-{outer}",
+                    mode=outer,
+                    operation="bulk_set_deadline_if_below",
+                )
+                self.assertTrue(result.structuredContent["ok"], result.structuredContent)
+                self.assertEqual(before, self.store.read_bundle())
 
     async def test_named_workflow_preview_and_content_only_guards(self):
         before = deepcopy(self.store.read_bundle())

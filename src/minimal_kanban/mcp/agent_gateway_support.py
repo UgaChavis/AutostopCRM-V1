@@ -14,12 +14,22 @@ from ..deployment_security import (
     release_smoke_proof,
     release_smoke_proof_matches,
 )
+from ..models import normalize_text
 from .gateway_contract import (
     CARD_FIELD_ALLOWLIST,
     DEFAULT_CARD_FIELDS,
     FINANCE_WORKFLOW_OPERATIONS,
 )
 from .raw_gateway import DESTRUCTIVE_CAPABILITY_MARKERS, DESTRUCTIVE_CAPABILITY_NAMES
+
+
+def _board_mode(value: Any) -> str | None:
+    mode = normalize_text(value, default="dry_run", limit=40).casefold().replace("-", "_")
+    if mode in {"dry_run", "dryrun", "preview", "plan"}:
+        return "dry_run"
+    if mode in {"apply", "write", "commit"}:
+        return "apply"
+    return None
 
 
 def _board_workflow_arguments(operation, payload, mode, actor_name, idempotency_key):

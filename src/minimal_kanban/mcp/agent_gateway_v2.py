@@ -24,6 +24,7 @@ from .agent_gateway_support import (
     STORE_VIN_PHOTO_PREVIEW_OPERATION,
     WORKFLOW_TERMINAL_STATES,
     _as_dict,
+    _board_mode,
     _board_workflow_arguments,
     _compact_object,
     _contains_value,
@@ -1234,6 +1235,17 @@ def register_agent_gateway_v2(
                 "operation_not_allowed_for_workflow",
                 status="failed",
                 summary={"workflow_id": workflow_id, "operation": operation},
+            )
+        if workflow_id == "board" and any(
+            _board_mode(payload[field]) != mode
+            for field in ("mode", "apply_mode")
+            if field in payload
+        ):
+            return workflow_error_result(
+                workflow_id,
+                "board_workflow_mode_conflict",
+                summary={"workflow_id": workflow_id, "operation": operation},
+                next_actions=["Use one matching mode for the board workflow and its payload"],
             )
         completion_act_operation = (
             workflow_id == "document" and operation in COMPLETION_ACT_WORKFLOW_OPERATIONS

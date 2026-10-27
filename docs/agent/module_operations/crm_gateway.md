@@ -63,6 +63,15 @@ release procedure; do not improvise a production test record.
 | `workflow_resume` | `run_id`; `expected_state_version` | T | E |
 | `workflow_cancel` | `run_id`; `reason`, `expected_state_version` | T | E |
 
+For `agent_board_workflow`, set the outer `mode` explicitly. Any nested `mode`
+or legacy `apply_mode` must mean the same mode; a conflict returns
+`board_workflow_mode_conflict` before creating a workflow or executing the
+operation. The raw manager-operation service also rejects conflicting modes.
+For `cleanup_card` with `content_only: true`, dry-run requests a full preview.
+If `editorial_preview_incomplete_do_not_apply` is present, do not apply on the
+strength of that response: it was truncated. The warning itself does not block
+an independently submitted apply.
+
 The operation enums and field limits are in
 [`gateway_contract.py`](../../../src/minimal_kanban/mcp/gateway_contract.py),
 the Store operation names and impact split in

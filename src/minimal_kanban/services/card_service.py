@@ -2233,6 +2233,21 @@ class CardService(
             )
         operation_payload = payload.get("payload")
         operation_payload = dict(operation_payload) if isinstance(operation_payload, dict) else {}
+        supplied_modes = [
+            self._manager_operation_mode({"mode": source[field]})
+            for source, fields in (
+                (payload, ("mode",)),
+                (operation_payload, ("mode", "apply_mode")),
+            )
+            for field in fields
+            if field in source
+        ]
+        if len(set(supplied_modes)) > 1:
+            self._fail(
+                "validation_error",
+                "Режимы операции и вложенных данных должны совпадать.",
+                details={"field": "mode"},
+            )
         if "mode" in payload and "mode" not in operation_payload:
             operation_payload["mode"] = payload.get("mode")
         if "actor_name" in payload and "actor_name" not in operation_payload:
