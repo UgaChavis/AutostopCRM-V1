@@ -26,6 +26,8 @@ def _board_workflow_arguments(operation, payload, mode, actor_name, idempotency_
     board_payload = {**payload, "actor_name": actor_name}
     if operation == "cleanup_card" and board_payload.get("content_only") is True:
         board_payload["idempotency_key"] = idempotency_key
+        if (mode or str(payload.get("mode") or "dry_run")) == "dry_run":
+            board_payload["response_mode"] = "full"
     return {
         "operation": operation,
         "payload": board_payload,
@@ -354,12 +356,18 @@ def _compact_object(
     item_limit: int = 25,
     key_limit: int = 100,
     max_depth: int = 5,
+    string_limit: int = 4000,
     _budget: list[int] | None = None,
+    _truncated: list[bool] | None = None,
 ) -> Any:
     budget = _budget if _budget is not None else [100_000]
     if budget[0] <= 0:
+        if _truncated is not None:
+            _truncated[0] = True
         return "<payload-budget-exhausted>"
     if depth >= max_depth:
+        if _truncated is not None:
+            _truncated[0] = True
         return "<max-depth>"
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", by_alias=True)
@@ -382,10 +390,16 @@ def _compact_object(
                 key_limit=key_limit,
                 _budget=budget,
                 max_depth=max_depth,
+                string_limit=string_limit,
+                _truncated=_truncated,
             )
         if len(safe_items) > key_limit:
+            if _truncated is not None:
+                _truncated[0] = True
             compact["truncated_keys"] = len(safe_items) - key_limit
         elif budget[0] <= 0:
+            if _truncated is not None:
+                _truncated[0] = True
             compact["payload_truncated"] = True
         return compact
     if isinstance(value, list):
@@ -397,17 +411,27 @@ def _compact_object(
                 key_limit=key_limit,
                 _budget=budget,
                 max_depth=max_depth,
+                string_limit=string_limit,
+                _truncated=_truncated,
             )
             for item in value[:item_limit]
             if budget[0] > 0
         ]
         if len(value) > item_limit:
+            if _truncated is not None:
+                _truncated[0] = True
             compact.append({"truncated_items": len(value) - item_limit})
+        if budget[0] <= 0 and len(compact) < min(len(value), item_limit):
+            if _truncated is not None:
+                _truncated[0] = True
+            compact.append({"payload_truncated": True})
         return compact
     if isinstance(value, str):
-        allowed = max(0, min(4000, budget[0]))
+        allowed = max(0, min(string_limit, budget[0]))
         budget[0] -= min(len(value), allowed)
         if len(value) > allowed:
+            if _truncated is not None:
+                _truncated[0] = True
             return value[:allowed] + "...<truncated>"
         return value
     budget[0] -= min(len(str(value)), 64)

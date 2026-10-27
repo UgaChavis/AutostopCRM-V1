@@ -1752,11 +1752,27 @@ def register_agent_gateway_v2(
             "download_repair_order_print_pdf",
             "download_shared_file",
         }
+        editorial_preview = (
+            workflow_id == "board"
+            and operation == "cleanup_card"
+            and mode == "dry_run"
+            and payload.get("content_only") is True
+        )
+        preview_truncated = [False]
         safe_result = (
             _without_binary_content(result_data)
             if is_store_vin_photo_preview or (binary_document_operation and not allow_large_output)
             else result_data
             if allow_large_output
+            else _compact_object(
+                result_data,
+                max_depth=12,
+                item_limit=500,
+                key_limit=500,
+                string_limit=20000,
+                _truncated=preview_truncated,
+            )
+            if editorial_preview
             else _compact_object(result_data)
         )
         safe_result.update({"document_guard": document_guard} if document_guard else {})
@@ -1774,6 +1790,8 @@ def register_agent_gateway_v2(
             if result_ok
             else ["executor_failed"]
         )
+        if editorial_preview and preview_truncated[0]:
+            workflow_warnings.append("editorial_preview_incomplete_do_not_apply")
         payload = _envelope(
             ok=overall_ok,
             status=workflow_status,
@@ -1792,7 +1810,9 @@ def register_agent_gateway_v2(
                 **verification,
             },
             warnings=[*source_warnings, *workflow_warnings],
-            next_actions=[]
+            next_actions=["Do not apply: obtain a complete preview of the proposed changes"]
+            if editorial_preview and preview_truncated[0]
+            else []
             if overall_ok
             else [f"workflow_status(run_id={run_id}) and reconcile exact target"],
             meta={
