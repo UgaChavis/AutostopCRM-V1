@@ -3,10 +3,18 @@ from __future__ import annotations
 # The fixture selects this checkout before importing application modules.
 # ruff: noqa: I001
 from copy import deepcopy
+from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
+
+from mcp.server.auth.middleware.auth_context import auth_context_var
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 
 from tests.services_case import CardServiceCase
 from minimal_kanban.mcp.agent_gateway_support import _compact_object
 from minimal_kanban.services.errors import ServiceError
+from minimal_kanban.mcp.oauth_provider import OwnerAccessToken
+from minimal_kanban.mcp.server import create_mcp_server
+from tests.test_agent_gateway_v2 import FakeBoardApi, GATEWAY_ENV
 
 
 class EditorialPreviewGatewayTests(CardServiceCase):
@@ -69,3 +77,136 @@ class EditorialPreviewGatewayTests(CardServiceCase):
             with self.subTest(fields=fields), self.assertRaises(ServiceError):
                 self.service.cleanup_card(self.payload(**fields))
             self.assertEqual(before, self.store.read_bundle())
+
+
+class EditorialNamedWorkflowTests(CardServiceCase, IsolatedAsyncioTestCase):
+    def setUp(self):
+        super().setUp()
+        self.card = self.service.create_card(
+            {"title": "Synthetic repair", "description": "Old text"}
+        )["card"]
+        service = self.service
+
+        class ServiceBoardApi(FakeBoardApi):
+            def run_manager_operation(
+                self, *, operation, payload=None, mode="dry_run", actor_name=None, limit=None
+            ):
+                del limit
+                try:
+                    result = service.run_manager_operation(
+                        {
+                            "operation": operation,
+                            "payload": payload,
+                            "mode": mode,
+                            "actor_name": actor_name,
+                        }
+                    )
+                    return {"ok": True, "data": result}
+                except ServiceError as exc:
+                    return {"ok": False, "error": {"code": exc.code, "message": "synthetic error"}}
+
+        def fake_ledger(server, _logger):
+            @server.tool(name="start_workflow")
+            def start_workflow(
+                workflow_id: str,
+                intent: str,
+                idempotency_key: str,
+                query: str = "",
+                actor: str = "",
+                scope: dict | None = None,
+                metadata: dict | None = None,
+                dry_run: bool = False,
+            ) -> dict:
+                return {
+                    "ok": True,
+                    "run_id": 91,
+                    "status": "planned",
+                    "summary": {"id": 91, "deduplicated": False},
+                }
+
+            @server.tool(name="workflow_transition")
+            def workflow_transition(
+                run_id: int,
+                status: str,
+                message: str = "",
+                verification: dict | None = None,
+                summary: str = "",
+                expected_state_version: int | None = None,
+            ) -> dict:
+                return {"ok": True, "run_id": run_id, "status": status, "summary": {}}
+
+        self.env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        manager = patch(
+            "minimal_kanban.mcp.server._try_register_autostop_manager_tools",
+            side_effect=fake_ledger,
+        )
+        manager.start()
+        self.addCleanup(manager.stop)
+        self.server = create_mcp_server(
+            ServiceBoardApi(),
+            self.logger,
+            host="127.0.0.1",
+            port=41838,
+            path="/mcp",
+            public_endpoint_url="https://crm.example/mcp",
+        )
+
+    async def call_preview(self, payload, key):
+        token = OwnerAccessToken(
+            token="synthetic",
+            client_id="test-client",
+            subject="CODEX",
+            family_id="test-family",
+            scopes=["kanban:read", "kanban:write"],
+            resource="https://crm.example/mcp",
+        )
+        context = auth_context_var.set(AuthenticatedUser(token))
+        try:
+            return await self.server._tool_manager.get_tool("agent_board_workflow").run(
+                {
+                    "operation": "cleanup_card",
+                    "payload": payload,
+                    "mode": "dry_run",
+                    "idempotency_key": key,
+                },
+                convert_result=False,
+            )
+        finally:
+            auth_context_var.reset(context)
+
+    async def test_named_workflow_preview_and_content_only_guards(self):
+        before = deepcopy(self.store.read_bundle())
+        long_text = "New " + "x" * 6000
+        payload = {
+            "card_id": self.card["id"],
+            "content_only": True,
+            "expected_updated_at": self.card["updated_at"],
+            "response_mode": "full",
+            "title": "Changed title",
+            "description": long_text,
+            "vehicle_profile": {"engine_model": "Candidate", "tentative_fields": ["engine_model"]},
+        }
+        result = await self.call_preview(payload, "named-preview")
+        self.assertTrue(result.structuredContent["ok"], result.structuredContent)
+        item = result.structuredContent["data"]["data"]["result"]["items"][0]
+        self.assertEqual(set(item["planned_fields"]), {"title", "description", "vehicle_profile"})
+        self.assertEqual(item["card"]["title"], "Changed title")
+        self.assertEqual(item["card"]["description"], long_text)
+        self.assertEqual(item["card"]["vehicle_profile"]["engine_model"], "Candidate")
+        self.assertEqual(before, self.store.read_bundle())
+        for index, forbidden in enumerate(
+            (
+                {"deadline": {"hours": 2}},
+                {"repair_order": {"works": []}},
+                {"vehicle_profile": {"customer_name": "Forbidden"}},
+                {"expected_updated_at": "stale"},
+            )
+        ):
+            with self.subTest(forbidden=forbidden):
+                rejected = await self.call_preview(
+                    {**payload, **forbidden}, f"named-rejected-{index}"
+                )
+                self.assertFalse(rejected.structuredContent["ok"], rejected.structuredContent)
+                self.assertEqual(before, self.store.read_bundle())
