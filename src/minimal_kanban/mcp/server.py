@@ -347,6 +347,69 @@ def _authenticate_oauth_owner(
     return resolved_username if is_admin and logout.get("ok") is True else None
 
 
+def _register_card_cleanup_tool(server, board_api, relay, with_data_meta):
+    @server.tool(
+        name="cleanup_card",
+        description=_scoped_description(
+            "Apply or preview a compact card cleanup patch. For editorial-only work, set content_only=true with fresh expected_updated_at and idempotency_key: accepts title, vehicle, description, tags, vehicle_profile, repair_order_names by existing row_id/name, and an exact revision-bound linked client_vehicle_patch; never runs payment, payroll, stock or repair status transitions. Closed and archived cards allow this editorial mode. The legacy mode also supports deadline and board summary."
+        ),
+        annotations=_write_tool_annotations("Cleanup Card", idempotent=True),
+        structured_output=True,
+    )
+    def cleanup_card(
+        card_id: str,
+        mode: Literal["dry_run", "apply"] = "dry_run",
+        actor_name: str | None = None,
+        expected_updated_at: str | None = None,
+        response_mode: Literal["full", "compact"] = "compact",
+        refresh_summary: bool = False,
+        summary: str | None = None,
+        vehicle: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        tags: list[TagPayload | str] | None = None,
+        deadline: DeadlinePayload | None = None,
+        vehicle_profile: dict[str, Any] | None = None,
+        content_only: bool = False,
+        idempotency_key: str | None = None,
+        repair_order_names: dict[str, Any] | None = None,
+        client_vehicle_patch: dict[str, Any] | None = None,
+    ) -> JsonEnvelope:
+        return relay(
+            "cleanup_card",
+            lambda: board_api.cleanup_card(
+                card_id=card_id,
+                mode=mode,
+                actor_name=actor_name,
+                expected_updated_at=expected_updated_at,
+                response_mode=response_mode,
+                refresh_summary=refresh_summary,
+                summary=summary,
+                vehicle=vehicle,
+                title=title,
+                description=description,
+                tags=_tag_list_payload(tags),
+                deadline=deadline.model_dump() if deadline is not None else None,
+                vehicle_profile=_compact_mapping_payload(vehicle_profile),
+                content_only=content_only,
+                idempotency_key=idempotency_key,
+                repair_order_names=repair_order_names,
+                client_vehicle_patch=client_vehicle_patch,
+            ),
+            params={
+                "card_id": card_id,
+                "mode": mode,
+                "response_mode": response_mode,
+                "refresh_summary": refresh_summary,
+            },
+            transform=lambda response: with_data_meta(
+                response,
+                response_mode="manager_operation_result",
+                view_mode="compact",
+            ),
+        )
+
+
 def create_mcp_server(
     board_api: BoardApiClient,
     logger: Logger,
@@ -2969,58 +3032,7 @@ def create_mcp_server(
             ),
         )
 
-    @server.tool(
-        name="cleanup_card",
-        description=_scoped_description(
-            "Apply or preview a compact card cleanup patch: title, vehicle, description, tags, deadline, vehicle_profile, and optional board summary refresh. Use dry_run only when a preview adds value; apply records its audit identity."
-        ),
-        annotations=_write_tool_annotations("Cleanup Card", idempotent=True),
-        structured_output=True,
-    )
-    def cleanup_card(
-        card_id: str,
-        mode: Literal["dry_run", "apply"] = "dry_run",
-        actor_name: str | None = None,
-        expected_updated_at: str | None = None,
-        response_mode: Literal["full", "compact"] = "compact",
-        refresh_summary: bool = False,
-        summary: str | None = None,
-        vehicle: str | None = None,
-        title: str | None = None,
-        description: str | None = None,
-        tags: list[TagPayload | str] | None = None,
-        deadline: DeadlinePayload | None = None,
-        vehicle_profile: dict[str, Any] | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "cleanup_card",
-            lambda: board_api.cleanup_card(
-                card_id=card_id,
-                mode=mode,
-                actor_name=actor_name,
-                expected_updated_at=expected_updated_at,
-                response_mode=response_mode,
-                refresh_summary=refresh_summary,
-                summary=summary,
-                vehicle=vehicle,
-                title=title,
-                description=description,
-                tags=_tag_list_payload(tags),
-                deadline=deadline.model_dump() if deadline is not None else None,
-                vehicle_profile=_compact_mapping_payload(vehicle_profile),
-            ),
-            params={
-                "card_id": card_id,
-                "mode": mode,
-                "response_mode": response_mode,
-                "refresh_summary": refresh_summary,
-            },
-            transform=lambda response: _with_data_meta(
-                response,
-                response_mode="manager_operation_result",
-                view_mode="compact",
-            ),
-        )
+    _register_card_cleanup_tool(server, board_api, _relay_board_call, _with_data_meta)
 
     @server.tool(
         name="apply_ready_unpaid_followups",

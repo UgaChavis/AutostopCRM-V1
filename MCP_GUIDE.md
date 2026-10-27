@@ -2,6 +2,15 @@
 
 ## Purpose
 
+M1 editorial work uses `agent_board_workflow(operation="cleanup_card")` with
+`payload.content_only=true` and a fresh card `expected_updated_at`. The named
+workflow forwards its outer `idempotency_key` to the atomic editorial service;
+the raw `cleanup_card` tool requires that key explicitly. See the precise
+[content-only patch contract](API_GUIDE.md#director-editorial-changes), including
+existing repair row names and the separately revision-bound linked vehicle.
+Independent readback remains required after apply. Financial and lifecycle
+operations keep their own explicit owner authorization and native contracts.
+
 The public Gateway v2 is a compact decision surface, not a script. It exposes
 exactly 24 tools for 46 CRM workflow operations. Use whichever relevant
 CRM, Store, or sanctioned conversation context best clarifies the request;

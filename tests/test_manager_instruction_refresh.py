@@ -14,7 +14,12 @@ ensure_source_path()
 prepend_scripts_path()
 
 from manager_structure_template import build_reference
-from sync_manager_structure_instructions import A5_POINTER, canonical_instructions, prepare
+from sync_manager_structure_instructions import (
+    A5_POINTER,
+    canonical_instructions,
+    prepare,
+    unchanged_scope_digest,
+)
 from sync_manager_structure_instructions import main as sync_main
 
 from minimal_kanban.services.errors import ServiceError
@@ -257,6 +262,62 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
         (modules / "A5.md").write_text("Long catalog" * 4000, encoding="utf-8")
         graph = {"elements": [{"id": "A5"}]}
         self.assertEqual(canonical_instructions(graph, self.root)["A5"], A5_POINTER)
+
+    def test_offline_role_text_patch_applies_without_touching_geometry_or_private_state(self):
+        updates = {
+            "elements": {"E1": {"description": "Director", "lines": ["Duty", "Experience"]}},
+            "relations": {"L1": {"description": "Task and acceptance", "protocol": "Role queue"}},
+        }
+        result = prepare(
+            self.before, {"E1": "Canonical one", "E2": "Canonical two"}, text_updates=updates
+        )
+        self.assertEqual(self.before, graph_fixture())
+        stored = self.file.read_bytes()
+        with (
+            patch.object(
+                self.service, "_prepare_manual_routes", side_effect=AssertionError("route")
+            ),
+            patch.object(
+                self.service, "_verify_manual_routes", side_effect=AssertionError("route")
+            ),
+        ):
+            for request in result["patch"]["preview_requests"]:
+                self.service.apply(
+                    {**request, "_operator_session": self.request()["_operator_session"]}
+                )
+            self.assertEqual(self.file.read_bytes(), stored)
+            for request in result["patch"]["apply_requests"]:
+                self.service.apply(
+                    {**request, "_operator_session": self.request()["_operator_session"]}
+                )
+        after = json.loads(self.file.read_text(encoding="utf-8"))
+        self.assertEqual(after["version"], 10)
+        for field in ("canvas", "elements", "relations"):
+            self.assertEqual(after[field], result["template"][field])
+        self.assertEqual(after["tool_statuses"], self.before["tool_statuses"])
+        self.assertEqual(
+            unchanged_scope_digest(after, updates), result["patch"]["unchanged_scope_digest"]
+        )
+        after["elements"][1]["x"] += 1
+        self.assertNotEqual(
+            unchanged_scope_digest(after, updates), result["patch"]["unchanged_scope_digest"]
+        )
+        after["elements"][1]["x"] -= 1
+        after["elements"][1]["description"] = "Unrelated edit"
+        self.assertNotEqual(
+            unchanged_scope_digest(after, updates), result["patch"]["unchanged_scope_digest"]
+        )
+
+    def test_offline_text_updates_reject_layout_and_unknown_targets(self):
+        for updates in (
+            {"elements": {"E1": {"x": 200}}},
+            {"relations": {"L1": {"label": "Changed geometry"}}},
+            {"relations": {"MISSING": {"description": "No relation"}}},
+            {"elements": {"MISSING": {"description": "No node"}}},
+            [],
+        ):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                prepare(self.before, {"E1": "One", "E2": "Two"}, text_updates=updates)
 
     def test_check_saved_reports_drift_without_writing_and_checks_source_revision(self):
         graph = json.loads(

@@ -46,9 +46,13 @@ cleanup, not commands to run for that procedure.
 | `scripts/attest_agent_gateway_v2.py --run-id <release-id>` | Full Gateway attestation from release procedure | S/T; not an ordinary health query |
 | `scripts/post_build_verification.py --help` | Portable Windows executable verification | S; after build |
 
-CI runs `quality.yml`: static, unit/coverage, browser/performance and Docker
-runtime assets; the final `quality` job requires all. `run_checks.ps1 -Profile
-ci` does not replace hosted CI, Compose, GitHub policy or a production smoke.
+Final CI runs `quality.yml` by manual dispatch on the exact final
+`autostopcrm-v1` SHA: static, unit/coverage, browser/performance and Docker
+runtime assets; its `quality` job requires all. PRs use fast source contracts
+and changed regressions; pushes do not repeat the full suite. The optional
+Windows/native rehearsal is manual and selected only when its behavior changed.
+`run_checks.ps1 -Profile ci` is an available local diagnostic, not a required
+duplicate of hosted final CI, Compose, GitHub policy or a production smoke.
 `run_quality_pass.ps1` adds the Windows portable build verification where
 needed. The code and runbook, not this summary, define exact thresholds.
 

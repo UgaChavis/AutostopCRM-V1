@@ -1469,6 +1469,10 @@ class BoardApiClient:
         tags: list[str | dict[str, object]] | None = None,
         deadline: dict | None = None,
         vehicle_profile: dict[str, object] | None = None,
+        content_only: bool = False,
+        idempotency_key: str | None = None,
+        repair_order_names: dict[str, object] | None = None,
+        client_vehicle_patch: dict[str, object] | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id}
         for key, value in {
@@ -1483,9 +1487,15 @@ class BoardApiClient:
             "tags": tags,
             "deadline": deadline,
             "vehicle_profile": vehicle_profile,
+            "content_only": content_only,
+            "idempotency_key": idempotency_key,
+            "repair_order_names": repair_order_names,
+            "client_vehicle_patch": client_vehicle_patch,
         }.items():
             if value is not None:
                 payload[key] = value
+        if content_only and payload.get("refresh_summary") is False:
+            payload.pop("refresh_summary")
         return self._request_with_identity("/api/cleanup_card", payload, actor_name=actor_name)
 
     def apply_ready_unpaid_followups(

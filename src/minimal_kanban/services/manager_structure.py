@@ -690,7 +690,7 @@ class ManagerStructureService:
                 )
             next_data = copy.deepcopy(data)
             status_operation = operation in {"set_tool_status", "clear_tool_status"}
-            instruction_only = False
+            text_only = False
             if status_operation:
                 apply_status(next_data, payload, self._tool_catalog_loader())
             elif operation == "replace":
@@ -729,10 +729,18 @@ class ManagerStructureService:
                         new_item.setdefault("label_y", 0)
                     items.append(new_item)
                 else:
-                    instruction_only = operation == "upsert_element" and set(item) == {
-                        "id",
-                        "instruction",
-                    }
+                    text_only = (
+                        operation == "upsert_element"
+                        and {"id"} < set(item) <= {"id", "instruction", "description", "lines"}
+                    ) or (
+                        operation == "upsert_relation"
+                        and set(item)
+                        in (
+                            {"id", "description"},
+                            {"id", "protocol"},
+                            {"id", "description", "protocol"},
+                        )
+                    )
                     items[match] = {**items[match], **copy.deepcopy(item)}
             else:
                 field = "elements" if operation == "remove_element" else "relations"
@@ -751,7 +759,7 @@ class ManagerStructureService:
                     _bad("Сначала удалите вложенные модули и связи.")
                 next_data[field] = [item for item in next_data[field] if item["id"] != ident]
             _validate(next_data, check_attachment=False)
-            if not status_operation and operation != "replace" and not instruction_only:
+            if not status_operation and operation != "replace" and not text_only:
                 self._prepare_manual_routes(next_data)
             _validate(next_data)
             adjusted = False
@@ -778,7 +786,7 @@ class ManagerStructureService:
                     else None,
                     item["id"] if operation == "layout_relation" else None,
                 )
-            if not status_operation and not instruction_only:
+            if not status_operation and not text_only:
                 self._verify_manual_routes(next_data)
             if preview:
                 return {

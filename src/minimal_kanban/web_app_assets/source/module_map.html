@@ -530,6 +530,7 @@
         const revision=job.revision??job.version??null,appliedRevision=job.applied_revision??revision,reconcile=lower(job.reconcile_state||'');
         return {
           id,name:String(job.name||job.display_name||id),templateId:String(job.template_id||job.type||''),
+          locked:lower(job.control_mode)==='read_only',sourceRole:String(job.source_role||''),
           desired:boolState(desiredRaw)?'on':'off',actual:job.applying===true||reconcile==='pending'||reconcile==='drift'||revision!==appliedRevision?'applying':lower(job.actual_state||job.state||'unknown')||'unknown',
           revision,appliedRevision,schedule:normalizeSchedule(job.schedule||{}),
           lastRun:String(job.last_attempt_at||job.last_run_at||''),nextRun:String(job.next_run_at||''),error:String(job.error||job.error_message||job.error_code||''),order:index
@@ -729,6 +730,12 @@
       return {form,first:period};
     }
     function renderAutomationJob(job,canMutate,saved) {
+      if(job.locked) {
+        const detail=job.sourceRole?`Управление дежурством — через кабинет ${job.sourceRole}.`:'Только чтение.';
+        const card=renderSystemTimer({...job,mutable:false,detail},false,saved);
+        card.className='automation-card is-read-only';card.dataset.jobId=job.id;delete card.dataset.timerId;
+        return card;
+      }
       const card=htmlElement('article','automation-card');card.dataset.jobId=job.id;card.dataset.revision=String(job.revision);
       const meta=actualMeta(job.actual);if(meta.lamp==='error')card.classList.add('is-error');
       if(automationPending?.jobId===job.id)card.classList.add('is-applying');

@@ -129,11 +129,19 @@ Raw CRM Gateway capabilities:
   outcome, reconcile or replay the original body and key before creating another
   attempt. An upsert merges supplied fields with the existing element, so an
   instruction can be changed without replacing coordinates and style. For an
-  existing node, an exact `element: {"id": "E2", "instruction": "..."}` payload
-  preserves all geometry and manual paths without reanchoring or rerouting.
-  Structural validation, owner authorization, version and idempotency guards
-  still apply; adding any other field uses the normal route checks. Raw
-  writes perform a second read and compare the changed fields and version.
+  existing node, `element` containing only `id` and `instruction`, `description`,
+  or both text fields preserves all geometry and manual paths without reanchoring
+  or rerouting. Like the existing instruction-only update, this can update text on
+  a saved graph whose manual geometry has an existing conflict; it does not repair
+  that conflict or accept new geometry. Structural validation, owner authorization,
+  version and idempotency guards still apply. Creating a node or including any
+  other field, including `title` or layout, uses the normal route checks. The same
+  preservation applies to an existing `upsert_relation` containing only `id` and
+  `description`, `protocol`, or both. These relation fields are descriptive text;
+  `label`, endpoints, route and layout fields continue to use normal route checks.
+  Relation text updates also preserve existing manual-geometry conflicts without
+  repairing or accepting new geometry. Raw writes perform a second read and compare
+  the changed fields and version.
 
 Status readback checks both the exact saved record and the digest of every
 unrelated persisted field. Preview uses the same durable projection to prove

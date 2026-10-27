@@ -21,6 +21,19 @@ from .gateway_contract import (
 )
 from .raw_gateway import DESTRUCTIVE_CAPABILITY_MARKERS, DESTRUCTIVE_CAPABILITY_NAMES
 
+
+def _board_workflow_arguments(operation, payload, mode, actor_name, idempotency_key):
+    board_payload = {**payload, "actor_name": actor_name}
+    if operation == "cleanup_card" and board_payload.get("content_only") is True:
+        board_payload["idempotency_key"] = idempotency_key
+    return {
+        "operation": operation,
+        "payload": board_payload,
+        "mode": mode or str(payload.get("mode") or "dry_run"),
+        "actor_name": actor_name,
+    }
+
+
 AGENT_GATEWAY_FORMAT = "agent_envelope_v2"
 STORE_VIN_PHOTO_PREVIEW_OPERATION = "download_store_quote_vin_photo"
 AGENT_GATEWAY_TOOL_NAMES = frozenset(

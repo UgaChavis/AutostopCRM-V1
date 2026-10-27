@@ -6,6 +6,7 @@ from functools import lru_cache
 from typing import Any
 
 from ..models import (
+    CLIENT_VEHICLE_METADATA_FIELDS,
     Card,
     ClientProfile,
     ClientVehicle,
@@ -373,12 +374,22 @@ class CardServiceClientsMixin:
                     next_vehicle.id = vehicle_id
 
             existing = self._find_client_vehicle_or_none(client, vehicle_id)
+            previous_vehicle = existing.to_dict() if existing is not None else None
             created = existing is None
             changed = created
             if existing is None:
                 client.vehicles.append(next_vehicle)
             else:
-                merged = self._merge_client_vehicle(existing, next_vehicle)
+                metadata_keys = set(payload).intersection(CLIENT_VEHICLE_METADATA_FIELDS)
+                if isinstance(payload.get("vehicle"), dict):
+                    metadata_keys.update(
+                        set(payload["vehicle"]).intersection(CLIENT_VEHICLE_METADATA_FIELDS)
+                    )
+                if card is not None and not payload.get("vehicle"):
+                    metadata_keys.update(CLIENT_VEHICLE_METADATA_FIELDS)
+                merged = self._merge_client_vehicle(
+                    existing, next_vehicle, metadata_keys=metadata_keys
+                )
                 changed = existing.to_dict() != merged.to_dict()
                 if changed:
                     self._replace_client_vehicle(client, merged)
@@ -424,7 +435,12 @@ class CardServiceClientsMixin:
                             else f"{actor_name} обновил автомобиль клиента"
                         ),
                         card_id=card.id if card is not None else None,
-                        details={"client_id": client.id, "client_vehicle_id": next_vehicle.id},
+                        details={
+                            "client_id": client.id,
+                            "client_vehicle_id": next_vehicle.id,
+                            "before": previous_vehicle,
+                            "after": next_vehicle.to_dict(),
+                        },
                     )
                 self._save_bundle(
                     bundle,
@@ -459,6 +475,7 @@ class CardServiceClientsMixin:
         for linked_card in cards:
             if linked_card.client_id != client.id or linked_card.client_vehicle_id != vehicle.id:
                 continue
+            before = linked_card.vehicle_profile.to_storage_dict()
             if not self._sync_card_vehicle_fields(linked_card, vehicle, overwrite=True):
                 continue
             self._touch_card(linked_card, actor_name)
@@ -473,6 +490,8 @@ class CardServiceClientsMixin:
                 details={
                     "client_id": client.id,
                     "client_vehicle_id": vehicle.id,
+                    "before": before,
+                    "after": linked_card.vehicle_profile.to_storage_dict(),
                 },
             )
         return synced_card_ids
@@ -1293,7 +1312,7 @@ class CardServiceClientsMixin:
             )
         return vehicles
 
-    def _client_vehicle_payload_from_card(self, card: Card) -> dict[str, str]:
+    def _client_vehicle_payload_from_card(self, card: Card) -> dict[str, Any]:
         vehicle = card.vehicle_display() or card.repair_order.vehicle
         vin = card.vehicle_profile.vin or card.repair_order.vin
         plate = card.vehicle_profile.registration_plate or card.repair_order.license_plate
@@ -1313,6 +1332,9 @@ class CardServiceClientsMixin:
             "gearbox_model": card.vehicle_profile.gearbox_model,
             "drivetrain": card.vehicle_profile.drivetrain,
             "card_id": card.id,
+            **{
+                name: getattr(card.vehicle_profile, name) for name in CLIENT_VEHICLE_METADATA_FIELDS
+            },
         }
 
     def _score_client_vehicle_match(
@@ -2084,6 +2106,7 @@ class CardServiceClientsMixin:
                     "drive_type",
                     "notes",
                     "comment",
+                    *CLIENT_VEHICLE_METADATA_FIELDS,
                 }
             }
         )
@@ -2118,6 +2141,7 @@ class CardServiceClientsMixin:
                 "gearbox_type": profile.gearbox_type,
                 "gearbox_model": profile.gearbox_model,
                 "drivetrain": profile.drivetrain,
+                **{name: getattr(profile, name) for name in CLIENT_VEHICLE_METADATA_FIELDS},
             }
         )
         if vehicle is None:
@@ -2129,15 +2153,41 @@ class CardServiceClientsMixin:
         return vehicle
 
     def _merge_client_vehicle(
-        self, existing: ClientVehicle, incoming: ClientVehicle
+        self, existing: ClientVehicle, incoming: ClientVehicle, *, metadata_keys=None
     ) -> ClientVehicle:
         payload = existing.to_dict()
         incoming_payload = incoming.to_dict()
+        manually_changed = set()
+        aliases = {
+            "brand": "make_display",
+            "model": "model_display",
+            "year": "production_year",
+            "license_plate": "registration_plate",
+        }
         for key, value in incoming_payload.items():
             if key == "id":
                 continue
+            if key in CLIENT_VEHICLE_METADATA_FIELDS:
+                if key in (metadata_keys or ()):
+                    payload[key] = value
+                continue
             if str(value or "").strip():
+                if value != payload.get(key) and not metadata_keys:
+                    manually_changed.add(aliases.get(key, key))
                 payload[key] = value
+        if manually_changed:
+            payload["tentative_fields"] = sorted(
+                set(payload["tentative_fields"]) - manually_changed
+            )
+            payload["autofilled_fields"] = sorted(
+                set(payload["autofilled_fields"]) - manually_changed
+            )
+            payload["manual_fields"] = sorted(set(payload["manual_fields"]) | manually_changed)
+            payload["field_sources"] = {
+                key: value
+                for key, value in payload["field_sources"].items()
+                if key not in manually_changed
+            }
         payload["id"] = existing.id
         return ClientVehicle.from_value(payload) or existing
 
@@ -2171,7 +2221,9 @@ class CardServiceClientsMixin:
                 mileage = 0
             if 0 < mileage <= 9_999_999:
                 patch["mileage"] = mileage
-        return {key: value for key, value in patch.items() if value not in ("", None)}
+        patch = {key: value for key, value in patch.items() if value not in ("", None)}
+        patch.update(vehicle.source_metadata())
+        return patch
 
     def _sync_card_vehicle_fields(
         self, card: Card, vehicle: ClientVehicle, *, overwrite: bool = True
@@ -2189,14 +2241,35 @@ class CardServiceClientsMixin:
                 card.vehicle = next_vehicle
                 changed = True
         patch = self._client_vehicle_profile_patch(vehicle)
+        current = card.vehicle_profile.to_dict()
+        metadata = {key: patch.pop(key) for key in CLIENT_VEHICLE_METADATA_FIELDS}
         if not overwrite:
-            current = card.vehicle_profile.to_dict()
             patch = {
                 key: value
                 for key, value in patch.items()
                 if not str(current.get(key) or "").strip()
             }
         if patch:
+            selected = set(patch)
+            for key in ("manual_fields", "autofilled_fields", "tentative_fields"):
+                patch[key] = sorted(
+                    (set(current[key]) - selected) | (set(metadata[key]) & selected)
+                )
+            patch["field_sources"] = {
+                **{
+                    key: value
+                    for key, value in current["field_sources"].items()
+                    if key not in selected
+                },
+                **{
+                    key: value
+                    for key, value in metadata["field_sources"].items()
+                    if key in selected
+                },
+            }
+            for key in ("source_summary", "source_confidence", "source_links_or_refs"):
+                if metadata[key]:
+                    patch[key] = metadata[key]
             profile, _changed_fields = self._merge_vehicle_profile_patch(
                 card.vehicle_profile, patch
             )
@@ -2218,7 +2291,9 @@ class CardServiceClientsMixin:
         if existing is None:
             return False
         incoming = self._client_vehicle_from_card(card, vehicle_id=existing.id)
-        merged = self._merge_client_vehicle(existing, incoming)
+        merged = self._merge_client_vehicle(
+            existing, incoming, metadata_keys=CLIENT_VEHICLE_METADATA_FIELDS
+        )
         if merged.to_dict() == existing.to_dict():
             return False
         self._replace_client_vehicle(client, merged)

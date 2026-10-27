@@ -54,6 +54,8 @@ class AutomationCenterServiceTests(unittest.TestCase):
                     {
                         "job_id": "crm-digest",
                         "name": "CRM digest",
+                        "control_mode": "read_only",
+                        "source_role": "M1",
                         "desired_state": "off",
                         "actual_state": "stopped",
                         "revision": 1,
@@ -100,6 +102,8 @@ class AutomationCenterServiceTests(unittest.TestCase):
             {"_operator_session": {"username": "admin-1", "is_admin": True}}
         )
         self.assertNotIn("private_payload", admin_result["jobs"][0])
+        self.assertEqual("read_only", admin_result["jobs"][0]["control_mode"])
+        self.assertEqual("M1", admin_result["jobs"][0]["source_role"])
         self.assertEqual(20, admin_result["templates"][0]["default_every_minutes"])
         self.assertTrue(admin_result["templates"][0]["singleton"])
         self.assertEqual("Asia/Krasnoyarsk", admin_result["templates"][0]["default_timezone"])

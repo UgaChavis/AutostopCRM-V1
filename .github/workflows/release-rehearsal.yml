@@ -2,10 +2,6 @@ name: AutoStop CRM isolated release rehearsal
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - autostopcrm-v1
-      - "codex/release-rehearsal/**"
 
 permissions:
   contents: read

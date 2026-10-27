@@ -78,6 +78,52 @@ codes include `validation_error`, `not_found`, `unauthorized`, `forbidden`,
 | Durable change feed | `/api/change_feed/bootstrap`, `/api/change_feed/read`, `/api/change_feed/ack` | `ChangeFeedService` |
 | Agent compatibility | `/api/get_ai_chat_knowledge`, `/api/set_card_ai_autofill`, scheduled-task and manager-operation routes | `CardService` and agent adapters |
 
+### Director editorial changes
+
+`POST /api/cleanup_card` with `content_only: true` is the M1 editorial path.
+Both `mode: "dry_run"` and `mode: "apply"` require the current card
+`expected_updated_at` and a nonempty `idempotency_key`; apply also requires
+`actor_name`. Read the complete current card before preparing the patch.
+The only content fields are `vehicle`, `title`, `description`, `tags`,
+`vehicle_profile`, `repair_order_names` and `client_vehicle_patch`.
+The vehicle profile excludes customer identity/contact fields. Unsupported
+fields are rejected rather than silently ignored. Legacy cleanup without
+`content_only` retains its existing contract.
+
+`repair_order_names` accepts only `works` and `materials` arrays of
+`{"row_id": "existing-id", "name": "Corrected name"}`. These are named-row
+patches, never replacement order arrays. Missing/duplicate IDs conflict;
+prices, quantities, catalog numbers, executor/payroll snapshots, payments,
+stock, repair cycles, order status and card location are untouched. A guessed
+part number can be a short explicitly tentative parenthetical in the name;
+this does not confirm fitment or change `catalog_number`.
+Closed and archived cards allow this path without reopening.
+
+`client_vehicle_patch` has exactly `client_id`, `client_vehicle_id`,
+`expected_updated_at` (the client's fresh revision), and `vehicle` (a partial
+vehicle object). Both IDs must match this card's exact existing link. It
+updates only that stored automobile and records native before/after history;
+it does not synchronize other cards or implicitly rewrite this card's profile.
+If both representations need editing, specify both patches explicitly.
+
+`ClientVehicle` preserves `manual_fields`, `autofilled_fields`,
+`tentative_fields`, `field_sources`, `source_summary`, `source_confidence` and
+`source_links_or_refs`. Metadata names use canonical `VehicleProfile` keys
+(for example `engine_model`, `make_display`, `production_year`,
+`registration_plate`). Tentative values remain marked **Предположительно**
+in the card and client vehicle panels. Ordinary edits to other fields preserve
+these markers; a manual correction of that field removes its old assumption.
+
+Dry-run validates and returns the proposed values without writing state or
+audit files. Apply commits the card, optional exact vehicle, native audit and
+compact receipt together with storage compare-and-swap. The same key/body can
+be retried after an uncertain reply: `meta.idempotent_replay` is true and no
+write is repeated, even if the card has since changed. A reused key with a
+different body conflicts. The reply reports current `verification.updated_at`
+and original `applied_updated_at`; independently reread the exact card and
+client vehicle after apply. The bounded 2,000-receipt cache does not replace
+revision checks for older requests.
+
 ### Manager structure constructor
 
 `GET /api/manager_structure` (or POST with `{}`) requires an operator session
@@ -112,9 +158,15 @@ and the current version. `layout_element` may adjust x/y to a nearby free,
 routeable position and returns `adjusted: true` plus `accepted_element`.
 Both layout operations return calculated `routes` (relation ID to saved SVG
 path) for readback verification. If routing fails, HTTP 422 leaves the
-prior diagram intact. Existing v1 paths remain readable; text-only upserts
-preserve them. Automatic routes remain orthogonal, and the browser draws a bridge
-at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
+prior diagram intact. For an existing node, an upsert containing only `id` and
+`instruction`, `description`, or both text fields preserves all existing paths
+without reanchoring, even if previously saved manual geometry has a conflict. It
+does not accept or repair geometry; creating a node or supplying other fields
+uses normal route checks. The same rule applies to an existing relation upsert
+containing only `id` and `description`, `protocol`, or both. Relation text updates
+preserve existing manual-geometry conflicts; labels, endpoints and route changes
+still use normal checks. Automatic routes remain orthogonal, and the browser
+draws a bridge at a perpendicular crossing. Manual routes also accept quadratic and cubic SVG
 curves; their saved paths are preserved, with endpoints and adjacent control
 points adjusted when a connected module moves. See the
 [constructor contract](docs/agent/module_operations/manager_structure.md#programmatic-operations)

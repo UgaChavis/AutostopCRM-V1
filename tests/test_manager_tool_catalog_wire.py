@@ -67,10 +67,16 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
     def assert_full_catalog(self, actual):
         expected = load_bundle()
         self.assertEqual(len(expected["modules"]), 15)
-        self.assertEqual(len(expected["tools"]), 122)
-        self.assertEqual(len(expected["native_schemas"]), 70)
+        self.assertEqual(len(expected["tools"]), 124)
+        self.assertEqual(len(expected["native_schemas"]), 72)
         self.assertEqual(actual, expected)
         self.assertEqual(content_hash(actual), expected["content_hash"])
+        role_action = actual["native_schemas"]["manager_role_action"]
+        self.assertEqual(
+            set(role_action["required"]), {"operation", "role", "actor", "idempotency_key"}
+        )
+        self.assertEqual(role_action["properties"]["role"]["enum"], ["M1", "M2"])
+        self.assertIn("reconcile_turn", role_action["properties"]["operation"]["enum"])
 
     def test_full_pinned_bundle_roundtrips_get_and_post_without_schema_or_card_truncation(self):
         for method in ("GET", "POST"):

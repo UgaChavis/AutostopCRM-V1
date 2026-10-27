@@ -73,49 +73,95 @@ def canonical_instructions(graph: dict, manager_root: Path, bundle: dict | None 
     return instructions
 
 
-def prepare(graph: dict, instructions: dict, previous_blueprint: dict | None = None) -> dict:
+def _validated_text_updates(graph: dict, updates: dict | None) -> dict:
+    updates = copy.deepcopy({} if updates is None else updates)
+    if not isinstance(updates, dict) or set(updates) - {"elements", "relations"}:
+        raise ValueError("Text updates must contain elements or relations")
+    for field, allowed in (
+        ("elements", {"description", "lines"}),
+        ("relations", {"description", "protocol"}),
+    ):
+        entries = updates.setdefault(field, {})
+        ids = {item["id"] for item in graph[field]}
+        if not isinstance(entries, dict) or set(entries) - ids:
+            raise ValueError(f"Text updates must target existing {field}")
+        if any(not isinstance(value, dict) or set(value) - allowed for value in entries.values()):
+            raise ValueError(f"Text updates contain unsupported {field} fields")
+    return updates
+
+
+def unchanged_scope_digest(graph: dict, text_updates: dict | None = None) -> str:
+    updates = _validated_text_updates(graph, text_updates)
+    preserved = {"canvas": graph["canvas"], "tool_statuses": graph.get("tool_statuses", {})}
+    for field in ("elements", "relations"):
+        preserved[field] = [
+            {
+                key: value
+                for key, value in item.items()
+                if key not in updates[field].get(item["id"], {})
+                and not (field == "elements" and key == "instruction")
+            }
+            for item in graph[field]
+        ]
+    return hashlib.sha256(
+        json.dumps(preserved, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _patch_requests(graph: dict, template: dict) -> tuple[list, list]:
+    previews, changes = [], []
+    version = graph["version"]
+    for field, singular in (("elements", "element"), ("relations", "relation")):
+        original = {item["id"]: item for item in graph[field]}
+        for item in template[field]:
+            changed = {k: v for k, v in item.items() if original[item["id"]].get(k) != v}
+            if not changed:
+                continue
+            fields = {"operation": f"upsert_{singular}", singular: {"id": item["id"], **changed}}
+            previews.append(
+                {
+                    **fields,
+                    "expected_version": version,
+                    "preview": True,
+                    "idempotency_key": str(uuid.uuid4()),
+                }
+            )
+            changes.append(
+                {
+                    **fields,
+                    "expected_version": version + len(changes),
+                    "idempotency_key": str(uuid.uuid4()),
+                }
+            )
+    return previews, changes
+
+
+def prepare(
+    graph: dict,
+    instructions: dict,
+    previous_blueprint: dict | None = None,
+    text_updates: dict | None = None,
+) -> dict:
     """Copy only technical graph fields; owner receipts/status records stay private."""
     _validate(graph)
     if set(instructions) != {node["id"] for node in graph["elements"]}:
         raise ValueError("Canonical instructions must cover the exact node set")
+    updates = _validated_text_updates(graph, text_updates)
     template = {
         "schema_version": SCHEMA,
         "canvas": copy.deepcopy(graph["canvas"]),
         "elements": [],
-        "relations": [
-            {key: copy.deepcopy(value) for key, value in edge.items() if key in EDGE_FIELDS}
-            for edge in graph["relations"]
-        ],
+        "relations": [],
     }
-    previews = []
-    changes = []
-    version = graph["version"]
-    for node in graph["elements"]:
-        item = {key: copy.deepcopy(value) for key, value in node.items() if key in NODE_FIELDS}
-        item["instruction"] = instructions[node["id"]]
-        template["elements"].append(item)
-        if item["instruction"] == node.get("instruction", ""):
-            continue
-        fields = {
-            "operation": "upsert_element",
-            "element": {"id": node["id"], "instruction": item["instruction"]},
-        }
-        previews.append(
-            {
-                **fields,
-                "expected_version": version,
-                "preview": True,
-                "idempotency_key": str(uuid.uuid4()),
-            }
-        )
-        changes.append(
-            {
-                **fields,
-                "expected_version": version + len(changes),
-                "idempotency_key": str(uuid.uuid4()),
-            }
-        )
+    for field, allowed in (("elements", NODE_FIELDS), ("relations", EDGE_FIELDS)):
+        for source in graph[field]:
+            item = {key: copy.deepcopy(value) for key, value in source.items() if key in allowed}
+            item.update(updates[field].get(item["id"], {}))
+            if field == "elements":
+                item["instruction"] = instructions[item["id"]]
+            template[field].append(item)
     _validate(template)
+    previews, changes = _patch_requests(graph, template)
     # The legacy read-only map has a distinct schema and a few safe UI affordances.
     blueprint = copy.deepcopy(template)
     blueprint["schema_version"] = BLUEPRINT_SCHEMA
@@ -124,22 +170,14 @@ def prepare(graph: dict, instructions: dict, previous_blueprint: dict | None = N
         for field in ("links", "control_surface"):
             if field in old_nodes.get(node["id"], {}):
                 node[field] = copy.deepcopy(old_nodes[node["id"]][field])
-    preserved = {
-        "canvas": graph["canvas"],
-        "elements": [{k: v for k, v in n.items() if k != "instruction"} for n in graph["elements"]],
-        "relations": graph["relations"],
-        "tool_statuses": graph.get("tool_statuses", {}),
-    }
-    digest = hashlib.sha256(
-        json.dumps(preserved, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
     return {
         "template": template,
         "blueprint": blueprint,
         "patch": {
-            "prepared_from_version": version,
+            "prepared_from_version": graph["version"],
             "requires_fresh_full_read_before_apply": True,
-            "unchanged_scope_digest": digest,
+            "unchanged_scope_digest": unchanged_scope_digest(graph, updates),
+            "text_updates": updates,
             "preview_requests": previews,
             "apply_requests": changes,
         },
@@ -151,6 +189,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--graph", type=Path, required=True, help="Fresh full technical graph JSON")
     parser.add_argument("--manager-root", type=Path, required=True)
     parser.add_argument("--bundle", type=Path, help="Validate an already exported immutable bundle")
+    parser.add_argument(
+        "--text-updates", type=Path, help="Optional node/relation text updates JSON"
+    )
     parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
     parser.add_argument("--blueprint", type=Path, default=REFERENCE)
     parser.add_argument("--refresh-templates", action="store_true")
@@ -173,7 +214,10 @@ def main(argv: list[str] | None = None) -> int:
     bundle = json.loads(args.bundle.read_text(encoding="utf-8")) if args.bundle else None
     instructions = canonical_instructions(graph, args.manager_root, bundle)
     previous = json.loads(args.blueprint.read_text(encoding="utf-8"))
-    result = prepare(graph, instructions, previous)
+    updates = (
+        json.loads(args.text_updates.read_text(encoding="utf-8")) if args.text_updates else None
+    )
+    result = prepare(graph, instructions, previous, updates)
     if args.check:
         for field, path in (("template", args.template), ("blueprint", args.blueprint)):
             if json.loads(path.read_text(encoding="utf-8")) != result[field]:
@@ -198,8 +242,14 @@ def main(argv: list[str] | None = None) -> int:
                 "nodes": len(graph["elements"]),
                 "relations": len(graph["relations"]),
                 "e1_children": len(children),
-                "instruction_changes": len(result["patch"]["apply_requests"]),
-                "changed_ids": [p["element"]["id"] for p in result["patch"]["apply_requests"]]
+                "instruction_changes": sum(
+                    "instruction" in p.get("element", {}) for p in result["patch"]["apply_requests"]
+                ),
+                "text_changes": len(result["patch"]["apply_requests"]),
+                "changed_ids": [
+                    (p.get("element") or p["relation"])["id"]
+                    for p in result["patch"]["apply_requests"]
+                ]
                 if args.check_saved
                 else [],
                 "saved_matches": not bool(result["patch"]["apply_requests"])

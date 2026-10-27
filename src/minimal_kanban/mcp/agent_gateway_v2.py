@@ -24,6 +24,7 @@ from .agent_gateway_support import (
     STORE_VIN_PHOTO_PREVIEW_OPERATION,
     WORKFLOW_TERMINAL_STATES,
     _as_dict,
+    _board_workflow_arguments,
     _compact_object,
     _contains_value,
     _cursor_offset,
@@ -1597,14 +1598,9 @@ def register_agent_gateway_v2(
                 correlation_id=store_correlation,
             )
         elif workflow_id == "board":
-            board_payload = dict(payload)
-            board_payload["actor_name"] = _effective_audit_actor()
-            arguments = {
-                "operation": operation,
-                "payload": board_payload,
-                "mode": mode or str(payload.get("mode") or "dry_run"),
-                "actor_name": _effective_audit_actor(),
-            }
+            arguments = _board_workflow_arguments(
+                operation, payload, mode, _effective_audit_actor(), idempotency_key
+            )
         elif workflow_id == "document" and operation in DOCUMENT_VIRTUAL_OPERATIONS:
             arguments.pop("correlation_id", None)
             arguments.pop("dry_run_proof", None)
