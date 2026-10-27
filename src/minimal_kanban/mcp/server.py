@@ -351,7 +351,7 @@ def _register_card_cleanup_tool(server, board_api, relay, with_data_meta):
     @server.tool(
         name="cleanup_card",
         description=_scoped_description(
-            "Apply or preview a compact card cleanup patch. For editorial-only work, set content_only=true with fresh expected_updated_at and idempotency_key: accepts title, vehicle, description, tags, vehicle_profile, repair_order_names by existing row_id/name, and an exact revision-bound linked client_vehicle_patch; never runs payment, payroll, stock or repair status transitions. Closed and archived cards allow this editorial mode. The legacy mode also supports deadline and board summary."
+            "Apply or preview a compact card cleanup patch. For editorial-only work, set content_only=true with fresh expected_updated_at and idempotency_key: accepts title, vehicle, description, tags, vehicle_profile, repair_order_names by existing row_id/name, repair_order_comment, and an exact revision-bound linked client_vehicle_patch; never runs payment, payroll, stock or repair status transitions. repair_order_comment is disabled by default and requires separate owner authorization. Closed and archived cards allow this editorial mode. The legacy mode also supports deadline and board summary."
         ),
         annotations=_write_tool_annotations("Cleanup Card", idempotent=True),
         structured_output=True,
@@ -373,6 +373,7 @@ def _register_card_cleanup_tool(server, board_api, relay, with_data_meta):
         content_only: bool = False,
         idempotency_key: str | None = None,
         repair_order_names: dict[str, Any] | None = None,
+        repair_order_comment: str | None = None,
         client_vehicle_patch: dict[str, Any] | None = None,
     ) -> JsonEnvelope:
         return relay(
@@ -394,6 +395,7 @@ def _register_card_cleanup_tool(server, board_api, relay, with_data_meta):
                 content_only=content_only,
                 idempotency_key=idempotency_key,
                 repair_order_names=repair_order_names,
+                repair_order_comment=repair_order_comment,
                 client_vehicle_patch=client_vehicle_patch,
             ),
             params={

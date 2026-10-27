@@ -154,6 +154,7 @@ from .workflow_guards import (
     finance_request_error,
     finance_revision_preflight,
     invoice_document_guard,
+    raw_editorial_comment_error,
     workflow_error_result,
     workflow_request_error,
 )
@@ -2717,6 +2718,9 @@ def register_agent_gateway_v2(
                 ),
                 label="call_raw_capability",
             )
+        comment_error = raw_editorial_comment_error(normalized_name, arguments or {})
+        if comment_error:
+            return comment_error
         owner_mode = (
             str((arguments or {}).get("mode") or "dry_run").strip().casefold()
             if normalized_name == "store_owner_api"

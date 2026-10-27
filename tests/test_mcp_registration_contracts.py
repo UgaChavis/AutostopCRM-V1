@@ -48,7 +48,7 @@ _RAW_REGISTRATION_ENV = {
     "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "0",
 }
 _RAW_REGISTRATION_CONTRACT_SHA256 = (
-    "cc740555bf88d08aa4cffa2cc107f60b5ec60bc8cba9fbdb32ab5faf139ef794"
+    "98c39b7ab52322482daaf2e5094115b33417fc08a5717c34435cce476ebc3595"
 )
 _EXPECTED_MANAGER_WRITE_TOOL_NAMES = frozenset(
     {
@@ -199,9 +199,16 @@ class McpRegistrationContractTests(unittest.TestCase):
         self.assertFalse(cleanup_schema["properties"]["content_only"]["default"])
         self.assertEqual(cleanup_schema["properties"]["mode"]["default"], "dry_run")
         self.assertTrue(
-            {"content_only", "idempotency_key", "repair_order_names", "client_vehicle_patch"}
+            {
+                "content_only",
+                "idempotency_key",
+                "repair_order_names",
+                "repair_order_comment",
+                "client_vehicle_patch",
+            }
             <= cleanup_schema["properties"].keys()
         )
+        self.assertEqual(cleanup_schema["properties"]["repair_order_comment"]["default"], None)
 
         legacy_descriptions = [
             tool.name for tool in tools if "Minimal Kanban" in str(tool.description or "")

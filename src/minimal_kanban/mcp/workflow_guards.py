@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ..editorial_comment_access import editorial_comment_enabled
 from .agent_gateway_support import _board_mode, _envelope
 from .gateway_contract import FINANCE_VIRTUAL_OPERATIONS, FINANCE_WORKFLOW_OPERATIONS
 from .gateway_media import tool_result
@@ -333,7 +334,40 @@ def workflow_request_error(
             status="failed",
             summary={"workflow_id": workflow_id, "operation": operation},
         )
-    return board_workflow_mode_error(workflow_id, operation, payload, mode)
+    mode_error = board_workflow_mode_error(workflow_id, operation, payload, mode)
+    if mode_error:
+        return mode_error
+    if (
+        workflow_id == "board"
+        and operation == "cleanup_card"
+        and "repair_order_comment" in payload
+        and not editorial_comment_enabled()
+    ):
+        return workflow_error_result(
+            workflow_id,
+            "editorial_comment_disabled",
+            summary={"workflow_id": workflow_id, "operation": operation},
+        )
+    return None
+
+
+def raw_editorial_comment_error(name: str, arguments: Mapping[str, Any]) -> Any | None:
+    if editorial_comment_enabled():
+        return None
+    if name in {"cleanup_card", "api:/api/cleanup_card"}:
+        comment_requested = "repair_order_comment" in arguments
+    elif name in {"run_manager_operation", "api:/api/run_manager_operation"}:
+        nested = arguments.get("payload")
+        comment_requested = (
+            str(arguments.get("operation", arguments.get("name")) or "").strip() == "cleanup_card"
+            and isinstance(nested, Mapping)
+            and "repair_order_comment" in nested
+        )
+    else:
+        comment_requested = False
+    if comment_requested:
+        return workflow_error_result("call_raw_capability", "editorial_comment_disabled")
+    return None
 
 
 def finance_preview_result(

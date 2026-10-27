@@ -7,8 +7,9 @@ import json
 from copy import deepcopy
 from datetime import timedelta
 
+from ..editorial_comment_access import editorial_comment_enabled
 from ..models import ClientVehicle, parse_datetime, utc_now
-from ..repair_order import REPAIR_ORDER_ROW_NAME_LIMIT
+from ..repair_order import REPAIR_ORDER_COMMENT_LIMIT, REPAIR_ORDER_ROW_NAME_LIMIT
 from ..vehicle_profile import VEHICLE_ALL_FIELDS, normalize_vehicle_field_names
 
 _CONTENT_FIELDS = {
@@ -18,6 +19,7 @@ _CONTENT_FIELDS = {
     "tags",
     "vehicle_profile",
     "repair_order_names",
+    "repair_order_comment",
     "client_vehicle_patch",
 }
 _REQUEST_FIELDS = _CONTENT_FIELDS | {
@@ -116,6 +118,48 @@ class CardServiceEditorialMixin:
             )
         return bool(changes)
 
+    def _editorial_repair_order_comment(self, card, value, events, actor_name, source):
+        if not isinstance(value, str) or len(value) > REPAIR_ORDER_COMMENT_LIMIT:
+            self._fail(
+                "validation_error",
+                "Комментарий заказ-наряда должен быть строкой не более 4000 символов.",
+                details={"field": "repair_order_comment"},
+            )
+        if not self._card_has_repair_order(card):
+            self._fail(
+                "validation_error",
+                "Для редакторской правки нужен существующий заказ-наряд.",
+                details={"field": "repair_order_comment"},
+            )
+        new_comment = value.strip()
+        if new_comment == card.repair_order.comment:
+            return False
+        candidate = deepcopy(card.repair_order)
+        candidate.comment = new_comment
+        if candidate.is_empty():
+            self._fail(
+                "validation_error",
+                "Нельзя очистить последнее содержимое заказ-наряда.",
+                details={"field": "repair_order_comment"},
+            )
+        before = card.repair_order.to_storage_dict()
+        card.repair_order.comment = new_comment
+        self._append_event(
+            events,
+            actor_name=actor_name,
+            source=source,
+            action="repair_order_updated",
+            message=f"{actor_name} исправил комментарий заказ-наряда",
+            card_id=card.id,
+            details={
+                "before": before,
+                "after": card.repair_order.to_storage_dict(),
+                "editorial_only": True,
+                "comment_only": True,
+            },
+        )
+        return True
+
     def _editorial_client_vehicle(self, card, bundle, value, events, actor_name, source):
         required = {"client_id", "client_vehicle_id", "expected_updated_at", "vehicle"}
         if not isinstance(value, dict) or set(value) != required:
@@ -183,6 +227,12 @@ class CardServiceEditorialMixin:
                 "validation_error",
                 "Content-only принимает только редакторские поля.",
                 details={"unsupported_fields": sorted(unknown)},
+            )
+        if "repair_order_comment" in payload and not editorial_comment_enabled():
+            self._fail(
+                "editorial_comment_disabled",
+                "Редакторская правка комментария заказ-наряда выключена.",
+                status_code=403,
             )
         mode = self._manager_operation_mode(payload)
         actor_name, source = self._manager_actor_identity(payload, mode=mode)
@@ -261,6 +311,10 @@ class CardServiceEditorialMixin:
                 card, payload["repair_order_names"], events, actor_name, source
             ):
                 changed_fields.append("repair_order_names")
+            if "repair_order_comment" in payload and self._editorial_repair_order_comment(
+                card, payload["repair_order_comment"], events, actor_name, source
+            ):
+                changed_fields.append("repair_order_comment")
             client_vehicle = None
             if "client_vehicle_patch" in payload:
                 changed, client_vehicle = self._editorial_client_vehicle(
@@ -286,6 +340,7 @@ class CardServiceEditorialMixin:
                     clients=bundle["clients"],
                     events=events,
                     require_compare_and_swap=True,
+                    cleanup_artifacts="repair_order_comment" not in payload,
                 )
             return self._editorial_result(
                 card,

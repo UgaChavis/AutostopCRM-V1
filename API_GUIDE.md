@@ -86,6 +86,21 @@ Both `mode: "dry_run"` and `mode: "apply"` require the current card
 `actor_name`. Read the complete current card before preparing the patch.
 The only content fields are `vehicle`, `title`, `description`, `tags`,
 `vehicle_profile`, `repair_order_names` and `client_vehicle_patch`.
+The separately authorized `repair_order_comment` field changes only the
+existing order's customer-facing `comment`/`client_information`; it does not
+edit the internal `note`. This technical capability does not grant M1 or any
+other role permission to use it. A specific owner decision is required before
+access or application under the current duty rules. Both preview and apply are
+disabled by default. Enabling requires the server-side environment variable
+`AUTOSTOP_CRM_REPAIR_ORDER_COMMENT_EDITORIAL_ENABLED=1` in a separately
+authorized configuration change; a request cannot enable it. This switch is
+global to authenticated callers and is not a per-role authorization system.
+An approval limited to a particular role requires an appropriate trusted
+authorization mechanism rather than treating this switch as a role grant.
+When disabled, the named board workflow and raw gateway reject this field
+before starting their workflow ledger; direct service calls reject it before
+reading or writing CRM state. This switch does not change the separate legacy
+`update_repair_order` capability or grant permission to use that capability.
 The vehicle profile excludes customer identity/contact fields. Unsupported
 fields are rejected rather than silently ignored. Legacy cleanup without
 `content_only` retains its existing contract.
@@ -98,6 +113,16 @@ stock, repair cycles, order status and card location are untouched. A guessed
 part number can be a short explicitly tentative parenthetical in the name;
 this does not confirm fitment or change `catalog_number`.
 Closed and archived cards allow this path without reopening.
+
+`repair_order_comment` accepts a string of at most 4000 characters; leading
+and trailing whitespace is stripped, and embedded newlines are retained. An
+empty string explicitly clears the comment, but is rejected if that would
+remove the last content that makes the order exist. The field requires an
+existing order and `content_only: true`; it cannot create an order or run order,
+payment, payroll, stock or lifecycle recalculation. Preview and apply use the
+same card revision and idempotency contract as other editorial fields.
+An applied change refreshes the derived order text after the state commit;
+it does not run the usual unrelated artifact cleanup for this request.
 
 `client_vehicle_patch` has exactly `client_id`, `client_vehicle_id`,
 `expected_updated_at` (the client's fresh revision), and `vehicle` (a partial

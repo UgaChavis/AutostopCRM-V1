@@ -2028,6 +2028,8 @@ class CardService(
         payload = payload or {}
         if self._validated_optional_bool(payload, "content_only", default=False):
             return self._cleanup_card_editorial(payload)
+        if "repair_order_comment" in payload:
+            self._fail("validation_error", "Комментарий доступен только в content_only.")
         mode = self._manager_operation_mode(payload)
         actor_name, _source = self._manager_actor_identity(payload, mode=mode)
         card_id = normalize_text(payload.get("card_id"), default="", limit=128)
@@ -5830,6 +5832,7 @@ class CardService(
         settings: dict[str, Any] | None = None,
         force_cleanup: bool = False,
         require_compare_and_swap: bool = False,
+        cleanup_artifacts: bool = True,
     ) -> None:
         write_arguments = {
             "columns": columns,
@@ -5875,10 +5878,11 @@ class CardService(
                 "Данные изменились параллельно. Обновите карточку и повторите действие.",
                 status_code=409,
             )
-        self._publish_repair_order_artifacts(prepared_artifacts)
+        self._publish_repair_order_artifacts(prepared_artifacts, cleanup=cleanup_artifacts)
         written_cards = written_bundle["cards"]
         try:
-            self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
+            if cleanup_artifacts:
+                self._cleanup_runtime_artifacts_if_due(written_cards, force=force_cleanup)
         except Exception:
             self._logger.exception("post_commit_runtime_cleanup_failed")
 

@@ -80,11 +80,12 @@ class RepairOrderArtifactsMixin:
             prepared.append((card, path, self._render_repair_order_text(card, path)))
         return prepared
 
-    def _publish_repair_order_artifacts(self, prepared):
+    def _publish_repair_order_artifacts(self, prepared, *, cleanup=True):
         for card, path, content in prepared:
             try:
                 publish_text(path, content)
-                self._cleanup_repair_order_text_files(card, keep_path=path)
+                if cleanup:
+                    self._cleanup_repair_order_text_files(card, keep_path=path)
             except Exception:
                 # These files are derivatives. Reads regenerate from authoritative
                 # card state; an IO error cannot turn a committed payment into failure.

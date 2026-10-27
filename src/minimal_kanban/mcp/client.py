@@ -1472,6 +1472,7 @@ class BoardApiClient:
         content_only: bool = False,
         idempotency_key: str | None = None,
         repair_order_names: dict[str, object] | None = None,
+        repair_order_comment: str | None = None,
         client_vehicle_patch: dict[str, object] | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id}
@@ -1490,6 +1491,7 @@ class BoardApiClient:
             "content_only": content_only,
             "idempotency_key": idempotency_key,
             "repair_order_names": repair_order_names,
+            "repair_order_comment": repair_order_comment,
             "client_vehicle_patch": client_vehicle_patch,
         }.items():
             if value is not None:
