@@ -50,6 +50,43 @@ class WindowsDriverEventTests(unittest.TestCase):
         self.assertEqual(result["fault_module"], "ucrtbase.dll")
         self.assertEqual(result["exit_code_hex"], "0xc0000409")
 
+    def test_exception_code_is_hex_with_or_without_prefix(self):
+        for code in ("c0000409", "C0000409", "0xc0000409", "0XC0000409"):
+            with self.subTest(code=code):
+                result = self.check([{**self.event, "exception_code": code}])
+                self.assertEqual(result["status"], "exact_pid_birth_code_and_time")
+        self.witness["native_exit"]["exit_code"] = 0x80000003
+        result = self.check([{**self.event, "exception_code": "80000003"}])
+        self.assertEqual(result["status"], "exact_pid_birth_code_and_time")
+
+    def test_exception_hex_does_not_change_decimal_pid_or_filetime(self):
+        for pid, birth in (
+            ("1234", "134376484864274584"),
+            ("0x4d2", hex(134376484864274584)),
+        ):
+            with self.subTest(pid=pid):
+                event = {
+                    **self.event,
+                    "process_id": pid,
+                    "process_creation_time": birth,
+                    "exception_code": "c0000409",
+                }
+                self.assertEqual(self.check([event])["status"], "exact_pid_birth_code_and_time")
+                self.assertEqual(
+                    self.check([{**event, "process_creation_time": "134376484864274585"}])[
+                        "status"
+                    ],
+                    "no_matching_event",
+                )
+
+    def test_invalid_or_nonmatching_bare_exception_codes_are_not_attributed(self):
+        for code in ("c0000005", "-c0000409", "+c0000409", "100000000", "c0000409z", True, None):
+            with self.subTest(code=code):
+                self.assertEqual(
+                    self.check([{**self.event, "exception_code": code}])["status"],
+                    "no_matching_event",
+                )
+
     def test_pid_reuse_is_not_exact(self):
         result = self.check([{**self.event, "process_creation_time": hex(134376484864274585)}])
         self.assertEqual(result["status"], "no_matching_event")

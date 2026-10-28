@@ -19,6 +19,7 @@ from pathlib import Path
 SCHEMA = "autostopcrm.windows-driver-event.v1"
 NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 HEX = re.compile(r"^(?:0[xX])?[0-9a-fA-F]{1,16}$")
+EXCEPTION_CODE = re.compile(r"^(?:0[xX])?[0-9a-fA-F]{1,8}$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 EPOCH = datetime(1601, 1, 1, tzinfo=UTC)
 WINDOW_SECONDS = 5
@@ -76,6 +77,16 @@ def _integer(value):
 
 def _safe_name(value):
     return value if isinstance(value, str) and NAME.fullmatch(value) else None
+
+
+def _exception_code(value):
+    """Event 1000 writes ExceptionCode in hexadecimal, with or without 0x."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if 0 <= value <= 0xFFFFFFFF else None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return int(text, 16) if EXCEPTION_CODE.fullmatch(text) else None
 
 
 def _safe_hex(value):
@@ -136,7 +147,7 @@ def attribute(witness, event_result):
         if (
             not isinstance(item, dict)
             or _integer(item.get("process_id")) != pid
-            or _integer(item.get("exception_code")) != exit_code
+            or _exception_code(item.get("exception_code")) != exit_code
             or not _event_in_window(item.get("event_utc"), exit_filetime)
         ):
             continue
