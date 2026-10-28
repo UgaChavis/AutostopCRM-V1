@@ -4,7 +4,40 @@ import os
 from contextlib import contextmanager
 from unittest.mock import call, patch
 
+from minimal_kanban.storage import json_store
 from minimal_kanban.storage.file_lock import ProcessFileLock
+
+
+def assert_locked_read_and_missing_lock(case, read_title):
+    # This helper observes the current flag; it does not turn lock mode on.
+    case.assertTrue(json_store._SNAPSHOT_REQUIRES_FILE_LOCK)
+    lock_path = case.state_file.with_suffix(".lock")
+    peer = ProcessFileLock(lock_path, timeout_seconds=0)
+    read_state = case.store._read_state
+
+    def read_while_locked(*args, **kwargs):
+        with case.assertRaises(TimeoutError):
+            with peer.acquire(existing_only=True):
+                pass
+        return read_state(*args, **kwargs)
+
+    before = case.files()
+    case.assertEqual(read_title(), "CACHE_TITLE_ONE")
+    case.assertEqual(before, case.files())
+    with patch.object(case.store, "_read_state", side_effect=read_while_locked) as read:
+        before = case.files()
+        case.assertEqual(read_title(), "CACHE_TITLE_ONE")
+        case.assertEqual(before, case.files())
+        case.assertEqual(read.call_count, 1)
+
+    with peer.acquire(existing_only=True):
+        pass
+    lock_path.unlink()
+    before = case.files()
+    with case.assertRaises(FileNotFoundError):
+        read_title()
+    case.assertFalse(lock_path.exists())
+    case.assertEqual(before, case.files())
 
 
 def assert_fresh_under_file_lock(case, read_title):

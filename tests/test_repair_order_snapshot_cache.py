@@ -5,12 +5,16 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 from minimal_kanban.storage.json_store import StateFileCorruptedError
-from tests.snapshot_lock_helpers import assert_fresh_under_file_lock
+from tests.snapshot_lock_helpers import (
+    assert_fresh_under_file_lock,
+    assert_locked_read_and_missing_lock,
+)
 
 
 class RepairOrderSnapshotCacheTests(CardServiceCase):
@@ -90,6 +94,18 @@ class RepairOrderSnapshotCacheTests(CardServiceCase):
         assert_fresh_under_file_lock(
             self, lambda: self.title(self.store.read_repair_order_cards_snapshot())
         )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows one-byte lock backing file")
+    def test_windows_default_lock_is_held_and_missing_lock_fails(self):
+        assert_locked_read_and_missing_lock(
+            self, lambda: self.title(self.store.read_repair_order_cards_snapshot())
+        )
+
+    def test_forced_lock_is_held_and_missing_lock_fails(self):
+        with patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True):
+            assert_locked_read_and_missing_lock(
+                self, lambda: self.title(self.store.read_repair_order_cards_snapshot())
+            )
 
     def test_snapshot_cache_missing_and_corrupt_never_returns_cached_data(self):
         self.store.read_repair_order_cards_snapshot()
