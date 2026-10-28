@@ -212,13 +212,13 @@ class FakeBoardApi:
         del compact, redact_private
         rows = [
             {
-                "card_id": "card-open-18",
+                "card_id": "11111111-1111-4111-8111-111111111118",
                 "number": "18",
                 "status": "open",
                 "title": "Основной заказ",
             },
             {
-                "card_id": "card-closed-99",
+                "card_id": "99999999-9999-4999-8999-999999999999",
                 "number": "99",
                 "status": "closed",
                 "title": "В тексте упомянут заказ 18",

@@ -28,6 +28,12 @@ from ..config import (
     get_mcp_public_base_url,
 )
 from ..deployment_security import load_agent_gateway_security_policy
+from ..repair_order_redaction import (
+    redact_list_response,
+    safe_card_id,
+    safe_order_number,
+    safe_repair_order_error,
+)
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from . import payloads as _payloads
 from .agent_gateway_support import MANAGER_GATEWAY_DEPENDENCY_NAMES
@@ -82,6 +88,7 @@ from .payloads import (
     TagPayload,
     _resolved_create_card_deadline,
 )
+from .repair_order_wire_safety import install_repair_order_wire_safety
 from .shared_file_reads import SharedFileReadContext, register_shared_file_reads
 from .shared_file_writes import SharedFileWriteContext, register_shared_file_writes
 from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
@@ -879,6 +886,7 @@ def create_mcp_server(
         error_code: str = "board_api_unreachable",
         params: dict[str, Any] | None = None,
         transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        redact_errors: bool = False,
     ) -> JsonEnvelope:
         started_at = perf_counter()
         applied_params = {key: value for key, value in (params or {}).items() if value is not None}
@@ -889,7 +897,9 @@ def create_mcp_server(
                 tool_name,
                 {
                     "code": error_code,
-                    "message": str(exc),
+                    "message": "Repair-order read failed; details are hidden in redacted mode."
+                    if redact_errors
+                    else str(exc),
                 },
                 meta=_timed_meta(
                     tool_name,
@@ -914,7 +924,13 @@ def create_mcp_server(
                     exc=exc,
                     applied_params=applied_params,
                 )
-        response_meta = _dict_or_empty(response.get("meta"))
+        if redact_errors:
+            if response.get("ok") and response.get("error") is not None:
+                response = {"ok": False, "data": None, "error": None}
+            if not response.get("ok"):
+                response["data"] = None
+                response["error"] = safe_repair_order_error(response.get("error"))
+        response_meta = {} if redact_errors else _dict_or_empty(response.get("meta"))
         data_payload = response.get("data") if isinstance(response.get("data"), dict) else {}
         data_meta = data_payload.get("meta") if isinstance(data_payload, dict) else {}
         if isinstance(data_meta, dict):
@@ -2606,21 +2622,26 @@ def create_mcp_server(
             params={
                 "limit": effective_limit,
                 "status": status,
-                "card_id": card_id,
-                "number": number,
-                "query": query,
+                "card_id": safe_card_id(card_id)
+                if redact_private and card_id is not None
+                else card_id,
+                "number": safe_order_number(number)
+                if redact_private and number is not None
+                else number,
+                "query": "" if redact_private and query is not None else query,
                 "sort_by": sort_by,
                 "sort_dir": sort_dir,
                 "compact": compact,
                 "redact_private": redact_private,
             },
             transform=lambda response: _with_data_meta(
-                response,
+                redact_list_response(response, compact=compact) if redact_private else response,
                 response_mode="list",
                 view_mode="compact" if compact else "full",
                 compact=compact,
                 redact_private=redact_private,
             ),
+            redact_errors=redact_private,
         )
 
     @server.tool(
@@ -3441,4 +3462,5 @@ def create_mcp_server(
                 "securitySchemes": security_schemes,
             }
 
+    install_repair_order_wire_safety(server)
     return server

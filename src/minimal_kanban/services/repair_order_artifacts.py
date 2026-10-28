@@ -86,6 +86,6 @@ class RepairOrderArtifactsMixin:
                 publish_text(path, content)
                 self._cleanup_repair_order_text_files(card, keep_path=path)
             except Exception:
-                # These files are derivatives. Reads regenerate from authoritative
-                # card state; an IO error cannot turn a committed payment into failure.
+                # These files are derivatives. Explicit text operations can regenerate
+                # them; an IO error cannot turn a committed payment into failure.
                 self._logger.exception("post_commit_repair_order_file_failed card_id=%s", card.id)

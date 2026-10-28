@@ -28,9 +28,10 @@ class ProcessFileLock:
         self._metric_name = metric_name
 
     @contextmanager
-    def acquire(self):
-        self._lock_file.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock_file.open("a+b") as handle:
+    def acquire(self, *, existing_only: bool = False):
+        if not existing_only:
+            self._lock_file.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock_file.open("r+b" if existing_only else "a+b") as handle:
             started_at = time.perf_counter()
             deadline = time.monotonic() + self._timeout_seconds
             while True:

@@ -86,6 +86,11 @@ from ..repair_order import (
     repair_order_payment_method_from_payments,
     repair_order_payment_method_label,
 )
+from ..repair_order_redaction import (
+    redact_compact_item,
+    redact_full_item,
+    safe_repair_order_filters,
+)
 from ..storage.audit_archive import (
     AUDIT_ARCHIVE_DIR_NAME,
     AuditArchiveStore,
@@ -1443,16 +1448,7 @@ class CardService(
             sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
             compact = self._validated_optional_bool(payload, "compact", default=False)
             redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
-            bundle = self._read_bundle_for_update()
-            cards = bundle["cards"]
-            if self._synchronize_repair_order_numbers(cards):
-                self._save_bundle(
-                    bundle, columns=bundle["columns"], cards=cards, events=bundle["events"]
-                )
-            try:
-                self._cleanup_repair_orders_directory(cards)
-            except Exception:
-                self._logger.exception("repair_order_directory_cleanup_failed")
+            cards = self._store.read_repair_order_cards_snapshot()
             ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
             inconsistent_cards = [
                 card
@@ -1512,8 +1508,16 @@ class CardService(
                     return self._serialize_repair_order_compact_item(
                         card, redact_private=redact_private
                     )
-                return self._serialize_repair_order_list_item(card)
+                return self._serialize_repair_order_list_item(
+                    card, redact_private=redact_private, materialize=False
+                )
 
+            applied_filters = {
+                **({"card_id": exact_card_id} if exact_card_id else {}),
+                **({"number": exact_number} if exact_number else {}),
+                **({"search_field": search_field} if query and search_field != "all" else {}),
+                "status": status_filter,
+            }
             return {
                 "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
                 "meta": {
@@ -1522,18 +1526,11 @@ class CardService(
                     "returned": min(len(sorted_cards), limit),
                     "has_more": len(sorted_cards) > limit,
                     "status": status_filter,
-                    "query": query,
+                    "query": "" if redact_private else query,
                     "search_field": search_field,
-                    "applied_filters": {
-                        **({"card_id": exact_card_id} if exact_card_id else {}),
-                        **({"number": exact_number} if exact_number else {}),
-                        **(
-                            {"search_field": search_field}
-                            if query and search_field != "all"
-                            else {}
-                        ),
-                        "status": status_filter,
-                    },
+                    "applied_filters": safe_repair_order_filters(applied_filters)
+                    if redact_private
+                    else applied_filters,
                     "sort_by": sort_by,
                     "sort_dir": sort_dir,
                     "active_total": len(open_cards),
@@ -1543,7 +1540,7 @@ class CardService(
                     "inconsistent_total": len(inconsistent_cards),
                     "compact": compact,
                     "redact_private": redact_private,
-                    "directory": str(self._repair_orders_dir),
+                    "directory": "" if redact_private else str(self._repair_orders_dir),
                 },
             }
 
@@ -9334,7 +9331,7 @@ class CardService(
     def _serialize_repair_order_compact_item(
         self, card: Card, *, redact_private: bool
     ) -> dict[str, object]:
-        path = self._ensure_repair_order_text_file(card)
+        path = self._repair_order_text_path(card)
         order = card.repair_order
         item: dict[str, object] = {
             "card_id": card.id,
@@ -9355,14 +9352,7 @@ class CardService(
             "file_name": path.name,
         }
         if redact_private:
-            item.update(
-                {
-                    "client_present": bool(order.client),
-                    "phone_present": bool(order.phone),
-                    "vin_present": bool(order.vin),
-                    "license_plate_present": bool(order.license_plate),
-                }
-            )
+            redact_compact_item(item, card)
         else:
             item.update(
                 {
@@ -9374,11 +9364,17 @@ class CardService(
             )
         return item
 
-    def _serialize_repair_order_list_item(self, card: Card) -> dict[str, object]:
-        path = self._ensure_repair_order_text_file(card)
+    def _serialize_repair_order_list_item(
+        self, card: Card, *, redact_private: bool = False, materialize: bool = True
+    ) -> dict[str, object]:
+        path = (
+            self._ensure_repair_order_text_file(card)
+            if materialize
+            else self._repair_order_text_path(card)
+        )
         order = card.repair_order
         paid_total = order.prepayment_amount()
-        return {
+        item: dict[str, object] = {
             "card_id": card.id,
             "number": order.number,
             "date": order.date,
@@ -9416,6 +9412,9 @@ class CardService(
             "file_name": path.name,
             "file_path": str(path),
         }
+        if redact_private:
+            redact_full_item(item, card)
+        return item
 
     def _render_repair_order_text(self, card: Card, path: Path) -> str:
         return render_bounded_repair_order_text(

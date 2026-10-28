@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 from pydantic import WithJsonSchema
 
+from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..models import normalize_actor_name
 from ..repair_order import repair_order_payment_method_from_cashbox_name
@@ -2160,7 +2161,9 @@ def register_agent_gateway_v2(
                     warnings=["unsupported_search_filters"],
                     summary={
                         "entity": entity,
-                        "unsupported_filters": unsupported_filters,
+                        "unsupported_filters": []
+                        if entity == "repair_order"
+                        else unsupported_filters,
                     },
                 ),
                 label="agent_search",
@@ -2214,13 +2217,12 @@ def register_agent_gateway_v2(
             )
             keys = ("clients", "items", "results")
         elif entity == "repair_order":
-            response = await _board_call(
-                board_api.list_repair_orders,
+            response = await _order_redaction.call_repair_order_search(
+                _board_call,
+                board_api,
                 query=query,
                 limit=effective_limit,
-                compact=True,
-                redact_private=True,
-                **repair_order_filters,
+                filters=repair_order_filters,
             )
             keys = ("repair_orders", "items", "results")
         elif entity == "inventory":
@@ -2235,7 +2237,9 @@ def register_agent_gateway_v2(
             response = await _board_call(board_api.list_shared_files)
             keys = ("files", "items", "results")
         ok, data, meta, error = _response_data(response)
+        ok = _order_redaction.safe_search_status(entity, ok, data, error)
         items = _items_from_data(data, *keys)[:effective_limit]
+        items, meta, error = _order_redaction.safe_search_output(entity, ok, items, meta, error)
         if entity == "card":
             items = [_slim_card(item, DEFAULT_CARD_FIELDS) for item in items]
         else:
@@ -2245,17 +2249,17 @@ def register_agent_gateway_v2(
             status="completed" if ok else "failed",
             summary={
                 "entity": entity,
-                "query": query,
+                "query": "" if entity == "repair_order" else query,
                 "returned": len(items),
                 "scope": "crm",
-                "applied_filters": repair_order_filters,
+                "applied_filters": _order_redaction.safe_repair_order_filters(repair_order_filters),
             },
             data={"items": items, **({"error": _compact_object(error)} if not ok else {})},
             warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
             page={"limit": effective_limit, "has_more": False},
             meta={
                 "source_meta": _compact_object(meta),
-                "applied_filters": repair_order_filters,
+                "applied_filters": _order_redaction.safe_repair_order_filters(repair_order_filters),
             },
         )
         return _tool_result(payload, label="agent_search")
@@ -2697,6 +2701,11 @@ def register_agent_gateway_v2(
                     summary={"name": normalized_name, "current_schema_hash": current_hash},
                     warnings=["schema_hash_mismatch_rediscover_capability"],
                 ),
+                label="call_raw_capability",
+            )
+        if _order_redaction.invalid_raw_redact_flag(normalized_name, arguments or {}):
+            return _tool_result(
+                _envelope(ok=False, status="blocked", warnings=["redact_private_bool_required"]),
                 label="call_raw_capability",
             )
         if virtual_web:
@@ -3162,6 +3171,7 @@ def register_agent_gateway_v2(
         result = await _invoke(
             normalized_name, effective_arguments, extra_headers=maintenance_headers
         )
+        result = _order_redaction.redact_raw_error(normalized_name, arguments or {}, result)
         owner_transport_bound = True
         ledger_state_version = _workflow_state_version(executing) if run_id is not None else None
         if normalized_name == "store_owner_api" and run_id is not None:

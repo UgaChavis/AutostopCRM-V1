@@ -384,6 +384,33 @@ available for low-payload diagnostics. Works, materials, statuses, and payments 
 changed through repair-order service routes so validation and audit records
 remain consistent.
 
+Listing takes an independent read-only snapshot: it does not assign numbers,
+repair the state or change feed, or create, replace, or remove text files. A
+legacy order without a saved number is returned with an empty number; a later
+authorized write can assign it. In an unredacted response `file_name` and
+`file_path` are the expected paths only and do not guarantee a file exists;
+use the dedicated text operation when the document itself is needed.
+
+With `redact_private=true`, both response modes hide client and vehicle text,
+notes, tags, payment details, file paths and echoed query; full-mode keys stay
+present with empty values, and compact mode retains its existing presence flags.
+UUID card IDs, up to eight-digit decimal order numbers, valid ISO and CRM
+`DD.MM.YYYY HH:MM` dates, status,
+and calculated totals remain visible. Other legacy IDs, numbers and dates are
+blanked because they may contain free text. Exact filters still match the
+stored values before display redaction. Presence flags and whether a search
+matched can reveal that a record exists; redaction is not an access control.
+Redacted error responses hide free-form details and request values. Known
+authorization and validation codes are retained; unknown codes are generalized.
+If a stored card with an order lacks a stable ID or valid creation/update timestamps, the
+snapshot fails closed instead of inventing identifiers or revisions; resolving
+such legacy data requires a separately authorized write.
+An absent or unreadable state also fails instead of returning an empty list;
+the read does not create a corruption backup.
+On Windows the snapshot uses the existing writer lock; if that lock file is
+absent or inaccessible it fails without creating one. On other platforms the
+snapshot relies on atomic state replacement and does not acquire that lock.
+
 An optional `search_field` scopes `query` before sorting and `limit` to
 `number`, `date`, `client`, `phone`, `vehicle`, `summary`, or `license_plate`.
 `search_field=number` matches the complete normalized repair-order number;

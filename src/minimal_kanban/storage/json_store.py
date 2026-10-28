@@ -4,7 +4,9 @@ import hashlib
 import json
 import math
 import shutil
+import sys
 import time
+from contextlib import nullcontext
 from copy import copy, deepcopy
 from dataclasses import fields
 from datetime import timedelta
@@ -37,6 +39,7 @@ from ..models import (
     utc_now,
 )
 from ..performance import MeasuredRLock, record_timing
+from ..repair_order import RepairOrder
 from ..services.parts_store_column import ensure_parts_store_column
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
@@ -47,6 +50,7 @@ from .limited_io import read_bytes_limited, read_text_limited
 
 SLOW_STORAGE_OPERATION_MS = 250.0
 JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
+_SNAPSHOT_REQUIRES_FILE_LOCK = sys.platform == "win32"
 _CARD_CONTENT_FIELDS = tuple(
     field.name for field in fields(Card) if field.name not in {"column", "position"}
 )
@@ -241,6 +245,38 @@ class JsonStore:
 
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
+
+    def read_repair_order_cards_snapshot(self) -> list[Card]:
+        """Read the atomically replaced state without repair, feed, or file writes.
+
+        Normalization happens only in this independent snapshot. Writers replace
+        the state atomically. On Windows, opening a state file can prevent replace,
+        so use the existing writer lock without creating it. Never cache the snapshot.
+        """
+        guard = (
+            self._process_lock.acquire(existing_only=True)
+            if _SNAPSHOT_REQUIRES_FILE_LOCK
+            else nullcontext()
+        )
+        with self._lock, guard:
+            state = self._read_state(preserve_corrupted=False)
+            raw_cards = state.get("cards", [])
+            if isinstance(raw_cards, list) and any(
+                isinstance(card, dict)
+                and not RepairOrder.from_dict(card.get("repair_order")).is_empty()
+                and (
+                    not str(card.get("id") or "").strip()
+                    or not parse_datetime(card.get("created_at"))
+                    or not parse_datetime(card.get("updated_at"))
+                )
+                for card in raw_cards
+            ):
+                raise StateFileCorruptedError(
+                    "Невозможно безопасно прочитать карточки без идентификатора или дат."
+                )
+            columns, _ = self._normalize_columns(state)
+            cards, _ = self._normalize_cards(state, columns)
+            return cards
 
     def read_bundle_with_signature(
         self,
@@ -878,8 +914,10 @@ class JsonStore:
             "settings": bundle["settings"],
         }
 
-    def _read_state(self) -> dict:
+    def _read_state(self, *, preserve_corrupted: bool = True) -> dict:
         if not self._state_file.exists():
+            if not preserve_corrupted:
+                raise FileNotFoundError("Файл состояния отсутствует.")
             return deepcopy(DEFAULT_STATE)
         try:
             payload = json.loads(
@@ -891,6 +929,8 @@ class JsonStore:
                 message="state file JSON is too deeply nested",
             )
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
+            if not preserve_corrupted:
+                raise StateFileCorruptedError("Файл состояния поврежден.") from None
             self._validated_state_signature = None
             backup = self._preserve_corrupted_state()
             self._log_warning(
@@ -901,6 +941,8 @@ class JsonStore:
                 f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             ) from None
         if not isinstance(payload, dict):
+            if not preserve_corrupted:
+                raise StateFileCorruptedError("Файл состояния поврежден.") from None
             self._validated_state_signature = None
             backup = self._preserve_corrupted_state()
             self._log_warning(
@@ -910,7 +952,8 @@ class JsonStore:
             raise StateFileCorruptedError(
                 f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             )
-        self._validated_state_signature = self._state_signature()
+        if preserve_corrupted:
+            self._validated_state_signature = self._state_signature()
         return payload
 
     def _read_state_text(self) -> str:

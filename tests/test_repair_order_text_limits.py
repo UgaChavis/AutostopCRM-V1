@@ -172,7 +172,7 @@ class RepairOrderTextLimitTests(CardServiceCase):
         self.assertEqual(path.read_text(encoding="utf-8"), original)
         self.assertEqual(list(path.parent.glob(f".{path.name}.*.tmp")), [])
 
-    def test_list_repair_orders_creates_text_files_and_sorts_by_latest_number(self) -> None:
+    def test_list_repair_orders_sorts_without_materializing_text_file(self) -> None:
         first = self.service.create_card(
             {"vehicle": "KIA RIO", "title": "Первый заказ", "deadline": {"hours": 2}}
         )
@@ -208,7 +208,14 @@ class RepairOrderTextLimitTests(CardServiceCase):
             }
         )
 
-        listed = self.service.list_repair_orders()
+        expected_path, _ = self.service.get_repair_order_text_download(second_id)
+        expected_path.unlink()
+        with patch.object(
+            self.service,
+            "_ensure_repair_order_text_file",
+            side_effect=AssertionError("list must not materialize a file"),
+        ):
+            listed = self.service.list_repair_orders()
         self.assertEqual(listed["meta"]["limit"], 300)
         self.assertEqual(listed["repair_orders"][0]["number"], "2")
         self.assertEqual(listed["repair_orders"][1]["number"], "1")
@@ -219,18 +226,19 @@ class RepairOrderTextLimitTests(CardServiceCase):
         self.assertEqual(listed["repair_orders"][0]["created_at"], second["card"]["created_at"])
 
         file_path = Path(listed["repair_orders"][0]["file_path"])
-        self.assertTrue(file_path.exists())
+        self.assertEqual(file_path, expected_path)
+        self.assertFalse(file_path.exists())
+
+        download_path, file_name = self.service.get_repair_order_text_download(second_id)
+        self.assertEqual(download_path.name, file_name)
+        self.assertEqual(download_path, file_path)
         text = file_path.read_text(encoding="utf-8")
         self.assertIn("2", text)
         self.assertIn("2800", text)
         self.assertIn("LADA VESTA", text)
         self.assertIn("JSON:", text)
 
-        download_path, file_name = self.service.get_repair_order_text_download(second_id)
-        self.assertEqual(download_path.name, file_name)
-        self.assertEqual(download_path, file_path)
-
-    def test_list_repair_orders_cleans_up_old_text_files_beyond_retention_limit(self) -> None:
+    def test_list_repair_orders_keeps_old_text_files_beyond_retention_limit(self) -> None:
         first = self.service.create_card(
             {"vehicle": "KIA RIO", "title": "Order one", "deadline": {"hours": 2}}
         )
@@ -261,12 +269,17 @@ class RepairOrderTextLimitTests(CardServiceCase):
         second_path, _ = self.service.get_repair_order_text_download(second["card"]["id"])
         self.assertTrue(first_path.exists())
         self.assertTrue(second_path.exists())
+        original_contents = {path: path.read_bytes() for path in (first_path, second_path)}
 
         with patch("minimal_kanban.services.card_service.REPAIR_ORDER_FILE_RETENTION_LIMIT", 1):
-            self.service.list_repair_orders()
+            listed = self.service.list_repair_orders()
 
-        self.assertFalse(first_path.exists())
-        self.assertTrue(second_path.exists())
+        self.assertEqual(
+            [item["card_id"] for item in listed["repair_orders"]], [second["card"]["id"]]
+        )
+        self.assertEqual(
+            {path: path.read_bytes() for path in (first_path, second_path)}, original_contents
+        )
 
     def test_list_repair_orders_serializes_only_requested_limit(self) -> None:
         for index in range(3):

@@ -67,7 +67,7 @@ class GatewayV2ReadContractTestsMixin:
             {
                 "entity": "repair_order",
                 "include_archived": True,
-                "filters": {"card_id": "card-closed-99"},
+                "filters": {"card_id": "99999999-9999-4999-8999-999999999999"},
             },
         )
         intersection = await self._call(
@@ -92,7 +92,7 @@ class GatewayV2ReadContractTestsMixin:
         )
         self.assertEqual("all", exact.structuredContent["summary"]["applied_filters"]["status"])
         self.assertEqual(
-            ["card-closed-99"],
+            ["99999999-9999-4999-8999-999999999999"],
             [item["card_id"] for item in archived.structuredContent["data"]["items"]],
         )
         self.assertEqual([], intersection.structuredContent["data"]["items"])

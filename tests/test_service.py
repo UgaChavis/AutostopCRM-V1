@@ -8080,7 +8080,7 @@ class CardServiceTests(CardServiceCase):
         reread = self.service.get_repair_order({"card_id": card_id})["repair_order"]
         self.assertEqual(reread["number"], "1")
 
-    def test_legacy_repair_order_without_number_gets_one_number_once(self) -> None:
+    def test_legacy_repair_order_number_is_assigned_by_write_not_list(self) -> None:
         created = self.service.create_card(
             {"vehicle": "Legacy", "title": "No number", "deadline": {"hours": 2}}
         )
@@ -8100,7 +8100,7 @@ class CardServiceTests(CardServiceCase):
         )
 
         listed = self.service.list_repair_orders({"status": "all"})
-        self.assertEqual(listed["repair_orders"][0]["number"], "1")
+        self.assertEqual(listed["repair_orders"][0]["number"], "")
 
         updated = self.service.update_repair_order(
             {"card_id": card_id, "repair_order": {"comment": "Дополнено без смены номера"}}

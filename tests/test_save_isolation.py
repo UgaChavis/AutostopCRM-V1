@@ -167,20 +167,27 @@ class SaveIsolationTests(unittest.TestCase):
         self.store.write_bundle(**{**bundle, "cards": legacy_cards})
         return card_id, attachment, target_path, legacy_path
 
-    def test_repair_order_read_reuses_unchanged_cards_without_writing(self):
+    def test_repair_order_read_uses_independent_snapshot_without_writing(self):
         card_id = self.create_order()
         source = self.store.read_bundle()
-        synchronize = self.service._synchronize_repair_order_numbers
+        snapshot = self.store.read_repair_order_cards_snapshot
+        before_state = (self.root / "state.json").read_bytes()
+        before_files = self.order_files()
 
-        def check_cards(cards):
+        def check_cards():
+            cards = snapshot()
             self.assertEqual(len(cards), len(source["cards"]))
             for card, original in zip(cards, source["cards"], strict=True):
-                self.assertIs(card, original)
-            return synchronize(cards)
+                self.assertEqual(card.id, original.id)
+                self.assertIsNot(card, original)
+            return cards
 
         with (
+            patch.object(self.store, "read_repair_order_cards_snapshot", side_effect=check_cards),
             patch.object(
-                self.service, "_synchronize_repair_order_numbers", side_effect=check_cards
+                self.service,
+                "_synchronize_repair_order_numbers",
+                side_effect=AssertionError("unexpected number assignment"),
             ),
             patch.object(
                 self.service, "_save_bundle", side_effect=AssertionError("unexpected save")
@@ -188,6 +195,8 @@ class SaveIsolationTests(unittest.TestCase):
         ):
             result = self.service.list_repair_orders({"compact": True})
         self.assertEqual(result["repair_orders"][0]["card_id"], card_id)
+        self.assertEqual((self.root / "state.json").read_bytes(), before_state)
+        self.assertEqual(self.order_files(), before_files)
 
     def test_rejected_client_link_keeps_order_files_and_success_publishes_new_details(self):
         card_id = self.create_order()
@@ -213,70 +222,61 @@ class SaveIsolationTests(unittest.TestCase):
             client_id,
         )
 
-    def test_failed_legacy_order_number_assignment_preserves_retained_order(self):
+    def test_read_ignores_uncommitted_cached_order_number(self):
         self.create_order()
         original = self.store.read_bundle()["cards"][0]
-        # A retained legacy model can still need a missing number assigned on read.
+        persisted_number = original.repair_order.number
+        self.assertTrue(persisted_number)
+        # A detached snapshot must reflect the file, not an uncommitted cached object.
         original.repair_order.number = ""
         before = (self.root / "state.json").read_bytes()
         with patch.object(self.service, "_save_bundle", side_effect=OSError("injected")):
-            with self.assertRaises(OSError):
-                self.service.list_repair_orders()
+            listed = self.service.list_repair_orders()
+        self.assertEqual(listed["repair_orders"][0]["number"], persisted_number)
         self.assertEqual(original.repair_order.number, "")
         self.assertEqual((self.root / "state.json").read_bytes(), before)
 
-    def test_legacy_order_number_commit_survives_directory_cleanup_failure(self):
+    def test_legacy_order_read_does_not_attempt_directory_cleanup(self):
         card_id = self.create_order()
-        original = self.store.read_bundle()["cards"][0]
-        original.repair_order.number = ""
+        bundle = self.store.read_bundle()
+        legacy_cards = deepcopy(bundle["cards"])
+        next(card for card in legacy_cards if card.id == card_id).repair_order.number = ""
+        self.store.write_bundle(**{**bundle, "cards": legacy_cards})
+        before_state = (self.root / "state.json").read_bytes()
+        before_files = self.order_files()
 
         with (
             patch.object(
                 self.service,
                 "_cleanup_repair_orders_directory",
                 side_effect=PermissionError("directory cleanup denied"),
-            ),
+            ) as cleanup,
             patch.object(self.service._logger, "exception") as log_exception,
         ):
             listed = self.service.list_repair_orders({"card_id": card_id})
 
-        persisted = next(card for card in self.persisted()["cards"] if card.id == card_id)
-        self.assertEqual(listed["repair_orders"][0]["number"], persisted.repair_order.number)
-        self.assertTrue(persisted.repair_order.number)
-        log_exception.assert_called_once_with("repair_order_directory_cleanup_failed")
+        self.assertEqual(listed["repair_orders"][0]["number"], "")
+        cleanup.assert_not_called()
+        log_exception.assert_not_called()
+        self.assertEqual((self.root / "state.json").read_bytes(), before_state)
+        self.assertEqual(self.order_files(), before_files)
 
-    def test_legacy_order_number_commit_publishes_one_structural_feed_update(self):
+    def test_legacy_order_read_does_not_publish_structural_feed_update(self):
         card_id = self.create_order()
         bundle = self.store.read_bundle()
         legacy_cards = deepcopy(bundle["cards"])
         next(card for card in legacy_cards if card.id == card_id).repair_order.number = ""
         self.store.write_bundle(**{**bundle, "cards": legacy_cards})
         before_rows = self.store.change_feed_store.raw_events_for_test()
-        before_high_water = before_rows[-1]["sequence"] if before_rows else 0
+        before_state = (self.root / "state.json").read_bytes()
 
         listed = self.service.list_repair_orders({"card_id": card_id})
 
+        self.assertEqual(listed["repair_orders"][0]["number"], "")
+        self.assertEqual((self.root / "state.json").read_bytes(), before_state)
+        self.assertEqual(self.store.change_feed_store.raw_events_for_test(), before_rows)
         persisted = next(card for card in self.persisted()["cards"] if card.id == card_id)
-        self.assertTrue(persisted.repair_order.number)
-        self.assertEqual(listed["repair_orders"][0]["number"], persisted.repair_order.number)
-        new_rows = [
-            row
-            for row in self.store.change_feed_store.raw_events_for_test()
-            if row["sequence"] > before_high_water
-        ]
-        self.assertEqual(
-            [("repair_order_updated", "repair_order", card_id, "update", "state_projection")],
-            [
-                (
-                    row["action"],
-                    row["entity_type"],
-                    row["entity_id"],
-                    row["change_type"],
-                    row["producer"],
-                )
-                for row in new_rows
-            ],
-        )
+        self.assertEqual(persisted.repair_order.number, "")
 
         reopened = JsonStore(self.root / "state.json", self.logger)
         reopened.reconcile_change_feed()
