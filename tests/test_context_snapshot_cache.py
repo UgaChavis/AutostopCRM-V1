@@ -4,12 +4,14 @@ from __future__ import annotations
 # ruff: noqa: I001
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 from minimal_kanban.storage.json_store import StateFileCorruptedError
+from tests.snapshot_lock_helpers import assert_fresh_under_file_lock
 
 
 class ContextSnapshotCacheTests(CardServiceCase):
@@ -41,7 +43,7 @@ class ContextSnapshotCacheTests(CardServiceCase):
             second = self.service.get_card({"card_id": self.card_id})
             self.assertEqual(second["card"]["title"], "CACHE_TITLE_ONE")
             self.assertEqual(second["card"]["repair_order"]["works"], [])
-            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 1)
         self.assertEqual(before, self.files())
 
     def test_event_details_are_detached_from_cached_models(self):
@@ -69,7 +71,7 @@ class ContextSnapshotCacheTests(CardServiceCase):
             )
             event = next(item for item in second["events"] if item["id"] == "synthetic-event-cache")
             self.assertEqual(event["details"]["nested"]["value"], "ORIGINAL")
-            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 1)
         self.assertEqual(files, self.files())
 
     def test_atomic_replace_and_service_write_invalidate_snapshot(self):
@@ -98,12 +100,18 @@ class ContextSnapshotCacheTests(CardServiceCase):
         os.utime(self.state_file, ns=(before.st_atime_ns, before.st_mtime_ns))
         after = self.state_file.stat()
         self.assertEqual((before.st_size, before.st_mtime_ns), (after.st_size, after.st_mtime_ns))
-        self.assertNotEqual(before.st_ctime_ns, after.st_ctime_ns)
+        if sys.platform != "win32":
+            self.assertNotEqual(before.st_ctime_ns, after.st_ctime_ns)
         files = self.files()
         self.assertEqual(
             self.service.get_card({"card_id": self.card_id})["card"]["title"], "CACHE_TITLE_TWO"
         )
         self.assertEqual(files, self.files())
+
+    def test_forced_lock_mode_reads_fresh_without_writes(self):
+        assert_fresh_under_file_lock(
+            self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
+        )
 
     def test_missing_or_corrupt_state_never_returns_cached_data(self):
         self.service.get_card({"card_id": self.card_id})

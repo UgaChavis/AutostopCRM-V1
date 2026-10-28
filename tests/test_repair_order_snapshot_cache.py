@@ -3,12 +3,14 @@ from __future__ import annotations
 # Fixture import selects this checkout before importing application modules.
 # ruff: noqa: I001
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 from minimal_kanban.storage.json_store import StateFileCorruptedError
+from tests.snapshot_lock_helpers import assert_fresh_under_file_lock
 
 
 class RepairOrderSnapshotCacheTests(CardServiceCase):
@@ -49,7 +51,7 @@ class RepairOrderSnapshotCacheTests(CardServiceCase):
             next(card for card in first if card.id == self.card_id).title = "MUTATED_BY_CALLER"
             second = self.store.read_repair_order_cards_snapshot()
             self.assertEqual(self.title(second), "CACHE_TITLE_ONE")
-            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 1)
         self.assertEqual(before, self.files())
 
     def test_snapshot_cache_external_atomic_replace_invalidates(self):
@@ -76,12 +78,18 @@ class RepairOrderSnapshotCacheTests(CardServiceCase):
         after = self.state_file.stat()
         self.assertEqual(old.st_size, after.st_size)
         self.assertEqual(old.st_mtime_ns, after.st_mtime_ns)
-        self.assertNotEqual(old.st_ctime_ns, after.st_ctime_ns)
+        if sys.platform != "win32":
+            self.assertNotEqual(old.st_ctime_ns, after.st_ctime_ns)
         before = self.files()
         self.assertEqual(
             self.title(self.store.read_repair_order_cards_snapshot()), "CACHE_TITLE_TWO"
         )
         self.assertEqual(before, self.files())
+
+    def test_forced_lock_mode_reads_fresh_without_writes(self):
+        assert_fresh_under_file_lock(
+            self, lambda: self.title(self.store.read_repair_order_cards_snapshot())
+        )
 
     def test_snapshot_cache_missing_and_corrupt_never_returns_cached_data(self):
         self.store.read_repair_order_cards_snapshot()
