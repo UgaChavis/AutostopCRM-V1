@@ -50,6 +50,27 @@ class VerifiedWindowsFileTests(unittest.TestCase):
             ) as verified:
                 self.assertIsNone(verified)
 
+    def test_mapping_failure_closes_open_handle(self):
+        opened = []
+
+        def open_file(path):
+            handle = path.open("rb")
+            opened.append(handle)
+            return handle
+
+        with patch.object(windows_state_verifier, "_open_read_without_writers", open_file):
+            with patch.object(windows_state_verifier.mmap, "mmap", side_effect=MemoryError):
+                with windows_state_verifier.verified_committed_file(
+                    self.path, self.payload
+                ) as value:
+                    self.assertIsNone(value)
+            self.assertTrue(opened[-1].closed)
+            with patch.object(windows_state_verifier.mmap, "mmap", side_effect=RuntimeError):
+                with self.assertRaises(RuntimeError):
+                    with windows_state_verifier.verified_committed_file(self.path, self.payload):
+                        pass
+            self.assertTrue(opened[-1].closed)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows share modes")
     def test_native_handle_excludes_writes_and_rename(self):
         with windows_state_verifier.verified_committed_file(self.path, self.payload) as verified:
@@ -139,6 +160,25 @@ class WindowsCommittedCardLockTests(CardServiceCase):
         self.assertEqual(card["title"], "SYNTHETIC_WINDOWS_EDIT")
         self.assertIsNone(self.store._committed_card_source)
         self.assertEqual(self.state_file.read_bytes(), changed)
+
+    def test_mapping_memory_error_falls_back_to_locked_read(self):
+        opened = []
+
+        def open_file(path):
+            handle = path.open("rb")
+            opened.append(handle)
+            return handle
+
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(json_store.sys, "platform", "win32"),
+            patch.object(windows_state_verifier, "_open_read_without_writers", open_file),
+            patch.object(windows_state_verifier.mmap, "mmap", side_effect=MemoryError),
+        ):
+            card = self.service.get_card({"card_id": self.card_id})["card"]
+        self.assertEqual(card["title"], "SYNTHETIC_WINDOWS_CARD")
+        self.assertIsNone(self.store._committed_card_source)
+        self.assertTrue(opened and opened[0].closed)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows share modes")
     def test_native_windows_read_holds_existing_lock(self):

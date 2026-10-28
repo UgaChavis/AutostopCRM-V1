@@ -79,25 +79,27 @@ def verified_committed_file(path, payload):
     mapping = None
     verified = None
     try:
-        handle = _open_read_without_writers(path)
-        initial = os.fstat(handle.fileno())
-        if (
-            stat.S_ISREG(initial.st_mode)
-            and initial.st_ino
-            and initial.st_size == len(payload)
-            and payload
-        ):
-            candidate = _VerifiedFile(path, handle, _identity(initial))
-            if candidate.current():
-                mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
-                if len(mapping) == len(payload) and mapping.find(payload) == 0:
-                    verified = candidate
-    except (OSError, OverflowError, ValueError):
-        verified = None
-    try:
+        try:
+            handle = _open_read_without_writers(path)
+            initial = os.fstat(handle.fileno())
+            if (
+                stat.S_ISREG(initial.st_mode)
+                and initial.st_ino
+                and initial.st_size == len(payload)
+                and payload
+            ):
+                candidate = _VerifiedFile(path, handle, _identity(initial))
+                if candidate.current():
+                    mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
+                    if len(mapping) == len(payload) and mapping.find(payload) == 0:
+                        verified = candidate
+        except (MemoryError, OSError, OverflowError, ValueError):
+            verified = None
         yield verified
     finally:
-        if mapping is not None:
-            mapping.close()
-        if handle is not None:
-            handle.close()
+        try:
+            if mapping is not None:
+                mapping.close()
+        finally:
+            if handle is not None:
+                handle.close()
