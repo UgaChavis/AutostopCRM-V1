@@ -2455,20 +2455,11 @@ class CardService(
         with self._lock:
             payload = payload or {}
             event_limit = self._validated_limit(payload.get("event_limit"), default=20, maximum=200)
-            include_repair_order_text = self._validated_optional_bool(
-                payload, "include_repair_order_text", default=True
-            )
-            bundle = (
-                self._store.read_bundle()
-                if include_repair_order_text
-                else self._store._read_context_bundle_snapshot(
-                    domains=("clients", "stickies", "events", "settings")
-                )
+            bundle, include_repair_order_text, snapshot_read, strict_links = (
+                read_context.prepare_card_context(self, payload)
             )
             card = self._find_card(bundle["cards"], payload.get("card_id"))
-            read_warnings = read_context.maybe_card_warnings(
-                bundle, card, not include_repair_order_text
-            )
+            read_warnings = read_context.maybe_card_warnings(bundle, card, snapshot_read)
             column_labels = self._column_labels(bundle["columns"])
             board_context_payload = self._build_board_context_payload(
                 bundle["columns"],
@@ -2489,9 +2480,17 @@ class CardService(
             has_repair_order = self._card_has_repair_order(card)
             linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
             matches = read_context.ranked_context_clients(self, card, bundle["clients"])
-            if not include_repair_order_text:
-                read_context.validate_context_relations(
-                    self, bundle, card_events, event_limit, linked_client, matches, read_warnings
+            related_by_client = {}
+            if snapshot_read:
+                related_by_client = read_context.validate_context_relations(
+                    self,
+                    bundle,
+                    card_events,
+                    event_limit,
+                    linked_client,
+                    matches,
+                    read_warnings,
+                    strict_links,
                 )
             return deepcopy(
                 {
@@ -2507,19 +2506,19 @@ class CardService(
                     "events": events,
                     "attachments": active_attachments,
                     "removed_attachments": removed_attachments,
-                    "client": (
-                        self._serialize_client(linked_client, bundle["cards"], include_stats=True)
-                        if linked_client is not None
-                        else None
+                    "client": read_context.serialize_context_client(
+                        self, linked_client, bundle, related_by_client
                     ),
                     "client_suggestions": [
-                        self._serialize_client(
-                            client, bundle["cards"], include_stats=True, compact=True
+                        read_context.serialize_context_client(
+                            self, client, bundle, related_by_client, compact=True
                         )
                         for _, client in matches
                     ],
                     "repair_order_text": (
-                        self._repair_order_text_payload(card, operator_payload=payload)
+                        self._repair_order_text_payload(
+                            card, operator_payload=payload, read_only=snapshot_read
+                        )
                         if include_repair_order_text and has_repair_order
                         else None
                     ),
@@ -9444,8 +9443,9 @@ class CardService(
         *,
         force: bool = False,
         operator_payload: dict[str, Any] | None = None,
+        read_only: bool = False,
     ) -> dict[str, str]:
-        if not operator_can_access_employees_cashboxes(operator_payload):
+        if read_only or not operator_can_access_employees_cashboxes(operator_payload):
             file_name = self._repair_order_file_name(card)
             return {
                 "file_name": file_name,

@@ -79,22 +79,40 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
                 except StateFileCorruptedError:
                     return {"ok": False, "error": {"code": "state_file_corrupted"}}
 
-            def get_client(self, client_id, *, order_limit=None):
+            def get_client(self, client_id, *, order_limit=None, strict_client_links=None):
                 return self.relay(
-                    "get_client", {"client_id": client_id, "order_limit": order_limit}
+                    "get_client",
+                    {
+                        "client_id": client_id,
+                        "order_limit": order_limit,
+                        "strict_client_links": strict_client_links,
+                    },
                 )
 
             def get_card(self, card_id):
                 return self.relay("get_card", {"card_id": card_id})
 
-            def get_card_context(self, card_id, *, event_limit, include_repair_order_text):
+            def get_card_context(
+                self,
+                card_id,
+                *,
+                event_limit,
+                include_repair_order_text,
+                read_only=None,
+                strict_client_links=None,
+            ):
+                payload = {
+                    "card_id": card_id,
+                    "event_limit": event_limit,
+                    "include_repair_order_text": include_repair_order_text,
+                }
+                if read_only is not None:
+                    payload["read_only"] = read_only
+                if strict_client_links is not None:
+                    payload["strict_client_links"] = strict_client_links
                 return self.relay(
                     "get_card_context",
-                    {
-                        "card_id": card_id,
-                        "event_limit": event_limit,
-                        "include_repair_order_text": include_repair_order_text,
-                    },
+                    payload,
                 )
 
             def get_repair_order(self, card_id, *, create_if_missing=None):
@@ -281,7 +299,7 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
         self.assertEqual(before, self.snapshot())
 
     async def test_gateway_keeps_warning_and_redacts_id_when_payload_budget_is_exhausted(self):
-        self.board_api.get_client = lambda _client_id, *, order_limit: {
+        self.board_api.get_client = lambda _client_id, *, order_limit, strict_client_links: {
             "ok": True,
             "data": {
                 "client": {"id": self.client_id},
@@ -304,6 +322,7 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
         state = json.loads(self.state_file.read_text())
         card = next(item for item in state["cards"] if item["id"] == self.card_ids[0])
         card["client_id"] = ""
+        card["client_vehicle_id"] = ""
         self.state_file.write_text(json.dumps(state), encoding="utf-8")
         before = self.snapshot()
         for detail in ("summary", "full"):

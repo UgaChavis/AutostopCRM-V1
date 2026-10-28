@@ -444,6 +444,21 @@ path is an expected path and does not promise the file exists. Explicit
 retain their separate write/materialization behavior. Diagnostic warnings may
 still write to or rotate application logs.
 
+The MCP `get_client` and `agent_entity_context(client)` request
+`strict_client_links=true`: related cards, orders and derived vehicles then
+require an exact stored `client_id`, and their totals count only those records.
+Excluded text matches are signaled by `related_card_client_match_unverified`.
+The ordinary service/API client profile retains its existing matching behavior
+unless this flag is explicitly set. In read-only card and repair-order context,
+a stored `client_vehicle_id` must resolve uniquely to a retained vehicle of the
+stored client; otherwise the read fails with `state_file_corrupted`.
+
+The MCP `get_card_context` requests a read-only snapshot for both values of
+`include_repair_order_text`. When text is requested, it is rendered in memory
+with the caller's operator permissions and an empty `file_path`; it does not
+create, refresh or clean up an order file. The service/API default without the
+`read_only` flag preserves its existing text-materialization behavior.
+
 For legacy data the read-only context may contain `read_warnings`:
 `deadline_calculated_from_created_at` means the displayed deadline was
 deterministically calculated rather than loaded from the stored timestamp;
@@ -457,15 +472,16 @@ deadline-derived fields from its response; client-context warnings are in
 to withhold payment IDs across its returned orders. Existing direct service
 responses retain the legacy values for compatibility and include warnings; the
 gateway safeguard does not protect other raw MCP methods or write workflows.
-`related_card_client_match_unverified` means that at least one related card is
-included by a name, telephone or similar text match rather than an exact
-`client_id`. Text coincidence does not establish the client-card relationship;
-confirm the exact link independently before relying on it or making a write.
+`related_card_client_match_unverified` means that matching found at least one
+card by name, telephone or similar text without the same exact `client_id`.
+Strict client contexts exclude those cards; the ordinary client profile may
+still include them. Text coincidence does not establish a client-card
+relationship; confirm it independently before relying on it or making a write.
 Selected card, client, vehicle and attachment identifiers are checked against
 their source records; certain malformed financial and attachment data fail
-closed. A card's stored client and vehicle IDs are checked for normalization,
-but vehicle ownership and every relationship are not independently verified.
-These checks are not complete validation of all stored fields. Non-Windows
+closed. A card's stored client and vehicle IDs are checked for normalization
+and, when a vehicle ID exists, for unique membership in the stored client;
+this does not validate every relationship or all stored fields. Non-Windows
 snapshots are cached by filesystem signature and service responses are detached
 from the cached models; Windows snapshots use the existing writer lock and are
 not cached.

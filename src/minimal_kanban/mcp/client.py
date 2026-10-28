@@ -437,14 +437,21 @@ class BoardApiClient:
         *,
         event_limit: int = 20,
         include_repair_order_text: bool = True,
+        read_only: bool | None = None,
+        strict_client_links: bool | None = None,
     ) -> dict:
+        payload: dict[str, object] = {
+            "card_id": card_id,
+            "event_limit": event_limit,
+            "include_repair_order_text": include_repair_order_text,
+        }
+        if read_only is not None:
+            payload["read_only"] = read_only
+        if strict_client_links is not None:
+            payload["strict_client_links"] = strict_client_links
         return self._request(
             "/api/get_card_context",
-            {
-                "card_id": card_id,
-                "event_limit": event_limit,
-                "include_repair_order_text": include_repair_order_text,
-            },
+            payload,
         )
 
     def get_board_snapshot(
@@ -676,10 +683,18 @@ class BoardApiClient:
             payload["limit"] = limit
         return self._request_readonly_query("/api/search_clients", payload)
 
-    def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
+    def get_client(
+        self,
+        client_id: str,
+        *,
+        order_limit: int | None = None,
+        strict_client_links: bool | None = None,
+    ) -> dict:
         payload: dict[str, object] = {"client_id": client_id}
         if order_limit is not None:
             payload["order_limit"] = order_limit
+        if strict_client_links is not None:
+            payload["strict_client_links"] = strict_client_links
         return self._request_readonly_query("/api/get_client", payload)
 
     def get_client_stats(self, client_id: str) -> dict:

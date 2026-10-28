@@ -122,13 +122,22 @@ class CardServiceClientsMixin:
         with self._lock:
             payload = payload or {}
             order_limit = self._validated_limit(payload.get("order_limit"), default=30, maximum=200)
+            strict_links = self._validated_optional_bool(
+                payload, "strict_client_links", default=False
+            )
             bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
             client = self._find_client(bundle["clients"], payload.get("client_id"))
             bundle.require_client(client)
             related_cards = self._client_related_cards(client, bundle["cards"])
             read_warnings = set()
+            if strict_links:
+                if any(card.client_id != client.id for card in related_cards):
+                    read_warnings.add("related_card_client_match_unverified")
+                related_cards = [card for card in related_cards if card.client_id == client.id]
             for card in related_cards:
                 bundle.require_card(card)
+                if strict_links:
+                    bundle.require_card_vehicle_link(card)
                 read_warnings.update(bundle.card_warnings(card))
                 if card.client_id != client.id:
                     read_warnings.add("related_card_client_match_unverified")

@@ -1530,6 +1530,8 @@ def create_mcp_server(
                 card_id,
                 event_limit=effective_event_limit,
                 include_repair_order_text=include_repair_order_text,
+                read_only=True,
+                strict_client_links=True,
             ),
             params={
                 "card_id": card_id,
@@ -2372,7 +2374,9 @@ def create_mcp_server(
         effective_order_limit = _normalize_limit(order_limit, default=30, maximum=200)
         return _relay_board_call(
             "get_client",
-            lambda: board_api.get_client(client_id, order_limit=effective_order_limit),
+            lambda: board_api.get_client(
+                client_id, order_limit=effective_order_limit, strict_client_links=True
+            ),
             params={"client_id": client_id, "order_limit": effective_order_limit},
             transform=lambda response: _with_data_meta(
                 response,

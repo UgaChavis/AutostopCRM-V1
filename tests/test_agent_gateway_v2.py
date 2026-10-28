@@ -249,8 +249,14 @@ class FakeBoardApi:
             },
         }
 
-    def get_client(self, client_id: str, *, order_limit: int | None = None) -> dict:
-        del order_limit
+    def get_client(
+        self,
+        client_id: str,
+        *,
+        order_limit: int | None = None,
+        strict_client_links: bool | None = None,
+    ) -> dict:
+        del order_limit, strict_client_links
         client = self.created_clients.get(client_id)
         if client is None:
             return {"ok": False, "error": {"code": "not_found"}}
@@ -348,8 +354,10 @@ class FakeBoardApi:
         *,
         event_limit: int = 10,
         include_repair_order_text: bool = False,
+        read_only: bool | None = None,
+        strict_client_links: bool | None = None,
     ) -> dict:
-        del event_limit, include_repair_order_text
+        del event_limit, include_repair_order_text, read_only, strict_client_links
         return {
             "ok": True,
             "data": {
@@ -2021,7 +2029,7 @@ class AgentGatewayV2Tests(
         self.assertEqual([False], self.board_api.repair_order_read_options)
 
     async def test_non_card_summary_contexts_exclude_private_fields(self) -> None:
-        self.board_api.get_client = lambda client_id, *, order_limit: {
+        self.board_api.get_client = lambda client_id, *, order_limit, strict_client_links: {
             "ok": True,
             "data": {
                 "client": {

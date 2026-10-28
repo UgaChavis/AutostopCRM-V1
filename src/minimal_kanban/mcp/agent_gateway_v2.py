@@ -2273,6 +2273,7 @@ def register_agent_gateway_v2(
                     entity_id,
                     event_limit=10,
                     include_repair_order_text=False,
+                    strict_client_links=True,
                 )
                 if detail == "full"
                 else _board_call(board_api.get_card, entity_id)
@@ -2282,6 +2283,7 @@ def register_agent_gateway_v2(
                 board_api.get_client,
                 entity_id,
                 order_limit=20 if detail == "full" else 5,
+                strict_client_links=True,
             )
         elif entity == "repair_order":
             response = await _board_call(
