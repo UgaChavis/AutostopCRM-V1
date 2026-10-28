@@ -463,8 +463,9 @@ card totals and does not supply a client-vehicle ID. Card-derived vehicle fields
 in `related_card_candidates` are separately marked `vehicle_relation=unverified`.
 Every source client must have a unique canonical ID and be parseable, even beyond
 the result limit. Card-based search and statistics require canonical source card
-IDs and reject collisions affecting the considered clients. Profile-only lists
-do not normalize cards. Invalid source identities make the read fail closed.
+IDs and reject collisions affecting the considered clients before archive
+retention. Profile-only lists do not normalize cards. Invalid source identities
+make the read fail closed.
 The existing `/api/search_clients` and `/api/list_clients` UI behavior remains
 unchanged.
 

@@ -51,9 +51,29 @@ def _search_clients(raw_clients):
     return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))
 
 
+def _search_cards_before_retention(raw_cards, columns):
+    """Build a complete detached view to validate colliding identities."""
+    valid_columns = {column.id for column in columns}
+    try:
+        return [
+            Card.from_dict(
+                item,
+                valid_columns=valid_columns,
+                default_column=columns[0].id,
+                fallback_position=index,
+            )
+            for index, item in enumerate(raw_cards)
+        ]
+    except (OverflowError, TypeError, ValueError):
+        raise StateFileCorruptedError("Исходная запись карточки повреждена.") from None
+
+
 class ReadonlyContextSnapshot(dict):
-    def __init__(self, bundle, state, *, source_indexes=None, cards_index=None):
+    def __init__(
+        self, bundle, state, *, source_indexes=None, cards_index=None, search_cards_need_retention=False
+    ):
         super().__init__(bundle)
+        self.search_cards_need_retention = search_cards_need_retention
         if source_indexes is None:
             self._cards = cards_index if cards_index is not None else _index(state.get("cards"))
             self._clients = _index(state.get("clients"))
@@ -283,8 +303,8 @@ class CommittedCardSource:
 
 
 def build_context_snapshot(store, state, domains):
-    raw_cards = state.get("cards")
     needs_cards = "client_search" not in domains or "client_search_cards" in domains
+    raw_cards = state.get("cards") if needs_cards else None
     if needs_cards and (
         not isinstance(raw_cards, list) or any(not isinstance(card, dict) for card in raw_cards)
     ):
@@ -296,6 +316,7 @@ def build_context_snapshot(store, state, domains):
             raise StateFileCorruptedError("Снимок состояния содержит поврежденный список.")
     raw_clients = state.get("clients", [])
     cards_index = None if needs_cards else {}
+    search_cards_need_retention = False
     clients = []
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
@@ -307,7 +328,13 @@ def build_context_snapshot(store, state, domains):
         cards_index = _index(raw_cards)
     if needs_cards:
         columns, _ = store._normalize_columns(state)
-        cards, _ = store._normalize_cards(state, columns)
+        if cards_index is not None and any(len(rows) > 1 for rows in cards_index.values()):
+            # Check candidate relations against the complete source before retention
+            # can remove one side of a collision.
+            cards = _search_cards_before_retention(raw_cards, columns)
+            search_cards_need_retention = True
+        else:
+            cards, _ = store._normalize_cards(state, columns)
     else:
         columns, cards = [], []
     if "clients" in domains and "client_search" not in domains:
@@ -326,4 +353,5 @@ def build_context_snapshot(store, state, domains):
         },
         state,
         cards_index=cards_index,
+        search_cards_need_retention=search_cards_need_retention,
     )

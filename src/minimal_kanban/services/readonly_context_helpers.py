@@ -3,16 +3,26 @@
 from copy import deepcopy
 
 
+def _search_card_clients(service, card, related, client_ids_by_key):
+    if card.client_id:
+        return {card.client_id} if card.client_id in related else set()
+    matching = set()
+    for key in service._card_client_values(card):
+        matching.update(client_ids_by_key.get(key, set()))
+    return matching
+
+
 def client_readonly_related_cards(service, bundle, clients, cards):
     related = {client.id: [] for client in clients}
     client_ids_by_key = service._client_ids_by_match_key(clients)
+    if bundle.search_cards_need_retention:
+        for card in cards:
+            if _search_card_clients(service, card, related, client_ids_by_key):
+                bundle.require_card_identity(card)
+        # Retention is pure; positions are not used by client search or stats.
+        cards, _ = service._store._apply_card_retention(cards)
     for card in cards:
-        if card.client_id:
-            matching = {card.client_id} if card.client_id in related else set()
-        else:
-            matching = set()
-            for key in service._card_client_values(card):
-                matching.update(client_ids_by_key.get(key, set()))
+        matching = _search_card_clients(service, card, related, client_ids_by_key)
         if not matching:
             continue
         # Validate against every raw card with this ID before any deduplication.

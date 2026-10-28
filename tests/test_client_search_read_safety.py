@@ -23,6 +23,7 @@ from minimal_kanban.api.server import ApiServer, RequestContextFactory
 from minimal_kanban.mcp.client import BoardApiClient
 from minimal_kanban.mcp.oauth_provider import OwnerAccessToken
 from minimal_kanban.mcp.server import create_mcp_server
+from minimal_kanban.models import ARCHIVED_CARD_RETENTION_LIMIT, Card
 from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage import json_store
 from minimal_kanban.storage.json_store import StateFileCorruptedError
@@ -501,8 +502,12 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
 
         self.edit_state(duplicate_unrelated)
         before = self.snapshot()
-        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        with patch.object(
+            self.store, "_apply_card_retention", wraps=self.store._apply_card_retention
+        ) as retention:
+            result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
         self.assertTrue(result["ok"], result)
+        retention.assert_called_once()
         self.assertEqual(result["data"]["clients"][0]["id"], self.client_a["id"])
         self.assertEqual(result["data"]["clients"][0]["stats"]["cards_total"], 1)
         self.assertEqual(before, self.snapshot())
@@ -525,28 +530,92 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
                     "id": f"SYNTHETIC_ARCHIVED_{index}",
                     "updated_at": "2025-01-01T00:00:00+00:00",
                 }
-                for index in range(300)
+                for index in range(ARCHIVED_CARD_RETENTION_LIMIT)
             ]
             state["cards"] = [active, *newer, archived]
 
         self.edit_state(create_collision_beyond_retention)
         before = self.snapshot()
-        observed = {}
-        original_retention = self.store._apply_card_retention
-
-        def record_retention(cards):
-            retained, changed = original_retention(cards)
-            observed["changed"] = changed
-            observed["raw_id_count"] = sum(card.id == self.cards[0] for card in cards)
-            observed["retained_id_count"] = sum(card.id == self.cards[0] for card in retained)
-            return retained, changed
-
-        with patch.object(self.store, "_apply_card_retention", side_effect=record_retention):
+        with patch.object(
+            self.store, "_apply_card_retention", side_effect=AssertionError("collision first")
+        ) as retention:
             result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
-        self.assertEqual(observed, {"changed": True, "raw_id_count": 2, "retained_id_count": 1})
+        retention.assert_not_called()
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["code"], "state_file_corrupted")
         self.assertEqual(before, self.snapshot())
+
+    async def test_collision_cannot_hide_selected_clients_card_before_retention(self):
+        original = json.loads(self.state_file.read_text())
+        for unbound in (False, True):
+            with self.subTest(unbound=unbound):
+                state = json.loads(json.dumps(original))
+                card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+                card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+                card_b["id"] = card_a["id"]
+                archived_a = {
+                    **card_a,
+                    "archived": True,
+                    "repair_order": {},
+                    "updated_at": "2000-01-01T00:00:00+00:00",
+                }
+                if unbound:
+                    archived_a["client_id"] = ""
+                    archived_a["client_vehicle_id"] = ""
+                    archived_a["vehicle_profile"] = {"customer_name": "SYNTHETIC_A"}
+                unrelated = [
+                    {
+                        **archived_a,
+                        "id": f"SYNTHETIC_ARCHIVED_{index}",
+                        "client_id": "",
+                        "client_vehicle_id": "",
+                        "vehicle_profile": {},
+                        "updated_at": "2025-01-01T00:00:00+00:00",
+                    }
+                    for index in range(ARCHIVED_CARD_RETENTION_LIMIT)
+                ]
+                state["cards"] = [card_b, *unrelated, archived_a]
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                raw_models = [
+                    Card.from_dict(card, fallback_position=index)
+                    for index, card in enumerate(state["cards"])
+                ]
+                retained, changed = self.store._apply_card_retention(raw_models)
+                self.assertTrue(changed)
+                self.assertEqual(
+                    [card.client_id for card in retained if card.id == self.cards[0]],
+                    [self.client_b["id"]],
+                )
+                before = self.snapshot()
+                with patch.object(
+                    self.store,
+                    "_normalize_cards",
+                    side_effect=AssertionError("profile-only list must not read cards"),
+                ) as normalize_cards:
+                    profiles = await self.call(
+                        "list_clients", {"limit": 1, "include_stats": False}, raw=True
+                    )
+                self.assertTrue(profiles["ok"], profiles)
+                normalize_cards.assert_not_called()
+                self.assertEqual(profiles["data"]["clients"][0]["id"], self.client_a["id"])
+                for raw, name, arguments in (
+                    (True, "list_clients", {"limit": 1, "include_stats": True}),
+                    (True, "search_clients", {"query": "SYNTHETIC_A"}),
+                    (False, "agent_search", {"entity": "client", "query": "SYNTHETIC_A"}),
+                ):
+                    with patch.object(
+                        self.store,
+                        "_apply_card_retention",
+                        side_effect=AssertionError("collision first"),
+                    ) as retention:
+                        result = await self.call(name, arguments, raw=raw)
+                    self.assertFalse(result["ok"], result)
+                    if raw:
+                        self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                    else:
+                        self.assertIn("state_file_corrupted", result["warnings"])
+                    retention.assert_not_called()
+                    self.assertEqual(before, self.snapshot())
 
     async def test_profile_only_list_does_not_normalize_an_unrelated_bad_card(self):
         def break_unrelated_card(state):
@@ -566,6 +635,21 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
         self.assertEqual(profiles["data"]["clients"][0]["id"], self.client_a["id"])
         self.assertEqual(profiles["data"]["meta"]["total"], 2)
         with_stats = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertFalse(with_stats["ok"])
+        self.assertEqual(with_stats["error"]["code"], "state_file_corrupted")
+        self.assertEqual(before, self.snapshot())
+
+    async def test_profile_only_list_ignores_a_nonlist_card_field(self):
+        self.edit_state(lambda state: state.update(cards="SYNTHETIC_BAD_CARDS"))
+        before = self.snapshot()
+        with patch.object(
+            self.store, "_normalize_cards", side_effect=AssertionError("cards are not needed")
+        ) as normalize_cards:
+            profiles = await self.call("list_clients", {"include_stats": False}, raw=True)
+        self.assertTrue(profiles["ok"], profiles)
+        self.assertEqual(profiles["data"]["meta"]["total"], 2)
+        normalize_cards.assert_not_called()
+        with_stats = await self.call("list_clients", {"include_stats": True}, raw=True)
         self.assertFalse(with_stats["ok"])
         self.assertEqual(with_stats["error"]["code"], "state_file_corrupted")
         self.assertEqual(before, self.snapshot())
