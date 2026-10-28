@@ -61,7 +61,7 @@ class _VerifiedFile:
         try:
             return (
                 _identity(os.fstat(self.handle.fileno())) == self.initial
-                and _identity(self.path.stat()) == self.initial
+                and _identity(self.path.stat())[:3] == self.initial[:3]
             )
         except OSError:
             return False

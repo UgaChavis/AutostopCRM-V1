@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -49,6 +50,29 @@ class VerifiedWindowsFileTests(unittest.TestCase):
                 self.path, self.payload
             ) as verified:
                 self.assertIsNone(verified)
+
+    def test_path_creation_time_does_not_override_file_identity(self):
+        current = self.path.stat()
+        path_stat = SimpleNamespace(
+            st_dev=current.st_dev,
+            st_ino=current.st_ino,
+            st_size=current.st_size,
+            st_mtime_ns=current.st_mtime_ns,
+            st_ctime_ns=current.st_ctime_ns + 1,
+        )
+        with (
+            patch.object(
+                windows_state_verifier,
+                "_open_read_without_writers",
+                side_effect=lambda path: path.open("rb"),
+            ),
+            patch.object(type(self.path), "stat", return_value=path_stat),
+        ):
+            with windows_state_verifier.verified_committed_file(
+                self.path, self.payload
+            ) as verified:
+                self.assertIsNotNone(verified)
+                self.assertTrue(verified.current())
 
     def test_mapping_failure_closes_open_handle(self):
         opened = []
