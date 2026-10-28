@@ -1,5 +1,5 @@
 {
-  "content_hash": "c76ac9c4cd6fdd7eb902208c35092f15d973d0feb909a7ec887782e1bcfed857",
+  "content_hash": "e765c2509ea6edfdb25a4f4ca54de6131e04fa9f96e44403b3f798301cfcb505",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -48,9 +48,9 @@
       "input_notes": [
         "identifier/kind и явно известные engine/KPP/drive/market; unknown сохраняется."
       ],
-      "instruction_hash": "2fb5623e4ffdc6109e0e3fa400b40acb5fa0a06b16613230191266b8284fc8ac",
+      "instruction_hash": "6baa21e9b2fbb65ccdc43d6e1a2c04a5214be655307a52b12b1f1285df9265fe",
       "instruction_ref": "docs/agent/modules/E2.md",
-      "instruction_text": "# E2 — Автомобиль и модификация\n\nVIN/frame/WMI, характеристики и альтернативные модификации\nРодитель: [E1](E1.md). Устойчивый ключ: `vehicle_identity`.\n\n## Входы\n\nidentifier/kind и явно известные engine/KPP/drive/market; unknown сохраняется.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [VINdecode](../tools/partsapi--v-i-ndecode.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=vin_decode` |\n| [gosnomer2vin](../tools/partsapi-gosnomer2vin.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=plate_to_vin` |\n| [getEngine](../tools/partsapi-get-engine.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=engine_info` |\n| [getMakes](../tools/partsapi-get-makes.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getMakes` |\n| [getModels](../tools/partsapi-get-models.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getModels` |\n| [getCars](../tools/partsapi-get-cars.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getCars` |\n| [getFullInfoCV](../tools/partsapi-get-full-info-c-v.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getFullInfoCV` |\n| [getPassengerCarInfo](../tools/partsapi-get-passenger-car-info.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPassengerCarInfo` |\n| [decodeVINus](../tools/partsapi-decode-v-i-nus.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=decodeVINus` |\n| [Расшифровать автомобиль составным способом](../tools/manager-decode-vehicle-identity.md) | manager · composed · implemented | `decode_vehicle_identity` |\n| [Составная расшифровка списка](../tools/manager-decode-vehicle-identities.md) | manager · composed · implemented | `decode_vehicle_identities` |\n| [Проверить формат identifier](../tools/manager-inspect-vehicle-identifier.md) | manager · pure · implemented | `inspect_vehicle_identifier` |\n| [Только VIN endpoint vPIC](../tools/manager-decode-vin-vpic.md) | vpic · network_read · implemented | `decode_vin_vpic` |\n| [Только WMI endpoint vPIC](../tools/manager-decode-wmi-vpic.md) | vpic · network_read · implemented | `decode_wmi_vpic` |\n| [Локальные WMI hints](../tools/manager-decode-wmi-local.md) | manager · local_read · implemented | `decode_wmi_local` |\n| [Поддерживаемые локальные frame families](../tools/manager-decode-frame-local.md) | manager · local_read · implemented | `decode_frame_local` |\n| [Локальные брендовые варианты](../tools/manager-vin-brand-details.md) | manager · local_read · implemented | `vin_brand_details` |\n| [Локальная структурная расшифровка VINinfo](../tools/manager-vininfo-decode.md) | vininfo · local_read · implemented | `vininfo_decode` |\n| [Локальная подготовленная vPIC DB Corgi](../tools/manager-corgi-decode.md) | corgi · local_read · implemented | `corgi_decode` |\n| [Сверить переданные результаты](../tools/manager-reconcile-vehicle-identity.md) | manager · pure · implemented | `reconcile_vehicle_identity` |\n| [Список через один выбранный decoder](../tools/manager-decode-vehicle-batch.md) | manager · composed · implemented | `decode_vehicle_batch` |\n| [Сравнить готовые модификации](../tools/manager-compare-vehicle-modifications.md) | manager · pure · implemented | `compare_vehicle_modifications` |\n| [Расширенный реестр frame](../tools/extension-frame-registry.md) | manager · pure · planned | `Внешняя зависимость, без invocation` |\n\n## Достаточность и границы\n\nДля короткой расшифровки и сверки выбирай `decode_vehicle_identity` и\n`reconcile_vehicle_identity` с `detail=\"summary\"`, если параметр есть в текущей схеме.\nПроверки выполняются до сокращения; профиль, binding, статусы, происхождение,\nдиагностика, пропуски, конфликты и измерения сохраняются.\n\nПереиспользуй профиль: `generation`, `engine`, `transmission`/`transmission_code`,\n`drivetrain`, применимые `transfer_case`, `front_differential`, `rear_differential`,\nдата выпуска и рынок передаются через decode/reconcile/planner вместе с происхождением.\nНеизвестный агрегат остаётся неизвестным. Слабые WMI/local_hint/candidate не создают\nблокирующее противоречие с подтверждённым полем; настоящие несовместимые подтверждения\nсохраняют конфликт. Caller JSON сам не становится доверенным свидетельством.\n\nПосле отказа одного decoder выбери независимый подходящий источник или уже известный\nконтекст; auth/quota не доказывают отсутствие автомобиля. По частичному профилю допускается\nпредварительный поиск семейства. Конфликтный envelope не выдавай за ready identity и не\nпонижай конфликт молча ради exact-подбора. Если установленный агрегат так и не определён,\nзапроси конкретную маркировку, продолжая полезную предварительную консультацию.\n\n- Только PartsAPI `VINdecode` допускает `group_match`: VIN представителя группы\n  даёт каталожного кандидата, сохраняя исходный VIN и отсутствие буквального совпадения.\n  Основание — уточнение владельца; детали и ограничения — [PartsAPI](../references/partsapi.md).\n  Остальные VIN-методы отклоняют чужой VIN; групповое совпадение не подтверждает VIN/OEM fitment.\n- Модельный год отличается от даты производства. WMI и семейство не определяют двигатель,\n  КПП, дату, PR-коды и заводское оснащение.\n- Если выбор каталожного кандидата зависит от неподтверждённых характеристик,\n  результат и cross-source agreement перечисляют их в `selection_depends_on_unverified_fields`\n  и содержат предупреждение. Такие поля нужно уточнить; это не подтверждение применимости.\n- Повтор ID каталога с разными названиями требует уточнения только если этот ID\n  совпал с искомой маркой или моделью; все такие названия остаются вариантами,\n  а getCars для конфликтующего ID не вызывается. Неотносящиеся к выбору конфликты\n  не скрывают отсутствие искомой модели. Несогласованные или некорректные ID/названия\n  в полях одной выбранной записи также требуют уточнения; ошибки строки без имени\n  сохраняются для связанных ID. Пробелы и NBSP нормализуются.\n- Североамериканскую контрольную цифру оценивай в области её применимости;\n  ROW VIN не становится invalid из-за девятой позиции Z.\n- Corgi и online vPIC используют одну первичную базу; локальные WMI/platform/brand/frame\n  правила — один versioned registry. Повтор базы не усиливает подтверждение.\n- Локальные базы и пакеты готовятся отдельно; decode не скачивает их и не делает online fallback.\n  Ограниченное покрытие возвращает unsupported, а не отсутствие автомобиля.\n\nПовторный тест запускай готовым [стендом VIN](../references/vin-retest.md).\nОн читает native schema, запускает независимые команды параллельно и формирует\nобезличенный отчёт. Используй предыдущий baseline; не восстанавливай всю историю\nи не переписывай запуск для каждого VIN. Summary не повторяется ради тех же кодов.\n\n## Следующий выбор\n\nДля каталожного поиска используй [E4](E4.md), для установки детали — [E6](E6.md). Альтернативные модификации сохраняй раздельно; сравнение готовых профилей не требует нового decode.\n\nПодробный контракт: [справочник](../references/vehicle-identity.md).\nПодготовленные локальные декодеры: [automotive-offline](../references/automotive-offline.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E2 — Автомобиль и модификация\n\nVIN/frame/WMI, характеристики и альтернативные модификации\nРодитель: [E1](E1.md). Устойчивый ключ: `vehicle_identity`.\n\n## Входы\n\nidentifier/kind и явно известные engine/KPP/drive/market; unknown сохраняется.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [VINdecode](../tools/partsapi--v-i-ndecode.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=vin_decode` |\n| [gosnomer2vin](../tools/partsapi-gosnomer2vin.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=plate_to_vin` |\n| [getEngine](../tools/partsapi-get-engine.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=engine_info` |\n| [getMakes](../tools/partsapi-get-makes.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getMakes` |\n| [getModels](../tools/partsapi-get-models.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getModels` |\n| [getCars](../tools/partsapi-get-cars.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getCars` |\n| [getFullInfoCV](../tools/partsapi-get-full-info-c-v.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getFullInfoCV` |\n| [getPassengerCarInfo](../tools/partsapi-get-passenger-car-info.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPassengerCarInfo` |\n| [decodeVINus](../tools/partsapi-decode-v-i-nus.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=decodeVINus` |\n| [Расшифровать автомобиль составным способом](../tools/manager-decode-vehicle-identity.md) | manager · composed · implemented | `decode_vehicle_identity` |\n| [Составная расшифровка списка](../tools/manager-decode-vehicle-identities.md) | manager · composed · implemented | `decode_vehicle_identities` |\n| [Проверить формат identifier](../tools/manager-inspect-vehicle-identifier.md) | manager · pure · implemented | `inspect_vehicle_identifier` |\n| [Только VIN endpoint vPIC](../tools/manager-decode-vin-vpic.md) | vpic · network_read · implemented | `decode_vin_vpic` |\n| [Только WMI endpoint vPIC](../tools/manager-decode-wmi-vpic.md) | vpic · network_read · implemented | `decode_wmi_vpic` |\n| [Локальные WMI hints](../tools/manager-decode-wmi-local.md) | manager · local_read · implemented | `decode_wmi_local` |\n| [Поддерживаемые локальные frame families](../tools/manager-decode-frame-local.md) | manager · local_read · implemented | `decode_frame_local` |\n| [Локальные брендовые варианты](../tools/manager-vin-brand-details.md) | manager · local_read · implemented | `vin_brand_details` |\n| [Локальная структурная расшифровка VINinfo](../tools/manager-vininfo-decode.md) | vininfo · local_read · implemented | `vininfo_decode` |\n| [Локальная подготовленная vPIC DB Corgi](../tools/manager-corgi-decode.md) | corgi · local_read · implemented | `corgi_decode` |\n| [Сверить переданные результаты](../tools/manager-reconcile-vehicle-identity.md) | manager · pure · implemented | `reconcile_vehicle_identity` |\n| [Список через один выбранный decoder](../tools/manager-decode-vehicle-batch.md) | manager · composed · implemented | `decode_vehicle_batch` |\n| [Сравнить готовые модификации](../tools/manager-compare-vehicle-modifications.md) | manager · pure · implemented | `compare_vehicle_modifications` |\n| [Расширенный реестр frame](../tools/extension-frame-registry.md) | manager · pure · planned | `Внешняя зависимость, без invocation` |\n\n## Достаточность и границы\n\nДля короткой расшифровки и сверки выбирай `decode_vehicle_identity` и\n`reconcile_vehicle_identity` с `detail=\"summary\"`, если параметр есть в текущей схеме.\nПроверки выполняются до сокращения; профиль, binding, статусы, происхождение,\nдиагностика, пропуски, конфликты и измерения сохраняются.\n\nПереиспользуй профиль: `generation`, `engine`, `transmission`/`transmission_code`,\n`drivetrain`, применимые `transfer_case`, `front_differential`, `rear_differential`,\nдата выпуска и рынок передаются через decode/reconcile/planner вместе с происхождением.\nНеизвестный агрегат остаётся неизвестным. Одиночный native `decode_vehicle_identity`\nпринимает дополнительные поля профиля, как и batch/context-маршрут.\nСлабые WMI/local_hint/candidate не создают блокирующее противоречие с подтверждённым\nполем; при reuse они сохраняются как неутверждающая подсказка. Настоящие несовместимые\nутверждения сохраняют конфликт; caller JSON и его hint-флаги не становятся доверенными\nсвидетельствами и не отменяют проверку согласованности.\n\nПосле отказа одного decoder выбери независимый подходящий источник или уже известный\nконтекст; auth/quota не доказывают отсутствие автомобиля. При reconcile пустой отказ\nисточника с проверенной той же входной привязкой сохраняется в `data.source_failures`,\nа не блокирует исправный объединённый профиль. Чужая привязка, факты или настоящее\nпротиворечие не отбрасываются как простой отказ. По частичному профилю допускается\nпредварительный поиск семейства. Конфликтный envelope не выдавай за ready identity и не\nпонижай конфликт молча ради exact-подбора. Если установленный агрегат так и не определён,\nзапроси конкретную маркировку, продолжая полезную предварительную консультацию.\n\n- Только PartsAPI `VINdecode` допускает `group_match`: VIN представителя группы\n  даёт каталожного кандидата, сохраняя исходный VIN и отсутствие буквального совпадения.\n  Основание — уточнение владельца; детали и ограничения — [PartsAPI](../references/partsapi.md).\n  Остальные VIN-методы отклоняют чужой VIN; групповое совпадение не подтверждает VIN/OEM fitment.\n- Модельный год отличается от даты производства. WMI и семейство не определяют двигатель,\n  КПП, дату, PR-коды и заводское оснащение.\n- Если выбор каталожного кандидата зависит от неподтверждённых характеристик,\n  результат и cross-source agreement перечисляют их в `selection_depends_on_unverified_fields`\n  и содержат предупреждение. Такие поля нужно уточнить; это не подтверждение применимости.\n- Повтор ID каталога с разными названиями требует уточнения только если этот ID\n  совпал с искомой маркой или моделью; все такие названия остаются вариантами,\n  а getCars для конфликтующего ID не вызывается. Неотносящиеся к выбору конфликты\n  не скрывают отсутствие искомой модели. Несогласованные или некорректные ID/названия\n  в полях одной выбранной записи также требуют уточнения; ошибки строки без имени\n  сохраняются для связанных ID. Пробелы и NBSP нормализуются.\n- Североамериканскую контрольную цифру оценивай в области её применимости;\n  ROW VIN не становится invalid из-за девятой позиции Z.\n- Corgi и online vPIC используют одну первичную базу; локальные WMI/platform/brand/frame\n  правила — один versioned registry. Повтор базы не усиливает подтверждение.\n- Локальные базы и пакеты готовятся отдельно; decode не скачивает их и не делает online fallback.\n  Ограниченное покрытие возвращает unsupported, а не отсутствие автомобиля.\n\nПовторный тест запускай готовым [стендом VIN](../references/vin-retest.md).\nОн читает native schema, запускает независимые команды параллельно и формирует\nобезличенный отчёт. Используй предыдущий baseline; не восстанавливай всю историю\nи не переписывай запуск для каждого VIN. Summary не повторяется ради тех же кодов.\n\n## Следующий выбор\n\nДля каталожного поиска используй [E4](E4.md), для установки детали — [E6](E6.md). Альтернативные модификации сохраняй раздельно; сравнение готовых профилей не требует нового decode.\n\nПодробный контракт: [справочник](../references/vehicle-identity.md).\nПодготовленные локальные декодеры: [automotive-offline](../references/automotive-offline.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "vehicle_identity",
       "parent": "E1",
       "purpose": "VIN/frame/WMI, характеристики и альтернативные модификации",
@@ -1782,6 +1782,30 @@
           "default": null,
           "title": "Engine"
         },
+        "front_differential": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Front Differential"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation"
+        },
         "identifier": {
           "title": "Identifier",
           "type": "string"
@@ -1907,6 +1931,18 @@
           "default": null,
           "title": "Production Year"
         },
+        "rear_differential": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rear Differential"
+        },
         "series": {
           "anyOf": [
             {
@@ -1934,6 +1970,18 @@
           "default": null,
           "title": "Source Confidence"
         },
+        "transfer_case": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transfer Case"
+        },
         "transmission": {
           "anyOf": [
             {
@@ -1945,6 +1993,18 @@
           ],
           "default": null,
           "title": "Transmission"
+        },
+        "transmission_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transmission Code"
         },
         "transmission_speeds": {
           "anyOf": [
@@ -5202,7 +5262,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "f8f2b027554f4015bbe8f6434182bea41a122a75",
+  "source_revision": "d9e41e8c45b3d75b82bc12fabdbad0afa57f8b5d",
   "tools": [
     {
       "also_used_in": [],
@@ -7491,6 +7551,8 @@
         "detail": "full",
         "drivetrain": null,
         "engine": null,
+        "front_differential": null,
+        "generation": null,
         "identifier_type": "auto",
         "live_vpic": true,
         "live_wmi": true,
@@ -7502,9 +7564,12 @@
         "options": null,
         "production_date": null,
         "production_year": null,
+        "rear_differential": null,
         "series": null,
         "source_confidence": null,
+        "transfer_case": null,
         "transmission": null,
+        "transmission_code": null,
         "transmission_speeds": null,
         "trim": null,
         "vehicle": null
@@ -7525,10 +7590,15 @@
         "vehicle",
         "make",
         "model",
+        "generation",
         "model_year",
         "engine",
         "transmission",
+        "transmission_code",
         "drivetrain",
+        "transfer_case",
+        "front_differential",
+        "rear_differential",
         "market",
         "source_confidence",
         "live_vpic",
@@ -7544,9 +7614,9 @@
         "detail"
       ],
       "input_schema_ref": "decode_vehicle_identity",
-      "instruction_hash": "3af1aa2ffb0f3296c6a2db76c58ae4844e6709e62e6a528fdb935baef7673e26",
+      "instruction_hash": "dac7b1873859ea0d81fd19bc3fb2caa4b19c9f03aafaca604fe04a4247aaab44",
       "instruction_ref": "docs/agent/tools/manager-decode-vehicle-identity.md",
-      "instruction_text": "# manager.decode_vehicle_identity — Расшифровать автомобиль составным способом\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: composed.\n\nВызов: native Manager MCP `decode_vehicle_identity`.\n\nВходы: `identifier`, `vehicle`, `make`, `model`, `model_year`, `engine`, `transmission`, `drivetrain`, `market`, `source_confidence`, `live_vpic`, `live_wmi`, `production_year`, `production_date`, `modification`, `trim`, `series`, `options`, `transmission_speeds`, `identifier_type`, `detail`.\nDefaults: `{\"detail\":\"full\",\"drivetrain\":null,\"engine\":null,\"identifier_type\":\"auto\",\"live_vpic\":true,\"live_wmi\":true,\"make\":null,\"market\":null,\"model\":null,\"model_year\":null,\"modification\":null,\"options\":null,\"production_date\":null,\"production_year\":null,\"series\":null,\"source_confidence\":null,\"transmission\":null,\"transmission_speeds\":null,\"trim\":null,\"vehicle\":null}`.\nОбязательные facade поля: `identifier`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"detail\":\"summary\",\"identifier\":\"WVWZZZ1KZAW000001\",\"live_vpic\":false,\"live_wmi\":false}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"identifier\":null}\n```\n\nВыход: Legacy flat object: ok/status/schema_version=2/input_binding; invalid rows have input_binding=null.; vehicle_profile, field_statuses, field_evidence, provenance, evidence_sources, family_candidates, missing_fields, conflicts, warnings, errors, provider_errors.; identifier/identifier_validation/privacy/normalization_notes; confidence/confidence_label/confidence_semantics; adapter_status/lookup_plan/registry_version/parts_lookup_readiness; optional processing.; detail=summary omits adapter_status/lookup_plan after complete identity checks; presentation lists omitted_fields; binding, provenance, diagnostics, conflicts, readiness and processing remain available..\nОшибки и неполнота: status=invalid_input and errors[] for malformed identifier, year or context; provider_errors[] records source failures; partial profile is separate from complete identity..\n\n- live_vpic=true and live_wmi=true are legacy defaults and may perform provider reads; set both false for local-only identity inspection.\n- WMI and platform family do not establish engine or exact modification; model year and production date are separate fields.\n- Copied provider data retains provider lineage and is not independent CRM corroboration.\n- Use detail=summary for a VIN-only task; full remains the compatible default. Unsupported coverage and provider diagnostics do not invalidate a ROW VIN.\n\nПодробный контракт: [справочник](../references/vehicle-identity.md).\n",
+      "instruction_text": "# manager.decode_vehicle_identity — Расшифровать автомобиль составным способом\n\nОсновной модуль: [E2](../modules/E2.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: manager; первичная база: AutoStop versioned rules or explicit supplied inputs. Исполнение: composed.\n\nВызов: native Manager MCP `decode_vehicle_identity`.\n\nВходы: `identifier`, `vehicle`, `make`, `model`, `generation`, `model_year`, `engine`, `transmission`, `transmission_code`, `drivetrain`, `transfer_case`, `front_differential`, `rear_differential`, `market`, `source_confidence`, `live_vpic`, `live_wmi`, `production_year`, `production_date`, `modification`, `trim`, `series`, `options`, `transmission_speeds`, `identifier_type`, `detail`.\nDefaults: `{\"detail\":\"full\",\"drivetrain\":null,\"engine\":null,\"front_differential\":null,\"generation\":null,\"identifier_type\":\"auto\",\"live_vpic\":true,\"live_wmi\":true,\"make\":null,\"market\":null,\"model\":null,\"model_year\":null,\"modification\":null,\"options\":null,\"production_date\":null,\"production_year\":null,\"rear_differential\":null,\"series\":null,\"source_confidence\":null,\"transfer_case\":null,\"transmission\":null,\"transmission_code\":null,\"transmission_speeds\":null,\"trim\":null,\"vehicle\":null}`.\nОбязательные facade поля: `identifier`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"detail\":\"summary\",\"identifier\":\"WVWZZZ1KZAW000001\",\"live_vpic\":false,\"live_wmi\":false}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"identifier\":null}\n```\n\nВыход: Legacy flat object: ok/status/schema_version=2/input_binding; invalid rows have input_binding=null.; vehicle_profile, field_statuses, field_evidence, provenance, evidence_sources, family_candidates, missing_fields, conflicts, warnings, errors, provider_errors.; identifier/identifier_validation/privacy/normalization_notes; confidence/confidence_label/confidence_semantics; adapter_status/lookup_plan/registry_version/parts_lookup_readiness; optional processing.; detail=summary omits adapter_status/lookup_plan after complete identity checks; presentation lists omitted_fields; binding, provenance, diagnostics, conflicts, readiness and processing remain available..\nОшибки и неполнота: status=invalid_input and errors[] for malformed identifier, year or context; provider_errors[] records source failures; partial profile is separate from complete identity..\n\n- live_vpic=true and live_wmi=true are legacy defaults and may perform provider reads; set both false for local-only identity inspection.\n- WMI and platform family do not establish engine or exact modification; model year and production date are separate fields.\n- Copied provider data retains provider lineage and is not independent CRM corroboration.\n- Use detail=summary for a VIN-only task; full remains the compatible default. Unsupported coverage and provider diagnostics do not invalidate a ROW VIN.\n\nПодробный контракт: [справочник](../references/vehicle-identity.md).\n",
       "invalid_example": {
         "identifier": null
       },

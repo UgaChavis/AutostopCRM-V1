@@ -94,7 +94,7 @@ verified handoff result supports telling the client that the request was passed
 to a colleague; prepared, sent and delivered are separate states. The Manager
 client process owns this sequence and uses the existing CRM handoff flow.
 
-`scripts/check_client_handoff.py --manager-root /path/to/AutostopManager` runs
+`python -B scripts/check_client_handoff.py --manager-root /path/to/AutostopManager` runs
 three optional local cross-repository rehearsals with the existing development
 and Telegram test dependencies (POSIX/root fixture profile). It consumes the
 Manager's synthetic client proposals, then executes actual CardService/Gateway
@@ -105,6 +105,21 @@ TCP, UDP and DNS are blocked; business storage and media stay temporary. The
 JSON result reports the Manager HEAD and whether its worktree was dirty.
 Model decisions remain controlled fixture inputs. This does not attest live
 delivery, arbitrary future model output, visual/OCR correctness or part fitment.
+Use an existing Python environment with both repositories' test dependencies,
+including `pytest`, `websockets`, `telethon` and `av`. When the CRM test Python
+needs additional Manager dependencies from an existing environment, set the
+three paths below to the intended environments and exact checkout, then run
+from the CRM source root:
+
+```sh
+PYTHONSAFEPATH=1 PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$MANAGER_TEST_SITE_PACKAGES" \
+"$CRM_TEST_PYTHON" -B scripts/check_client_handoff.py \
+  --manager-root "$MANAGER_ROOT"
+```
+
+Do not add `-I` to this variant: Python would ignore the supplied `PYTHONPATH`.
+The harness explicitly imports both source roots and blocks network access.
 
 ## Telegram behavior diagram edits
 
