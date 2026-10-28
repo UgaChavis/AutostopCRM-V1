@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import tempfile
+import time
 from pathlib import Path
 
 from tests.attachment_samples import PNG_1X1_BYTES
@@ -42,19 +43,33 @@ class CardFilesBrowserTests(UiBrowserTestCase):
         self.load_board()
         self.open_card(card_id)
         held = []
+        self.addCleanup(lambda: self.page.unroute_all(behavior="ignoreErrors"))
+        self.addCleanup(lambda: [route.abort("failed") for route, _ in held])
+        self.page.evaluate("""() => {
+          const refresh = refreshActiveCardFiles;
+          window.__filesRefreshFinished = false;
+          refreshActiveCardFiles = (...args) => refresh(...args).finally(() => {
+            window.__filesRefreshFinished = true;
+          });
+        }""")
         self.page.route(
             "**/api/get_card?card_id=*", lambda route: held.append((route, route.fetch()))
         )
         self.page.locator('#cardModal [data-tab="files"]').click()
-        self.page.wait_for_timeout(80)
+        deadline = time.monotonic() + 5
+        while not held and time.monotonic() < deadline:
+            self.page.wait_for_timeout(20)
         self.assertEqual(len(held), 1)
         self.page.locator('#cardModal [data-tab="overview"]').click()
         self.page.locator("#signalStartButton").click()
         self.page.wait_for_function("!state.cardTimerSaving && state.cardTimerState === 'running'")
         confirmed_revision = self.stored_card(card_id)["updated_at"]
-        route, response = held.pop()
+        route, response = held[0]
+        stale_card = response.json()["data"]["card"]
+        self.assertNotEqual(stale_card["updated_at"], confirmed_revision)
         route.fulfill(response=response)
-        self.page.wait_for_timeout(100)
+        held.pop()
+        self.page.wait_for_function("window.__filesRefreshFinished === true")
         self.assertEqual(self.page.evaluate("state.activeCard.updated_at"), confirmed_revision)
         self.assertEqual(self.page.evaluate("state.activeCard.timer_state"), "running")
 
