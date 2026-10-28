@@ -1656,13 +1656,13 @@ class AgentGatewayV2Tests(
         self.assertFalse(board_api.completion_act_forms["card-1"]["exists"])
         self.assertEqual(2, board_api.completion_act_forms["card-1"]["version"])
 
-    def _create_store_server(self, state: dict | None = None):
+    def _create_store_server(self, state: dict | None = None, *, board_api=None):
         store_state = state if state is not None else {}
         self.manager_register.side_effect = lambda server, logger: (
             register_fake_store_manager_tools(server, logger, store_state)
         )
         server = create_mcp_server(
-            FakeBoardApi(),
+            board_api or FakeBoardApi(),
             self.logger,
             host="127.0.0.1",
             port=41839,
@@ -1670,6 +1670,25 @@ class AgentGatewayV2Tests(
             public_endpoint_url="https://crm.example/mcp",
         )
         return server, store_state
+
+    async def _manager_raw_call(self, server, name, arguments, idempotency_key):
+        discovered = await server._tool_manager.get_tool("discover_raw_capabilities").run(
+            {"query": name, "limit": 10}, convert_result=False
+        )
+        selected = next(
+            item
+            for item in discovered.structuredContent["data"]["capabilities"]
+            if item["name"] == name
+        )
+        return await server._tool_manager.get_tool("call_raw_capability").run(
+            {
+                "name": name,
+                "arguments": arguments,
+                "schema_hash": selected["schema_hash"],
+                "idempotency_key": idempotency_key,
+            },
+            convert_result=False,
+        )
 
     async def _store_write(
         self,
@@ -3266,6 +3285,65 @@ class AgentGatewayV2Tests(
             linked.structuredContent["verification"]["check"],
         )
         self.assertTrue(linked.structuredContent["verification"]["evidence"]["card_link_exact"])
+
+    async def test_created_card_profile_drift_is_unverified_and_replay_does_not_duplicate(self):
+        class DriftBoard(FakeBoardApi):
+            def get_card(self, card_id):
+                result = super().get_card(card_id)
+                result["data"]["card"]["vehicle_profile"] = {"engine_model": "other engine"}
+                return result
+
+        board = DriftBoard()
+        server, state = self._create_store_server(board_api=board)
+        arguments = {
+            "title": "Synthetic preliminary request",
+            "vehicle": "AutoStop Synthetic",
+            "description": "Preliminary service request, client agreed; specification pending.",
+            "vehicle_profile": {"engine_model": "synthetic engine"},
+        }
+        for attempt in range(2):
+            result = await self._manager_raw_call(
+                server, "create_card", arguments, "raw-create-card-profile-drift"
+            )
+            self.assertFalse(result.structuredContent["ok"])
+            if attempt == 0:
+                self.assertFalse(result.structuredContent["verification"]["passed"])
+            else:
+                self.assertTrue(result.structuredContent["verification"]["idempotency_reused"])
+        self.assertEqual(len(board.created_cards), 1)
+        self.assertEqual(len(state["workflow_runs"]), 1)
+
+    async def test_explicit_vehicle_link_requires_membership_in_exact_client(self):
+        for vehicles, passed in (
+            ([{"id": "vehicle-synthetic-1"}], True),
+            ([{"id": "vehicle-other-client"}], False),
+            ([{"id": "vehicle-synthetic-1"}, {"id": "vehicle-synthetic-1"}], False),
+        ):
+            with self.subTest(vehicles=vehicles):
+                board = FakeBoardApi()
+                client = board.create_client({"display_name": "Synthetic", "vehicles": vehicles})[
+                    "data"
+                ]["client"]
+                card = board.create_card(title="Synthetic request")["data"]["card"]
+                server, _ = self._create_store_server(board_api=board)
+                result = await self._manager_raw_call(
+                    server,
+                    "link_card_to_client",
+                    {
+                        "card_id": card["id"],
+                        "client_id": client["id"],
+                        "client_vehicle_id": "vehicle-synthetic-1",
+                        "expected_card_updated_at": card["updated_at"],
+                        "expected_client_updated_at": client["updated_at"],
+                        "sync_fields": False,
+                    },
+                    "raw-link-vehicle-membership",
+                )
+                self.assertEqual(result.structuredContent["ok"], passed)
+                self.assertEqual(
+                    result.structuredContent["verification"]["evidence"]["vehicle_link_exact"],
+                    passed,
+                )
 
     async def test_raw_write_fails_closed_when_durable_manager_ledger_is_missing(self) -> None:
         discovered = await self._call(

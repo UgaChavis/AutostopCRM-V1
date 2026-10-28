@@ -67,6 +67,28 @@ Use only enough calls to establish the target and perform the useful next step.
 A workflow can be helpful for an auditable multi-step task, but is not required
 for simple context, analysis, or a normal customer reply.
 
+For a customer request, distinguish price interest, consent to a preliminary
+request, a parts order and a service appointment. Bind consent to the actual
+proposed action in the client process before a CRM write. A staff member's
+manual Telegram reply supplies conversation context, not customer consent or
+proof of a CRM write. A preliminary proposal needs only the fields required by
+the chosen operation; a complete vehicle dossier is not a prerequisite.
+
+Reuse the exact saved client, vehicle and existing card IDs. A text match or
+`related_card_candidates` entry never establishes those links. The existing
+`link_card_to_client` capability requires both current card and client revisions;
+its independent readback verifies the card link and that the chosen vehicle
+belongs exactly once to that client. Creation readback also compares the saved
+vehicle profile. Preserve prior history and unrelated fields. Reuse the original
+idempotency key after an uncertain result and inspect `workflow_status` and the
+exact object before any retry; do not create a replacement card to bypass it.
+When links are ambiguous, stop the dependent write and prepare a human handoff
+while continuing the useful consultation. Record the request, vehicle, items or
+work, agreed conditions, remaining checks and next step in the card. Only a
+verified handoff result supports telling the client that the request was passed
+to a colleague; prepared, sent and delivered are separate states. The Manager
+client process owns this sequence and uses the existing CRM handoff flow.
+
 ## Telegram behavior diagram edits
 
 The diagram at `/telegram-agent-behavior` is a shared CRM record, not executable

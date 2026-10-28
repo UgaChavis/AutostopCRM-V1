@@ -914,6 +914,10 @@ def register_agent_gateway_v2(
                     "tags",
                     "deadline",
                     "deadline_timestamp",
+                    "timer_state",
+                    "vehicle_profile",
+                    "client_id",
+                    "client_vehicle_id",
                     "updated_at",
                 )
                 if key in created
@@ -959,15 +963,28 @@ def register_agent_gateway_v2(
                 or ""
             )
             requested_vehicle_id = str(arguments.get("client_vehicle_id") or "")
-            if requested_vehicle_id:
-                vehicle_exact = (
-                    str((actual_card or {}).get("client_vehicle_id") or "") == requested_vehicle_id
+            client_vehicles = (actual_client or {}).get("vehicles")
+
+            def exact_client_vehicle(vehicle_id: str) -> bool:
+                return bool(
+                    vehicle_id
+                    and isinstance(client_vehicles, list)
+                    and sum(
+                        isinstance(vehicle, dict) and str(vehicle.get("id") or "") == vehicle_id
+                        for vehicle in client_vehicles
+                    )
+                    == 1
                 )
+
+            if requested_vehicle_id:
+                vehicle_exact = str(
+                    (actual_card or {}).get("client_vehicle_id") or ""
+                ) == requested_vehicle_id and exact_client_vehicle(requested_vehicle_id)
             elif arguments.get("create_vehicle_from_card") is True:
                 vehicle_exact = bool(
                     result_vehicle_id
                     and str((actual_card or {}).get("client_vehicle_id") or "") == result_vehicle_id
-                    and _contains_value(actual_client, "id", result_vehicle_id)
+                    and exact_client_vehicle(result_vehicle_id)
                 )
             else:
                 vehicle_exact = True
