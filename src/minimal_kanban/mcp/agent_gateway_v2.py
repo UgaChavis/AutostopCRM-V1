@@ -243,6 +243,41 @@ def _maintenance_release_smoke_headers(
     }
 
 
+def _canonical_client_vehicle_id(vehicles: Any, requested_id: str) -> str:
+    if not requested_id or not isinstance(vehicles, list):
+        return ""
+    saved_ids = [str(vehicle.get("id") or "") for vehicle in vehicles if isinstance(vehicle, dict)]
+    matches = [vehicle_id for vehicle_id in saved_ids if vehicle_id == requested_id]
+    if not matches:
+        matches = [
+            vehicle_id
+            for vehicle_id in saved_ids
+            if short_entity_id(vehicle_id, prefix="CV").upper() == requested_id.upper()
+        ]
+    return matches[0] if len(matches) == 1 else ""
+
+
+def _client_vehicle_link_matches(
+    arguments: Mapping[str, Any],
+    card: Mapping[str, Any] | None,
+    client: Mapping[str, Any] | None,
+    result_vehicle_id: str,
+) -> bool:
+    requested_id = str(arguments.get("client_vehicle_id") or "")
+    saved_id = str((card or {}).get("client_vehicle_id") or "")
+    vehicles = (client or {}).get("vehicles")
+    if requested_id:
+        canonical_id = _canonical_client_vehicle_id(vehicles, requested_id)
+        return bool(canonical_id) and saved_id == canonical_id
+    if arguments.get("create_vehicle_from_card") is True:
+        return bool(
+            result_vehicle_id
+            and saved_id == result_vehicle_id
+            and _canonical_client_vehicle_id(vehicles, result_vehicle_id) == result_vehicle_id
+        )
+    return True
+
+
 def register_agent_gateway_v2(
     server: FastMCP,
     board_api: BoardApiClient,
@@ -962,52 +997,9 @@ def register_agent_gateway_v2(
                 or (result_data.get("meta") or {}).get("client_vehicle_id")
                 or ""
             )
-            requested_vehicle_id = str(arguments.get("client_vehicle_id") or "")
-            client_vehicles = (actual_client or {}).get("vehicles")
-
-            def exact_client_vehicle(vehicle_id: str) -> bool:
-                return bool(
-                    vehicle_id
-                    and isinstance(client_vehicles, list)
-                    and sum(
-                        isinstance(vehicle, dict) and str(vehicle.get("id") or "") == vehicle_id
-                        for vehicle in client_vehicles
-                    )
-                    == 1
-                )
-
-            if requested_vehicle_id:
-                saved_ids = (
-                    [
-                        str(vehicle.get("id") or "")
-                        for vehicle in client_vehicles or []
-                        if isinstance(vehicle, dict)
-                    ]
-                    if isinstance(client_vehicles, list)
-                    else []
-                )
-                matches = [
-                    vehicle_id for vehicle_id in saved_ids if vehicle_id == requested_vehicle_id
-                ]
-                if not matches:
-                    matches = [
-                        vehicle_id
-                        for vehicle_id in saved_ids
-                        if short_entity_id(vehicle_id, prefix="CV").upper()
-                        == requested_vehicle_id.upper()
-                    ]
-                canonical_vehicle_id = matches[0] if len(matches) == 1 else ""
-                vehicle_exact = str(
-                    (actual_card or {}).get("client_vehicle_id") or ""
-                ) == canonical_vehicle_id and exact_client_vehicle(canonical_vehicle_id)
-            elif arguments.get("create_vehicle_from_card") is True:
-                vehicle_exact = bool(
-                    result_vehicle_id
-                    and str((actual_card or {}).get("client_vehicle_id") or "") == result_vehicle_id
-                    and exact_client_vehicle(result_vehicle_id)
-                )
-            else:
-                vehicle_exact = True
+            vehicle_exact = _client_vehicle_link_matches(
+                arguments, actual_card, actual_client, result_vehicle_id
+            )
             card_state = {
                 key: result_card[key]
                 for key in (
