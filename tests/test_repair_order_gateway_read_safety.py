@@ -20,7 +20,7 @@ from minimal_kanban.services.errors import ServiceError
 from tests.test_agent_gateway_v2 import FakeBoardApi, GATEWAY_ENV
 
 
-class RepairOrderGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
+class RepairOrderGatewayFixture(CardServiceCase, IsolatedAsyncioTestCase):
     def setUp(self):
         self.appdata_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.appdata_dir.cleanup)
@@ -165,6 +165,8 @@ class RepairOrderGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase
             },
         )
 
+
+class RepairOrderGatewayReadSafetyTests(RepairOrderGatewayFixture):
     async def test_raw_full_and_compact_redacted_reads_are_private_and_non_mutating(self):
         before = self.snapshot()
         for compact in (False, True):
@@ -368,7 +370,7 @@ class RepairOrderGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase
         response = {
             "ok": True,
             "data": {
-                "repair_orders": [{"card_id": "synthetic", "number": "302"}],
+                "repair_orders": [{"card_id": "synthetic", "number": "302", "status": "open"}],
                 "meta": {"query": sentinel, "directory": sentinel},
             },
             "meta": {"applied_params": {"query": sentinel}},
@@ -461,7 +463,7 @@ class RepairOrderGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase
                 self.assertIn(sentinel, json.dumps(result.structuredContent, ensure_ascii=False))
                 self.assertEqual(before, self.snapshot())
 
-    async def test_inconsistent_success_with_private_error_fails_closed_when_redacted(self):
+    async def test_inconsistent_success_with_private_error_fails_closed_in_both_modes(self):
         before = self.snapshot()
         sentinel = "PRIVATE_INCONSISTENT_ERROR_SENTINEL"
         for backend_data in ({"repair_orders": []}, None):
@@ -472,20 +474,14 @@ class RepairOrderGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase
                     "error": {"code": "validation_error", "message": sentinel},
                 }
                 with patch.object(self.board_api, "list_repair_orders", return_value=response):
-                    redacted = await self.call_list({"status": "all", "redact_private": True})
-                    self.assertFalse(redacted.structuredContent["ok"])
-                    self.assert_not_in_response(sentinel, redacted)
-                    unredacted = await self.call_list({"status": "all", "redact_private": False})
-                    self.assertTrue(unredacted.structuredContent["ok"])
-                    self.assertIn(
-                        sentinel, json.dumps(unredacted.structuredContent, ensure_ascii=False)
-                    )
-                    if backend_data is None:
-                        self.assertIsNone(unredacted.structuredContent["data"]["data"])
-                    else:
-                        self.assertEqual(
-                            unredacted.structuredContent["data"]["data"]["repair_orders"], []
-                        )
+                    for redact in (True, False):
+                        with self.subTest(redact_private=redact):
+                            result = await self.call_list(
+                                {"status": "all", "redact_private": redact}
+                            )
+                            self.assertFalse(result.structuredContent["ok"])
+                            self.assert_not_in_response(sentinel, result)
+                            self.assertIsNone(result.structuredContent["data"]["data"])
                 self.assertEqual(before, self.snapshot())
 
     async def test_gateway_fails_closed_for_inconsistent_or_missing_backend_data(self):

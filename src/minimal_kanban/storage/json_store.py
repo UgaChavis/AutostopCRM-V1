@@ -185,6 +185,8 @@ class JsonStore:
         self._change_feed_state_signature: tuple[int, int, int, int] | None = None
         self._read_cache_signature: tuple[int, int, int, int] | None = None
         self._read_cache_bundle: dict[str, Any] | None = None
+        self._repair_order_snapshot_signature: tuple[int, int, int, int, int] | None = None
+        self._repair_order_snapshot_cards: list[Card] | None = None
         self._validated_state_signature: tuple[int, int, int, int] | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
         self._trusted_client_versions: dict[str, tuple[int, str]] = {}
@@ -247,7 +249,7 @@ class JsonStore:
         return self.read_bundle_with_signature()[0]
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
-        """Read the atomically replaced state without repair, feed, or file writes.
+        """Read cards with orders without repair, feed, or file writes.
 
         Normalization happens only in this independent snapshot. Writers replace
         the state atomically. On Windows, opening a state file can prevent replace,
@@ -259,11 +261,29 @@ class JsonStore:
             else nullcontext()
         )
         with self._lock, guard:
+            signature = (
+                None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
+            )
+            if (
+                signature is not None
+                and signature == self._repair_order_snapshot_signature
+                and self._repair_order_snapshot_cards is not None
+            ):
+                return deepcopy(self._repair_order_snapshot_cards)
             state = self._read_state(preserve_corrupted=False)
-            raw_cards = state.get("cards", [])
-            if isinstance(raw_cards, list) and any(
-                isinstance(card, dict)
-                and not RepairOrder.from_dict(card.get("repair_order")).is_empty()
+            raw_cards = state.get("cards")
+            if not isinstance(raw_cards, list) or any(
+                not isinstance(card, dict) for card in raw_cards
+            ):
+                raise StateFileCorruptedError("Список карточек отсутствует или поврежден.")
+            if any(
+                card.get("repair_order") is not None
+                and not isinstance(card.get("repair_order"), dict)
+                for card in raw_cards
+            ):
+                raise StateFileCorruptedError("Данные заказ-наряда повреждены.")
+            if any(
+                not RepairOrder.from_dict(card.get("repair_order")).is_empty()
                 and (
                     not str(card.get("id") or "").strip()
                     or not parse_datetime(card.get("created_at"))
@@ -276,6 +296,11 @@ class JsonStore:
                 )
             columns, _ = self._normalize_columns(state)
             cards, _ = self._normalize_cards(state, columns)
+            cards = [card for card in cards if not card.repair_order.is_empty()]
+            if signature is not None and signature == self._repair_order_file_signature():
+                self._repair_order_snapshot_signature = signature
+                self._repair_order_snapshot_cards = cards
+                return deepcopy(cards)
             return cards
 
     def read_bundle_with_signature(
@@ -1132,6 +1157,13 @@ class JsonStore:
             return None
         return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size
 
+    def _repair_order_file_signature(self) -> tuple[int, int, int, int, int] | None:
+        try:
+            stat = self._state_file.stat()
+        except FileNotFoundError:
+            return None
+        return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+
     def _state_file_fingerprint(self) -> str:
         payload = read_bytes_limited(
             self._state_file,
@@ -1144,6 +1176,8 @@ class JsonStore:
         self._card_projection_cache.clear()
         self._read_cache_signature = None
         self._read_cache_bundle = None
+        self._repair_order_snapshot_signature = None
+        self._repair_order_snapshot_cards = None
         self._trusted_card_versions.clear()
         self._trusted_client_versions.clear()
         self._trusted_sticky_versions.clear()

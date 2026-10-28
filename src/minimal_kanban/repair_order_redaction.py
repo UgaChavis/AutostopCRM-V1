@@ -152,6 +152,39 @@ def redact_projected_item(item: dict, *, compact: bool) -> dict:
     return projected
 
 
+def valid_repair_order_items(items: object) -> bool:
+    return isinstance(items, list) and all(
+        isinstance(item, dict)
+        and isinstance(item.get("card_id"), str)
+        and bool(item["card_id"].strip())
+        and isinstance(item.get("number"), str)
+        and item.get("status") in ("open", "ready", "closed")
+        for item in items
+    )
+
+
+def validate_list_response(response: object) -> dict:
+    if not isinstance(response, dict) or type(response.get("ok")) is not bool:
+        invalid = True
+    else:
+        data = response.get("data")
+        invalid = response["ok"] and (
+            response.get("error") is not None
+            or not isinstance(data, dict)
+            or not valid_repair_order_items(data.get("repair_orders"))
+        )
+    if invalid:
+        return {
+            "ok": False,
+            "data": None,
+            "error": {
+                "code": "board_api_malformed_response",
+                "message": "Invalid repair-order list response.",
+            },
+        }
+    return response
+
+
 def redact_list_response(response: dict, *, compact: bool) -> dict:
     data = response.get("data")
     if not isinstance(data, dict):
@@ -161,9 +194,7 @@ def redact_list_response(response: dict, *, compact: bool) -> dict:
             else response
         )
     items = data.get("repair_orders")
-    if response.get("ok") and (
-        not isinstance(items, list) or any(not isinstance(item, dict) for item in items)
-    ):
+    if response.get("ok") and not valid_repair_order_items(items):
         return {"ok": False, "error": safe_repair_order_error(None), "data": None}
     original = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     meta = {
@@ -244,15 +275,20 @@ def safe_search_output(entity, ok, items, meta, error):
     return [redact_projected_item(item, compact=True) for item in items], {}, error
 
 
-def safe_search_status(entity, ok, data, error):
+def safe_search_status(entity, ok, data, error, response):
+    if entity == "repair_order" and (
+        not isinstance(response, dict) or type(response.get("ok")) is not bool
+    ):
+        return False
     if not ok or entity != "repair_order":
         return ok
     if error is not None:
         return False
-    return isinstance(data, list) or (
-        isinstance(data, dict)
-        and any(isinstance(data.get(key), list) for key in ("repair_orders", "items", "results"))
-    )
+    if isinstance(data, dict):
+        data = next(
+            (data[key] for key in ("repair_orders", "items", "results") if key in data), None
+        )
+    return valid_repair_order_items(data)
 
 
 def invalid_raw_redact_flag(name: str, arguments: dict) -> bool:

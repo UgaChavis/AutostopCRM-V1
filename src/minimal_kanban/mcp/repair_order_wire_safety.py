@@ -7,7 +7,8 @@ def _redacted_order_request(name: str, arguments: dict) -> bool:
     if name == "agent_search":
         return arguments.get("entity") == "repair_order"
     if name == "call_raw_capability":
-        if arguments.get("name") != "list_repair_orders":
+        raw_name = arguments.get("name")
+        if not isinstance(raw_name, str) or raw_name.strip() != "list_repair_orders":
             return False
         arguments = arguments.get("arguments")
         if not isinstance(arguments, dict):

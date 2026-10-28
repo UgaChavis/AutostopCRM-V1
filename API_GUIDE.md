@@ -402,14 +402,24 @@ stored values before display redaction. Presence flags and whether a search
 matched can reveal that a record exists; redaction is not an access control.
 Redacted error responses hide free-form details and request values. Known
 authorization and validation codes are retained; unknown codes are generalized.
+Malformed or internally inconsistent backend lists fail in both modes instead
+of returning an empty or incomplete success.
 If a stored card with an order lacks a stable ID or valid creation/update timestamps, the
 snapshot fails closed instead of inventing identifiers or revisions; resolving
 such legacy data requires a separately authorized write.
 An absent or unreadable state also fails instead of returning an empty list;
-the read does not create a corruption backup.
+the read does not create a corruption backup. The snapshot requires a `cards`
+array, including for an empty board; a missing or malformed array fails closed
+because its absence does not prove that no cards exist. A missing or null
+per-card `repair_order` remains the legacy empty-order representation; other
+non-object values for that field fail closed.
 On Windows the snapshot uses the existing writer lock; if that lock file is
 absent or inaccessible it fails without creating one. On other platforms the
 snapshot relies on atomic state replacement and does not acquire that lock.
+Repeated reads on non-Windows systems cache an independent in-memory snapshot
+using the state file's device, inode, size, modification and change times;
+each caller receives a separate copy. This is a filesystem signature, not a
+content hash. Windows reads are uncached.
 
 An optional `search_field` scopes `query` before sorting and `limit` to
 `number`, `date`, `client`, `phone`, `vehicle`, `summary`, or `license_plate`.

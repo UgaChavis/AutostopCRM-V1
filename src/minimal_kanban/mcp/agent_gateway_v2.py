@@ -2237,7 +2237,7 @@ def register_agent_gateway_v2(
             response = await _board_call(board_api.list_shared_files)
             keys = ("files", "items", "results")
         ok, data, meta, error = _response_data(response)
-        ok = _order_redaction.safe_search_status(entity, ok, data, error)
+        ok = _order_redaction.safe_search_status(entity, ok, data, error, response)
         items = _items_from_data(data, *keys)[:effective_limit]
         items, meta, error = _order_redaction.safe_search_output(entity, ok, items, meta, error)
         if entity == "card":

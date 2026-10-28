@@ -33,6 +33,7 @@ from ..repair_order_redaction import (
     safe_card_id,
     safe_order_number,
     safe_repair_order_error,
+    validate_list_response,
 )
 from ..services.snapshot_service import GPT_WALL_AGENT_EVENT_LIMIT
 from . import payloads as _payloads
@@ -2608,16 +2609,18 @@ def create_mcp_server(
         effective_limit = _normalize_limit(limit, default=300, maximum=300)
         return _relay_board_call(
             "list_repair_orders",
-            lambda: board_api.list_repair_orders(
-                limit=effective_limit,
-                status=status,
-                card_id=card_id,
-                number=number,
-                query=query,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                compact=compact,
-                redact_private=redact_private,
+            lambda: validate_list_response(
+                board_api.list_repair_orders(
+                    limit=effective_limit,
+                    status=status,
+                    card_id=card_id,
+                    number=number,
+                    query=query,
+                    sort_by=sort_by,
+                    sort_dir=sort_dir,
+                    compact=compact,
+                    redact_private=redact_private,
+                )
             ),
             params={
                 "limit": effective_limit,
