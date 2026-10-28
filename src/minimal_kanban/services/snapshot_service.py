@@ -1042,7 +1042,7 @@ class SnapshotService:
 
     def get_card(self, payload: dict) -> dict:
         with self._lock:
-            bundle = self._store._read_context_bundle_snapshot(domains=("events",))
+            bundle = self._store._read_single_card_snapshot(payload.get("card_id"))
             card = self._find_card(bundle["cards"], payload.get("card_id"))
             read_warnings = checked_card_warnings(bundle, card)
             events = visible_audit_events(payload, bundle["events"])

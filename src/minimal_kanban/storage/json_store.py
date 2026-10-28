@@ -86,17 +86,22 @@ def _serialized_state(
     already_safe: bool = False,
     fast_serializer: bool = False,
     trusted_safe: bool = False,
+    serializer_provenance: list[bool] | None = None,
 ) -> tuple[dict[str, Any], bytes, str]:
     safe_state = state if already_safe else _json_safe_state(state)
+    used_orjson = False
     if fast_serializer and (trusted_safe or _supports_fast_state_serialization(safe_state)):
         try:
             payload = orjson.dumps(safe_state)
+            used_orjson = True
         except TypeError:
             payload = _stdlib_state_payload(safe_state)
     else:
         payload = _stdlib_state_payload(safe_state)
     if len(payload) > JSON_STORE_STATE_MAX_BYTES:
         raise ValueError("state file is too large")
+    if serializer_provenance is not None:
+        serializer_provenance.append(used_orjson)
     fingerprint = hashlib.sha256(payload).hexdigest()
     return safe_state, payload, fingerprint
 
@@ -259,6 +264,8 @@ class JsonStore:
         self._repair_order_snapshot_cards: list[Card] | None = None
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._context_snapshots: dict[tuple[str, ...], Any] = {}
+        self._committed_card_source = None
+        self._pending_committed_payload = None
         self._validated_state_signature: tuple[int, int, int, int] | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
         self._trusted_client_versions: dict[str, tuple[int, str]] = {}
@@ -348,6 +355,65 @@ class JsonStore:
                 self._context_snapshots[domain_key] = snapshot
                 return snapshot
             return snapshot
+
+    def _read_single_card_snapshot(self, card_id):
+        """Use an independently verified local commit, or the normal safe snapshot."""
+        if not _SNAPSHOT_REQUIRES_FILE_LOCK:
+            with self._lock:
+                cached = self._committed_card_source
+                signature = self._repair_order_file_signature()
+                if cached is not None and signature is not None and signature == cached[0]:
+                    result = cached[2].for_card(self, card_id)
+                    if signature == self._repair_order_file_signature():
+                        return result
+                self._committed_card_source = None
+        return self._read_context_bundle_snapshot(domains=("events",))
+
+    def _prime_committed_card_source(self, payload):
+        """Cache detached source data only when the committed bytes match the file."""
+        from .readonly_context_snapshot import (
+            _ENCODER_ENFORCES_STATE_DEPTH,
+            CommittedCardSource,
+            reject_deeply_nested_native_json,
+        )
+
+        if _SNAPSHOT_REQUIRES_FILE_LOCK or payload is None:
+            self._committed_card_source = None
+            return
+        signature = self._repair_order_file_signature()
+        if (
+            signature is None
+            or (signature[0], signature[1], signature[2], signature[4])
+            != self._validated_state_signature
+        ):
+            self._committed_card_source = None
+            return
+        cached = self._committed_card_source
+        if cached is not None and cached[0] == signature and cached[1] == payload:
+            return
+        if (
+            read_bytes_limited(
+                self._state_file, max_bytes=JSON_STORE_STATE_MAX_BYTES, label="state file"
+            )
+            != payload
+            or signature != self._repair_order_file_signature()
+        ):
+            self._committed_card_source = None
+            return
+        decoded = orjson.loads(payload)
+        if not isinstance(decoded, dict):
+            self._committed_card_source = None
+            return
+        # Only payloads emitted by orjson qualify. Its encoder rejects integers
+        # the decoder cannot preserve, and is probed for the state depth limit.
+        # If the depth property is unavailable, apply the complete depth walk.
+        if not _ENCODER_ENFORCES_STATE_DEPTH:
+            reject_deeply_nested_native_json(decoded)
+        source = CommittedCardSource(self, decoded)
+        if signature != self._repair_order_file_signature():
+            self._committed_card_source = None
+            return
+        self._committed_card_source = (signature, payload, source)
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
         """Read cards with orders without state, feed, or order-artifact writes.
@@ -678,6 +744,14 @@ class JsonStore:
                 source_bundle.clear()
                 source_bundle.update(bundle)
                 self._set_read_cache(source_bundle, self._validated_state_signature)
+                try:
+                    self._prime_committed_card_source(self._pending_committed_payload)
+                except Exception:
+                    # A committed write must never be reported as failed because
+                    # an optional read cache could not be prepared.
+                    self._committed_card_source = None
+                finally:
+                    self._pending_committed_payload = None
                 total_ms = (time.perf_counter() - started_at) * 1000
                 record_timing("storage", total_ms)
                 self._log_write_metrics(
@@ -1155,15 +1229,18 @@ class JsonStore:
         fast_serializer: bool = False,
         trusted_safe: bool = False,
     ) -> tuple[float, float]:
+        self._pending_committed_payload = None
         existing_signature = self._state_signature()
         if existing_signature is not None and existing_signature != self._validated_state_signature:
             self._read_state()
         serialize_started_at = time.perf_counter()
+        serializer_provenance: list[bool] = []
         safe_state, payload, fingerprint = _serialized_state(
             state,
             already_safe=already_safe,
             fast_serializer=fast_serializer,
             trusted_safe=trusted_safe,
+            serializer_provenance=serializer_provenance,
         )
         if not self._change_feed_initialized:
             if self._state_file.exists():
@@ -1222,6 +1299,8 @@ class JsonStore:
             # outbox; the still-validated file already contains the requested state.
             record_timing("write", 0.0)
             record_timing("change_feed_commit", 0.0)
+            if trusted_safe and serializer_provenance == [True]:
+                self._pending_committed_payload = payload
             return serialize_ms, 0.0
         temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
         write_started_at = time.perf_counter()
@@ -1268,6 +1347,8 @@ class JsonStore:
                 (time.perf_counter() - feed_commit_started_at) * 1000,
             )
         self._validated_state_signature = written_signature
+        if trusted_safe and serializer_provenance == [True]:
+            self._pending_committed_payload = payload
         return serialize_ms, write_ms
 
     def _state_signature(self) -> tuple[int, int, int, int] | None:
@@ -1300,6 +1381,8 @@ class JsonStore:
         self._repair_order_snapshot_cards = None
         self._context_snapshot_signature = None
         self._context_snapshots.clear()
+        self._committed_card_source = None
+        self._pending_committed_payload = None
         self._trusted_card_versions.clear()
         self._trusted_client_versions.clear()
         self._trusted_sticky_versions.clear()

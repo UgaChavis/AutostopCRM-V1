@@ -444,6 +444,12 @@ path is an expected path and does not promise the file exists. Explicit
 retain their separate write/materialization behavior. Diagnostic warnings may
 still write to or rotate application logs.
 
+For `get_card` on non-Windows systems, a successful local cached write can
+prepare a private card source after verifying the committed file bytes. Later
+reads use it only while the file signature remains unchanged; external changes
+fall back to the ordinary read-only snapshot. The signature is not a content
+hash. Windows keeps the uncached, existing-file-lock path.
+
 The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then
 require an exact stored `client_id`, and their totals count only those records.

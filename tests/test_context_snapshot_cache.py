@@ -47,7 +47,7 @@ class ContextSnapshotCacheTests(CardServiceCase):
             second = self.service.get_card({"card_id": self.card_id})
             self.assertEqual(second["card"]["title"], "CACHE_TITLE_ONE")
             self.assertEqual(second["card"]["repair_order"]["works"], [])
-            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 1)
+            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 0)
         self.assertEqual(before, self.files())
 
     def test_event_details_are_detached_from_cached_models(self):
@@ -156,7 +156,10 @@ class ContextSnapshotCacheTests(CardServiceCase):
                 replaced.append(True)
             return value
 
-        with patch.object(self.store, "_normalize_cards", side_effect=replace):
+        with (
+            patch.object(self.store, "_committed_card_source", None),
+            patch.object(self.store, "_normalize_cards", side_effect=replace),
+        ):
             self.service.get_card({"card_id": self.card_id})
         self.assertEqual(
             self.service.get_card({"card_id": self.card_id})["card"]["title"], "CACHE_TITLE_TWO"

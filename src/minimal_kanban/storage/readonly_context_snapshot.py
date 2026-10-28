@@ -1,6 +1,11 @@
 """Independent context-read models with checks against unsaved legacy identities."""
 
-from ..models import ClientProfile, normalize_text, parse_datetime
+from copy import deepcopy
+
+import orjson
+
+from ..json_safety import DEFAULT_JSON_MAX_DEPTH
+from ..models import Card, ClientProfile, normalize_text, parse_datetime
 from ..repair_order import RepairOrderPayment, RepairOrderRow, normalize_repair_order_payments
 from .json_store import StateFileCorruptedError, _validate_snapshot_financial_fields
 
@@ -17,11 +22,14 @@ def _index(raw, *, alias=None):
 
 
 class ReadonlyContextSnapshot(dict):
-    def __init__(self, bundle, state):
+    def __init__(self, bundle, state, *, source_indexes=None):
         super().__init__(bundle)
-        self._cards = _index(state.get("cards"))
-        self._clients = _index(state.get("clients"))
-        self._events = _index(state.get("events"))
+        if source_indexes is None:
+            self._cards = _index(state.get("cards"))
+            self._clients = _index(state.get("clients"))
+            self._events = _index(state.get("events"))
+        else:
+            self._cards, self._clients, self._events = source_indexes
         self._link_clients = {client.id: client for client in bundle["clients"]}
 
     @staticmethod
@@ -150,6 +158,90 @@ class ReadonlyContextSnapshot(dict):
             if warning not in warnings:
                 warnings.append(warning)
         return warnings
+
+
+def reject_deeply_nested_native_json(value):
+    """Apply the state depth limit to freshly decoded JSON objects."""
+    if type(value) not in (dict, list):
+        return
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if depth >= DEFAULT_JSON_MAX_DEPTH and item:
+            raise ValueError("state file JSON is too deeply nested")
+        values = item.values() if type(item) is dict else item
+        pending.extend((child, depth + 1) for child in values if type(child) in (dict, list))
+
+
+def encoder_enforces_state_depth():
+    """Only skip the depth walk when this encoder rejects over-depth JSON."""
+    for container_type in (dict, list, None):
+        value = 0
+        for index in range(DEFAULT_JSON_MAX_DEPTH + 1):
+            value = (
+                {"child": value}
+                if container_type is dict or (container_type is None and index % 2)
+                else [value]
+            )
+        try:
+            orjson.dumps(value)
+        except (TypeError, ValueError):
+            continue
+        return False
+    return True
+
+
+_ENCODER_ENFORCES_STATE_DEPTH = encoder_enforces_state_depth()
+
+
+class CommittedCardSource:
+    """Private, decoded bytes from a verified local write, indexed for one-card reads."""
+
+    def __init__(self, store, state):
+        cards = state.get("cards")
+        clients = state.get("clients", [])
+        events = state.get("events", [])
+        if (
+            not isinstance(cards, list)
+            or any(not isinstance(card, dict) for card in cards)
+            or not isinstance(clients, list)
+            or not isinstance(events, list)
+        ):
+            raise StateFileCorruptedError("Снимок состояния поврежден.")
+        self._cards = _index(cards)
+        self._clients = _index(clients)
+        self._positions = {}
+        for position, card in enumerate(cards):
+            card_id = normalize_text(card.get("id"), limit=128)
+            if card_id:
+                self._positions.setdefault(card_id, position)
+        self._events_by_card = {}
+        for event in events:
+            if isinstance(event, dict):
+                card_id = normalize_text(event.get("card_id"), limit=128)
+                if card_id:
+                    self._events_by_card.setdefault(card_id, []).append(event)
+        self._columns, _ = store._normalize_columns(state)
+
+    def for_card(self, store, requested_id):
+        key = str(requested_id) if requested_id else ""
+        cards = []
+        if key in self._cards:
+            source = ReadonlyContextSnapshot._source(self._cards, key)
+            cards.append(
+                Card.from_dict(
+                    deepcopy(source),
+                    valid_columns={column.id for column in self._columns},
+                    default_column=self._columns[0].id,
+                    fallback_position=self._positions[key],
+                )
+            )
+        events, _ = store._normalize_events({"events": deepcopy(self._events_by_card.get(key, []))})
+        return ReadonlyContextSnapshot(
+            {"columns": deepcopy(self._columns), "cards": cards, "clients": [], "events": events},
+            {},
+            source_indexes=(self._cards, self._clients, {}),
+        )
 
 
 def build_context_snapshot(store, state, domains):
