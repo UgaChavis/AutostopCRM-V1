@@ -152,18 +152,27 @@ def redact_projected_item(item: dict, *, compact: bool) -> dict:
     return projected
 
 
-def valid_repair_order_items(items: object) -> bool:
+def valid_repair_order_items(items: object, *, allow_redacted_id: bool = False) -> bool:
     return isinstance(items, list) and all(
         isinstance(item, dict)
         and isinstance(item.get("card_id"), str)
-        and bool(item["card_id"].strip())
+        and (
+            (
+                bool(item["card_id"])
+                and item["card_id"] == item["card_id"].strip()
+                and len(item["card_id"]) <= 128
+            )
+            or (
+                allow_redacted_id and item["card_id"] == "" and item.get("card_id_redacted") is True
+            )
+        )
         and isinstance(item.get("number"), str)
         and item.get("status") in ("open", "ready", "closed")
         for item in items
     )
 
 
-def validate_list_response(response: object) -> dict:
+def validate_list_response(response: object, *, allow_redacted_id: bool = False) -> dict:
     if not isinstance(response, dict) or type(response.get("ok")) is not bool:
         invalid = True
     else:
@@ -171,7 +180,9 @@ def validate_list_response(response: object) -> dict:
         invalid = response["ok"] and (
             response.get("error") is not None
             or not isinstance(data, dict)
-            or not valid_repair_order_items(data.get("repair_orders"))
+            or not valid_repair_order_items(
+                data.get("repair_orders"), allow_redacted_id=allow_redacted_id
+            )
         )
     if invalid:
         return {
@@ -194,7 +205,7 @@ def redact_list_response(response: dict, *, compact: bool) -> dict:
             else response
         )
     items = data.get("repair_orders")
-    if response.get("ok") and not valid_repair_order_items(items):
+    if response.get("ok") and not valid_repair_order_items(items, allow_redacted_id=True):
         return {"ok": False, "error": safe_repair_order_error(None), "data": None}
     original = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     meta = {
@@ -288,7 +299,7 @@ def safe_search_status(entity, ok, data, error, response):
         data = next(
             (data[key] for key in ("repair_orders", "items", "results") if key in data), None
         )
-    return valid_repair_order_items(data)
+    return valid_repair_order_items(data, allow_redacted_id=True)
 
 
 def invalid_raw_redact_flag(name: str, arguments: dict) -> bool:
@@ -333,6 +344,8 @@ def redact_compact_item(item: dict, card) -> None:
             "license_plate_present": bool(order.license_plate),
         }
     )
+    if not card_id:
+        item["card_id_redacted"] = True
 
 
 def redact_full_item(item: dict, card) -> None:
@@ -354,6 +367,8 @@ def redact_full_item(item: dict, card) -> None:
     item["tags"] = []
     item["prepayment"] = card.repair_order.prepayment_amount()
     item["card_id"] = safe_card_id(card.id)
+    if not item["card_id"]:
+        item["card_id_redacted"] = True
     item["number"] = safe_order_number(card.repair_order.number)
     for key in ("date", "created_at", "opened_at", "closed_at", "updated_at"):
         item[key] = safe_order_datetime(item[key])

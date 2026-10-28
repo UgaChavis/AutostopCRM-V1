@@ -10,6 +10,7 @@ from contextlib import nullcontext
 from copy import copy, deepcopy
 from dataclasses import fields
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from logging import Logger
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,13 @@ from ..models import (
     utc_now,
 )
 from ..performance import MeasuredRLock, record_timing
-from ..repair_order import RepairOrder
+from ..repair_order import (
+    REPAIR_ORDER_PAYMENTS_LIMIT,
+    REPAIR_ORDER_ROW_VALUE_LIMIT,
+    REPAIR_ORDER_ROWS_LIMIT,
+    RepairOrder,
+    normalize_repair_order_payments,
+)
 from ..services.parts_store_column import ensure_parts_store_column
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
@@ -164,6 +171,69 @@ class StateFileCorruptedError(RuntimeError):
     """Raised when state.json cannot be decoded without silently resetting data."""
 
 
+def _snapshot_financial_value_is_valid(value: Any) -> bool:
+    """Reject values which a repair-order normalizer would truncate or lose."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    text = " ".join(str(value).strip().split())
+    if not text:
+        return True
+    if len(text) > REPAIR_ORDER_ROW_VALUE_LIMIT:
+        return False
+    try:
+        return Decimal(text.replace(" ", "").replace(",", ".")).is_finite()
+    except InvalidOperation:
+        return False
+
+
+def _validate_snapshot_financial_fields(order: dict[str, Any]) -> None:
+    payments = order.get("payments", order.get("payment_history"))
+    for name, rows in (
+        ("works", order.get("works")),
+        ("materials", order.get("materials")),
+        ("payments", payments),
+    ):
+        if rows is None:
+            continue
+        limit = (
+            REPAIR_ORDER_ROWS_LIMIT
+            if name in {"works", "materials"}
+            else REPAIR_ORDER_PAYMENTS_LIMIT
+        )
+        if (
+            not isinstance(rows, list)
+            or len(rows) > limit
+            or any(not isinstance(row, dict) for row in rows)
+        ):
+            raise StateFileCorruptedError("Данные работ, материалов или оплат повреждены.")
+        field_aliases = (
+            (("quantity", "qty"), ("price",), ("total", "sum"))
+            if name in {"works", "materials"}
+            else (("amount", "value"),)
+        )
+        if any(
+            not _snapshot_financial_value_is_valid(
+                next((row[field] for field in aliases if field in row), None)
+            )
+            for row in rows
+            for aliases in field_aliases
+        ):
+            raise StateFileCorruptedError("Суммы заказ-наряда повреждены.")
+    if not normalize_repair_order_payments(payments):
+        legacy_prepayment = next(
+            (
+                order[field]
+                for field in ("prepayment", "advance_payment", "advancePayment")
+                if field in order
+            ),
+            None,
+        )
+        if not _snapshot_financial_value_is_valid(legacy_prepayment):
+            raise StateFileCorruptedError("Суммы заказ-наряда повреждены.")
+
+
 class StateWriteConflictError(RuntimeError):
     """Raised when a cached bundle no longer matches the on-disk state."""
 
@@ -249,11 +319,12 @@ class JsonStore:
         return self.read_bundle_with_signature()[0]
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
-        """Read cards with orders without repair, feed, or file writes.
+        """Read cards with orders without state, feed, or order-artifact writes.
 
         Normalization happens only in this independent snapshot. Writers replace
         the state atomically. On Windows, opening a state file can prevent replace,
-        so use the existing writer lock without creating it. Never cache the snapshot.
+        so use the existing writer lock without creating it. POSIX uses a separate
+        in-memory snapshot cache. Diagnostic logging can still write or rotate logs.
         """
         guard = (
             self._process_lock.acquire(existing_only=True)
@@ -282,18 +353,36 @@ class JsonStore:
                 for card in raw_cards
             ):
                 raise StateFileCorruptedError("Данные заказ-наряда повреждены.")
-            if any(
-                not RepairOrder.from_dict(card.get("repair_order")).is_empty()
-                and (
-                    not str(card.get("id") or "").strip()
+            identities: dict[str, bool] = {}
+            for card in raw_cards:
+                raw_order = card.get("repair_order") or {}
+                _validate_snapshot_financial_fields(raw_order)
+                try:
+                    has_order = not RepairOrder.from_dict(raw_order).is_empty()
+                except (InvalidOperation, OverflowError, ValueError):
+                    raise StateFileCorruptedError("Данные заказ-наряда повреждены.") from None
+                card_id = card.get("id")
+                normalized_id = str(card_id or "").strip()[:128]
+                if has_order and (
+                    not isinstance(card_id, str)
+                    or card_id != normalized_id
+                    or not normalized_id
                     or not parse_datetime(card.get("created_at"))
                     or not parse_datetime(card.get("updated_at"))
-                )
-                for card in raw_cards
-            ):
-                raise StateFileCorruptedError(
-                    "Невозможно безопасно прочитать карточки без идентификатора или дат."
-                )
+                ):
+                    raise StateFileCorruptedError(
+                        "Невозможно безопасно прочитать карточки без идентификатора или дат."
+                    )
+                if (
+                    normalized_id
+                    and normalized_id in identities
+                    and (has_order or identities[normalized_id])
+                ):
+                    raise StateFileCorruptedError(
+                        "Идентификаторы карточек заказ-нарядов неоднозначны."
+                    )
+                if normalized_id:
+                    identities[normalized_id] = identities.get(normalized_id, False) or has_order
             columns, _ = self._normalize_columns(state)
             cards, _ = self._normalize_cards(state, columns)
             cards = [card for card in cards if not card.repair_order.is_empty()]

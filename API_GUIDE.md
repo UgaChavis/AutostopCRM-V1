@@ -386,27 +386,37 @@ remain consistent.
 
 Listing takes an independent read-only snapshot: it does not assign numbers,
 repair the state or change feed, or create, replace, or remove text files. A
+diagnostic warning may still write to or rotate the configured application logs;
+the absence of business-data and order-file changes does not cover those logs. A
 legacy order without a saved number is returned with an empty number; a later
 authorized write can assign it. In an unredacted response `file_name` and
 `file_path` are the expected paths only and do not guarantee a file exists;
 use the dedicated text operation when the document itself is needed.
 
 With `redact_private=true`, both response modes hide client and vehicle text,
-notes, tags, payment details, file paths and echoed query; full-mode keys stay
+notes, tags, individual payment records, file paths and echoed query; full-mode keys stay
 present with empty values, and compact mode retains its existing presence flags.
 UUID card IDs, up to eight-digit decimal order numbers, valid ISO and CRM
 `DD.MM.YYYY HH:MM` dates, status,
-and calculated totals remain visible. Other legacy IDs, numbers and dates are
+calculated totals and payment status remain visible. Full mode also exposes
+the payment method and its label. Other legacy IDs, numbers and dates are
 blanked because they may contain free text. Exact filters still match the
 stored values before display redaction. Presence flags and whether a search
 matched can reveal that a record exists; redaction is not an access control.
+When an otherwise valid legacy card ID is hidden, the direct list service adds
+`card_id_redacted=true` as a structural signal; gateway projections omit this
+signal. It asserts intentional masking by the backend, not the original ID.
 Redacted error responses hide free-form details and request values. Known
 authorization and validation codes are retained; unknown codes are generalized.
 Malformed or internally inconsistent backend lists fail in both modes instead
 of returning an empty or incomplete success.
-If a stored card with an order lacks a stable ID or valid creation/update timestamps, the
-snapshot fails closed instead of inventing identifiers or revisions; resolving
-such legacy data requires a separately authorized write.
+If a stored card with an order lacks a stable ID or valid creation/update timestamps,
+or card IDs would collide after normalization, the snapshot fails closed instead
+of inventing identifiers or revisions. Malformed work, material or payment
+collections and invalid numeric values, including legacy prepayment, fail rather than
+silently losing a row or reporting an inaccurate total. Resolving such data
+requires a separately authorized write. This is not a complete validation of
+every stored field.
 An absent or unreadable state also fails instead of returning an empty list;
 the read does not create a corruption backup. The snapshot requires a `cards`
 array, including for an empty board; a missing or malformed array fails closed

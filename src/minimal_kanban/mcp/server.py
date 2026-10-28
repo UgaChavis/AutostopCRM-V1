@@ -2620,7 +2620,8 @@ def create_mcp_server(
                     sort_dir=sort_dir,
                     compact=compact,
                     redact_private=redact_private,
-                )
+                ),
+                allow_redacted_id=redact_private,
             ),
             params={
                 "limit": effective_limit,
