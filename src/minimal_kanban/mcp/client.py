@@ -683,6 +683,89 @@ class BoardApiClient:
             payload["limit"] = limit
         return self._request_readonly_query("/api/search_clients", payload)
 
+    def list_clients_readonly(
+        self, *, limit: int | None = None, include_stats: bool = True
+    ) -> dict:
+        payload: dict[str, object] = {"include_stats": include_stats}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._client_search_readonly_request("/api/list_clients_readonly", payload)
+
+    def search_clients_readonly(self, *, query: str = "", limit: int | None = None) -> dict:
+        payload: dict[str, object] = {"query": query}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._client_search_readonly_request("/api/search_clients_readonly", payload)
+
+    def _client_search_readonly_request(self, path: str, payload: dict[str, object]) -> dict:
+        response = self._request_readonly_query(path, payload)
+        if not isinstance(response, dict):
+            return response
+        unverified = {
+            "ok": False,
+            "data": None,
+            "error": {
+                "code": "client_read_safety_unverified",
+                "message": "Безопасный контракт чтения клиентов не подтверждён сервером.",
+            },
+        }
+        if type(response.get("ok")) is not bool:
+            return unverified
+        if response["ok"]:
+            data = response.get("data")
+            meta = data.get("meta") if isinstance(data, dict) else None
+            clients = data.get("clients") if isinstance(data, dict) else None
+            ids = (
+                [row.get("id") for row in clients if isinstance(row, dict)]
+                if isinstance(clients, list)
+                else []
+            )
+            total = meta.get("total") if isinstance(meta, dict) else None
+            returned = meta.get("returned") if isinstance(meta, dict) else None
+            has_more = meta.get("has_more") if isinstance(meta, dict) else None
+            requested_limit = payload.get("limit")
+            if (
+                not isinstance(meta, dict)
+                or meta.get("read_only_contract") != "client-search-v1"
+                or response.get("error") is not None
+                or not isinstance(clients, list)
+                or len(ids) != len(clients)
+                or any(
+                    not isinstance(item, str) or not item or item != item.strip() or len(item) > 128
+                    for item in ids
+                )
+                or len(set(ids)) != len(ids)
+                or type(total) is not int
+                or type(returned) is not int
+                or total < returned
+                or returned != len(clients)
+                or (total > 0 and returned == 0)
+                or type(has_more) is not bool
+                or has_more != (total > returned)
+                or (type(requested_limit) is int and returned > requested_limit)
+            ):
+                return unverified
+        else:
+            response = {**response, "data": None}
+            error = response.get("error")
+            details = error.get("details") if isinstance(error, dict) else None
+            target = details.get("path") if isinstance(details, dict) else None
+            if (
+                isinstance(error, dict)
+                and error.get("code") == "not_found"
+                and isinstance(target, str)
+                and target.split("?", 1)[0] == path
+            ):
+                return {
+                    "ok": False,
+                    "data": None,
+                    "error": {
+                        "code": "client_readonly_route_unavailable",
+                        "message": "Сервер CRM не поддерживает безопасное чтение клиентов.",
+                    },
+                }
+        return response
+
     def get_client(
         self,
         client_id: str,

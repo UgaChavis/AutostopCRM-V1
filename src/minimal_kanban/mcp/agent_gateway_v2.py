@@ -15,6 +15,7 @@ from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..models import normalize_actor_name
 from ..repair_order import repair_order_payment_method_from_cashbox_name
+from . import client_search_wire_safety as _client_search_wire
 from .agent_context_safety import _entity_context_summary, _guard_unverified_context_values
 from .agent_gateway_support import (
     AGENT_GATEWAY_FORMAT,
@@ -2163,7 +2164,7 @@ def register_agent_gateway_v2(
             keys = ("cards", "items", "results")
         elif entity == "client":
             response = await _board_call(
-                board_api.search_clients, query=query, limit=effective_limit
+                board_api.search_clients_readonly, query=query, limit=effective_limit
             )
             keys = ("clients", "items", "results")
         elif entity == "repair_order":
@@ -2192,6 +2193,10 @@ def register_agent_gateway_v2(
         items, meta, error = _order_redaction.safe_search_output(entity, ok, items, meta, error)
         if entity == "card":
             items = [_slim_card(item, DEFAULT_CARD_FIELDS) for item in items]
+        elif entity == "client":
+            ok, items, error = _client_search_wire.compact_search_items(
+                ok, items, error, _compact_object, effective_limit
+            )
         else:
             items = _compact_object(items, item_limit=effective_limit)
         payload = _envelope(
@@ -2206,7 +2211,7 @@ def register_agent_gateway_v2(
             },
             data={"items": items, **({"error": _compact_object(error)} if not ok else {})},
             warnings=[] if ok else [_error_code({"error": error}) or "search_failed"],
-            page={"limit": effective_limit, "has_more": False},
+            page=_client_search_wire.page(effective_limit, entity, data, ok),
             meta={
                 "source_meta": _compact_object(meta),
                 "applied_filters": _order_redaction.safe_repair_order_filters(repair_order_filters),

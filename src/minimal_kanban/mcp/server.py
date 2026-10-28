@@ -2332,7 +2332,9 @@ def create_mcp_server(
         effective_limit = _normalize_limit(limit, default=100, maximum=1000)
         return _relay_board_call(
             "list_clients",
-            lambda: board_api.list_clients(limit=effective_limit, include_stats=include_stats),
+            lambda: board_api.list_clients_readonly(
+                limit=effective_limit, include_stats=include_stats
+            ),
             params={"limit": effective_limit, "include_stats": include_stats},
             transform=lambda response: _with_data_meta(
                 response,
@@ -2344,7 +2346,9 @@ def create_mcp_server(
     @server.tool(
         name="search_clients",
         description=_scoped_description(
-            "Search clients and organizations by name, any saved phone, email, INN, vehicle, VIN, or license plate. Use before creating a client; when a vehicle is known, choose the matching vehicles_preview[].id and pass it as client_vehicle_id to link_card_to_client."
+            "Search clients by name, phone, email, INN, vehicle, VIN, or plate. "
+            "Saved vehicles_preview IDs belong to the client. Related card candidates "
+            "are labeled unverified and cannot establish client or vehicle ownership."
         ),
         annotations=_read_tool_annotations("Search Clients"),
         structured_output=True,
@@ -2353,7 +2357,7 @@ def create_mcp_server(
         effective_limit = _normalize_limit(limit, default=10, maximum=100)
         return _relay_board_call(
             "search_clients",
-            lambda: board_api.search_clients(query=query, limit=effective_limit),
+            lambda: board_api.search_clients_readonly(query=query, limit=effective_limit),
             params={"query": query, "limit": effective_limit},
             transform=lambda response: _with_data_meta(
                 response,

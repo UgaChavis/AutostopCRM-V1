@@ -72,8 +72,11 @@ class ReadonlyContextSnapshot(dict):
                 if not parse_datetime(raw.get("created_at")):
                     raise StateFileCorruptedError("Недостоверная дата вложения в снимке состояния.")
 
+    def require_client_identity(self, client):
+        return self._source(self._clients, client.id)
+
     def require_client(self, client):
-        source = self._source(self._clients, client.id)
+        source = self.require_client_identity(client)
         if not all(
             isinstance(source.get(field), str)
             and source[field]

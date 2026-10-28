@@ -118,6 +118,161 @@ class CardServiceClientsMixin:
                 },
             }
 
+    def list_clients_readonly(self, payload: dict | None = None) -> dict:
+        """List clients without normalization writes or inferred confirmed links."""
+        with self._lock:
+            payload = payload or {}
+            limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
+            include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
+            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
+            clients = self._ordered_clients(bundle["clients"])
+            for client in clients:
+                bundle.require_client_identity(client)
+            selected = clients[:limit]
+            related = (
+                self._client_readonly_related_cards(selected, bundle["cards"])
+                if include_stats
+                else {}
+            )
+            return {
+                "clients": [
+                    self._serialize_readonly_client(
+                        bundle,
+                        client,
+                        related.get(client.id, []),
+                        include_stats=include_stats,
+                    )
+                    for client in selected
+                ],
+                "meta": {
+                    "total": len(clients),
+                    "returned": len(selected),
+                    "has_more": len(clients) > len(selected),
+                    "include_stats": include_stats,
+                    "read_only_contract": "client-search-v1",
+                },
+            }
+
+    def search_clients_readonly(self, payload: dict | None = None) -> dict:
+        """Search saved profiles and label card-derived, unverified candidates."""
+        with self._lock:
+            payload = payload or {}
+            query = normalize_text(payload.get("query"), default="", limit=240)
+            limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
+            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
+            prepared = getattr(self, "_client_readonly_search_prepared", None)
+            if prepared is None or prepared[0] is not bundle:
+                clients = self._ordered_clients(bundle["clients"])
+                client_index = self._client_search_index_for(
+                    clients, signature=("readonly-client-search", id(bundle))
+                )
+                related = self._client_readonly_related_cards(clients, bundle["cards"])
+                related_fields = {
+                    client.id: [
+                        value
+                        for card in related.get(client.id, [])
+                        for value in self._client_related_vehicle_fields_for_card(
+                            card, explicit_link=card.client_id == client.id
+                        )
+                    ]
+                    for client in clients
+                }
+                related_index = self._client_related_search_index(related_fields)
+                prepared = (bundle, clients, client_index, related, related_fields, related_index)
+                self._client_readonly_search_prepared = prepared
+            _, clients, client_index, related, related_fields, related_index = prepared
+            matches = (
+                [(1, client) for client in clients]
+                if not query
+                else self._rank_client_matches(
+                    clients,
+                    query,
+                    client_search_index=client_index,
+                    related_fields_by_client_id=related_fields,
+                    related_search_index_by_client_id=related_index,
+                )
+            )
+            for _, client in matches:
+                bundle.require_client_identity(client)
+            selected = [client for _, client in matches[:limit]]
+            return {
+                "clients": [
+                    self._serialize_readonly_client(
+                        bundle, client, related.get(client.id, []), include_stats=True, query=query
+                    )
+                    for client in selected
+                ],
+                "meta": {
+                    "query": query,
+                    "total": len(matches),
+                    "returned": len(selected),
+                    "has_more": len(matches) > len(selected),
+                    "read_only_contract": "client-search-v1",
+                },
+            }
+
+    def _client_readonly_related_cards(self, clients, cards):
+        related = self._client_related_cards_map(clients, cards)
+        return {
+            client.id: [
+                card
+                for card in related.get(client.id, [])
+                if not card.client_id or card.client_id == client.id
+            ]
+            for client in clients
+        }
+
+    def _serialize_readonly_client(self, bundle, client, related, *, include_stats, query=""):
+        bundle.require_client(client)
+        for card in related:
+            bundle.require_card(card)
+            bundle.require_card_client_links(card)
+        confirmed = [card for card in related if card.client_id == client.id]
+        unverified = [card for card in related if not card.client_id]
+        saved_vehicles = self._client_vehicles(client, [], query=query, related_cards=[])
+        payload = self._serialize_client(
+            client, [], compact=True, include_vehicle_preview=False, related_cards=[]
+        )
+        payload["vehicles_preview"] = saved_vehicles[:2]
+        if include_stats:
+            payload["stats"] = self._client_stats_from_related(
+                client, [], confirmed, vehicles_total=len(saved_vehicles)
+            )
+        evidence = []
+        for card in related:
+            vehicle = self._client_vehicle_payload_from_card(card)
+            if not any(vehicle.get(key) for key in ("vehicle", "vin", "license_plate")):
+                continue
+            evidence.append(
+                {
+                    "client_relation": "confirmed" if card.client_id else "unverified",
+                    "vehicle_relation": "unverified",
+                    "card_id": card.id,
+                    "vehicle": vehicle["vehicle"],
+                    "vin": vehicle["vin"],
+                    "license_plate": vehicle["license_plate"],
+                }
+            )
+        if query:
+            query_text = self._normalize_search_text(query)
+            query_compact = re.sub(r"[\W_]+", "", query_text)
+            query_digits = re.sub(r"\D+", "", query)
+            evidence.sort(
+                key=lambda item: self._score_client_vehicle_match(
+                    item,
+                    query_text=query_text,
+                    query_compact=query_compact,
+                    query_digits=query_digits,
+                ),
+                reverse=True,
+            )
+        return {
+            "read_warnings": ["related_card_client_match_unverified"] if unverified else [],
+            "related_card_candidates": evidence[:2],
+            "related_card_candidates_total": len(evidence),
+            **payload,
+        }
+
     def get_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}

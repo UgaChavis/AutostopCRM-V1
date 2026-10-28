@@ -48,6 +48,20 @@
     }
   },
   "special_http_coverage": {
+    "/api/list_clients_readonly": {
+      "backend_kind": "registered_readonly_client_list",
+      "gateway_kind": "guarded_raw_mcp",
+      "gateway_tool": "call_raw_capability",
+      "mcp_tool": "list_clients",
+      "readback_class": "read_operation"
+    },
+    "/api/search_clients_readonly": {
+      "backend_kind": "registered_readonly_client_search",
+      "gateway_kind": "guarded_raw_mcp",
+      "gateway_tool": "call_raw_capability",
+      "mcp_tool": "search_clients",
+      "readback_class": "read_operation"
+    },
     "/api/automation_center/control": {
       "backend_kind": "registered_admin_manager_proxy_write",
       "gateway_kind": "manager_mcp_proxy",

@@ -796,6 +796,79 @@ class BoardApiClientTests(unittest.TestCase):
             ],
         )
 
+    def test_safe_client_read_helpers_use_dedicated_get_routes(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+        response = {
+            "ok": True,
+            "data": {
+                "clients": [],
+                "meta": {
+                    "read_only_contract": "client-search-v1",
+                    "total": 0,
+                    "returned": 0,
+                    "has_more": False,
+                },
+            },
+        }
+        with patch.object(client, "_request", return_value=response) as request:
+            self.assertTrue(client.list_clients_readonly(limit=10, include_stats=False)["ok"])
+            self.assertTrue(client.search_clients_readonly(query="SYNTHETIC", limit=5)["ok"])
+        self.assertEqual(
+            request.call_args_list,
+            [
+                unittest.mock.call(
+                    "/api/list_clients_readonly?include_stats=false&limit=10", method="GET"
+                ),
+                unittest.mock.call(
+                    "/api/search_clients_readonly?query=SYNTHETIC&limit=5", method="GET"
+                ),
+            ],
+        )
+
+    def test_safe_client_reads_reject_malformed_or_inconsistent_results(self) -> None:
+        client = BoardApiClient("https://board.example/api", bearer_token="secret")
+        meta = {
+            "read_only_contract": "client-search-v1",
+            "total": 1,
+            "returned": 1,
+            "has_more": False,
+        }
+        for data in (
+            {"clients": "not-an-array", "meta": meta},
+            {"clients": [{"name": "SYNTHETIC"}], "meta": meta},
+            {"clients": [{"id": " bad "}], "meta": meta},
+            {
+                "clients": [{"id": "same"}, {"id": "same"}],
+                "meta": {**meta, "total": 2, "returned": 2},
+            },
+            {"clients": [{"id": "one"}], "meta": {**meta, "returned": 0}},
+            {"clients": [{"id": "one"}], "meta": {**meta, "has_more": True}},
+        ):
+            with (
+                self.subTest(data=data),
+                patch.object(client, "_request", return_value={"ok": True, "data": data}),
+            ):
+                result = client.search_clients_readonly(query="SYNTHETIC", limit=1)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["error"]["code"], "client_read_safety_unverified")
+
+        with patch.object(
+            client, "_request", return_value={"ok": "true", "data": {"clients": [], "meta": meta}}
+        ):
+            result = client.search_clients_readonly(query="SYNTHETIC", limit=1)
+            self.assertEqual(result["error"]["code"], "client_read_safety_unverified")
+        with patch.object(
+            client,
+            "_request",
+            return_value={
+                "ok": False,
+                "data": {"clients": [{"id": "SYNTHETIC_UNTRUSTED"}]},
+                "error": {"code": "synthetic_error"},
+            },
+        ):
+            result = client.search_clients_readonly(query="SYNTHETIC", limit=1)
+            self.assertIsNone(result["data"])
+
 
 if __name__ == "__main__":
     unittest.main()

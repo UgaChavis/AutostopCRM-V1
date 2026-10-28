@@ -55,6 +55,14 @@ The public 24-tool surface contains these stable names:
   `agent_inventory_workflow`, `prepare_action_contract`, and
   `call_raw_capability`.
 
+`agent_search(entity="client")` and the raw `search_clients`/`list_clients`
+tools use dedicated read-only API routes. Vehicle IDs in `vehicles_preview`
+come from the saved client profile. A `related_card_candidates` entry marked
+`client_relation=unverified` is a text match, not a confirmed relationship;
+card-derived vehicle fields are marked `vehicle_relation=unverified`. An older
+backend without the dedicated routes returns an error instead of using a
+potentially mutating fallback.
+
 Use only enough calls to establish the target and perform the useful next step.
 A workflow can be helpful for an auditable multi-step task, but is not required
 for simple context, analysis, or a normal customer reply.

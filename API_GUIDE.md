@@ -452,6 +452,20 @@ lock and an open file handle that denies concurrent write and delete sharing,
 then compares the exact file bytes and file identity. If the handle or any
 check is unavailable, the ordinary locked read-only snapshot is used instead.
 
+`GET|POST /api/search_clients_readonly` and `/api/list_clients_readonly` use
+the same read-only snapshot for the MCP client search and list. Their response
+metadata identifies `read_only_contract=client-search-v1`; an older API without
+these routes is not retried through the legacy routes. Saved client vehicle IDs
+in `vehicles_preview` are checked against their source records. A card with a
+different explicit client ID is excluded, while an unassigned text match is a
+candidate with `client_relation=unverified`; it does not contribute to confirmed
+card totals and does not supply a client-vehicle ID. Card-derived vehicle fields
+in `related_card_candidates` are separately marked `vehicle_relation=unverified`.
+IDs for all matches counted in `total` must be unique and match saved records;
+an invalid counted identity makes the read fail closed even beyond the limit.
+The existing `/api/search_clients` and `/api/list_clients` UI behavior remains
+unchanged.
+
 The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then
 require an exact stored `client_id`, and their totals count only those records.
