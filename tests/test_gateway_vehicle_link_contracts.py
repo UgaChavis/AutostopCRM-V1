@@ -98,8 +98,9 @@ class GatewayVehicleLinkContractTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            store = JsonStore(state_file=root / "state.json", logger=self.logger)
             service = CardService(
-                JsonStore(state_file=root / "state.json", logger=self.logger),
+                store,
                 self.logger,
                 attachments_dir=root / "attachments",
                 repair_orders_dir=root / "repair-orders",
@@ -145,11 +146,15 @@ class GatewayVehicleLinkContractTests(unittest.IsolatedAsyncioTestCase):
 
             board = RealBoard()
             server, state = self._create_store_server(board_api=board)
+            persisted_links = 0
             for index, (identifier, canonical) in enumerate(
                 (
                     ("CV-11111111", None),
+                    (" \tCV-11111111\r\n", None),
                     ("cv-22222222", vehicle_ids[2]),
+                    (" \tcv-22222222\r\n", vehicle_ids[2]),
                     (vehicle_ids[1], vehicle_ids[1]),
+                    (f" \t{vehicle_ids[1]}\r\n", vehicle_ids[1]),
                 )
             ):
                 with self.subTest(identifier=identifier):
@@ -164,11 +169,16 @@ class GatewayVehicleLinkContractTests(unittest.IsolatedAsyncioTestCase):
                         "expected_client_updated_at": client["updated_at"],
                         "sync_fields": False,
                     }
+                    saved_clients = [
+                        item.to_storage_dict() for item in store.read_bundle()["clients"]
+                    ]
                     baseline = {path.name: path.read_bytes() for path in root.glob("*.json")}
                     key = f"raw-real-vehicle-identity-{index}"
                     result = (
                         await self._manager_raw_call(server, "link_card_to_client", arguments, key)
                     ).structuredContent
+                    if canonical is not None:
+                        persisted_links += 1
                     self.assertEqual(result["ok"], canonical is not None)
                     if canonical is None:
                         self.assertEqual(
@@ -178,7 +188,7 @@ class GatewayVehicleLinkContractTests(unittest.IsolatedAsyncioTestCase):
                             service.get_card({"card_id": card["id"]})["card"]["client_vehicle_id"],
                             "",
                         )
-                        self.assertEqual(board.persisted_links, 0)
+                        self.assertEqual(board.persisted_links, persisted_links)
                         continue
                     self.assertEqual(result["status"], "completed")
                     self.assertTrue(result["verification"]["evidence"]["vehicle_link_exact"])
@@ -186,10 +196,19 @@ class GatewayVehicleLinkContractTests(unittest.IsolatedAsyncioTestCase):
                         service.get_card({"card_id": card["id"]})["card"]["client_vehicle_id"],
                         canonical,
                     )
+                    self.assertEqual(
+                        [item.to_storage_dict() for item in store.read_bundle()["clients"]],
+                        saved_clients,
+                    )
+                    saved_state = {path.name: path.read_bytes() for path in root.glob("*.json")}
                     replay = (
                         await self._manager_raw_call(server, "link_card_to_client", arguments, key)
                     ).structuredContent
                     self.assertTrue(replay["ok"])
                     self.assertTrue(replay["verification"]["idempotency_reused"])
-                    self.assertEqual(board.persisted_links, index)
-            self.assertEqual(len(state["workflow_runs"]), 3)
+                    self.assertEqual(board.persisted_links, persisted_links)
+                    self.assertEqual(
+                        {path.name: path.read_bytes() for path in root.glob("*.json")}, saved_state
+                    )
+            self.assertEqual(persisted_links, 4)
+            self.assertEqual(len(state["workflow_runs"]), 6)

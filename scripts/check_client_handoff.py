@@ -75,7 +75,7 @@ def sources(manager_root):
 
 def deny_internet(monkeypatch, temporary_root):
     counters = {"blocked_network_calls": 0}
-    for method in ("connect", "connect_ex", "sendto"):
+    for method in ("bind", "connect", "connect_ex", "sendto"):
         original = getattr(socket.socket, method)
 
         def local_only(sock, *args, _original=original, **kwargs):
@@ -446,6 +446,112 @@ async def consent_scenario(deps, directory, fixture, private_note, *, lose_respo
         crm.fixture.doCleanups()
 
 
+async def failed_turn_crm_scenario(deps, directory, fixture, private_note):
+    """A real committed CRM write is invisible to the Telegram effects ledger."""
+    crm_dir = directory / "crm"
+    crm_dir.mkdir()
+    crm = real_board(deps, crm_dir)
+    try:
+        with deps.pytest.MonkeyPatch.context() as monkeypatch:
+            bundle = deps.telegram.bundle.__wrapped__(directory, monkeypatch)
+            async with deps.telegram.bridge_runtime(directory) as runtime:
+                runtime.monitor.config = runtime.config
+                runtime.monitor.self_peer_id = 900
+                original_event = runtime.monitor.record(
+                    runtime.client.inbound(100, text=fixture["inputs"]["events"][1]["text"])
+                )
+                server = deps.telegram.MockServer(complete=False)
+                async with deps.telegram.worker(runtime, directory, bundle, server) as dispatcher:
+                    await deps.telegram.until(
+                        lambda: (runtime.inbox.execution_slot() or {}).get("state") == "running"
+                    )
+                    job = runtime.inbox.execution_slot()
+                    require(job["event_ids"] == [original_event], "Consent binding changed")
+                    await crm_update(deps, crm, fixture, private_note, lose_response=True)
+                    current = runtime.inbox.read_job(job["job_id"])
+                    require(current["effects"] == [], "CRM effect leaked into Telegram ledger")
+                    server.turn_statuses[job["turn_id"]] = "failed"
+                    await server.sockets[-1].send(
+                        json.dumps(
+                            {
+                                "method": "turn/completed",
+                                "params": {
+                                    "threadId": job["thread_id"],
+                                    "turn": {"id": job["turn_id"], "status": "failed"},
+                                },
+                            }
+                        )
+                    )
+                    await deps.telegram.until(
+                        lambda: (
+                            runtime.inbox.execution_slot() is None
+                            and dispatcher.current_job is None
+                            and dispatcher.status()["ready"]
+                        )
+                    )
+                    current = runtime.inbox.read_job(job["job_id"])
+                    require(
+                        current["state"] == "needs_review"
+                        and current["execution_proof"] == "failed"
+                        and current["reason_code"] == "codex_turn_failed",
+                        "Automatic failed-turn recovery released an unknown CRM write",
+                    )
+                    require(
+                        current["event_ids"] == job["event_ids"],
+                        "Failed-turn recovery changed the original event binding",
+                    )
+                    try:
+                        await runtime.jobs.request(
+                            "job_defer_failed", **deps.telegram.binding(current)
+                        )
+                    except deps.wake.WakeError as error:
+                        require(
+                            str(error) == "inbox_failure_recovery_unsafe",
+                            "Unexpected failed-turn defer rejection",
+                        )
+                    else:
+                        raise AssertionError(
+                            "Native defer accepted a failed turn with unknown CRM write"
+                        )
+                new_event = runtime.monitor.record(
+                    runtime.client.inbound(200, text="Synthetic client asks about the request")
+                )
+                claimed = await runtime.jobs.request(
+                    "job_claim",
+                    instruction_root=str(bundle),
+                    instruction_revision=deps.telegram.REVISION,
+                    worker_protocol=2,
+                )
+                require(claimed["job"] is None, "New input released the unknown original request")
+                require(
+                    [item["job_id"] for item in runtime.inbox.active_jobs()] == [job["job_id"]]
+                    and runtime.inbox.read_job(job["job_id"])["event_ids"] == job["event_ids"]
+                    and all(
+                        runtime.inbox.event_state(event) == "open"
+                        for event in (original_event, new_event)
+                    )
+                    and runtime.inbox.status()["open_events"] == 2,
+                    "Original or new event escaped the held peer",
+                )
+                require(
+                    crm.board.mutations == 1 and runtime.client.sent == 0 and server.counter == 1,
+                    "Failed CRM turn caused another mutation, delivery or model turn",
+                )
+                return {
+                    "scenario": "failed_turn_after_unknown_crm_write",
+                    "passed": True,
+                    "crm_mutations": 1,
+                    "telegram_effects": 0,
+                    "automatic_state": current["state"],
+                    "native_failed_defer_rejected": True,
+                    "original_binding_preserved": True,
+                    "new_job_created": False,
+                    "open_events": 2,
+                }
+    finally:
+        crm.fixture.doCleanups()
+
+
 async def media_scenario(deps, directory, fixture):
     exports, facts = fixture["client_export_proposals"], fixture["inputs"]["facts"]
     offer = next(item for item in facts["offers"] if item["id"] == facts["selected_part"])
@@ -697,6 +803,16 @@ def main():
                             lose_response=loss,
                         )
                     )
+                directory = base / "failed-turn"
+                directory.mkdir()
+                results.append(
+                    await failed_turn_crm_scenario(
+                        deps,
+                        directory,
+                        cases["candidate-03-preliminary-consent-to-exact-handoff"],
+                        private_note,
+                    )
+                )
                 directory = base / "media"
                 directory.mkdir()
                 results.append(await media_scenario(deps, directory, pricing_case))

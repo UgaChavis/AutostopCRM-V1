@@ -13,7 +13,7 @@ from pydantic import WithJsonSchema
 
 from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
-from ..models import normalize_actor_name, short_entity_id
+from ..models import normalize_actor_name, normalize_text, short_entity_id
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from . import client_search_wire_safety as _client_search_wire
 from .agent_context_safety import _entity_context_summary, _guard_unverified_context_values
@@ -263,7 +263,7 @@ def _client_vehicle_link_matches(
     client: Mapping[str, Any] | None,
     result_vehicle_id: str,
 ) -> bool:
-    requested_id = str(arguments.get("client_vehicle_id") or "")
+    requested_id = normalize_text(arguments.get("client_vehicle_id"), default="", limit=128)
     saved_id = str((card or {}).get("client_vehicle_id") or "")
     vehicles = (client or {}).get("vehicles")
     if requested_id:
