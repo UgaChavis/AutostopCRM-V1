@@ -75,6 +75,7 @@ from browser_smoke_support import (
     SMOKE_UI_BIND_TIMEOUT_MS,
     _api_data,
     _close_card_modal_if_open,
+    _failure_locations,
     _is_modal_open,
     _login_successfully,
     _wait_clients_search_ready,
@@ -2454,30 +2455,18 @@ def main() -> int:
                     timeout=_browser_timeout_seconds(args.browser_timeout_seconds),
                 )
             )
-        except BrowserLaunchError as exc:
-            retryable_launch_failure = True
-            result = {
-                "ok": False,
-                "error": "browser_smoke_failed",
-                "message": str(exc),
-                "profile": args.profile,
-                "scenarios": {},
-                "events": {
-                    "ok": False,
-                    "console_errors": [],
-                    "page_errors": [],
-                    "failed_requests": [],
-                },
-            }
         except Exception as exc:
+            retryable_launch_failure = isinstance(exc, BrowserLaunchError)
             result = {
                 "ok": False,
                 "error": "browser_smoke_failed",
                 "message": str(exc),
+                "failure_locations": _failure_locations(exc),
                 "profile": args.profile,
                 "scenarios": {},
                 "events": {
                     "ok": False,
+                    "capture_complete": False,
                     "console_errors": [],
                     "page_errors": [],
                     "failed_requests": [],

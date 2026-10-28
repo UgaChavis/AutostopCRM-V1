@@ -1,8 +1,36 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 SMOKE_UI_BIND_TIMEOUT_MS = 30000
+
+
+def _failure_locations(exc: BaseException) -> list[dict[str, Any]]:
+    """Report only project script frames, never locals, URLs or request bodies."""
+    scripts = Path(__file__).resolve().parent
+    locations: list[dict[str, Any]] = []
+    frame = exc.__traceback__
+    while frame is not None:
+        code = frame.tb_frame.f_code
+        path = Path(code.co_filename)
+        if not path.is_absolute():
+            path = scripts.parent / path
+        try:
+            relative = path.resolve().relative_to(scripts)
+        except (OSError, ValueError):
+            pass
+        else:
+            if relative.suffix == ".py":
+                locations.append(
+                    {
+                        "file": (Path("scripts") / relative).as_posix(),
+                        "line": frame.tb_lineno,
+                        "function": code.co_name,
+                    }
+                )
+        frame = frame.tb_next
+    return locations[-16:]
 
 
 async def _wait_modal_open(page: Any, selector: str) -> None:

@@ -379,6 +379,41 @@ class BrowserSmokeScriptTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(len(payload["attempts"]), 2)
 
+    def test_failed_scenario_reports_only_project_locations_without_retry(self) -> None:
+        module = load_browser_smoke_module()
+        output = io.StringIO()
+        namespace: dict[str, object] = {}
+        source = (
+            "async def exercise_fake_scenario(**kwargs):\n"
+            "    confidential_local = 'synthetic-secret-never-print'\n"
+            "    raise TimeoutError('synthetic response timeout')\n"
+        )
+        exec(compile(source, str(ROOT / "scripts" / "synthetic_scenario.py"), "exec"), namespace)
+        runner = AsyncMock(side_effect=namespace["exercise_fake_scenario"])
+
+        with (
+            patch.object(module, "missing_browser_dependencies", return_value=[]),
+            patch.object(module, "run_temp_smoke", runner),
+            patch.object(sys, "argv", ["browser_smoke.py", "--profile", "core", "--attempts", "4"]),
+            redirect_stdout(output),
+        ):
+            exit_code = module.main()
+
+        self.assertEqual(exit_code, 1)
+        runner.assert_awaited_once()
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["attempt"], 1)
+        self.assertFalse(payload["events"]["capture_complete"])
+        self.assertEqual(
+            payload["failure_locations"][-1],
+            {
+                "file": "scripts/synthetic_scenario.py",
+                "line": 3,
+                "function": "exercise_fake_scenario",
+            },
+        )
+        self.assertNotIn("synthetic-secret-never-print", json.dumps(payload["failure_locations"]))
+
     def test_temp_runtime_is_closed_on_success_and_browser_failure(self) -> None:
         module = load_browser_smoke_module()
 

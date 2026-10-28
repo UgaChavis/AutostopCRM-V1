@@ -194,6 +194,14 @@ jobs:
             Stop-Transcript
           }
 
+      - name: Collect bounded Windows driver crash metadata
+        if: always() && runner.os == 'Windows' && env.CRM_REHEARSAL_PYTHON != ''
+        run: |
+          & $env:CRM_REHEARSAL_PYTHON scripts/collect_windows_driver_event.py `
+            --witness-dir output/release-rehearsal/driver-witness `
+            --output output/release-rehearsal/windows-driver-events.json
+          if ($LASTEXITCODE -ne 0) { throw 'Windows driver metadata collection failed.' }
+
       - name: Verify tracked source remains the selected commit
         run: |
           $head = git rev-parse HEAD

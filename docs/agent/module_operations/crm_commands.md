@@ -24,6 +24,7 @@ cleanup, not commands to run for that procedure.
 | `scripts/run_checks.ps1 -Profile changed` | Changed-file Ruff, generated JS and code health | R/S; local only |
 | `scripts/run_checks.ps1 -Profile ci` | Canonical full local CI profile, including unit/coverage, docs, browser core and performance | S; disposable fixtures, not deploy |
 | `scripts/rehearsal_runtime.py --sqlite-library PATH --output PATH [--prepare-windows-bootstrap NEW_DIRECTORY]` | Exact native SQLite/source/mapping and temporary WAL, Qt PDF and Chromium receipt; optional verified private Windows DLL startup | S/T; disposable hosted rehearsal only; never replaces a base interpreter DLL or uses production data |
+| `scripts/collect_windows_driver_event.py --witness-dir PATH --output PATH` | Collect bounded driver crash metadata from synthetic rehearsal witnesses and matching Windows events | S; GitHub-hosted Windows rehearsal only; no raw events or memory dumps |
 | `scripts/docs_audit.py --format text [--manager-root /path/to/selected-manager-source]` | Document links, Gateway names, optional registered Manager/CRM schema parity | R; synthetic schema process |
 | `scripts/code_health_audit.py --format text [--include-untracked]` | File roles and size/complexity budgets | R |
 | `scripts/coverage_audit.py --format text` | Runtime/release coverage floors | R; after coverage run |
