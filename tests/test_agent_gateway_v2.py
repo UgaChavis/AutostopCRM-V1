@@ -3345,6 +3345,108 @@ class AgentGatewayV2Tests(
                     passed,
                 )
 
+    async def test_real_vehicle_link_rejects_ambiguity_and_verifies_canonical_alias(self):
+        from minimal_kanban.services.card_service import CardService, ServiceError
+        from minimal_kanban.storage.json_store import JsonStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = CardService(
+                JsonStore(state_file=root / "state.json", logger=self.logger),
+                self.logger,
+                attachments_dir=root / "attachments",
+                repair_orders_dir=root / "repair-orders",
+            )
+            vehicle_ids = (
+                "11111111-1111-4111-8111-111111111111",
+                "11111111-2222-4222-8222-222222222222",
+                "22222222-1111-4111-8111-111111111111",
+            )
+            client = service.create_client(
+                {
+                    "display_name": "Synthetic identity client",
+                    "vehicles": [
+                        {"id": identifier, "vehicle": f"Synthetic vehicle {index}"}
+                        for index, identifier in enumerate(vehicle_ids)
+                    ],
+                }
+            )["client"]
+
+            class RealBoard(FakeBoardApi):
+                def __init__(self):
+                    super().__init__()
+                    self.persisted_links = 0
+
+                def get_card(self, card_id):
+                    return {"ok": True, "data": service.get_card({"card_id": card_id})}
+
+                def get_client(self, client_id, **_kwargs):
+                    return {"ok": True, "data": service.get_client({"client_id": client_id})}
+
+                def link_card_to_client(self, card_id, client_id, **kwargs):
+                    try:
+                        data = service.link_card_to_client(
+                            {"card_id": card_id, "client_id": client_id, **kwargs}
+                        )
+                    except ServiceError as error:
+                        return {
+                            "ok": False,
+                            "error": {"code": error.code, "message": error.message},
+                        }
+                    self.persisted_links += 1
+                    return {"ok": True, "data": data}
+
+            board = RealBoard()
+            server, state = self._create_store_server(board_api=board)
+            for index, (identifier, canonical) in enumerate(
+                (
+                    ("CV-11111111", None),
+                    ("cv-22222222", vehicle_ids[2]),
+                    (vehicle_ids[1], vehicle_ids[1]),
+                )
+            ):
+                with self.subTest(identifier=identifier):
+                    card = service.create_card(
+                        {"title": "Synthetic preserved request", "vehicle": "Before"}
+                    )["card"]
+                    arguments = {
+                        "card_id": card["id"],
+                        "client_id": client["id"],
+                        "client_vehicle_id": identifier,
+                        "expected_card_updated_at": card["updated_at"],
+                        "expected_client_updated_at": client["updated_at"],
+                        "sync_fields": False,
+                    }
+                    baseline = {path.name: path.read_bytes() for path in root.glob("*.json")}
+                    key = f"raw-real-vehicle-identity-{index}"
+                    result = (
+                        await self._manager_raw_call(server, "link_card_to_client", arguments, key)
+                    ).structuredContent
+                    self.assertEqual(result["ok"], canonical is not None)
+                    if canonical is None:
+                        self.assertEqual(
+                            {path.name: path.read_bytes() for path in root.glob("*.json")}, baseline
+                        )
+                        self.assertEqual(
+                            service.get_card({"card_id": card["id"]})["card"]["client_vehicle_id"],
+                            "",
+                        )
+                        self.assertEqual(board.persisted_links, 0)
+                        continue
+                    self.assertEqual(result["status"], "completed")
+                    self.assertTrue(result["verification"]["evidence"]["vehicle_link_exact"])
+                    self.assertEqual(
+                        service.get_card({"card_id": card["id"]})["card"]["client_vehicle_id"],
+                        canonical,
+                    )
+                    replay = (
+                        await self._manager_raw_call(server, "link_card_to_client", arguments, key)
+                    ).structuredContent
+                    self.assertTrue(replay["ok"])
+                    self.assertTrue(replay["verification"]["idempotency_reused"])
+                    self.assertEqual(board.persisted_links, index)
+            self.assertEqual(len(state["workflow_runs"]), 3)
+
     async def test_raw_write_fails_closed_when_durable_manager_ledger_is_missing(self) -> None:
         discovered = await self._call(
             "discover_raw_capabilities", {"query": "api:/api/create_cashbox_transfer"}

@@ -79,7 +79,12 @@ Reuse the exact saved client, vehicle and existing card IDs. A text match or
 `link_card_to_client` capability requires both current card and client revisions;
 its independent readback verifies the card link and that the chosen vehicle
 belongs exactly once to that client. Creation readback also compares the saved
-vehicle profile. Preserve prior history and unrelated fields. Reuse the original
+vehicle profile. The shared service resolves a unique `CV-*` short alias before
+mutation and stores the canonical full vehicle ID. An ambiguous alias returns
+`client_vehicle_ambiguous` (409) without changing the card, client or history;
+use the full saved ID to distinguish vehicles that share an alias. Readback
+compares a permitted short alias against that independently resolved full ID.
+Preserve prior history and unrelated fields. Reuse the original
 idempotency key after an uncertain result and inspect `workflow_status` and the
 exact object before any retry; do not create a replacement card to bypass it.
 When links are ambiguous, stop the dependent write and prepare a human handoff

@@ -13,7 +13,7 @@ from pydantic import WithJsonSchema
 
 from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
-from ..models import normalize_actor_name
+from ..models import normalize_actor_name, short_entity_id
 from ..repair_order import repair_order_payment_method_from_cashbox_name
 from . import client_search_wire_safety as _client_search_wire
 from .agent_context_safety import _entity_context_summary, _guard_unverified_context_values
@@ -977,9 +977,29 @@ def register_agent_gateway_v2(
                 )
 
             if requested_vehicle_id:
+                saved_ids = (
+                    [
+                        str(vehicle.get("id") or "")
+                        for vehicle in client_vehicles or []
+                        if isinstance(vehicle, dict)
+                    ]
+                    if isinstance(client_vehicles, list)
+                    else []
+                )
+                matches = [
+                    vehicle_id for vehicle_id in saved_ids if vehicle_id == requested_vehicle_id
+                ]
+                if not matches:
+                    matches = [
+                        vehicle_id
+                        for vehicle_id in saved_ids
+                        if short_entity_id(vehicle_id, prefix="CV").upper()
+                        == requested_vehicle_id.upper()
+                    ]
+                canonical_vehicle_id = matches[0] if len(matches) == 1 else ""
                 vehicle_exact = str(
                     (actual_card or {}).get("client_vehicle_id") or ""
-                ) == requested_vehicle_id and exact_client_vehicle(requested_vehicle_id)
+                ) == canonical_vehicle_id and exact_client_vehicle(canonical_vehicle_id)
             elif arguments.get("create_vehicle_from_card") is True:
                 vehicle_exact = bool(
                     result_vehicle_id

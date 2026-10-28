@@ -483,6 +483,12 @@ that can be normalized, even when no vehicle ID is present. A stored
 otherwise the read fails with `state_file_corrupted`. An empty client ID is
 allowed when the vehicle ID is also empty.
 
+Client vehicle mutations resolve full IDs first. A `CV-*` short alias is accepted
+only when it identifies one vehicle within the selected client; a collision
+returns `client_vehicle_ambiguous` (409) before mutation. Card links always store
+the canonical full vehicle ID, including when a unique short alias was supplied.
+The same resolver is shared by card creation, linking and vehicle update/delete.
+
 The MCP `get_card_context` requests a read-only snapshot for both values of
 `include_repair_order_text`. When text is requested, it is rendered in memory
 with the caller's operator permissions and an empty `file_path`; it does not

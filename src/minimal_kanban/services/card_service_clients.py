@@ -465,6 +465,7 @@ class CardServiceClientsMixin:
                 clients_changed = True
             elif client_vehicle_id:
                 vehicle = self._find_client_vehicle(client, client_vehicle_id)
+                client_vehicle_id = vehicle.id
 
             changed = card.client_id != client.id
             if changed:
@@ -2225,14 +2226,22 @@ class CardServiceClientsMixin:
         requested_id = normalize_text(vehicle_id, default="", limit=128)
         if not requested_id:
             return None
-        requested_short_id = requested_id.upper()
-        for vehicle in client.vehicles:
-            if (
-                vehicle.id == requested_id
-                or short_entity_id(vehicle.id, prefix="CV").upper() == requested_short_id
-            ):
-                return vehicle
-        return None
+        matches = [vehicle for vehicle in client.vehicles if vehicle.id == requested_id]
+        if not matches:
+            requested_short_id = requested_id.upper()
+            matches = [
+                vehicle
+                for vehicle in client.vehicles
+                if short_entity_id(vehicle.id, prefix="CV").upper() == requested_short_id
+            ]
+        if len(matches) > 1:
+            self._fail(
+                "client_vehicle_ambiguous",
+                "Найдено несколько автомобилей клиента. Укажите полный ID автомобиля.",
+                status_code=409,
+                details={"client_id": client.id, "client_vehicle_id": requested_id},
+            )
+        return matches[0] if matches else None
 
     def _find_client_vehicle(self, client: ClientProfile, vehicle_id: str | None) -> ClientVehicle:
         vehicle = self._find_client_vehicle_or_none(client, vehicle_id)
