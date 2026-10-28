@@ -3,6 +3,8 @@ from __future__ import annotations
 # The fixture selects this checkout before importing application modules.
 # ruff: noqa: I001
 import itertools
+import os
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,6 +15,14 @@ from minimal_kanban.storage.json_store import StateFileCorruptedError
 
 
 class ClientSearchRetentionAmbiguityTests(CardServiceCase):
+    def setUp(self):
+        appdata = tempfile.TemporaryDirectory(prefix="synthetic-retention-appdata-")
+        self.addCleanup(appdata.cleanup)
+        environment = patch.dict(os.environ, {"APPDATA": appdata.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+        super().setUp()
+
     def test_duplicate_variants_match_all_possible_retention_outcomes(self):
         def card(card_id, *, archived=True, date="2020-01-01T00:00:00+00:00", order=False):
             return Card.from_dict(
