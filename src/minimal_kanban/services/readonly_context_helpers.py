@@ -2,6 +2,29 @@
 
 from copy import deepcopy
 
+from ..models import parse_datetime
+from ..storage.json_store import StateFileCorruptedError
+
+
+def _retention_choice_key(card):
+    if not card.archived or not card.repair_order.is_empty():
+        return (0,)
+    updated_at = parse_datetime(card.updated_at) or parse_datetime(card.created_at)
+    if updated_at is None:
+        raise StateFileCorruptedError("Недостоверная дата карточки в снимке поиска.")
+    return (1, updated_at)
+
+
+def _least_retention_pressure(cards):
+    # The oldest plain archive entry, or a non-plain entry, leaves the most
+    # archive slots available for every unrelated client simultaneously.
+    selected = {}
+    for card in cards:
+        previous = selected.get(card.id)
+        if previous is None or _retention_choice_key(card) < _retention_choice_key(previous):
+            selected[card.id] = card
+    return list(selected.values())
+
 
 def _search_card_clients(service, card, related, client_ids_by_key):
     if card.client_id:
@@ -14,13 +37,27 @@ def _search_card_clients(service, card, related, client_ids_by_key):
 
 def client_readonly_related_cards(service, bundle, clients, cards):
     related = {client.id: [] for client in clients}
+    if not related:
+        return related
     client_ids_by_key = service._client_ids_by_match_key(clients)
     if bundle.search_cards_need_retention:
         for card in cards:
             if _search_card_clients(service, card, related, client_ids_by_key):
                 bundle.require_card_identity(card)
         # Retention is pure; positions are not used by client search or stats.
-        cards, _ = service._store._apply_card_retention(cards)
+        retained, _ = service._store._apply_card_retention(cards)
+        least_pressure, _ = service._store._apply_card_retention(_least_retention_pressure(cards))
+
+        def related_ids(rows):
+            return {
+                card.id
+                for card in rows
+                if _search_card_clients(service, card, related, client_ids_by_key)
+            }
+
+        if related_ids(retained) != related_ids(least_pressure):
+            raise StateFileCorruptedError("Дубли карточек влияют на результаты архива клиента.")
+        cards = retained
     for card in cards:
         matching = _search_card_clients(service, card, related, client_ids_by_key)
         if not matching:

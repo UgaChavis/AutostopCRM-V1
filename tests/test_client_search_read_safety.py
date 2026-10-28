@@ -507,9 +507,40 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
         ) as retention:
             result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
         self.assertTrue(result["ok"], result)
-        retention.assert_called_once()
+        retention.assert_called()
         self.assertEqual(result["data"]["clients"][0]["id"], self.client_a["id"])
         self.assertEqual(result["data"]["clients"][0]["stats"]["cards_total"], 1)
+        self.assertEqual(before, self.snapshot())
+
+    async def test_unrelated_duplicate_still_fails_full_client_search_index(self):
+        def prepare_distinct_clients(state):
+            for client in state["clients"]:
+                if client["id"] == self.client_a["id"]:
+                    client["display_name"] = "AAA_EXCLUSIVE_CLIENT"
+                    client["vehicles"][0]["vehicle"] = "EXCLUSIVETARGETVEHICLE"
+                else:
+                    client["display_name"] = "ZZZ_DIFFERENT_CLIENT"
+                    client["vehicles"][0]["vehicle"] = "BRAVODIFFERENTVEHICLE"
+
+        self.edit_state(prepare_distinct_clients)
+        query = {"entity": "client", "query": "EXCLUSIVETARGETVEHICLE"}
+        baseline = await self.call("agent_search", query)
+        self.assertTrue(baseline["ok"], baseline)
+        self.assertEqual([row["id"] for row in baseline["data"]["items"]], [self.client_a["id"]])
+
+        def duplicate_other_client(state):
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            state["cards"].append(dict(card_b))
+
+        self.edit_state(duplicate_other_client)
+        before = self.snapshot()
+        listed = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertTrue(listed["ok"], listed)
+        self.assertEqual(listed["data"]["clients"][0]["id"], self.client_a["id"])
+        search = await self.call("agent_search", query)
+        self.assertFalse(search["ok"])
+        self.assertIn("state_file_corrupted", search["warnings"])
+        self.assertEqual(search["data"]["items"], [])
         self.assertEqual(before, self.snapshot())
 
     async def test_collision_remains_visible_if_retention_omits_one_raw_card(self):
@@ -616,6 +647,182 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
                         self.assertIn("state_file_corrupted", result["warnings"])
                     retention.assert_not_called()
                     self.assertEqual(before, self.snapshot())
+
+    async def test_unrelated_duplicate_cannot_push_selected_client_out_of_retention(self):
+        original = json.loads(self.state_file.read_text())
+        for unbound in (False, True):
+            for active_b in (False, True):
+                with self.subTest(unbound=unbound, active_b=active_b):
+                    state = json.loads(json.dumps(original))
+                    card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+                    card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+                    card_a.update(
+                        archived=True, repair_order={}, updated_at="2000-01-01T00:00:00+00:00"
+                    )
+                    if unbound:
+                        card_a.update(
+                            client_id="",
+                            client_vehicle_id="",
+                            vehicle_profile={"customer_name": "SYNTHETIC_A"},
+                        )
+                    card_b.update(
+                        archived=not active_b,
+                        repair_order={},
+                        updated_at="2025-01-01T00:00:00+00:00",
+                    )
+                    fillers = [
+                        {
+                            **card_a,
+                            "id": f"SYNTHETIC_BOUNDARY_{index}",
+                            "client_id": "",
+                            "client_vehicle_id": "",
+                            "vehicle_profile": {},
+                            "updated_at": "2024-01-01T00:00:00+00:00",
+                        }
+                        for index in range(ARCHIVED_CARD_RETENTION_LIMIT - 2 + int(active_b))
+                    ]
+                    state["cards"] = [card_a, card_b, *fillers]
+                    self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                    before = self.snapshot()
+                    baseline = await self.call(
+                        "list_clients", {"limit": 1, "include_stats": True}, raw=True
+                    )
+                    self.assertTrue(baseline["ok"], baseline)
+                    client = baseline["data"]["clients"][0]
+                    self.assertEqual(client["stats"]["cards_total"], 0 if unbound else 1)
+                    self.assertEqual(client["related_card_candidates_total"], 1)
+                    self.assertEqual(before, self.snapshot())
+
+                    duplicate = {**card_b, "archived": True}
+                    state["cards"].append(duplicate)
+                    self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                    raw_models = [
+                        Card.from_dict(card, fallback_position=index)
+                        for index, card in enumerate(state["cards"])
+                    ]
+                    retained, changed = self.store._apply_card_retention(raw_models)
+                    self.assertTrue(changed)
+                    self.assertNotIn(self.cards[0], {card.id for card in retained})
+                    before = self.snapshot()
+                    result = await self.call(
+                        "list_clients", {"limit": 1, "include_stats": True}, raw=True
+                    )
+                    self.assertFalse(result["ok"], result)
+                    self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                    profiles = await self.call(
+                        "list_clients", {"limit": 1, "include_stats": False}, raw=True
+                    )
+                    self.assertTrue(profiles["ok"], profiles)
+                    self.assertEqual(profiles["data"]["clients"][0]["id"], self.client_a["id"])
+                    self.assertEqual(before, self.snapshot())
+
+    async def test_unrelated_duplicate_that_does_not_displace_client_stays_readable(self):
+        def build_state(state):
+            card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            card_a.update(archived=True, repair_order={}, updated_at="2030-01-01T00:00:00+00:00")
+            card_b.update(archived=True, repair_order={}, updated_at="2025-01-01T00:00:00+00:00")
+            fillers = [
+                {
+                    **card_a,
+                    "id": f"SYNTHETIC_BOUNDARY_{index}",
+                    "client_id": "",
+                    "client_vehicle_id": "",
+                    "vehicle_profile": {},
+                    "updated_at": "2024-01-01T00:00:00+00:00",
+                }
+                for index in range(ARCHIVED_CARD_RETENTION_LIMIT - 2)
+            ]
+            state["cards"] = [card_a, card_b, *fillers, dict(card_b)]
+
+        self.edit_state(build_state)
+        before = self.snapshot()
+        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertTrue(result["ok"], result)
+        client = result["data"]["clients"][0]
+        self.assertEqual(client["id"], self.client_a["id"])
+        self.assertEqual(client["stats"]["cards_total"], 1)
+        self.assertEqual(before, self.snapshot())
+
+    async def test_multiple_unrelated_duplicates_can_jointly_displace_client(self):
+        def build_state(state):
+            card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            card_a.update(archived=True, repair_order={}, updated_at="2000-01-01T00:00:00+00:00")
+            card_b.update(archived=True, repair_order={}, updated_at="2025-01-01T00:00:00+00:00")
+            card_c = {**card_b, "id": "SYNTHETIC_SECOND_B"}
+            fillers = [
+                {
+                    **card_a,
+                    "id": f"SYNTHETIC_BOUNDARY_{index}",
+                    "client_id": "",
+                    "client_vehicle_id": "",
+                    "vehicle_profile": {},
+                    "updated_at": "2024-01-01T00:00:00+00:00",
+                }
+                for index in range(ARCHIVED_CARD_RETENTION_LIMIT - 3)
+            ]
+            state["cards"] = [card_a, card_b, card_c, *fillers, dict(card_b), dict(card_c)]
+
+        self.edit_state(build_state)
+        before = self.snapshot()
+        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["code"], "state_file_corrupted")
+        self.assertEqual(before, self.snapshot())
+
+    async def test_unrelated_duplicate_does_not_block_already_excluded_client(self):
+        def build_state(state):
+            card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            card_a.update(archived=True, repair_order={}, updated_at="2000-01-01T00:00:00+00:00")
+            card_b.update(archived=True, repair_order={}, updated_at="2025-01-01T00:00:00+00:00")
+            fillers = [
+                {
+                    **card_a,
+                    "id": f"SYNTHETIC_BOUNDARY_{index}",
+                    "client_id": "",
+                    "client_vehicle_id": "",
+                    "vehicle_profile": {},
+                    "updated_at": "2024-01-01T00:00:00+00:00",
+                }
+                for index in range(ARCHIVED_CARD_RETENTION_LIMIT - 1)
+            ]
+            state["cards"] = [card_a, card_b, *fillers, dict(card_b)]
+
+        self.edit_state(build_state)
+        before = self.snapshot()
+        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["data"]["clients"][0]["stats"]["cards_total"], 0)
+        self.assertEqual(before, self.snapshot())
+
+    async def test_older_version_of_unrelated_duplicate_can_preserve_client(self):
+        def build_state(state):
+            card_a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            card_a.update(archived=True, repair_order={}, updated_at="2000-01-01T00:00:00+00:00")
+            card_b.update(archived=True, repair_order={}, updated_at="2025-01-01T00:00:00+00:00")
+            older_b = {**card_b, "updated_at": "1990-01-01T00:00:00+00:00"}
+            fillers = [
+                {
+                    **card_a,
+                    "id": f"SYNTHETIC_BOUNDARY_{index}",
+                    "client_id": "",
+                    "client_vehicle_id": "",
+                    "vehicle_profile": {},
+                    "updated_at": "2024-01-01T00:00:00+00:00",
+                }
+                for index in range(ARCHIVED_CARD_RETENTION_LIMIT - 1)
+            ]
+            state["cards"] = [card_a, card_b, *fillers, older_b]
+
+        self.edit_state(build_state)
+        before = self.snapshot()
+        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["code"], "state_file_corrupted")
+        self.assertEqual(before, self.snapshot())
 
     async def test_profile_only_list_does_not_normalize_an_unrelated_bad_card(self):
         def break_unrelated_card(state):
