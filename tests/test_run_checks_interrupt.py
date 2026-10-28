@@ -142,28 +142,58 @@ class CiCompletionProcessExitTests(unittest.TestCase):
     def run_probe(self, body: str) -> subprocess.CompletedProcess[str]:
         helper = str(HELPER).replace("'", "''")
         source = (
+            "param([string]$ReadyPath)\n"
             f". '{helper}'\n"
             "[Console]::Error.WriteLine('CI_PROBE_INITIALIZING')\n"
             "Initialize-CiProfileCompletion\n"
             "[Console]::Error.WriteLine('CI_PROBE_READY')\n"
+            "[IO.File]::WriteAllText($ReadyPath, '')\n"
+            "$null = [Console]::In.ReadLine()\n"
             f"{body}\n"
         )
         with tempfile.TemporaryDirectory(prefix="crm-ci-gate-exit-") as directory:
             script = Path(directory) / "probe.ps1"
+            ready = Path(directory) / "ready"
             script.write_text(source, encoding="utf-8")
-            try:
-                return subprocess.run(
-                    [shutil.which("pwsh"), "-NoProfile", "-File", str(script)],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=15,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as error:
-                error.add_note(f"PowerShell probe partial stdout: {error.stdout!r}")
-                error.add_note(f"PowerShell probe partial stderr: {error.stderr!r}")
-                raise
+            with subprocess.Popen(
+                [
+                    shutil.which("pwsh"),
+                    "-NoProfile",
+                    "-File",
+                    str(script),
+                    "-ReadyPath",
+                    str(ready),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            ) as process:
+                # Cold Add-Type compilation precedes the behavior under test.
+                # Keep startup bounded without consuming the original exit deadline.
+                startup_deadline = time.monotonic() + 30
+                try:
+                    while not ready.exists() and process.poll() is None:
+                        remaining = startup_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(process.args, 30)
+                        time.sleep(min(0.05, remaining))
+                    stdout, stderr = process.communicate(
+                        input="\n" if ready.exists() else None, timeout=15
+                    )
+                except BaseException as error:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+                    if isinstance(error, subprocess.TimeoutExpired):
+                        error.output, error.stderr = stdout, stderr
+                        phase = "execution" if ready.exists() else "startup"
+                        error.add_note(f"PowerShell probe timeout phase: {phase}")
+                        error.add_note(f"PowerShell probe partial stdout: {stdout!r}")
+                        error.add_note(f"PowerShell probe partial stderr: {stderr!r}")
+                    raise
+                self.assertTrue(ready.exists(), f"PowerShell probe failed to initialize: {stderr}")
+                return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
 
     def test_incomplete_zero_exit_is_rejected_without_finally_command(self) -> None:
         result = self.run_probe('Write-Host "ABANDONED"; exit 0')
