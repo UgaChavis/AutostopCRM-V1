@@ -87,6 +87,12 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(schema["additionalProperties"])
         self.assertFalse(schema["properties"]["form"]["additionalProperties"])
         self.assertEqual(300, schema["properties"]["form"]["properties"]["items"]["maxItems"])
+        properties = schema["properties"]["form"]["properties"]
+        self.assertEqual(properties["money_policy_version"]["enum"], [1, 2])
+        self.assertEqual(
+            properties["calculation_mode"]["enum"], ["order_cashless", "order_cash", "manual_net"]
+        )
+        self.assertNotIn("calculation_mode", schema["properties"]["form"]["required"])
         self.assertTrue(schema["properties"]["form_data"]["deprecated"])
 
         async def rejected(arguments: dict, key: str):
@@ -111,6 +117,10 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             {**base, "form": {**completion_act_form(), "basis": 42}},
             "schema-type",
         )
+        wrong_mode = await rejected(
+            {**base, "form": {**completion_act_form(), "calculation_mode": "unknown"}},
+            "schema-money-mode",
+        )
         oversized = await rejected(
             {
                 **base,
@@ -131,7 +141,7 @@ class CrmParityGatewayTests(unittest.IsolatedAsyncioTestCase):
             },
             "schema-oversized",
         )
-        for result in (extra, wrong, oversized):
+        for result in (extra, wrong, oversized, wrong_mode):
             self.assertFalse(result.structuredContent["ok"])
             self.assertIn("raw_schema_validation_failed", result.structuredContent["warnings"])
 

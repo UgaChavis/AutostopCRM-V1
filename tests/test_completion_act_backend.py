@@ -67,6 +67,7 @@ def build_card(*, client_id: str = "client-exact", row_count: int = 2) -> Card:
             "updated_at": "2026-08-20T10:00:00+00:00",
             "deadline_timestamp": "2026-08-21T10:00:00+00:00",
             "repair_order": {
+                "tax_label": "НДС (5%)",
                 "number": "10700",
                 "date": "20.08.2026",
                 "opened_at": "2026-08-20T10:00:00+00:00",
@@ -132,9 +133,9 @@ class CompletionActBackendTests(unittest.TestCase):
                 "materials",
             ],
         )
-        self.assertEqual(loaded["totals"]["base"], "3000.00")
-        self.assertEqual(loaded["totals"]["vat"], "150.00")
-        self.assertEqual(loaded["totals"]["gross"], "3150.00")
+        self.assertEqual(loaded["totals"]["base"], "3361.35")
+        self.assertEqual(loaded["totals"]["vat"], "168.06")
+        self.assertEqual(loaded["totals"]["gross"], "3529.41")
 
         unrelated = build_client(client_id="client-other")
         fallback = self.service.get_completion_act_form(self.card, client=unrelated)
@@ -224,7 +225,7 @@ class CompletionActBackendTests(unittest.TestCase):
         stale = restarted.get_completion_act_form(changed_card, client=self.client)
         self.assertTrue(stale["draft"]["is_stale"])
         self.assertEqual(stale["form"]["document_number"], "ACT-MANUAL")
-        self.assertEqual(stale["fresh_form"]["items"][0]["price"], "1250")
+        self.assertEqual(stale["fresh_form"]["items"][0]["price"], "1400.56")
 
     def test_dry_run_tombstone_replay_and_concurrent_save_contract(self) -> None:
         initial = self.service.get_completion_act_form(self.card, client=self.client)
@@ -340,11 +341,12 @@ class CompletionActBackendTests(unittest.TestCase):
         current = self.service.get_completion_act_form(changed_card, client=self.client)
         self.assertFalse(current["draft"]["exists"])
         self.assertEqual(current["draft"]["version"], 0)
-        self.assertEqual(current["fresh_form"]["items"][0]["price"], "1250")
+        self.assertEqual(current["fresh_form"]["items"][0]["price"], "1400.56")
 
     def test_changed_items_are_stored_as_one_full_snapshot(self) -> None:
         initial = self.service.get_completion_act_form(self.card, client=self.client)
         changed = deepcopy(initial["form"])
+        changed["calculation_mode"] = "manual_net"
         changed["items"] = [
             deepcopy(changed["items"][2]),
             {**deepcopy(changed["items"][0]), "name": "Ручная работа"},
@@ -362,7 +364,7 @@ class CompletionActBackendTests(unittest.TestCase):
         record = json.loads(
             self.service._completion_act_record_path(cycle_key).read_text(encoding="utf-8")
         )
-        self.assertEqual(set(record["overrides"]), {"items"})
+        self.assertEqual(set(record["overrides"]), {"items", "calculation_mode"})
         self.assertEqual(record["overrides"]["items"], saved["form"]["items"])
         self.assertEqual(
             [item["name"] for item in saved["form"]["items"]],
@@ -802,6 +804,7 @@ class CompletionActBackendTests(unittest.TestCase):
 
     def test_override_recomputes_totals_rejects_invalid_and_escapes_html(self) -> None:
         form = self.service.get_completion_act_form(self.card, client=self.client)["form"]
+        form["calculation_mode"] = "manual_net"
         form["customer"]["legal_name"] = "<script>alert(1)</script>"
         form["items"] = [
             {
@@ -877,12 +880,13 @@ class CompletionActBackendTests(unittest.TestCase):
         for field, value, expected_detail in (
             ("price", "1000000000", "max_amount"),
             ("quantity", "100000", "max_quantity"),
-            ("quantity", "1.0001", "max_decimal_places"),
+            ("quantity", "1.000000000001", "max_decimal_places"),
             ("unit", "A" * 25, "max_length"),
         ):
             bounded_form = self.service.get_completion_act_form(self.card, client=self.client)[
                 "form"
             ]
+            bounded_form["calculation_mode"] = "manual_net"
             bounded_form["items"][0][field] = value
             with self.assertRaises(PrintModuleError) as bounded_error:
                 self.service._completion_act_document_context(
@@ -898,6 +902,7 @@ class CompletionActBackendTests(unittest.TestCase):
         canonical_quantity = self.service.get_completion_act_form(self.card, client=self.client)[
             "form"
         ]
+        canonical_quantity["calculation_mode"] = "manual_net"
         canonical_quantity["items"][0]["quantity"] = "000001.5000"
         canonical_context = self.service._completion_act_document_context(
             self.card,
@@ -911,6 +916,7 @@ class CompletionActBackendTests(unittest.TestCase):
         printable_money = self.service.get_completion_act_form(self.card, client=self.client)[
             "form"
         ]
+        printable_money["calculation_mode"] = "manual_net"
         printable_money["items"] = [
             {
                 "id": "printable-money-boundary",
@@ -960,6 +966,7 @@ class CompletionActBackendTests(unittest.TestCase):
             invalid_layout = self.service.get_completion_act_form(self.card, client=self.client)[
                 "form"
             ]
+            invalid_layout["calculation_mode"] = "manual_net"
             invalid_layout["acceptance_text"] = layout_text
             if party_scale is not None:
                 for party_name in ("performer", "customer"):
@@ -987,6 +994,7 @@ class CompletionActBackendTests(unittest.TestCase):
             wide_layout = self.service.get_completion_act_form(self.card, client=self.client)[
                 "form"
             ]
+            wide_layout["calculation_mode"] = "manual_net"
             wide_layout["acceptance_text"] = wide_glyph * 1000
             for party_name in ("performer", "customer"):
                 party = wide_layout[party_name]
@@ -1028,6 +1036,7 @@ class CompletionActBackendTests(unittest.TestCase):
         accepted_layout = self.service.get_completion_act_form(self.card, client=self.client)[
             "form"
         ]
+        accepted_layout["calculation_mode"] = "manual_net"
         accepted_layout["acceptance_text"] = "\n".join("а" for _ in range(30))
         accepted_context = self.service._completion_act_document_context(
             self.card,
@@ -1038,8 +1047,9 @@ class CompletionActBackendTests(unittest.TestCase):
         )
         self.assertEqual(len(accepted_context["pages"]), 1)
 
-    def test_vat_is_rounded_once_from_aggregate_base(self) -> None:
+    def test_vat_is_the_sum_of_rounded_rows(self) -> None:
         form = self.service.get_completion_act_form(self.card, client=self.client)["form"]
+        form["calculation_mode"] = "manual_net"
         form["items"] = [
             {
                 "id": f"rounding-{index}",
@@ -1060,8 +1070,8 @@ class CompletionActBackendTests(unittest.TestCase):
         )
 
         self.assertEqual(context["totals"]["base"], "0.30")
-        self.assertEqual(context["totals"]["vat"], "0.02")
-        self.assertEqual(context["totals"]["gross"], "0.32")
+        self.assertEqual(context["totals"]["vat"], "0.03")
+        self.assertEqual(context["totals"]["gross"], "0.33")
 
         form["items"] = [
             {
@@ -1070,7 +1080,7 @@ class CompletionActBackendTests(unittest.TestCase):
                 "name": "Цена нормализуется до копеек",
                 "unit": "шт",
                 "quantity": "3",
-                "price": "0.333",
+                "price": "0.333333333333",
             }
         ]
         with self.assertRaises(PrintModuleError) as fractional_price:
@@ -1083,10 +1093,11 @@ class CompletionActBackendTests(unittest.TestCase):
             )
         self.assertEqual(fractional_price.exception.code, "validation_error")
         self.assertEqual(fractional_price.exception.details["field"], "items[0].price")
-        self.assertEqual(fractional_price.exception.details["max_decimal_places"], 2)
+        self.assertEqual(fractional_price.exception.details["max_decimal_places"], 11)
 
     def test_fully_empty_rows_are_omitted_and_printed_rows_are_renumbered(self) -> None:
         form = self.service.get_completion_act_form(self.card, client=self.client)["form"]
+        form["calculation_mode"] = "manual_net"
         form["items"] = [
             {
                 "id": "empty-row",

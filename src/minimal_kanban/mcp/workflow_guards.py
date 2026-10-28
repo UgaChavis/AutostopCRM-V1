@@ -673,5 +673,12 @@ def invoice_document_guard(result: Mapping[str, Any]) -> dict[str, Any]:
         and str(data.get("mime_type") or "").casefold() == "application/pdf"
         and content.startswith(b"%PDF-")
         and typed
+        and not guard["financial_or_tax_mismatch"]
+        and meta.get("money_validation", {}).get("valid", True)
+        and all(
+            item.get("money_validation", {}).get("valid", True)
+            for item in documents
+            if isinstance(item, Mapping)
+        )
     )
     return guard

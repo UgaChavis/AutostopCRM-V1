@@ -572,8 +572,8 @@ shape but the guarded agent route additionally requires the source fingerprint.
 A stale draft version or changed CRM source returns HTTP
 409 without saving. The saved form is a separate print-only draft keyed by card
 and repair-order cycle. Preview/export/print accept the same effective
-form under `document_overrides.completion_act`, ignore caller-supplied totals,
-and calculate the aggregate 5% VAT on the backend. These routes never update
+form under `document_overrides.completion_act` and ignore caller-supplied totals.
+These routes never update
 the card, client, repair order, payments, or print settings. Drafts persist as
 individually bounded records in the private
 `data/printing/completion_act_forms/` store; release backup and rollback use a
@@ -590,6 +590,86 @@ shown only for `active`. The standard A4 act paginator and CSS share one physica
 layout model, keep rows indivisible, greedily fill continuation pages, reserve
 the final accounting/signature block, and enforce only the 40-page safety bound
 for at most 300 rows.
+
+Document money policy `v2` uses the shared `services/document_money.py` service.
+Money totals always display two decimals with `ROUND_HALF_UP`; source prices retain
+significant precision (at least two decimals), derived prices use the minimum
+2–11 decimals reproducing the row amount, and quantities retain up to 11 decimals
+without trailing zeroes. A permitted source-row adjustment of one kopeck has a
+signed printed note. Order amounts and the cashless coefficient `0.85` are unchanged.
+
+Tax comes from `repair_order.tax_label` (also accepted as `taxLabel` by order
+updates), then an explicitly saved effective print profile `service_profile.tax_label`.
+Missing or unknown tax status blocks final output; no implicit 5% rate is used.
+`Без НДС` and an explicit `0%` rate remain distinct. VAT is rounded per row and
+summed. Inclusive amounts use `gross × rate / (1 + rate)`; manual net acts round
+the row net amount before adding VAT. Invoice debt is the authoritative
+`noncash_due`; settlement rounding up to two kopecks has a separate signed note.
+
+Preview, PDF metadata and native-print responses contain `money_validation`:
+`money_policy_version`, `valid`, `errors`, `warnings`. Each issue identifies its
+`document`, and where applicable `row`, `field`, `delta` (decimal rubles).
+Documents also contain their own validation result. Preview remains available
+with monetary problems; PDF and native print fail before rendering/spooling
+with HTTP 422, `document_money_validation_failed`, and validation details.
+The existing `document_guard` invoice fields remain.
+
+Act forms and draft records carry `money_policy_version` and `calculation_mode`:
+`order_cashless` (default for linked orders), `order_cash`, or `manual_net`.
+Linked monetary rows are server-owned; switch explicitly to `manual_net` before
+editing rows, quantities or prices. A combined invoice/factura/UPD package requires
+`order_cashless`; cash and manual acts are standalone. Documents without a card
+use `manual_net`. GET returns server `linked_forms` for the two order modes.
+A new legacy-shaped request with explicit items defaults to `manual_net`; omitted
+mode/version fields for an existing v2 draft inherit that draft's values.
+
+V2 draft records persist the server `money_snapshot` (form, rows, totals, tax),
+included in the existing print backup/restore. Changed order/profile/client
+sources mark it stale: GET/preview retain the saved values and release is blocked
+until recalculation and guarded save. The source hash includes the money policy,
+mode, tax and relevant sources. Unversioned records are v1, preview under the
+legacy algorithm with a warning and cannot be released. The editor's
+«Обновить расчёт» action shows old/proposed totals, preserves manual fields and
+persists v2 only on explicit save through the existing revision/source/idempotency
+guards. There is no background migration or historical-PDF regeneration.
+To preview a proposed refresh of an existing stale v2 snapshot, send
+`document_overrides.completion_act_recalculate=true` alongside the full
+`completion_act` form. This flag never saves or authorizes release: the stale
+draft still requires guarded save. Ordinary previews keep the saved money
+snapshot. An unrelated print-settings save cannot establish a missing tax status;
+the operator must explicitly select/save the profile tax value.
+
+Refreshing a stale v2 draft or upgrading v1 to v2 requires
+`accepted_calculation_fingerprint` on save. Obtain the 64-character hash from the
+proposed preview document's `calculation_fingerprint` or from save with
+`dry_run=true`. The hash binds the draft revision, current source, mode, rows,
+totals and tax; changing monetary rows or the source requires a new review.
+Free-text and party edits in the act do not change that monetary acceptance.
+Missing/mismatched acceptance returns HTTP 409,
+`completion_act_recalculation_required`, without writing the draft. Fresh v2
+and new drafts retain the existing save contract.
+Dry-run keeps the current draft readback at the top level and supplies
+`dry_run.projected_totals`, `projected_tax_context`, `calculation_fingerprint`,
+and `recalculation_required`. Idempotent retries retain the same accepted hash.
+Stored monetary displays and words are checked against the numeric snapshot;
+inconsistent persisted representations fail with the existing storage HTTP 503.
+
+Custom templates are never rewritten. Use monetary/quantity `*_display` fields
+and signed row `rounding_adjustment_display` plus invoice
+`settlement_rounding_adjustment_display` notes where present; the safe HTML
+placeholder `{{{rounding_notes_html}}}` provides the applicable notes together.
+Raw monetary placeholders or missing required notes produce
+`template_money_format_unverified` and block release. Missing-requisites warnings
+keep their existing behavior.
+These checks also apply to monetary placeholders added to custom inspection
+forms. Required notes must actually render for their corresponding rows;
+comments, unrendered sections, attributes and hidden HTML are not confirmation.
+Invalid fractional precision is checked before number formatting, leaving the
+source unchanged and showing a bounded placeholder in preview.
+The native Windows backend uses Qt WebEngine, the same HTML renderer as PDF,
+at 300 DPI and waits for the printer's completion signal. It preserves paper,
+orientation, copy count and printer selection; it does not use QTextDocument's
+restricted HTML layout.
 
 Cashless repair-order payments are gross incoming amounts. The shared backend
 calculation applies the current 15% taxes/fees rule and credits the remaining

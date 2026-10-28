@@ -168,6 +168,10 @@ def _build_temp_runtime(
         repair_orders_dir=base_dir / "repair-orders",
     )
     service.set_onboarding_seen(True)
+    profile = {
+        key: "ТЕСТ" for key in service._print_module._read_settings().service_profile.to_dict()
+    }
+    service.save_print_module_settings({"service_profile": {**profile, "tax_label": "НДС (5%)"}})
     cashbox = service.create_cashbox({"name": "Наличный", "actor_name": "SMOKE"})["cashbox"]
     service.create_cashbox({"name": "Безналичный", "actor_name": "SMOKE"})
     service.create_cash_transaction(

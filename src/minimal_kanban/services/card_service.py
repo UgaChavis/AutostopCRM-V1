@@ -3659,6 +3659,9 @@ class CardService(
                     form_data=form_data,
                     expected_version=expected_version,
                     expected_source_fingerprint=expected_source_fingerprint,
+                    accepted_calculation_fingerprint=payload.get(
+                        "accepted_calculation_fingerprint"
+                    ),
                     idempotency_key=idempotency_key,
                     filled_by=actor_name,
                     source=form_source,
@@ -4122,18 +4125,7 @@ class CardService(
         repair_order_payload = payload.get("repair_order")
         if not isinstance(repair_order_payload, dict):
             return Card.from_dict(card.to_storage_dict())
-        base_storage = card.repair_order.to_storage_dict()
-        override_storage = RepairOrder.from_dict(repair_order_payload).to_storage_dict()
-        if not override_storage.get("number") and base_storage.get("number"):
-            override_storage.pop("number", None)
-        merged_storage = {**base_storage, **override_storage}
-        cloned_card = Card.from_dict(
-            {
-                **card.to_storage_dict(),
-                "repair_order": merged_storage,
-            }
-        )
-        return cloned_card
+        return self._print_module.card_with_editor_overrides(card, repair_order_payload)
 
     def _is_manual_print_payload(self, payload: dict[str, Any]) -> bool:
         return bool(
@@ -7894,6 +7886,8 @@ class CardService(
             "odometer",
             "payment_method",
             "paymentMethod",
+            "tax_label",
+            "taxLabel",
             "prepayment",
             "advance_payment",
             "advancePayment",
@@ -7918,6 +7912,7 @@ class CardService(
             "licensePlate": "license_plate",
             "odometer": "mileage",
             "paymentMethod": "payment_method",
+            "taxLabel": "tax_label",
             "advance_payment": "prepayment",
             "advancePayment": "prepayment",
             "payment_history": "payments",

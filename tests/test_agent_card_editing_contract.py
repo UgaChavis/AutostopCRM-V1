@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import Mock
 
 if __package__:
     from tests.source_path_support import ensure_source_path
@@ -23,6 +24,20 @@ class _FakeBoardApi:
 
 
 class AgentCardEditingContractTests(unittest.TestCase):
+    def test_both_tax_field_names_keep_native_money_authority_guard(self) -> None:
+        executor = object.__new__(AgentToolExecutor)
+        handler = Mock(return_value={"ok": True})
+        executor._tools = {"update_repair_order": handler}
+        for field in ("tax_label", "taxLabel"):
+            arguments = {"card_id": "synthetic", "repair_order": {field: "НДС 0%"}}
+            with self.subTest(field=field), self.assertRaises(PermissionError):
+                executor.execute("update_repair_order", arguments)
+            handler.assert_not_called()
+        executor.execute(
+            "update_repair_order", {**arguments, "confirmation": "explicit_user_authority"}
+        )
+        handler.assert_called_once()
+
     def test_agent_update_card_preserves_exact_description_and_write_contract_args(self) -> None:
         board_api = _FakeBoardApi()
         executor = AgentToolExecutor(  # type: ignore[arg-type]

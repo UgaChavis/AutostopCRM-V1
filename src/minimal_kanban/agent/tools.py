@@ -43,6 +43,7 @@ _REPAIR_ORDER_MONEY_FIELDS = frozenset(
         "salary_amount",
         "total",
         "tax_label",
+        "taxlabel",
         "work_salary_guarantee",
         "work_salary_cost_price",
     }

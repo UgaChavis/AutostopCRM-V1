@@ -31,6 +31,7 @@ from ..storage.limited_io import read_bytes_limited
 from . import document_policy
 from . import repair_order_future_v2 as future_v2
 from .acceptance_act import acceptance_act_context
+from .completion_act_calculation import CompletionActCalculationMixin
 from .defaults import BUILTIN_PRINT_DOCUMENTS, builtin_template_records
 from .document_guard import export_document_meta, invoice_guard
 from .document_money import DocumentMoneyError, build_canonical_document_money
@@ -48,6 +49,7 @@ from .formatting import (
     _money_display,
     _money_ruble_display,
     _money_words_display,
+    _number_display,
     _parse_decimal,
     _round_money,
 )
@@ -75,6 +77,15 @@ from .models import (
     PrintDocumentDefinition,
     PrintModuleSettings,
     PrintTemplateRecord,
+)
+from .money_validation import (
+    aggregate_money_validation,
+    document_money_summary,
+    document_money_validation,
+    require_valid_document_batch,
+    rounding_notes_html,
+    row_rounding_fields,
+    validate_document_batch,
 )
 from .mutation_lock import print_state_mutation_boundary, print_state_mutation_locked
 from .pdf import PdfRenderError, render_html_to_pdf_bytes
@@ -226,9 +237,9 @@ def _completion_act_item_page_weight(item: dict[str, Any]) -> int:
 
     estimated_lines = max(
         1,
-        _completion_act_estimated_lines(item.get("name"), chars_per_line=42),
-        _completion_act_estimated_lines(item.get("unit_display"), chars_per_line=8),
-        _completion_act_estimated_lines(item.get("quantity_display"), chars_per_line=10),
+        _completion_act_estimated_lines(item.get("name"), chars_per_line=39),
+        _completion_act_estimated_lines(item.get("unit_display"), chars_per_line=6),
+        _completion_act_estimated_lines(item.get("quantity_display"), chars_per_line=18),
     )
     return (
         COMPLETION_ACT_LAYOUT.row_base_units
@@ -641,15 +652,16 @@ def _canonical_cashless_line_items(
             net_rate=REPAIR_ORDER_PAYMENT_NET_RATE,
             tax_rate=tax_rate,
         )
-    except DocumentMoneyError as exc:
-        raise PrintModuleError(
-            "validation_error", "Не удалось согласовать суммы печатных документов."
-        ) from exc
+    except DocumentMoneyError:
+        return [{**item, "money_error": True} for item in line_items]
     canonical_items: list[dict[str, Any]] = []
     for item, row in zip(line_items, money.rows, strict=True):
         canonical_items.append(
             {
                 **item,
+                "has_rounding_adjustment": False,
+                "rounding_adjustment": Decimal(0),
+                "rounding_adjustment_display": "0,00",
                 "price": row.invoice_unit_price,
                 "price_display": _unit_price_display(
                     row.invoice_unit_price, row.invoice_unit_precision
@@ -714,7 +726,9 @@ def _regulated_document_context(
     document_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     overrides = _regulated_overrides(document_overrides)
-    tax = _invoice_tax_payload(order)
+    tax = _invoice_tax_payload(
+        order, settings.service_profile.tax_label if settings.tax_label_explicit else ""
+    )
     raw_rows = [
         _regulated_line_item_dict(item, index=index, tax=tax)
         for index, item in enumerate(line_items)
@@ -963,7 +977,7 @@ def _regulated_document_context(
         "total_with_tax": total_with_tax,
         "total_with_tax_display": _money_display(total_with_tax),
         "total_words_display": _money_words_display(total_with_tax),
-        "has_vat": tax.get("has_vat") and vat != Decimal("0"),
+        "has_vat": bool(tax.get("has_vat")),
     }
 
 
@@ -1118,8 +1132,9 @@ def _repair_row_dict(row: RepairOrderRow, *, section: str, index: int) -> dict[s
         "unit_display": row.inventory_unit or ("усл. ед." if section == "works" else "шт."),
         "price": row.price,
         "total": row.total or row.computed_total(),
-        "quantity_display": row.quantity or "—",
-        "price_display": _money_display(row.price),
+        "quantity_display": _number_display(row.quantity),
+        "price_display": _number_display(row.price, minimum_places=2),
+        **row_rounding_fields(row),
         "total_display": _money_display(row.total or row.computed_total()),
     }
 
@@ -1292,7 +1307,7 @@ def _parts_sale_terms_html() -> str:
     ).strip()
 
 
-class PrintModuleService:
+class PrintModuleService(CompletionActCalculationMixin):
     """Storage-backed printing module for repair-order documents."""
 
     def __init__(
@@ -1324,6 +1339,16 @@ class PrintModuleService:
         with print_state_mutation_boundary(self):
             self._migrate_legacy_completion_act_forms(process_locked=True)
             self._sync_change_feed(initialize=True, act_lock_held=True)
+
+    @staticmethod
+    def card_with_editor_overrides(card: Card, payload: dict) -> Card:
+        base = card.repair_order.to_storage_dict()
+        overrides = RepairOrder.from_dict(payload).to_storage_dict()
+        if not overrides.get("number") and base.get("number"):
+            overrides.pop("number", None)
+        if "tax_label" not in payload and "taxLabel" not in payload:
+            overrides.pop("tax_label", None)
+        return Card.from_dict({**card.to_storage_dict(), "repair_order": {**base, **overrides}})
 
     def manual_document_profile(
         self,
@@ -1528,6 +1553,7 @@ class PrintModuleService:
             "card_id": card.id,
             "heading": card.heading(),
             "documents": documents_payload,
+            "money_validation": aggregate_money_validation(documents_payload),
             "active_document_id": resolved_active,
             "meta": {
                 "selected_count": len(selected_ids),
@@ -1560,6 +1586,7 @@ class PrintModuleService:
             template_overrides=template_overrides,
             document_overrides=document_overrides,
         )
+        require_valid_document_batch(document_payloads)
         combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
         try:
@@ -1582,6 +1609,7 @@ class PrintModuleService:
             file_name,
             {
                 "documents": [export_document_meta(payload) for payload in document_payloads],
+                "money_validation": aggregate_money_validation(document_payloads),
                 "paper_size": settings.paper_size,
                 "orientation": render_orientation,
             },
@@ -1619,6 +1647,7 @@ class PrintModuleService:
             template_overrides=template_overrides,
             document_overrides=document_overrides,
         )
+        require_valid_document_batch(document_payloads)
         combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
         try:
@@ -1635,7 +1664,11 @@ class PrintModuleService:
         return {
             "printer_name": requested_printer,
             "copies": settings.copies,
-            "documents": [payload["document"].to_dict() for payload in document_payloads],
+            "documents": [
+                {**payload["document"].to_dict(), "money_validation": payload["money_validation"]}
+                for payload in document_payloads
+            ],
+            "money_validation": aggregate_money_validation(document_payloads),
         }
 
     @print_state_mutation_locked
@@ -1795,23 +1828,25 @@ class PrintModuleService:
     ) -> list[dict[str, Any]]:
         selected_templates = self._normalized_template_selection_map(selected_template_ids)
         normalized_overrides = self._normalized_template_override_map(template_overrides)
-        return [
-            self._rendered_document_payload(
-                card,
-                order,
-                self._document_definition(document_id),
-                self._resolve_template(
-                    document_type=document_id,
-                    template_id=selected_templates.get(document_id, ""),
+        return validate_document_batch(
+            [
+                self._rendered_document_payload(
+                    card,
+                    order,
+                    self._document_definition(document_id),
+                    self._resolve_template(
+                        document_type=document_id,
+                        template_id=selected_templates.get(document_id, ""),
+                        settings=settings,
+                    ),
+                    client=client,
                     settings=settings,
-                ),
-                client=client,
-                settings=settings,
-                template_overrides=normalized_overrides,
-                document_overrides=document_overrides,
-            )
-            for document_id in selected_ids
-        ]
+                    template_overrides=normalized_overrides,
+                    document_overrides=document_overrides,
+                )
+                for document_id in selected_ids
+            ]
+        )
 
     def _rendered_document_payload(
         self,
@@ -1848,6 +1883,7 @@ class PrintModuleService:
             client=client,
             document_overrides=document_overrides,
         )
+        context["rounding_notes_html"] = rounding_notes_html(document, context)
         try:
             fragment = render_template(effective_template.content, context)
         except TemplateRenderError as exc:
@@ -1874,6 +1910,12 @@ class PrintModuleService:
                 else ""
             ),
             "document_guard": invoice_guard(document.id, context),
+            "money_validation": document_money_validation(document, context, effective_template),
+            "money_summary": document_money_summary(document, context),
+            "calculation_mode": context.get("completion_act", {}).get("calculation_mode"),
+            "calculation_fingerprint": context.get("completion_act", {}).get(
+                "calculation_fingerprint"
+            ),
         }
 
     def _document_definition(self, document_id: str) -> PrintDocumentDefinition:
@@ -1939,7 +1981,10 @@ class PrintModuleService:
     def _write_settings(
         self, settings: PrintModuleSettings, *, sync_change_feed: bool = True
     ) -> None:
-        _safe_json_write(self._settings_path, settings.to_dict())
+        _safe_json_write(
+            self._settings_path,
+            {**settings.to_dict(), "_tax_label_explicit": settings.tax_label_explicit},
+        )
         if sync_change_feed:
             self._sync_change_feed()
 
@@ -2060,7 +2105,14 @@ class PrintModuleService:
                 service_profile[str(key)] = value
         merged.update({key: value for key, value in payload.items() if key != "service_profile"})
         merged["service_profile"] = service_profile
-        return PrintModuleSettings.from_dict(merged)
+        result = PrintModuleSettings.from_dict(merged)
+        profile = payload.get("service_profile")
+        result.tax_label_explicit = (
+            bool(str(profile.get("tax_label") or "").strip())
+            if isinstance(profile, dict) and "tax_label" in profile
+            else current.tax_label_explicit
+        )
+        return result
 
     def get_completion_act_form(
         self,
@@ -2088,6 +2140,7 @@ class PrintModuleService:
         form_data: dict[str, Any] | None = None,
         expected_version: Any = None,
         expected_source_fingerprint: Any = None,
+        accepted_calculation_fingerprint: Any = None,
         idempotency_key: str = "",
         filled_by: str = "",
         source: str = "manual",
@@ -2114,6 +2167,7 @@ class PrintModuleService:
             exact_client,
             settings,
             cycle_key=cycle_key,
+            money_policy=self._act_record_policy(current),
         )
         if expected_source_fingerprint is None:
             # Direct in-process callers remain backwards compatible. Protected
@@ -2130,15 +2184,34 @@ class PrintModuleService:
             )
         else:
             expected_source = expected_source_fingerprint
-        form = self._normalized_completion_act_form(form_data)
+        prepared_form = dict(form_data or {})
+        prepared_form.setdefault(
+            "money_policy_version",
+            current.money_policy_version if current is not None and not current.deleted else 2,
+        )
+        prepared_form.setdefault(
+            "calculation_mode",
+            current.calculation_mode
+            if current is not None and not current.deleted
+            else "manual_net",
+        )
+        form = self._normalized_completion_act_form(prepared_form)
         _completion_act_validate_final_layout(form)
-        self._completion_act_calculation(form)
+        calculation = self._completion_act_calculation(form, order=order, settings=settings)
+        projection = self._completion_act_projection(
+            form, calculation, current, current_source_fingerprint
+        )
         request_fingerprint = _request_payload_fingerprint(
             {
                 "operation": "save",
                 "cycle_key": cycle_key,
                 "form": form.to_dict(),
                 "expected_source_fingerprint": expected_source,
+                **(
+                    {"accepted_calculation_fingerprint": accepted_calculation_fingerprint}
+                    if accepted_calculation_fingerprint is not None
+                    else {}
+                ),
             }
         )
         replay = self._completion_act_idempotent_replay(
@@ -2177,6 +2250,16 @@ class PrintModuleService:
                     "cycle_key": cycle_key,
                 },
             )
+        self._require_completion_act_recalculation(
+            projection, accepted_calculation_fingerprint, dry_run=dry_run
+        )
+        if calculation.get("money_errors"):
+            raise PrintModuleError(
+                "document_money_validation_failed",
+                "Исправьте денежные поля акта.",
+                status_code=422,
+                details={"errors": calculation["money_errors"]},
+            )
         sparse = _nested_sparse_diff(form.to_dict(), fresh.to_dict()) or {}
         if dry_run:
             response = self._completion_act_response(
@@ -2186,6 +2269,7 @@ class PrintModuleService:
                 settings=settings,
             )
             response["dry_run"] = {
+                **projection,
                 "validated": True,
                 "would_change": not (
                     current is not None
@@ -2203,8 +2287,20 @@ class PrintModuleService:
         record = CompletionActDraftData(
             cycle_key=cycle_key,
             overrides=sparse,
+            money_policy_version=form.money_policy_version,
+            calculation_mode=form.calculation_mode,
+            money_snapshot=_json_safe_value({"form": form.to_dict(), "calculation": calculation})
+            if form.money_policy_version == 2
+            else {},
             version=current_version + 1,
-            source_fingerprint=current_source_fingerprint,
+            source_fingerprint=self._completion_act_source_fingerprint(
+                card,
+                order,
+                exact_client,
+                settings,
+                cycle_key=cycle_key,
+                money_policy=(form.money_policy_version, form.calculation_mode),
+            ),
             updated_at=utc_now_iso(),
             filled_by=_normalize_text(filled_by, limit=120),
             source=_normalize_text(source, limit=32).lower() or "manual",
@@ -2255,6 +2351,7 @@ class PrintModuleService:
             exact_client,
             settings,
             cycle_key=cycle_key,
+            money_policy=self._act_record_policy(current),
         )
         if expected_source_fingerprint is not None:
             if (
@@ -2741,7 +2838,13 @@ class PrintModuleService:
             return None
         return client
 
-    def _default_completion_act_form(
+    @staticmethod
+    def _document_tax(order: RepairOrder, settings: PrintModuleSettings) -> dict[str, Any]:
+        return _invoice_tax_payload(
+            order, settings.service_profile.tax_label if settings.tax_label_explicit else ""
+        )
+
+    def _raw_completion_act_form(
         self,
         card: Card,
         order: RepairOrder,
@@ -2792,7 +2895,7 @@ class PrintModuleService:
                         price=row.price,
                     )
                 )
-        return CompletionActFormData(
+        form = CompletionActFormData(
             document_number=order.number,
             document_date=order.date or order.opened_at,
             basis="",
@@ -2802,7 +2905,31 @@ class PrintModuleService:
             acceptance_text=_COMPLETION_ACT_ACCEPTANCE_TEXT,
         )
 
+        return form
+
+    def _default_completion_act_form(
+        self,
+        card: Card,
+        order: RepairOrder,
+        client: ClientProfile | None,
+        settings: PrintModuleSettings,
+    ) -> CompletionActFormData:
+        form = self._raw_completion_act_form(card, order, client, settings)
+        return (
+            form
+            if card.id == "manual-document"
+            else self._prepare_linked_act_form(form, order, settings)
+        )
+
     def _normalized_completion_act_form(self, value: Any) -> CompletionActFormData:
+        if isinstance(value, dict) and (
+            type(value.get("money_policy_version", 2)) is not int
+            or value.get("money_policy_version", 2) not in {1, 2}
+            or not isinstance(value.get("calculation_mode", "manual_net"), str)
+            or value.get("calculation_mode", "manual_net")
+            not in {"order_cashless", "order_cash", "manual_net"}
+        ):
+            raise PrintModuleError("validation_error", "Неизвестная версия или режим расчёта акта.")
         if isinstance(value, dict):
             text_limits = {
                 "document_number": 80,
@@ -2911,243 +3038,6 @@ class PrintModuleService:
             used_ids.add(candidate)
         return form
 
-    def _completion_act_source_fingerprint(
-        self,
-        card: Card,
-        order: RepairOrder,
-        client: ClientProfile | None,
-        settings: PrintModuleSettings,
-        *,
-        cycle_key: str,
-    ) -> str:
-        fresh = self._default_completion_act_form(card, order, client, settings)
-        payload = {
-            "cycle_key": cycle_key,
-            "linked_client_id": card.client_id,
-            "fresh_form": fresh.to_dict(),
-        }
-        return _request_payload_fingerprint(payload)
-
-    def _completion_act_sources(
-        self,
-        form: CompletionActFormData,
-        *,
-        has_exact_client: bool,
-        overrides: dict[str, Any],
-    ) -> dict[str, Any]:
-        party_fields = form.performer.to_dict().keys()
-        sources: dict[str, Any] = {
-            "document_number": "repair_order",
-            "document_date": "repair_order",
-            "basis": "empty",
-            "performer": {key: "settings" for key in party_fields},
-            "customer": {
-                key: (
-                    "client"
-                    if has_exact_client
-                    else ("repair_order" if key == "legal_name" else "empty")
-                )
-                for key in form.customer.to_dict()
-            },
-            "items": [{key: "repair_order" for key in item.to_dict()} for item in form.items],
-            "acceptance_text": "system",
-        }
-
-        def mark_manual(target: Any, changed: Any) -> Any:
-            if isinstance(target, dict) and isinstance(changed, dict):
-                for key, value in changed.items():
-                    if key in target:
-                        target[key] = mark_manual(target[key], value)
-                return target
-            if isinstance(changed, list):
-                return [
-                    {key: "manual" for key in item} if isinstance(item, dict) else "manual"
-                    for item in changed
-                ]
-            return "manual"
-
-        return mark_manual(sources, overrides)
-
-    def _completion_act_calculation(self, form: CompletionActFormData) -> dict[str, Any]:
-        warnings: list[str] = []
-        missing_fields: list[str] = []
-        for field_name, value in (
-            ("document_number", form.document_number),
-            ("document_date", form.document_date),
-            ("performer.legal_name", form.performer.legal_name),
-            ("customer.legal_name", form.customer.legal_name),
-        ):
-            if not value:
-                missing_fields.append(field_name)
-        if not form.items:
-            missing_fields.append("items")
-            warnings.append("В акте нет работ и материалов.")
-        items_payload: list[dict[str, Any]] = []
-        base = Decimal("0")
-        for index, item in enumerate(form.items):
-            quantity = self._completion_act_decimal(item.quantity, field=f"items[{index}].quantity")
-            price = self._completion_act_decimal(item.price, field=f"items[{index}].price")
-            line_total: Decimal | None = None
-            if quantity is not None and price is not None:
-                line_total = _completion_act_checked_money(
-                    quantity * price, field=f"items[{index}].total"
-                )
-                base = _completion_act_checked_money(base + line_total, field="totals.base")
-            else:
-                warnings.append(
-                    f"Строка {index + 1}: заполните количество и цену для расчёта суммы."
-                )
-            if not item.name:
-                warnings.append(f"Строка {index + 1}: не указано наименование.")
-            if not item.unit:
-                warnings.append(f"Строка {index + 1}: не указана единица измерения.")
-            items_payload.append(
-                {
-                    "index": index + 1,
-                    "id": item.id,
-                    "section": item.section,
-                    "name": _display(item.name),
-                    "unit_display": _display(item.unit),
-                    "quantity_display": _completion_act_quantity_display(quantity),
-                    "price_without_vat": price,
-                    "price_without_vat_display": _money_display(price),
-                    "sum_without_vat": line_total,
-                    "sum_without_vat_display": _money_display(line_total),
-                }
-            )
-        base = _completion_act_checked_money(base, field="totals.base")
-        vat = _completion_act_checked_money(base * _COMPLETION_ACT_VAT_RATE, field="totals.vat")
-        gross = _completion_act_checked_money(base + vat, field="totals.gross")
-        if missing_fields:
-            warnings.insert(0, "Часть полей акта не заполнена; печать остаётся доступной.")
-        totals = {
-            "item_count": len(items_payload),
-            "item_count_display": str(len(items_payload)),
-            "base": format(base, "f"),
-            "base_display": _money_display(base),
-            "vat_rate": "5",
-            "vat_rate_display": "5%",
-            "vat": format(vat, "f"),
-            "vat_display": _money_display(vat),
-            "gross": format(gross, "f"),
-            "gross_display": _money_display(gross),
-            "base_words_display": _money_words_display(base),
-            "vat_words_display": _money_words_display(vat),
-            "gross_words_display": _money_words_display(gross),
-        }
-        return {
-            "items": items_payload,
-            "totals": totals,
-            "warnings": list(dict.fromkeys(warnings)),
-            "missing_fields": missing_fields,
-        }
-
-    def _completion_act_decimal(self, value: Any, *, field: str) -> Decimal | None:
-        text = _normalize_text(value, limit=48)
-        if not text:
-            return None
-        parsed = _parse_decimal(text)
-        if parsed is None or not parsed.is_finite() or parsed < Decimal("0"):
-            raise PrintModuleError(
-                "validation_error",
-                "Количество и цена в акте должны быть неотрицательными числами.",
-                details={"field": field},
-            )
-        if field.endswith(".price"):
-            rounded = _completion_act_checked_money(parsed, field=field)
-            if rounded != parsed:
-                raise PrintModuleError(
-                    "validation_error",
-                    "Цена в акте должна содержать не более двух знаков после запятой.",
-                    details={"field": field, "max_decimal_places": 2},
-                )
-            return rounded
-        if field.endswith(".quantity"):
-            if parsed > _COMPLETION_ACT_QUANTITY_ABS_MAX:
-                raise PrintModuleError(
-                    "validation_error",
-                    "Количество в акте превышает допустимый печатный предел.",
-                    details={
-                        "field": field,
-                        "max_quantity": format(_COMPLETION_ACT_QUANTITY_ABS_MAX, "f"),
-                    },
-                )
-            decimal_places = max(0, -parsed.normalize().as_tuple().exponent)
-            if decimal_places > 3:
-                raise PrintModuleError(
-                    "validation_error",
-                    "Количество в акте должно содержать не более трёх знаков после запятой.",
-                    details={"field": field, "max_decimal_places": 3},
-                )
-        return parsed
-
-    def _completion_act_response(
-        self,
-        card: Card,
-        order: RepairOrder,
-        *,
-        client: ClientProfile | None,
-        settings: PrintModuleSettings,
-        idempotent_replay: bool = False,
-    ) -> dict[str, Any]:
-        cycle_key = self._completion_act_cycle_key(card, order)
-        record = self._read_completion_act_record(cycle_key)
-        exists = record is not None and not record.deleted
-        state = "absent" if record is None else "active" if exists else "reset_tombstone"
-        overrides = record.overrides if exists and record is not None else {}
-        fresh = self._default_completion_act_form(card, order, client, settings)
-        effective = self._normalized_completion_act_form(_nested_merge(fresh.to_dict(), overrides))
-        calculation = self._completion_act_calculation(effective)
-        source_fingerprint = self._completion_act_source_fingerprint(
-            card,
-            order,
-            client,
-            settings,
-            cycle_key=cycle_key,
-        )
-        is_stale = bool(
-            exists and record is not None and record.source_fingerprint != source_fingerprint
-        )
-        warnings = list(calculation["warnings"])
-        if is_stale:
-            warnings.insert(
-                0,
-                "Исходные данные CRM изменились после сохранения черновика; ручные правки сохранены.",
-            )
-        return {
-            "card_id": card.id,
-            "document_type": "completion_act",
-            "form": effective.to_dict(),
-            "effective": effective.to_dict(),
-            "fresh_form": fresh.to_dict(),
-            "suggested_defaults": fresh.to_dict(),
-            "sources": self._completion_act_sources(
-                fresh,
-                has_exact_client=client is not None,
-                overrides=overrides,
-            ),
-            "draft": {
-                "exists": exists,
-                "version": record.version if record is not None else 0,
-                "state": state,
-                "revision": record.version if record is not None else 0,
-                "last_operation": record.operation if record is not None else None,
-                "cycle_key": cycle_key,
-                "updated_at": record.updated_at if record is not None else "",
-                "filled_by": record.filled_by if record is not None else "",
-                "source": record.source if record is not None else "",
-                "source_fingerprint": (
-                    record.source_fingerprint if record is not None else source_fingerprint
-                ),
-                "current_source_fingerprint": source_fingerprint,
-                "is_stale": is_stale,
-                "idempotent_replay": idempotent_replay,
-            },
-            "totals": calculation["totals"],
-            "warnings": warnings,
-            "missing_fields": calculation["missing_fields"],
-        }
-
     def _completion_act_document_context(
         self,
         card: Card,
@@ -3158,22 +3048,21 @@ class PrintModuleService:
         document_overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
         exact_client = self._exact_completion_act_client(card, client)
-        fresh = self._default_completion_act_form(card, order, exact_client, settings)
         explicit = (
             document_overrides.get("completion_act")
             if isinstance(document_overrides, dict)
             and isinstance(document_overrides.get("completion_act"), dict)
             else None
         )
-        if explicit is not None:
-            form = self._normalized_completion_act_form(explicit)
-        else:
-            cycle_key = self._completion_act_cycle_key(card, order)
-            record = self._read_completion_act_record(cycle_key)
-            sparse = record.overrides if record is not None and not record.deleted else {}
-            form = self._normalized_completion_act_form(_nested_merge(fresh.to_dict(), sparse))
+        _, form, calculation, _, _, _ = self._effective_act_state(
+            card,
+            order,
+            exact_client,
+            settings,
+            explicit,
+            recalculate=(document_overrides or {}).get("completion_act_recalculate") is True,
+        )
         _completion_act_validate_final_layout(form)
-        calculation = self._completion_act_calculation(form)
         items = calculation["items"]
         chunks = _completion_act_page_chunks(form, items)
         page_count = len(chunks)
@@ -3199,6 +3088,12 @@ class PrintModuleService:
             for index, chunk in enumerate(chunks)
         ]
         return {
+            "money_policy_version": form.money_policy_version,
+            "calculation_mode": form.calculation_mode,
+            "calculation_fingerprint": calculation.get("calculation_fingerprint"),
+            "money_errors": calculation.get("money_errors", []),
+            "is_stale": calculation.get("is_stale", False),
+            "legacy_review_pending": calculation.get("legacy_review_pending", False),
             "document_number": form.document_number,
             "document_number_display": _display(form.document_number),
             "document_date": form.document_date,
@@ -3517,7 +3412,11 @@ class PrintModuleService:
         parts: list[str] = []
         for row in rows:
             name = _normalize_text(row.name, limit=240)
-            quantity = _normalize_text(row.quantity, limit=40)
+            quantity = (
+                _number_display(row.quantity)
+                if _parse_decimal(row.quantity) is not None
+                else _normalize_text(row.quantity, limit=40)
+            )
             if not name:
                 continue
             parts.append(f"{name} — {quantity} шт." if quantity else name)
@@ -3551,7 +3450,9 @@ class PrintModuleService:
             "index": index + 1,
             "name": name or "—",
             "quantity": quantity,
-            "quantity_display": quantity or "—",
+            "quantity_display": _number_display(quantity)
+            if _parse_decimal(quantity) is not None
+            else quantity or "—",
         }
 
     def _inspection_sheet_table_rows(
@@ -3669,7 +3570,7 @@ class PrintModuleService:
             for key, value in payment_summary.items()
         }
         invoice_cashless_total = repair_order_cashless_gross_value(payment_summary["base_total"])
-        invoice_tax = _invoice_tax_payload(order)
+        invoice_tax = self._document_tax(order, settings)
         invoice_line_items = _canonical_cashless_line_items(
             base_line_items,
             target_total=invoice_cashless_total,
@@ -3717,7 +3618,10 @@ class PrintModuleService:
         invoice_tax_display = _money_display(invoice_tax_amount)
         invoice_total_display = _money_display(invoice_total)
         invoice_total_words_display = _money_words_display(invoice_total)
-        invoice_amount_due = _round_money(max(invoice_total - invoice_prepayment, Decimal("0")))
+        invoice_amount_due = payment_summary["noncash_due"]
+        settlement_adjustment = _round_money(
+            invoice_amount_due - max(invoice_total - invoice_prepayment, Decimal("0"))
+        )
         completion_act_context: dict[str, Any] = {}
         if document.id == "completion_act":
             completion_act_context = self._completion_act_document_context(
@@ -3735,6 +3639,7 @@ class PrintModuleService:
             if not base_line_items:
                 warnings.append("В документе нет работ и материалов.")
         return {
+            "money_tax_context": invoice_tax,
             "service": {
                 **settings.service_profile.to_dict(),
                 "company_name": _display(settings.service_profile.company_name),
@@ -3931,11 +3836,15 @@ class PrintModuleService:
                 "total_words_display": invoice_total_words_display,
                 "prepayment": invoice_prepayment,
                 "prepayment_display": _money_display(invoice_prepayment),
+                "settlement_rounding_adjustment": settlement_adjustment,
+                "settlement_rounding_adjustment_display": ("+" if settlement_adjustment > 0 else "")
+                + _money_display(settlement_adjustment),
+                "has_settlement_rounding_adjustment": settlement_adjustment != 0,
                 "amount_due": invoice_amount_due,
                 "amount_due_display": _money_display(invoice_amount_due),
                 "amount_due_words_display": _money_words_display(invoice_amount_due),
                 "has_prepayment": invoice_prepayment != Decimal("0"),
-                "has_vat": invoice_tax["has_vat"] and invoice_tax_amount != Decimal("0"),
+                "has_vat": invoice_tax["has_vat"],
             },
             "regulated": regulated_context,
             "meta": {

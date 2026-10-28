@@ -133,6 +133,11 @@ def _completion_act_form_schema() -> dict[str, Any]:
         "price": {"type": "string", "maxLength": 48},
     }
     form_properties = {
+        "money_policy_version": {"type": "integer", "enum": [1, 2]},
+        "calculation_mode": {
+            "type": "string",
+            "enum": ["order_cashless", "order_cash", "manual_net"],
+        },
         "document_number": {"type": "string", "maxLength": 80},
         "document_date": {"type": "string", "maxLength": 64},
         "basis": {"type": "string", "maxLength": 500},
@@ -153,7 +158,11 @@ def _completion_act_form_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": form_properties,
-        "required": list(form_properties),
+        "required": [
+            key
+            for key in form_properties
+            if key not in {"money_policy_version", "calculation_mode"}
+        ],
         "additionalProperties": False,
     }
 
@@ -195,6 +204,10 @@ def _completion_act_schema(route: str) -> dict[str, Any] | None:
         "additionalProperties": False,
     }
     if route == "/api/save_completion_act_form":
+        properties["accepted_calculation_fingerprint"] = {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+        }
         form_schema = _completion_act_form_schema()
         properties.update(
             {

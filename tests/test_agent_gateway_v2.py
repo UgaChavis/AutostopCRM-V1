@@ -1547,6 +1547,7 @@ class AgentGatewayV2Tests(
             "expected_version": 0,
             "expected_source_fingerprint": "0" * 64,
             "correlation_id": "completion-act-correlation-1",
+            "accepted_calculation_fingerprint": "a" * 64,
         }
         preview = await tool.run(
             {

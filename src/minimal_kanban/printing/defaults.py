@@ -287,6 +287,7 @@ PRINT_BASE_STYLES = """
   .doc-table tbody tr:nth-child(even) td { background: rgba(0, 0, 0, 0.012); }
   .doc-table__narrow { width: 12%; text-align: right !important; font-variant-numeric: tabular-nums; }
   .doc-table__sum { width: 16%; text-align: right !important; font-variant-numeric: tabular-nums; }
+  .doc-money-note { display: block; white-space: normal; font-size: 7pt; line-height: 1.15; }
   .doc-table__empty { color: var(--paper-soft); text-align: center; }
   .doc-table tfoot td { font-weight: 700; }
   .doc-totals { margin-top: 10px; margin-left: auto; width: min(400px, 100%); border: 1px solid var(--paper-line-strong); border-radius: 10px; overflow: hidden; }
@@ -902,16 +903,18 @@ PRINT_BASE_STYLES = """
     page-break-inside: avoid;
   }
   .completion-act__col-number { width: 5%; text-align: center; }
-  .completion-act__col-name { width: 50%; }
-  .completion-act__col-quantity { width: 10%; text-align: center; }
-  .completion-act__col-unit { width: 9%; text-align: center; }
+  .completion-act__col-name { width: 46%; }
+  .completion-act__col-quantity { width: 12%; text-align: center; white-space: nowrap; }
+  .completion-act__col-unit { width: 7%; text-align: center; }
   .completion-act__col-price,
   .completion-act__col-sum {
-    width: 13%;
+    width: 16%;
     text-align: right;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
   }
+  .completion-act__col-sum { width: 14%; }
+  .completion-act__items td.completion-act__number-compact { font-size: 6pt; white-space: nowrap; }
   .completion-act__empty {
     height: 10mm;
     text-align: center;
@@ -1276,14 +1279,14 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-section">
     <h2 class="doc-section__title">Работы</h2>
     <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#works}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/works}}
+      {{#works}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/works}}
       {{^works}}<tr><td class="doc-table__empty" colspan="4">Работы не указаны</td></tr>{{/works}}
     </tbody><tfoot><tr><td colspan="3">Итого работы</td><td class="doc-table__sum">{{totals.works_display}}</td></tr></tfoot></table>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Материалы / запчасти</h2>
     <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#materials}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/materials}}
+      {{#materials}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/materials}}
       {{^materials}}<tr><td class="doc-table__empty" colspan="4">Материалы не указаны</td></tr>{{/materials}}
     </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>
@@ -1502,7 +1505,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-section">
     <h2 class="doc-section__title">Позиции счета</h2>
     <table class="doc-table"><colgroup><col style="width: 7%"><col><col style="width: 12%"><col style="width: 12%"><col style="width: 15%"><col style="width: 16%"></colgroup><thead><tr><th class="doc-table__narrow">№</th><th>Наименование товара, работ, услуг</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__narrow">Ед. изм.</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#invoice.line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/invoice.line_items}}
+      {{#invoice.line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/invoice.line_items}}
       {{^invoice.line_items}}<tr><td class="doc-table__empty" colspan="6">Нет строк для счета</td></tr>{{/invoice.line_items}}
     </tbody><tfoot><tr><td colspan="5">Итого</td><td class="doc-table__sum">{{invoice.subtotal_display}}</td></tr></tfoot></table>
   </section>
@@ -1515,7 +1518,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
     {{^invoice.has_vat}}<tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
     {{#invoice.has_prepayment}}<tr><td>Предоплата</td><td>{{invoice.prepayment_display}}</td></tr>{{/invoice.has_prepayment}}
-    <tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.amount_due_display}}</td></tr>
+    {{#invoice.has_settlement_rounding_adjustment}}<tr><td>Округление зачёта предоплаты</td><td>{{invoice.settlement_rounding_adjustment_display}}</td></tr>{{/invoice.has_settlement_rounding_adjustment}}<tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.amount_due_display}}</td></tr>
   </table>
   <div class="doc-invoice-words">Сумма прописью: <strong>{{invoice.amount_due_words_display}}</strong></div>
   <section class="doc-section">
@@ -2229,9 +2232,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       <tr>
         <td class="completion-act__col-number">{{index}}</td>
         <td class="completion-act__col-name">{{name}}</td>
-        <td class="completion-act__col-quantity">{{quantity_display}}</td>
+        <td class="completion-act__col-quantity{{#compact_quantity}} completion-act__number-compact{{/compact_quantity}}">{{quantity_display}}</td>
         <td class="completion-act__col-unit">{{unit_display}}</td>
-        <td class="completion-act__col-price">{{price_without_vat_display}}</td>
+        <td class="completion-act__col-price{{#compact_price}} completion-act__number-compact{{/compact_price}}">{{price_without_vat_display}}</td>
         <td class="completion-act__col-sum">{{sum_without_vat_display}}</td>
       </tr>
       {{/items}}
@@ -2240,7 +2243,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     {{#show_totals}}
     <tfoot>
       <tr><td class="completion-act__total-label" colspan="5">Итого:</td><td class="completion-act__total-value">{{completion_act.totals.base_display}}</td></tr>
-      <tr><td class="completion-act__total-label" colspan="5">НДС ({{completion_act.totals.vat_rate_display}}):</td><td class="completion-act__total-value">{{completion_act.totals.vat_display}}</td></tr>
+      <tr><td class="completion-act__total-label" colspan="5">{{#completion_act.totals.has_vat}}НДС ({{completion_act.totals.vat_rate_display}}){{/completion_act.totals.has_vat}}{{^completion_act.totals.has_vat}}{{completion_act.totals.tax_label}}{{/completion_act.totals.has_vat}}:</td><td class="completion-act__total-value">{{completion_act.totals.vat_display}}</td></tr>
       <tr class="completion-act__total-gross"><td class="completion-act__total-label" colspan="5">Всего:</td><td class="completion-act__total-value">{{completion_act.totals.gross_display}}</td></tr>
     </tfoot>
     {{/show_totals}}
@@ -2253,7 +2256,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
     <div class="completion-act__summary">
       <p>Всего наименований {{completion_act.items_count}}, на сумму {{completion_act.totals.gross_display}} руб.</p>
       <p><strong>{{completion_act.totals.gross_words_display}}</strong></p>
-      <p><strong>В том числе НДС ({{completion_act.totals.vat_rate_display}}) {{completion_act.totals.vat_words_display}}</strong></p>
+      {{#completion_act.totals.has_vat}}<p><strong>В том числе НДС ({{completion_act.totals.vat_rate_display}}) {{completion_act.totals.vat_words_display}}</strong></p>{{/completion_act.totals.has_vat}}{{^completion_act.totals.has_vat}}<p>{{completion_act.totals.tax_label}}</p>{{/completion_act.totals.has_vat}}
     </div>
     {{/show_summary}}
 
@@ -2359,7 +2362,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   <section class="doc-section">
     <h2 class="doc-section__title">Запчасти / материалы</h2>
     <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#parts_sale_items}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}</td></tr>{{/parts_sale_items}}
+      {{#parts_sale_items}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/parts_sale_items}}
       {{^parts_sale_items}}<tr><td class="doc-table__empty" colspan="4">Запчасти и материалы не указаны</td></tr>{{/parts_sale_items}}
     </tbody><tfoot><tr><td colspan="3">Итого</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
   </section>

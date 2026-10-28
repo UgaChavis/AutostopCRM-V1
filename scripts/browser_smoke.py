@@ -1144,6 +1144,7 @@ async def _exercise_completion_act_editor(page: Any, runtime: TempRuntime) -> bo
     date_preserved_ok = date_value == expected_date
     await page.fill("#completionActDocumentNumber", "SMOKE-ACT-1")
     await page.click('[data-completion-act-section="items"]')
+    await page.select_option("#completionActCalculationMode", "manual_net")
     await page.click("#completionActAddItemButton")
     last_row = page.locator("#completionActItemRows [data-completion-act-item]").last
     await last_row.locator('[data-completion-act-item-field="name"]').fill("Smoke completion work")

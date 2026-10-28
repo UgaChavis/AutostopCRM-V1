@@ -616,7 +616,7 @@ FUTURE_REPAIR_ORDER_V2_TEMPLATE = r"""
         <tr class="future-ro__columns"><th>№</th><th>Наименование</th><th>Кол-во</th><th>Цена, ₽</th><th>Сумма, ₽</th></tr>
       </thead>
       <tbody>
-        {{#rows}}<tr><td class="future-ro__row-number">{{display_index}}</td><td>{{name}}</td><td class="future-ro__quantity">{{quantity_display}}</td><td class="future-ro__money">{{price_display}}</td><td class="future-ro__money future-ro__sum">{{total_display}}</td></tr>{{/rows}}
+        {{#rows}}<tr><td class="future-ro__row-number">{{display_index}}</td><td>{{name}}</td><td class="future-ro__quantity">{{quantity_display}}</td><td class="future-ro__money">{{price_display}}</td><td class="future-ro__money future-ro__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/rows}}
         {{^has_rows}}<tr class="future-ro__empty"><td colspan="5">{{#is_works}}Работы{{/is_works}}{{#is_materials}}Материалы{{/is_materials}} не указаны</td></tr>{{/has_rows}}
       </tbody>
       {{#show_total}}<tfoot><tr><td colspan="4">{{#is_works}}Итого работы{{/is_works}}{{#is_materials}}Итого материалы{{/is_materials}}</td><td class="future-ro__money">{{#is_works}}{{totals.works_display}}{{/is_works}}{{#is_materials}}{{totals.materials_display}}{{/is_materials}} ₽</td></tr></tfoot>{{/show_total}}

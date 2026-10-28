@@ -6,6 +6,12 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from ..repair_order import RepairOrder
+from ..services.document_money import (
+    DocumentMoneyError,
+    decimal_places,
+    document_number,
+    resolve_document_tax,
+)
 from .manual_documents import _normalize_multiline, _normalize_text
 
 _MONEY_QUANT = Decimal("0.01")
@@ -112,7 +118,7 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(_MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
-def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
+def _legacy_invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
     raw_label = _normalize_text(getattr(order, "tax_label", ""), limit=48)
     if not raw_label:
         return {
@@ -149,6 +155,25 @@ def _invoice_tax_payload(order: RepairOrder) -> dict[str, Any]:
     }
 
 
+def _invoice_tax_payload(order: RepairOrder, profile_label: str = "") -> dict[str, Any]:
+    return resolve_document_tax(getattr(order, "tax_label", ""), profile_label)
+
+
+def _number_display(value: Any, *, minimum_places: int = 0) -> str:
+    parsed = _parse_decimal(value)
+    if parsed is None:
+        return "—"
+    try:
+        document_number(parsed.copy_abs())
+    except DocumentMoneyError:
+        return "—"
+    precision = max(minimum_places, decimal_places(parsed))
+    whole, _, fraction = format(abs(parsed), f".{precision}f").partition(".")
+    sign = "−" if parsed < 0 else ""
+    grouped = f"{int(whole):,}".replace(",", " ")
+    return sign + grouped + ("," + fraction if precision else "")
+
+
 def _money_display(value: Any, *, trim_kopeks: bool = False, currency: bool = False) -> str:
     parsed = _parse_decimal(value)
     if parsed is None:
@@ -156,7 +181,7 @@ def _money_display(value: Any, *, trim_kopeks: bool = False, currency: bool = Fa
     quantized = _round_money(parsed)
     text = format(quantized, "f")
     whole, dot, fraction = text.partition(".")
-    grouped_whole = f"{int(whole):,}".replace(",", " ")
+    grouped_whole = ("−" if quantized < 0 else "") + f"{abs(int(whole)):,}".replace(",", " ")
     if dot and not (trim_kopeks and fraction[:2] == "00"):
         result = f"{grouped_whole},{fraction[:2]}"
     else:
@@ -165,7 +190,7 @@ def _money_display(value: Any, *, trim_kopeks: bool = False, currency: bool = Fa
 
 
 def _money_ruble_display(value: Any) -> str:
-    return _money_display(value, trim_kopeks=True, currency=True)
+    return _money_display(value, currency=True)
 
 
 def _plural_form(number: int, forms: tuple[str, str, str]) -> str:

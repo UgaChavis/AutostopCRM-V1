@@ -642,9 +642,9 @@ class AgentGatewayFinancePreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(guard["mismatch_with_current_repair_order"])
         self.assertFalse(guard["financial_or_tax_mismatch"])
 
-    def test_print_guard_treats_blank_legacy_tax_label_as_rendered_default(self) -> None:
+    def test_print_guard_does_not_substitute_tax_for_blank_legacy_status(self) -> None:
         for rendered_tax_status, mismatch in (
-            ("НДС (5%)", False),
+            ("НДС (5%)", True),
             ("Без НДС", True),
             ("НДС (20%)", True),
         ):

@@ -18,6 +18,8 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
 
     function blankCompletionActForm() {
       return {
+        money_policy_version: 2,
+        calculation_mode: 'manual_net',
         document_number: '',
         document_date: '',
         basis: '',
@@ -56,6 +58,8 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
     function normalizeCompletionActForm(value) {
       const source = value && typeof value === 'object' ? value : {};
       return {
+        money_policy_version: source.money_policy_version === 1 ? 1 : 2,
+        calculation_mode: ['order_cashless', 'order_cash', 'manual_net'].includes(source.calculation_mode) ? source.calculation_mode : 'manual_net',
         document_number: String(source.document_number ?? '').trim(),
         document_date: String(source.document_date ?? '').trim(),
         basis: String(source.basis ?? '').trim(),
@@ -166,6 +170,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
     function renderCompletionActTotals(totals = null) {
       const supplied = totals && typeof totals === 'object' ? totals : null;
       if (supplied) {
+        if (printEls.completionActVatLabel) printEls.completionActVatLabel.textContent = supplied.tax_label || "НДС";
         if (printEls.completionActBaseTotal) printEls.completionActBaseTotal.textContent = supplied.base_display || '—';
         if (printEls.completionActVatTotal) printEls.completionActVatTotal.textContent = supplied.vat_display || '—';
         if (printEls.completionActGrossTotal) printEls.completionActGrossTotal.textContent = supplied.gross_display || '—';
@@ -206,6 +211,13 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       }).join('') : '<div class="repair-order-print-empty">Строк пока нет. Добавьте работу или материал.</div>';
     }
 
+    function syncCompletionActSaveState() {
+      const current = repairOrderPrintState.completionAct;
+      const needsReview = current.draft?.is_stale || (current.draft?.exists && current.savedForm?.money_policy_version === 1 && current.form?.money_policy_version === 2);
+      if (printEls.completionActSaveButton) printEls.completionActSaveButton.disabled = !current.loaded || current.savePending || Boolean(needsReview && !current.acceptedCalculationFingerprint);
+      if (printEls.completionActUpdateCalculationButton) printEls.completionActUpdateCalculationButton.disabled = !current.loaded || current.savePending;
+    }
+
     function renderCompletionActComputedValues(preview) {
       repairOrderPrintState.completionAct.computedItems = Array.isArray(preview?.computed_items) ? cloneCompletionActValue(preview.computed_items) : [];
       repairOrderPrintState.completionAct.totals = preview?.computed_totals && typeof preview.computed_totals === 'object' ? cloneCompletionActValue(preview.computed_totals) : {};
@@ -217,6 +229,9 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         if (output) output.textContent = computed?.sum_without_vat_display || '—';
       });
       renderCompletionActTotals(repairOrderPrintState.completionAct.totals);
+      const blocked = preview?.money_validation?.valid === false;
+      [printEls.completionActExportButton, printEls.completionActPrintButton].forEach((button) => { if (button) button.disabled = blocked; });
+      syncCompletionActSaveState();
     }
 
     function readCompletionActItemsFromInputs() {
@@ -239,13 +254,20 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         field.value = field.getAttribute('type') === 'date' && /^\d{4}-\d{2}-\d{2}/.test(rawValue) ? rawValue.slice(0, 10) : rawValue;
       });
       renderCompletionActItems(normalized.items);
+      const loaded = repairOrderPrintState.completionAct.loaded;
+      const modeField = printEls.completionActForm?.querySelector('[data-completion-act-field="calculation_mode"]');
+      if (modeField) modeField.disabled = !loaded;
+      const linked = !loaded || normalized.calculation_mode !== "manual_net";
+      printEls.completionActItemRows?.querySelectorAll("input, select, button").forEach((field) => { field.disabled = linked; });
+      if (printEls.completionActAddItemButton) printEls.completionActAddItemButton.disabled = linked || normalized.items.length >= COMPLETION_ACT_MAX_ITEMS;
       renderCompletionActSourceBadges();
       renderCompletionActFreshItems();
       renderCompletionActTotals(repairOrderPrintState.completionAct.totals);
+      syncCompletionActSaveState();
     }
 
     function readCompletionActFormFromInputs() {
-      const form = blankCompletionActForm();
+      const form = normalizeCompletionActForm(repairOrderPrintState.completionAct.form || {});
       printEls.completionActForm?.querySelectorAll('[data-completion-act-field]').forEach((field) => {
         completionActSetPath(form, field.getAttribute('data-completion-act-field') || '', String(field.value || '').trim());
       });
@@ -284,6 +306,12 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       current.form = null;
       current.savedForm = null;
       current.freshForm = null;
+      current.loaded = false;
+      current.savePending = false;
+      current.linkedForms = {};
+      current.linkedFormsCardId = '';
+      current.acceptedCalculationFingerprint = '';
+      current.savedTotals = {};
       current.sources = {};
       current.draft = { exists: false, version: 0, is_stale: false };
       current.totals = {};
@@ -291,6 +319,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       current.warnings = [];
       current.missingFields = [];
       current.dirty = false;
+      current.recalculationRequested = false;
       current.preview = null;
       current.pageIndex = 0;
       delete repairOrderPrintState.previewByDocument.completion_act;
@@ -398,6 +427,12 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       const currentForm = preserveCurrentEdits ? readCompletionActFormFromInputs() : null;
       repairOrderPrintState.completionAct.savedForm = cloneCompletionActValue(savedForm || responseForm);
       repairOrderPrintState.completionAct.freshForm = normalizeCompletionActForm(data?.fresh_form || responseForm);
+      repairOrderPrintState.completionAct.linkedForms = data?.linked_forms || {};
+      repairOrderPrintState.completionAct.linkedFormsCardId = String(data?.card_id || '');
+      repairOrderPrintState.completionAct.loaded = true;
+      repairOrderPrintState.completionAct.acceptedCalculationFingerprint = '';
+      repairOrderPrintState.completionAct.savedTotals = cloneCompletionActValue(data?.totals || {});
+      repairOrderPrintState.completionAct.recalculationRequested = false;
       repairOrderPrintState.completionAct.sources = data?.sources && typeof data.sources === 'object' ? cloneCompletionActValue(data.sources) : {};
       const legacyDraftExists = Boolean(data?.draft?.exists);
       const draftState = ['absent', 'active', 'reset_tombstone'].includes(data?.draft?.state)
@@ -444,6 +479,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
           ? 'Черновик сохранён, но в редакторе есть более новые несохранённые изменения.'
           : 'Ручные изменения относятся только к печатной версии и не меняют заказ-наряд.';
       }
+      syncCompletionActSaveState();
       return true;
     }
 
@@ -477,6 +513,8 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       repairOrderPrintState.completionAct.form = readCompletionActFormFromInputs();
       repairOrderPrintState.completionAct.dirty = true;
       repairOrderPrintState.completionAct.editRevision += 1;
+      if (['items', 'calculation_mode', 'money_policy_version'].includes(path)) repairOrderPrintState.completionAct.acceptedCalculationFingerprint = '';
+      syncCompletionActSaveState();
       repairOrderPrintState.completionAct.totals = {};
       repairOrderPrintState.completionAct.computedItems = [];
       if (path) {
@@ -532,7 +570,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
             card_id: session.cardId,
             selected_document_ids: ['completion_act'],
             active_document_id: 'completion_act',
-            document_overrides: { ...readRegulatedPrintOverridesFromInputs(), completion_act: form },
+            document_overrides: { ...readRegulatedPrintOverridesFromInputs(), completion_act: form, completion_act_recalculate: repairOrderPrintState.completionAct.recalculationRequested === true },
           }),
         });
         if (
@@ -627,11 +665,49 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       return true;
     }
 
+    async function updateCompletionActCalculation() {
+      const operation = capturePrintOperation();
+      const session = completionActEditorSessionSnapshot();
+      if (!completionActEditorSessionIsCurrent(session)) return;
+      if (!repairOrderPrintState.completionAct.loaded || repairOrderPrintState.completionAct.savePending) return;
+      const form = readCompletionActFormFromInputs();
+      const editRevision = repairOrderPrintState.completionAct.editRevision;
+      const before = repairOrderPrintState.completionAct.savedTotals;
+      try {
+        const data = await operation.request('/api/get_completion_act_form', { method: 'POST', body: completionActEndpointPayload({}, session.cardId) });
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
+          setStatus('Данные акта изменились во время обновления. Повторите обновление расчёта.', true);
+          return;
+        }
+        applyCompletionActResponse(data, { session });
+        repairOrderPrintState.completionAct.recalculationRequested = true;
+        form.money_policy_version = 2;
+        const linked = data?.linked_forms?.[form.calculation_mode];
+        if (linked) form.items = cloneCompletionActValue(linked.items);
+        applyCompletionActFormToInputs(form);
+        markCompletionActDirty('money_policy_version');
+        cancelPendingCompletionActPreview();
+        const updatedRevision = repairOrderPrintState.completionAct.editRevision;
+        const preview = await operation.wait(refreshCompletionActPreview({ session, requireCurrent: true }));
+        if (!completionActEditorSessionIsCurrent(session)) return;
+        if (repairOrderPrintState.completionAct.editRevision !== updatedRevision) return;
+        const after = repairOrderPrintState.completionAct.totals;
+        repairOrderPrintState.completionAct.acceptedCalculationFingerprint = preview?.calculation_fingerprint || '';
+        syncCompletionActSaveState();
+        if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = 'До обновления: ' + (before?.gross_display || '—') + ' руб.; НДС ' + (before?.vat_display || '—') + '. После: ' + (after?.gross_display || '—') + ' руб.; НДС ' + (after?.vat_display || '—') + '. Сохраните новую версию расчёта.';
+      } catch (error) {
+        if (operation.current() && completionActEditorSessionIsCurrent(session)) setStatus(error.message, true);
+      }
+    }
+
     async function saveCompletionActDraft() {
       const operation = capturePrintOperation();
       const session = completionActEditorSessionSnapshot();
       if (!completionActEditorSessionIsCurrent(session)) return;
-      if (printEls.completionActSaveButton) printEls.completionActSaveButton.disabled = true;
+      if (!repairOrderPrintState.completionAct.loaded || repairOrderPrintState.completionAct.savePending) return;
+      repairOrderPrintState.completionAct.savePending = true;
+      syncCompletionActSaveState();
       const form = readCompletionActFormFromInputs();
       const editRevision = repairOrderPrintState.completionAct.editRevision;
       try {
@@ -642,6 +718,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
               form,
               expected_version: repairOrderPrintState.completionAct.draft.version || 0,
               expected_source_fingerprint: repairOrderPrintState.completionAct.draft.current_source_fingerprint || '',
+              ...(repairOrderPrintState.completionAct.acceptedCalculationFingerprint ? { accepted_calculation_fingerprint: repairOrderPrintState.completionAct.acceptedCalculationFingerprint } : {}),
               idempotency_key: completionActIdempotencyKey('save'),
               actor_name: 'ui',
             },
@@ -673,7 +750,8 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       } finally {
         if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActSaveButton) {
-          printEls.completionActSaveButton.disabled = false;
+          repairOrderPrintState.completionAct.savePending = false;
+          syncCompletionActSaveState();
         }
       }
     }
@@ -761,7 +839,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       } finally {
         if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActExportButton) {
-          printEls.completionActExportButton.disabled = false;
+          printEls.completionActExportButton.disabled = repairOrderPrintState.completionAct.preview?.money_validation?.valid === false;
         }
       }
     }
@@ -790,7 +868,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       } finally {
         if (!operation.current()) return;
         if (completionActEditorSessionIsCurrent(session) && printEls.completionActPrintButton) {
-          printEls.completionActPrintButton.disabled = false;
+          printEls.completionActPrintButton.disabled = repairOrderPrintState.completionAct.preview?.money_validation?.valid === false;
         }
       }
     }
@@ -798,6 +876,13 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
     function handleCompletionActFormInput(event) {
       const target = event.target;
       if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLSelectElement)) return;
+      if (!repairOrderPrintState.completionAct.loaded) return;
+      if (target.getAttribute("data-completion-act-field") === "calculation_mode") {
+        const form = readCompletionActFormFromInputs();
+        const linked = repairOrderPrintState.completionAct.linkedFormsCardId === repairOrderPrintState.completionAct.cardId ? repairOrderPrintState.completionAct.linkedForms?.[form.calculation_mode] : null;
+        if (linked) form.items = cloneCompletionActValue(linked.items);
+        applyCompletionActFormToInputs(form);
+      }
       const itemRow = target.closest('[data-completion-act-item]');
       if (itemRow) {
         const output = itemRow.querySelector('.completion-act-item__total');
@@ -857,5 +942,27 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       renderCompletionActItems(rows);
       markCompletionActDirty('items');
       printEls.completionActItemRows?.querySelector('[data-completion-act-item]:last-child [data-completion-act-item-field="name"]')?.focus();
+    }
+
+    function bindCompletionActMoneyControls() {
+      if (printEls.completionActCloseX) printEls.completionActCloseX.addEventListener('click', closeCompletionActEditor);
+      if (printEls.completionActModal) printEls.completionActModal.addEventListener('click', handleCompletionActModalClick);
+      if (printEls.completionActForm) printEls.completionActForm.addEventListener('submit', (event) => event.preventDefault());
+      if (printEls.completionActForm) printEls.completionActForm.addEventListener('input', handleCompletionActFormInput);
+      if (printEls.completionActForm) printEls.completionActForm.addEventListener('change', handleCompletionActFormInput);
+      if (printEls.completionActItemRows) printEls.completionActItemRows.addEventListener('click', handleCompletionActItemsClick);
+      if (printEls.completionActAddItemButton) printEls.completionActAddItemButton.addEventListener('click', appendCompletionActItem);
+      if (printEls.completionActUpdateCalculationButton) printEls.completionActUpdateCalculationButton.addEventListener('click', updateCompletionActCalculation);
+      if (printEls.completionActSaveButton) printEls.completionActSaveButton.addEventListener('click', saveCompletionActDraft);
+      if (printEls.completionActResetButton) printEls.completionActResetButton.addEventListener('click', resetCompletionActDraft);
+      if (printEls.completionActExportButton) printEls.completionActExportButton.addEventListener('click', exportCompletionActPdf);
+      if (printEls.completionActPrintButton) printEls.completionActPrintButton.addEventListener('click', printCompletionAct);
+      if (printEls.completionActPrevPageButton) printEls.completionActPrevPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex -= 1; renderCompletionActPreview(); });
+      if (printEls.completionActNextPageButton) printEls.completionActNextPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex += 1; renderCompletionActPreview(); });
+      if (printEls.completionActMobileDataButton) printEls.completionActMobileDataButton.addEventListener('click', () => setCompletionActMobileView('data'));
+      if (printEls.completionActMobilePreviewButton) printEls.completionActMobilePreviewButton.addEventListener('click', () => setCompletionActMobileView('preview'));
+      window.addEventListener('resize', applyCompletionActPreviewScale);
+      window.addEventListener('beforeunload', handleCompletionActBeforeUnload);
+      document.addEventListener('keydown', handleCompletionActKeydown, true);
     }
 """

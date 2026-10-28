@@ -136,8 +136,16 @@ PRINTING_BROWSER_LIFECYCLE_SCRIPT = r"""
         } catch (error) { fail(error); }
       });
     }
+    function requirePrintMoneyValid(previews) {
+      if ((previews || []).some((preview) => preview?.money_validation?.valid === false)) {
+        const error = new Error('Исправьте денежные ошибки перед выпуском документа.');
+        error.code = 'document_money_validation_failed';
+        throw error;
+      }
+    }
     function runRepairOrderBrowserPrint() {
       const selectedIds = repairOrderPrintSelectedIds();
+      requirePrintMoneyValid(selectedIds.map((id) => repairOrderPrintState.previewByDocument?.[id]));
       if (selectedIds.length === 1 && selectedIds[0] === 'completion_act') {
         const preview = repairOrderPrintState.previewByDocument?.completion_act;
         const pages = Array.isArray(preview?.pages) ? preview.pages : [];
@@ -166,6 +174,10 @@ PRINTING_JOB_SCRIPT = r"""
         setStatus('Открыто системное окно печати браузера.', false);
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;
+        if (error?.code === 'document_money_validation_failed') {
+          setStatus(error.message, true);
+          return;
+        }
         try {
           const printerName = printEls.printerSelect?.value || '';
           if (!printerName) throw error;

@@ -36,6 +36,10 @@ Owner MCP client -> 24-tool Gateway v2 -> internal Store adapter -> Store API
 ```
 
 - `src/minimal_kanban/services/` owns business behavior;
+  `services/document_money.py` owns Decimal document amounts, row VAT and the
+  minimum reproducible unit-price precision. Print policy v2 and act migration
+  are specified in the [API guide](API_GUIDE.md#repair-orders-and-documents).
+  Operators can use the [printing instructions](docs/PRINTING_MONEY_POLICY.md).
   `storage/json_store.py` owns persistence and normalization.
   `SnapshotService` owns journal reads, visibility filtering and response assembly;
   `services/card_log_projection.py` formats the permitted events into entries,

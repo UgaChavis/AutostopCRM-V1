@@ -27,6 +27,12 @@ def preview_document_payload(
         "missing_fields": rendered["missing_fields"],
         "computed_totals": rendered["computed_totals"],
         "computed_items": rendered["computed_items"],
+        "money_validation": rendered["money_validation"],
+        **(
+            {"document_guard": rendered["document_guard"]} if rendered.get("document_guard") else {}
+        ),
+        "calculation_mode": rendered.get("calculation_mode"),
+        "calculation_fingerprint": rendered.get("calculation_fingerprint"),
         "page_count": len(preview_pages),
         "pages": [
             {"number": index + 1, "html": page_html}

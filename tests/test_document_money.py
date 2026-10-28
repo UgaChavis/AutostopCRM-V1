@@ -50,7 +50,7 @@ class CanonicalDocumentMoneyTests(unittest.TestCase):
             )
         )
 
-    def test_deterministic_fallback_changes_minimum_number_of_vat_rows(self) -> None:
+    def test_row_vat_is_not_adjusted_to_document_fraction(self) -> None:
         money = build_canonical_document_money(
             [Decimal("1.00"), Decimal("1.00")],
             [Decimal("1"), Decimal("1")],
@@ -60,12 +60,12 @@ class CanonicalDocumentMoneyTests(unittest.TestCase):
         )
 
         self.assertEqual([row.gross for row in money.rows], [Decimal("1.18"), Decimal("1.17")])
-        self.assertEqual([row.vat for row in money.rows], [Decimal("0.06"), Decimal("0.05")])
+        self.assertEqual([row.vat for row in money.rows], [Decimal("0.06"), Decimal("0.06")])
         self.assertEqual(
             [row.vat_adjustment for row in money.rows],
-            [Decimal("0.00"), Decimal("-0.01")],
+            [Decimal("0.00"), Decimal("0.00")],
         )
-        self.assertEqual(money.vat_total, Decimal("0.11"))
+        self.assertEqual(money.vat_total, Decimal("0.12"))
         self.assertTrue(all(row.subtotal + row.vat == row.gross for row in money.rows))
 
     def test_included_vat_uses_direct_rate_fraction_at_half_cent(self) -> None:
@@ -90,10 +90,10 @@ class CanonicalDocumentMoneyTests(unittest.TestCase):
         )
         row = money.rows[0]
 
-        self.assertEqual(row.invoice_unit_price, Decimal("1117.6467"))
-        self.assertEqual(row.invoice_unit_precision, 4)
+        self.assertEqual(row.invoice_unit_price, Decimal("1117.647"))
+        self.assertEqual(row.invoice_unit_precision, 3)
         self.assertEqual(row.regulated_unit_price, Decimal("1064.4250"))
-        self.assertEqual(row.regulated_unit_precision, 4)
+        self.assertEqual(row.regulated_unit_precision, 3)
         self.assertEqual(
             (row.invoice_unit_price * Decimal("6")).quantize(Decimal("0.01")), row.gross
         )

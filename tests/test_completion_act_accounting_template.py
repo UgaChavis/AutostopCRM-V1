@@ -96,6 +96,8 @@ def _context(pages: list[dict[str, object]]) -> dict[str, object]:
             "totals": {
                 "base_display": "20 000,00",
                 "vat_rate_display": "5%",
+                "has_vat": True,
+                "tax_label": "НДС 5%",
                 "vat_display": "1 000,00",
                 "gross_display": "21 000,00",
                 "base_words_display": "Двадцать тысяч рублей 00 копеек",

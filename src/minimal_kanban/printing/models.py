@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass, field, fields
 from typing import Any
 
+from .completion_act_snapshot import validate_completion_act_snapshot
+
 SUPPORTED_PRINT_DOCUMENT_TYPES = (
     "repair_order",
     "technical_repair_order",
@@ -78,7 +80,7 @@ class PrintServiceProfile:
     bik: str = "045004774"
     settlement_account: str = "40802810523260001815"
     correspondent_account: str = "30101810600000000774"
-    tax_label: str = "Без НДС"
+    tax_label: str = ""
     payment_purpose: str = "Оплата за ремонт автомобиля / техническое обслуживание / запасные части по счёту или заказ-наряду."
     signer_position: str = "Индивидуальный предприниматель"
     signer_name: str = "Гришкявичус К.В."
@@ -100,7 +102,7 @@ class PrintServiceProfile:
         self.bik = _clean_text(self.bik, limit=32)
         self.settlement_account = _clean_text(self.settlement_account, limit=64)
         self.correspondent_account = _clean_text(self.correspondent_account, limit=64)
-        self.tax_label = _clean_text(self.tax_label, limit=48) or "Без НДС"
+        self.tax_label = _clean_text(self.tax_label, limit=48)
         self.payment_purpose = _clean_text(self.payment_purpose, limit=240)
         self.signer_position = _clean_text(self.signer_position, limit=120)
         self.signer_name = _clean_text(self.signer_name, limit=160)
@@ -180,6 +182,7 @@ class PrintModuleSettings:
     orientation: str = "portrait"
     default_template_ids: dict[str, str] = field(default_factory=dict)
     service_profile: PrintServiceProfile = field(default_factory=PrintServiceProfile)
+    tax_label_explicit: bool = False
 
     def __post_init__(self) -> None:
         self.default_printer = _clean_text(self.default_printer, limit=120)
@@ -221,7 +224,7 @@ class PrintModuleSettings:
                 if (
                     isinstance(value, str)
                     and not value.strip()
-                    and key not in {"signer_position", "signer_name"}
+                    and key not in {"signer_position", "signer_name", "tax_label"}
                 ):
                     continue
                 service_profile_payload[str(key)] = value
@@ -232,6 +235,11 @@ class PrintModuleSettings:
             orientation=payload.get("orientation", defaults.orientation),
             default_template_ids=payload.get("default_template_ids", defaults.default_template_ids),
             service_profile=PrintServiceProfile.from_dict(service_profile_payload),
+            tax_label_explicit=bool(
+                payload.get("_tax_label_explicit") is not False
+                and isinstance(payload.get("service_profile"), dict)
+                and str(payload["service_profile"].get("tax_label") or "").strip()
+            ),
         )
 
 
@@ -413,6 +421,8 @@ class CompletionActItemData:
 
 @dataclass(slots=True)
 class CompletionActFormData:
+    money_policy_version: int = 2
+    calculation_mode: str = "manual_net"
     document_number: str = ""
     document_date: str = ""
     basis: str = ""
@@ -422,6 +432,13 @@ class CompletionActFormData:
     acceptance_text: str = ""
 
     def __post_init__(self) -> None:
+        self.money_policy_version = 1 if self.money_policy_version == 1 else 2
+        if not isinstance(self.calculation_mode, str) or self.calculation_mode not in {
+            "order_cashless",
+            "order_cash",
+            "manual_net",
+        }:
+            raise ValueError("Unsupported completion act calculation mode")
         self.document_number = _clean_text(self.document_number, limit=80)
         self.document_date = _clean_text(self.document_date, limit=64)
         self.basis = _clean_text(self.basis, limit=500)
@@ -443,6 +460,8 @@ class CompletionActFormData:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "money_policy_version": self.money_policy_version,
+            "calculation_mode": self.calculation_mode,
             "document_number": self.document_number,
             "document_date": self.document_date,
             "basis": self.basis,
@@ -456,6 +475,8 @@ class CompletionActFormData:
     def from_dict(cls, payload: Any) -> CompletionActFormData:
         source = payload if isinstance(payload, dict) else {}
         return cls(
+            money_policy_version=source.get("money_policy_version", 2),
+            calculation_mode=source.get("calculation_mode", "manual_net"),
             document_number=source.get("document_number", ""),
             document_date=source.get("document_date", ""),
             basis=source.get("basis", ""),
@@ -474,6 +495,9 @@ class CompletionActFormData:
 
 @dataclass(slots=True)
 class CompletionActDraftData:
+    money_policy_version: int = 1
+    calculation_mode: str = "manual_net"
+    money_snapshot: dict[str, Any] = field(default_factory=dict)
     cycle_key: str = ""
     overrides: dict[str, Any] = field(default_factory=dict)
     version: int = 0
@@ -487,6 +511,18 @@ class CompletionActDraftData:
     deleted: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.money_policy_version) is not int or self.money_policy_version not in {1, 2}:
+            raise ValueError("Unsupported completion act money policy")
+        if not isinstance(self.calculation_mode, str) or self.calculation_mode not in {
+            "order_cashless",
+            "order_cash",
+            "manual_net",
+        }:
+            raise ValueError("Unsupported completion act calculation mode")
+        if not isinstance(self.money_snapshot, dict):
+            raise ValueError("Invalid completion act money snapshot")
+        if self.money_policy_version == 2 and not self.deleted:
+            validate_completion_act_snapshot(self.money_snapshot, self.calculation_mode)
         self.cycle_key = _clean_text(self.cycle_key, limit=180)
         self.overrides = dict(self.overrides) if isinstance(self.overrides, dict) else {}
         try:
@@ -510,6 +546,9 @@ class CompletionActDraftData:
     def from_dict(cls, payload: Any) -> CompletionActDraftData:
         source = payload if isinstance(payload, dict) else {}
         return cls(
+            money_policy_version=source.get("money_policy_version", 1),
+            calculation_mode=source.get("calculation_mode", "manual_net"),
+            money_snapshot=source.get("money_snapshot", {}),
             cycle_key=source.get("cycle_key", ""),
             overrides=source.get("overrides", {}),
             version=source.get("version", 0),

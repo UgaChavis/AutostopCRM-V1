@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 from .models import _normalize_copy_count
 
+_pending_print_jobs: list[tuple[object, object]] = []
+
 if TYPE_CHECKING:
     from PySide6.QtWidgets import QApplication
 
@@ -28,14 +30,11 @@ def _ensure_qt_application() -> QApplication:
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
     try:
-        from PySide6.QtWidgets import QApplication
+        from .pdf import _ensure_qt_application as ensure_pdf_application
+
+        return ensure_pdf_application()
     except Exception as exc:  # pragma: no cover
         raise PrinterBackendError("PySide6 недоступен для работы с принтерами.") from exc
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-        app.setQuitOnLastWindowClosed(False)
-    return app
 
 
 def list_printers(*, default_name: str = "") -> list[dict[str, object]]:
@@ -84,8 +83,8 @@ def print_html(
         raise PrinterBackendError("Прямая печать недоступна в текущем окружении.")
     _ensure_qt_application()
     try:
-        from PySide6.QtCore import QMarginsF, QSizeF
-        from PySide6.QtGui import QPageLayout, QPageSize, QTextDocument
+        from PySide6.QtCore import QMarginsF
+        from PySide6.QtGui import QPageLayout, QPageSize
         from PySide6.QtPrintSupport import QPrinter, QPrinterInfo
     except Exception as exc:  # pragma: no cover
         raise PrinterBackendError("Qt PrintSupport недоступен для печати.") from exc
@@ -108,6 +107,7 @@ def print_html(
     printer = QPrinter(printer_info, QPrinter.PrinterMode.HighResolution)
     printer.setDocName(str(title or "AutoStop CRM"))
     printer.setCopyCount(_normalize_copy_count(copies))
+    printer.setResolution(300)
     page_sizes = {
         "A4": QPageSize(QPageSize.PageSizeId.A4),
         "A5": QPageSize(QPageSize.PageSizeId.A5),
@@ -120,11 +120,69 @@ def print_html(
         else QPageLayout.Orientation.Portrait
     )
     printer.setPageLayout(
-        QPageLayout(selected_size, selected_orientation, QMarginsF(10, 10, 10, 10))
+        QPageLayout(
+            selected_size, selected_orientation, QMarginsF(9, 9, 9, 9), QPageLayout.Unit.Millimeter
+        )
     )
-    document = QTextDocument()
-    document.setDocumentMargin(0)
-    document.setHtml(str(html or ""))
-    page_size = printer.pageRect(QPrinter.Unit.Point).size()
-    document.setPageSize(QSizeF(page_size.width(), page_size.height()))
-    document.print_(printer)
+    _print_webengine_html(html, printer)
+
+
+def _print_webengine_html(html: str, printer: object) -> None:
+    """Use the PDF renderer's HTML engine and await native spool completion."""
+    try:
+        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+    except Exception as exc:
+        raise PrinterBackendError("Qt WebEngine недоступен для печати.") from exc
+    view, loop, timer = QWebEngineView(), QEventLoop(), QTimer()
+    state = {"done": False, "printing": False, "error": ""}
+    job = (view, printer)
+
+    def finish(error: str = "") -> None:
+        if not state["done"]:
+            state.update(done=True, error=error)
+            loop.quit()
+
+    def printed(success: bool) -> None:
+        state["printing"] = False
+        finish("" if success else "Принтер не подтвердил выполнение задания.")
+        if job in _pending_print_jobs:
+            _pending_print_jobs.remove(job)
+            view.deleteLater()
+
+    def loaded(success: bool) -> None:
+        if state["done"]:
+            return
+        if not success:
+            finish("Qt WebEngine не загрузил HTML для печати.")
+            return
+        state["printing"] = True
+        try:
+            view.print(printer)
+        except (RuntimeError, TypeError):
+            state["printing"] = False
+            finish("Не удалось передать документ на принтер.")
+
+    def timed_out() -> None:
+        if state["printing"]:
+            printer.abort()
+        view.stop()
+        finish("Истекло время передачи документа на принтер.")
+
+    timer.setSingleShot(True)
+    timer.timeout.connect(timed_out)
+    view.loadFinished.connect(loaded)
+    view.printFinished.connect(printed)
+    try:
+        view.setHtml(str(html or ""), QUrl("about:blank"))
+        timer.start(45_000)
+        loop.exec()
+        if state["error"]:
+            raise PrinterBackendError(state["error"])
+    finally:
+        timer.stop()
+        if state["printing"]:
+            # Qt may finish asynchronously even after abort; retain its printer.
+            _pending_print_jobs.append(job)
+        else:
+            view.deleteLater()

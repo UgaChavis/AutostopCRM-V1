@@ -412,7 +412,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
 
     def test_all_emitted_async_printing_requests_use_operation_guards(self) -> None:
         names = re.findall(r"^    async function (\w+)\(", PRINTING_WEB_MODULE_SCRIPT, re.MULTILINE)
-        self.assertEqual(len(names), 23)
+        self.assertEqual(len(names), 24)
         for name in names:
             with self.subTest(name=name):
                 source = function_source(name)

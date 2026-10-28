@@ -56,7 +56,7 @@ PRINTING_WEB_MODULE_HTML = r"""
                   <div class="field field--compact"><label for="manualPrintDocumentNumber">Номер</label><input id="manualPrintDocumentNumber" type="text" maxlength="40"></div>
                   <div class="field field--compact"><label for="manualPrintDocumentDate">Дата</label><input id="manualPrintDocumentDate" type="date"></div>
                 </div>
-                <div class="field field--compact"><label for="manualPrintTaxLabel">НДС</label><select id="manualPrintTaxLabel"><option value="НДС (5%)">НДС 5%</option><option value="Без НДС">Без НДС</option></select></div>
+                <div class="field field--compact"><label for="manualPrintTaxLabel">НДС</label><select id="manualPrintTaxLabel"><option value="">Выберите налоговый статус</option><option value="НДС 0%">НДС 0%</option><option value="НДС 7%">НДС 7%</option><option value="НДС 10%">НДС 10%</option><option value="НДС 20%">НДС 20%</option><option value="НДС 22%">НДС 22%</option><option value="НДС (5%)">НДС 5%</option><option value="Без НДС">Без НДС</option></select></div>
                 <div class="field field--compact"><label for="manualPrintClientName">Клиент</label><input id="manualPrintClientName" type="text" maxlength="160"></div>
                 <div class="repair-order-print-settings__row">
                   <div class="field field--compact"><label for="manualPrintClientPhone">Телефон</label><input id="manualPrintClientPhone" type="text" maxlength="80"></div>
@@ -307,15 +307,15 @@ PRINTING_WEB_MODULE_HTML = r"""
             <section class="completion-act-editor__section" data-completion-act-panel="items" hidden>
               <div class="completion-act-editor__section-title">Работы и материалы</div>
               <div class="completion-act-items">
-                <div class="completion-act-items__toolbar"><div class="completion-act-editor__meta">Итоги рассчитываются автоматически. НДС всегда начисляется сверху по ставке 5%.</div><button class="btn btn--ghost" id="completionActAddItemButton" type="button">+ СТРОКА</button></div>
-                <div class="completion-act-items__rows" id="completionActItemRows"></div>
+                <div class="completion-act-items__toolbar"><div class="completion-act-editor__meta">Итоги и НДС рассчитываются сервером по налоговому статусу заказа или профиля печати.</div><button class="btn btn--ghost" id="completionActAddItemButton" type="button">+ СТРОКА</button></div>
+                <div class="field"><label for="completionActCalculationMode">Расчёт акта</label><select id="completionActCalculationMode" data-completion-act-field="calculation_mode"><option value="order_cashless">По заказу: безналичная стоимость</option><option value="order_cash">По заказу: наличная стоимость</option><option value="manual_net">Вручную: цены без НДС</option></select></div><div class="completion-act-items__rows" id="completionActItemRows"></div>
                 <aside class="completion-act-fresh-items" id="completionActFreshItems" role="region" aria-labelledby="completionActFreshItemsTitle" aria-live="polite" hidden>
                   <div class="completion-act-fresh-items__head"><div class="completion-act-fresh-items__title" id="completionActFreshItemsTitle">Свежие строки из заказ-наряда</div><div class="completion-act-fresh-items__count" id="completionActFreshItemsCount"></div></div>
                   <div class="completion-act-fresh-items__list" id="completionActFreshItemsList" role="list" aria-label="Свежие строки из заказ-наряда"></div>
                 </aside>
                 <div class="completion-act-totals" aria-live="polite">
                   <div class="completion-act-totals__label">Итого без НДС</div><output class="completion-act-totals__value" id="completionActBaseTotal">0,00 ₽</output>
-                  <div class="completion-act-totals__label">НДС (5%)</div><output class="completion-act-totals__value" id="completionActVatTotal">0,00 ₽</output>
+                  <div class="completion-act-totals__label" id="completionActVatLabel">НДС</div><output class="completion-act-totals__value" id="completionActVatTotal">0,00 ₽</output>
                   <div class="completion-act-totals__label completion-act-totals__grand">Всего</div><output class="completion-act-totals__value completion-act-totals__grand" id="completionActGrossTotal">0,00 ₽</output>
                 </div>
               </div>
@@ -339,7 +339,7 @@ PRINTING_WEB_MODULE_HTML = r"""
       </div>
       <div class="dialog__foot completion-act-editor__footer dialog__floating-actions">
         <div class="completion-act-editor__meta" id="completionActEditorFooterMeta">Ручные изменения относятся только к печатной версии и не меняют заказ-наряд.</div>
-        <div class="completion-act-editor__actions"><button class="btn btn--ghost" id="completionActResetButton" type="button">СБРОСИТЬ К CRM</button><button class="btn btn--ghost" id="completionActExportButton" type="button">PDF</button><button class="btn btn--ghost" id="completionActPrintButton" type="button">ПЕЧАТЬ</button><button class="btn" id="completionActSaveButton" type="button">СОХРАНИТЬ ЧЕРНОВИК</button></div>
+        <div class="completion-act-editor__actions"><button class="btn btn--ghost" id="completionActUpdateCalculationButton" type="button">ОБНОВИТЬ РАСЧЁТ</button><button class="btn btn--ghost" id="completionActResetButton" type="button">СБРОСИТЬ К CRM</button><button class="btn btn--ghost" id="completionActExportButton" type="button">PDF</button><button class="btn btn--ghost" id="completionActPrintButton" type="button">ПЕЧАТЬ</button><button class="btn" id="completionActSaveButton" type="button">СОХРАНИТЬ ЧЕРНОВИК</button></div>
       </div>
     </div>
   </div>
@@ -367,6 +367,12 @@ _PRINTING_SCRIPT_PART1 = (
         form: null,
         savedForm: null,
         freshForm: null,
+        loaded: false,
+        savePending: false,
+        linkedForms: {},
+        linkedFormsCardId: '',
+        acceptedCalculationFingerprint: '',
+        savedTotals: {},
         sources: {},
         draft: {
           exists: false,
@@ -538,6 +544,7 @@ _PRINTING_SCRIPT_PART1 = (
       completionActFreshItemsList: document.getElementById('completionActFreshItemsList'),
       completionActAddItemButton: document.getElementById('completionActAddItemButton'),
       completionActBaseTotal: document.getElementById('completionActBaseTotal'),
+      completionActVatLabel: document.getElementById('completionActVatLabel'),
       completionActVatTotal: document.getElementById('completionActVatTotal'),
       completionActGrossTotal: document.getElementById('completionActGrossTotal'),
       completionActPreviewWrap: document.getElementById('completionActPreviewWrap'),
@@ -547,6 +554,7 @@ _PRINTING_SCRIPT_PART1 = (
       completionActPrevPageButton: document.getElementById('completionActPrevPageButton'),
       completionActNextPageButton: document.getElementById('completionActNextPageButton'),
       completionActFooterMeta: document.getElementById('completionActEditorFooterMeta'),
+      completionActUpdateCalculationButton: document.getElementById('completionActUpdateCalculationButton'),
       completionActResetButton: document.getElementById('completionActResetButton'),
       completionActExportButton: document.getElementById('completionActExportButton'),
       completionActPrintButton: document.getElementById('completionActPrintButton'),
@@ -708,7 +716,7 @@ _PRINTING_SCRIPT_PART1 = (
       return {
         document_number: '',
         document_date: manualPrintLocalDateValue(),
-        tax_label: 'НДС (5%)',
+        tax_label: '',
         client: {
           display_name: '',
           phone: '',
@@ -772,7 +780,7 @@ _PRINTING_SCRIPT_PART1 = (
       const vehicle = { ...blankManualPrintDocument().vehicle, ...(data.vehicle || {}) };
       if (printEls.manualDocumentNumber) printEls.manualDocumentNumber.value = data.document_number || '';
       if (printEls.manualDocumentDate) printEls.manualDocumentDate.value = data.document_date || '';
-      if (printEls.manualTaxLabel) printEls.manualTaxLabel.value = data.tax_label || 'НДС (5%)';
+      if (printEls.manualTaxLabel) printEls.manualTaxLabel.value = data.tax_label || '';
       if (printEls.manualClientName) printEls.manualClientName.value = client.display_name || '';
       if (printEls.manualClientPhone) printEls.manualClientPhone.value = client.phone || '';
       if (printEls.manualClientInn) printEls.manualClientInn.value = client.inn || '';
@@ -1131,7 +1139,7 @@ _PRINTING_SCRIPT_PART2 = r"""
         printEls.printerSelect.disabled = !hasPrinters;
       }
       if (printEls.printButton) {
-        printEls.printButton.disabled = repairOrderPrintState.isWorkspaceLoading || repairOrderPrintState.isPrintRunning || !repairOrderPrintWorkspaceDocuments().length;
+        printEls.printButton.disabled = repairOrderPrintState.isWorkspaceLoading || repairOrderPrintState.isPrintRunning || !repairOrderPrintWorkspaceDocuments().length || repairOrderPrintSelectedIds().some((id) => repairOrderPrintState.previewByDocument?.[id]?.money_validation?.valid === false);
         printEls.printButton.title = hasPrinters
           ? 'Откроет системное окно печати браузера. При сбое будет использован выбранный серверный принтер.'
           : 'Откроет системное окно печати браузера. Серверные принтеры не найдены.';
@@ -1190,6 +1198,8 @@ _PRINTING_SCRIPT_PART2 = r"""
       if (Array.isArray(preview?.warnings)) warnings.push(...preview.warnings);
       if (Array.isArray(preview?.missing_fields) && preview.missing_fields.length) warnings.push('Проверьте поля: ' + preview.missing_fields.join(', '));
       printEls.warnings.textContent = warnings.join(' · ');
+      const moneyBlocked = repairOrderPrintSelectedIds().some((id) => repairOrderPrintState.previewByDocument?.[id]?.money_validation?.valid === false);
+      [printEls.exportButton, printEls.printButton].forEach((button) => { if (button) button.disabled = moneyBlocked; });
       printEls.previewFrame.srcdoc = page?.html || '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Выберите документ для предпросмотра.</body></html>';
       scheduleCurrentPrintOperation(repairOrderPrintResetPreviewScroll, 0);
       printEls.footerMeta.textContent = preview ? ('Документ: ' + (activeDoc?.label || activeId) + '. Страниц: ' + previewPageCount + '.') : 'PDF генерируется из шаблона и текущих данных заказ-наряда.';
@@ -1449,6 +1459,7 @@ _PRINTING_SCRIPT_PART3 += (
       const currentPreview = preview && typeof preview === 'object'
         ? preview
         : repairOrderPrintState.completionAct.preview;
+      requirePrintMoneyValid([currentPreview]);
       const pages = Array.isArray(currentPreview?.pages)
         ? currentPreview.pages
         : [];
@@ -1646,24 +1657,7 @@ _PRINTING_SCRIPT_PART3 += (
     if (printEls.inspectionSheetSaveButton) printEls.inspectionSheetSaveButton.addEventListener('click', () => { saveInspectionSheetFormDraft(); });
     if (printEls.inspectionSheetApplyButton) printEls.inspectionSheetApplyButton.addEventListener('click', () => { saveInspectionSheetFormDraft({ closeAfter: true }); });
     if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.addEventListener('click', autofillInspectionSheetFormDraft);
-    if (printEls.completionActCloseX) printEls.completionActCloseX.addEventListener('click', closeCompletionActEditor);
-    if (printEls.completionActModal) printEls.completionActModal.addEventListener('click', handleCompletionActModalClick);
-    if (printEls.completionActForm) printEls.completionActForm.addEventListener('submit', (event) => event.preventDefault());
-    if (printEls.completionActForm) printEls.completionActForm.addEventListener('input', handleCompletionActFormInput);
-    if (printEls.completionActForm) printEls.completionActForm.addEventListener('change', handleCompletionActFormInput);
-    if (printEls.completionActItemRows) printEls.completionActItemRows.addEventListener('click', handleCompletionActItemsClick);
-    if (printEls.completionActAddItemButton) printEls.completionActAddItemButton.addEventListener('click', appendCompletionActItem);
-    if (printEls.completionActSaveButton) printEls.completionActSaveButton.addEventListener('click', saveCompletionActDraft);
-    if (printEls.completionActResetButton) printEls.completionActResetButton.addEventListener('click', resetCompletionActDraft);
-    if (printEls.completionActExportButton) printEls.completionActExportButton.addEventListener('click', exportCompletionActPdf);
-    if (printEls.completionActPrintButton) printEls.completionActPrintButton.addEventListener('click', printCompletionAct);
-    if (printEls.completionActPrevPageButton) printEls.completionActPrevPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex -= 1; renderCompletionActPreview(); });
-    if (printEls.completionActNextPageButton) printEls.completionActNextPageButton.addEventListener('click', () => { repairOrderPrintState.completionAct.pageIndex += 1; renderCompletionActPreview(); });
-    if (printEls.completionActMobileDataButton) printEls.completionActMobileDataButton.addEventListener('click', () => setCompletionActMobileView('data'));
-    if (printEls.completionActMobilePreviewButton) printEls.completionActMobilePreviewButton.addEventListener('click', () => setCompletionActMobileView('preview'));
-    window.addEventListener('resize', applyCompletionActPreviewScale);
-    window.addEventListener('beforeunload', handleCompletionActBeforeUnload);
-    document.addEventListener('keydown', handleCompletionActKeydown, true);
+    bindCompletionActMoneyControls();
     if (printEls.templateCloseX) printEls.templateCloseX.addEventListener('click', closePrintTemplateEditor);
     if (printEls.templateModal) printEls.templateModal.addEventListener('click', handlePrintTemplateEditorOverlayClick);
     if (printEls.templateDocumentType) printEls.templateDocumentType.addEventListener('change', handlePrintTemplateDocumentTypeChange);

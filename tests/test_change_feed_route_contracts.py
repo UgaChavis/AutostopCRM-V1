@@ -451,13 +451,13 @@ class ChangeFeedCanonicalRouteContractTests(unittest.TestCase):
         )
         self._invoke(
             "/api/replace_repair_order_works",
-            {"card_id": card_id, "rows": [{"name": "Диагностика", "quantity": "1"}]},
+            {"card_id": card_id, "rows": [{"name": "Диагностика", "quantity": "1", "price": "0"}]},
             producers=state_producers,
             entity_types={"repair_order", "repair_order_work"},
         )
         self._invoke(
             "/api/replace_repair_order_materials",
-            {"card_id": card_id, "rows": [{"name": "Фильтр", "quantity": "1"}]},
+            {"card_id": card_id, "rows": [{"name": "Фильтр", "quantity": "1", "price": "0"}]},
             producers=state_producers,
             entity_types={"repair_order", "repair_order_material"},
         )

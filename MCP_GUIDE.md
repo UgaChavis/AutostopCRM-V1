@@ -40,6 +40,24 @@ failed session cleanup denies consent.
 
 ## Public Gateway Surface
 
+Document workflows use the same v2 money policy and guarded act snapshots as the
+browser, Windows client and API. Inspect `money_validation` in previews and
+export metadata; `qa_passed` is false for a financial/tax mismatch or invalid
+document validation. A monetary error blocks PDF/native print with
+`document_money_validation_failed` (HTTP 422). Missing tax status requires an
+explicit order or saved effective print-profile value. Linked acts default to
+`order_cashless`; `order_cash` and `manual_net` must be issued separately from an
+invoice package. V1 or stale saved acts require explicit recalculation and guarded
+save; do not repair orders/payments to make a printout pass. See the
+[document contract](API_GUIDE.md#repair-orders-and-documents) for formatting, modes and migration.
+For a stale v2 act or v1 upgrade, first preview the proposed recalculation and
+copy its `calculation_fingerprint` into `accepted_calculation_fingerprint`.
+Include this field in both the guarded dry-run and apply payloads so the native
+dry-run proof covers the same accepted calculation. Projected totals and tax
+are returned under `dry_run.projected_totals` and `projected_tax_context`.
+Missing/outdated acceptance returns `completion_act_recalculation_required`
+(HTTP 409); the saved snapshot remains the current draft until acceptance.
+
 The public 24-tool surface contains these stable names:
 
 - Context and discovery: `agent_bootstrap`, `agent_search`,

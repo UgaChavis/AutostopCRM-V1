@@ -270,6 +270,7 @@ class _McpServerFixtureMixin:
         self.logger.propagate = False
         self.store = JsonStore(state_file=state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
+        self.service.save_print_module_settings({"service_profile": {"tax_label": "НДС (5%)"}})
         self.mcp_port = reserve_port()
         self.api_server = ApiServer(
             self.service,

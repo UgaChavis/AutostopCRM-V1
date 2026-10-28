@@ -135,6 +135,12 @@ class DocumentRenderingTests(unittest.TestCase):
             "missing_fields": ["client"],
             "computed_totals": {"total": "10.00"},
             "computed_items": [{"name": "Работа"}],
+            "money_validation": {
+                "money_policy_version": 2,
+                "valid": True,
+                "errors": [],
+                "warnings": [],
+            },
         }
         preview = preview_document_payload(rendered, settings=settings)
         self.assertEqual(preview["id"], document.id)
@@ -147,7 +153,13 @@ class DocumentRenderingTests(unittest.TestCase):
             ],
         )
         self.assertTrue(preview["template"]["is_default"])
-        for key in ("warnings", "missing_fields", "computed_totals", "computed_items"):
+        for key in (
+            "warnings",
+            "missing_fields",
+            "computed_totals",
+            "computed_items",
+            "money_validation",
+        ):
             self.assertEqual(preview[key], rendered[key])
         rendered["document_html"] = ""
         settings.default_template_ids.clear()

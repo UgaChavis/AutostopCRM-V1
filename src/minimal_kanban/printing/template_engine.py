@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Callable, Iterator
 from typing import Any
 
 
@@ -11,6 +12,23 @@ class TemplateRenderError(ValueError):
 
 _TOKEN_RE = re.compile(r"{{{\s*([^{}]+?)\s*}}}|{{\s*([#/^]?)([^{}]+?)\s*}}")
 _MAX_SECTION_DEPTH = 80
+ValueRenderer = Callable[[str, Any, list[Any], str], str]
+
+
+def template_value_paths(template: str) -> Iterator[str]:
+    for match in _TOKEN_RE.finditer(str(template or "")):
+        if match.group(1) is not None:
+            yield match.group(1).strip()
+        elif not match.group(2):
+            yield (match.group(3) or "").strip()
+
+
+def _render_value(path, stack, *, raw: bool, renderer: ValueRenderer | None) -> str:
+    value = _resolve(path, stack)
+    text = _stringify(value)
+    if not raw:
+        text = html.escape(text)
+    return renderer(path, value, stack, text) if renderer else text
 
 
 def _is_truthy(value: Any) -> bool:
@@ -59,10 +77,14 @@ def _stringify(value: Any) -> str:
     return str(value)
 
 
-def render_template(template: str, context: dict[str, Any]) -> str:
+def render_template(
+    template: str, context: dict[str, Any], *, value_renderer: ValueRenderer | None = None
+) -> str:
     source = str(template or "")
     try:
-        rendered, next_index = _render_segment(source, [context], 0, stop_name=None)
+        rendered, next_index = _render_segment(
+            source, [context], 0, stop_name=None, value_renderer=value_renderer
+        )
     except RecursionError as exc:
         raise TemplateRenderError("Слишком глубокая вложенность секций шаблона.") from exc
     if next_index != len(source):
@@ -97,6 +119,7 @@ def _render_section_block(
     value: Any,
     *,
     section_depth: int,
+    value_renderer: ValueRenderer | None = None,
 ) -> str:
     rendered_parts: list[str] = []
     if sigil == "#":
@@ -108,6 +131,7 @@ def _render_section_block(
                     0,
                     stop_name=None,
                     section_depth=section_depth + 1,
+                    value_renderer=value_renderer,
                 )
                 rendered_parts.append(rendered)
         elif isinstance(value, dict):
@@ -117,6 +141,7 @@ def _render_section_block(
                 0,
                 stop_name=None,
                 section_depth=section_depth + 1,
+                value_renderer=value_renderer,
             )
             rendered_parts.append(rendered)
         elif _is_truthy(value):
@@ -126,6 +151,7 @@ def _render_section_block(
                 0,
                 stop_name=None,
                 section_depth=section_depth + 1,
+                value_renderer=value_renderer,
             )
             rendered_parts.append(rendered)
     elif sigil == "^":
@@ -136,6 +162,7 @@ def _render_section_block(
                 0,
                 stop_name=None,
                 section_depth=section_depth + 1,
+                value_renderer=value_renderer,
             )
             rendered_parts.append(rendered)
     else:
@@ -150,6 +177,7 @@ def _render_segment(
     stop_name: str | None,
     *,
     section_depth: int = 0,
+    value_renderer: ValueRenderer | None = None,
 ) -> tuple[str, int]:
     if section_depth > _MAX_SECTION_DEPTH:
         raise TemplateRenderError("Слишком глубокая вложенность секций шаблона.")
@@ -165,14 +193,14 @@ def _render_segment(
         out.append(template[index : match.start()])
         raw_name = match.group(1)
         if raw_name is not None:
-            out.append(_stringify(_resolve(raw_name, stack)))
+            out.append(_render_value(raw_name, stack, raw=True, renderer=value_renderer))
             index = match.end()
             continue
         sigil = match.group(2) or ""
         name = (match.group(3) or "").strip()
         index = match.end()
         if sigil == "":
-            out.append(html.escape(_stringify(_resolve(name, stack))))
+            out.append(_render_value(name, stack, raw=False, renderer=value_renderer))
             continue
         if sigil == "/":
             if stop_name == name:
@@ -189,6 +217,7 @@ def _render_segment(
                 stack,
                 value,
                 section_depth=section_depth,
+                value_renderer=value_renderer,
             )
         )
         index = next_index

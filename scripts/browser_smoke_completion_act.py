@@ -163,6 +163,7 @@ def _completion_act_pdf_fixture(
     base_form: dict[str, Any], *, label: str, maximal_final_block: bool, row_count: int = 26
 ) -> tuple[dict[str, Any], list[str]]:
     form = json.loads(json.dumps(base_form))
+    form["calculation_mode"] = "manual_net"
     item_names = [f"Smoke PDF {label} row {index:03d}" for index in range(1, row_count + 1)]
     form["document_number"] = f"SMOKE-PDF-{label.upper()}"
     form["items"] = [
@@ -408,7 +409,7 @@ async def _exercise_completion_act_main_print_regression(
     if not isinstance(base_form, dict):
         return False
     form, item_names = _completion_act_pdf_fixture(
-        base_form, label="main-button", maximal_final_block=False
+        base_form, label="main-button", maximal_final_block=False, row_count=50
     )
     saved = runtime.service.save_completion_act_form(
         {
@@ -538,6 +539,7 @@ async def _exercise_completion_act_max_items_ui(page: Any, runtime: TempRuntime,
     if not isinstance(base_form, dict):
         return False
     form = json.loads(json.dumps(base_form))
+    form["calculation_mode"] = "manual_net"
     form["items"] = [
         {
             "id": f"smoke-ui-max-{index:03d}",
@@ -628,6 +630,7 @@ async def _exercise_completion_act_cross_card_race(page: Any, runtime: TempRunti
 
     def marked_form(source: dict[str, Any], *, marker: str, customer_marker: str) -> dict[str, Any]:
         form = json.loads(json.dumps(source.get("form") or {}))
+        form["calculation_mode"] = "manual_net"
         form["document_number"] = marker
         customer = form.setdefault("customer", {})
         customer["legal_name"] = customer_marker
@@ -752,6 +755,10 @@ async def _exercise_completion_act_cross_card_race(page: Any, runtime: TempRunti
             and card_a_marker not in await page.input_value("#completionActDocumentNumber")
         )
         await page.fill("#completionActDocumentNumber", card_b_edit_marker)
+        await page.click("#completionActUpdateCalculationButton")
+        await page.wait_for_function(
+            "() => !document.querySelector('#completionActSaveButton')?.disabled"
+        )
         async with page.expect_response(
             lambda response: (
                 response.request.method == "POST"
