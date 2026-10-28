@@ -413,10 +413,14 @@ of returning an empty or incomplete success.
 If a stored card with an order lacks a stable ID or valid creation/update timestamps,
 or card IDs would collide after normalization, the snapshot fails closed instead
 of inventing identifiers or revisions. Malformed work, material or payment
-collections and invalid numeric values, including legacy prepayment, fail rather than
-silently losing a row or reporting an inaccurate total. Resolving such data
-requires a separately authorized write. This is not a complete validation of
-every stored field.
+collections fail instead of silently losing a row. The snapshot validates each
+row's selected `quantity`/`qty`, `price`, and `total`/`sum`, and each payment's
+selected `amount`/`value`. It checks the selected legacy `prepayment`,
+`advance_payment` or `advancePayment` only when no payments remain after
+normalization. Invalid selected values fail rather than silently affecting the
+total. Cost prices, salary fields and other stored values are not covered by
+this validation. Resolving such data requires a separately authorized write;
+the snapshot does not validate every stored field.
 An absent or unreadable state also fails instead of returning an empty list;
 the read does not create a corruption backup. The snapshot requires a `cards`
 array, including for an empty board; a missing or malformed array fails closed
