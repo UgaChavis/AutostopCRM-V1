@@ -70,7 +70,13 @@ def _search_cards_before_retention(raw_cards, columns):
 
 class ReadonlyContextSnapshot(dict):
     def __init__(
-        self, bundle, state, *, source_indexes=None, cards_index=None, search_cards_need_retention=False
+        self,
+        bundle,
+        state,
+        *,
+        source_indexes=None,
+        cards_index=None,
+        search_cards_need_retention=False,
     ):
         super().__init__(bundle)
         self.search_cards_need_retention = search_cards_need_retention
