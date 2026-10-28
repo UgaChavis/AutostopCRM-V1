@@ -15,6 +15,61 @@ from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
 
 
 class PrintingMoneyApiCases:
+    def test_printing_http_rejects_extreme_quantity_and_unknown_custom_vat(self) -> None:
+        status, created = self.request("/api/create_card", {"title": "Synthetic review boundaries"})
+        self.assertEqual(status, 200)
+        card_id = created["data"]["card"]["id"]
+        status, _ = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "tax_label": "НДС 5%",
+                    "works": [
+                        {
+                            "name": "Synthetic",
+                            "quantity": "1E-100000",
+                            "price": "1",
+                            "total": "0.01",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(status, 200)
+        arguments = {"card_id": card_id, "selected_document_ids": ["invoice"]}
+        status, preview = self.request("/api/preview_repair_order_print_documents", arguments)
+        self.assertEqual(status, 200)
+        self.assertFalse(preview["data"]["money_validation"]["valid"])
+        status, blocked = self.request("/api/export_repair_order_print_pdf", arguments)
+        self.assertEqual(status, 422)
+        self.assertEqual(blocked["error"]["code"], "document_money_validation_failed")
+        self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "tax_label": "",
+                    "works": [{"name": "Synthetic", "quantity": "1", "price": "1"}],
+                },
+            },
+        )
+        arguments.update(
+            selected_document_ids=["inspection_sheet"],
+            print_settings={"service_profile": {"tax_label": ""}},
+            template_overrides={"inspection_sheet": "НДС {{invoice.vat_display}}"},
+        )
+        status, preview = self.request("/api/preview_repair_order_print_documents", arguments)
+        self.assertEqual(status, 200)
+        self.assertFalse(preview["data"]["money_validation"]["valid"])
+        self.assertIn(
+            "tax_status_unknown",
+            [issue["code"] for issue in preview["data"]["money_validation"]["errors"]],
+        )
+        status, blocked = self.request("/api/export_repair_order_print_pdf", arguments)
+        self.assertEqual(status, 422)
+        self.assertEqual(blocked["error"]["code"], "document_money_validation_failed")
+
     def test_completion_act_http_recalculation_acceptance_and_invalid_mode(self) -> None:
         status, created = self.request("/api/create_card", {"title": "Synthetic reviewed act"})
         self.assertEqual(status, 200)

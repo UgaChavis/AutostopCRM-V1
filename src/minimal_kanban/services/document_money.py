@@ -53,6 +53,9 @@ def _cent_count(value: Decimal) -> int:
 
 
 def _unit_price(total: Decimal, quantity: Decimal | None) -> tuple[Decimal, int]:
+    document_number(total, field="total")
+    if quantity is not None:
+        document_number(quantity, field="quantity")
     if quantity is None or quantity <= _ZERO:
         return total, 2
     if quantity == Decimal("1"):

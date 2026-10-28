@@ -443,6 +443,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         state: draftState,
         version: Math.max(0, printFiniteNumber(data?.draft?.version, 0)),
         revision: Math.max(0, printFiniteNumber(data?.draft?.revision, data?.draft?.version || 0)),
+        cycle_key: String(data?.draft?.cycle_key || ''),
         last_operation: String(data?.draft?.last_operation || ''),
         updated_at: String(data?.draft?.updated_at || ''),
         filled_by: String(data?.draft?.filled_by || ''),
@@ -680,6 +681,10 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
           setStatus('Данные акта изменились во время обновления. Повторите обновление расчёта.', true);
           return;
         }
+        const draft = repairOrderPrintState.completionAct.draft;
+        if (data?.draft?.version !== draft.version || String(data?.draft?.cycle_key || '') !== draft.cycle_key) {
+          throw new Error('Черновик акта изменён в другом окне или начат новый цикл заказа. Откройте редактор заново. Текущие правки пока сохранены в этом окне.');
+        }
         applyCompletionActResponse(data, { session });
         repairOrderPrintState.completionAct.recalculationRequested = true;
         form.money_policy_version = 2;
@@ -697,7 +702,10 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         syncCompletionActSaveState();
         if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = 'До обновления: ' + (before?.gross_display || '—') + ' руб.; НДС ' + (before?.vat_display || '—') + '. После: ' + (after?.gross_display || '—') + ' руб.; НДС ' + (after?.vat_display || '—') + '. Сохраните новую версию расчёта.';
       } catch (error) {
-        if (operation.current() && completionActEditorSessionIsCurrent(session)) setStatus(error.message, true);
+        if (operation.current() && completionActEditorSessionIsCurrent(session)) {
+          if (printEls.completionActFooterMeta) printEls.completionActFooterMeta.textContent = error.message;
+          setStatus(error.message, true);
+        }
       }
     }
 

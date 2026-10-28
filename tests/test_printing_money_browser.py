@@ -91,6 +91,60 @@ class PrintingMoneyBrowserTests(UiBrowserTestCase):
         self.assertFalse(result["data"]["draft"]["is_stale"])
         self.assertEqual(result["data"]["form"]["basis"], "Synthetic free-text edit")
 
+    def test_calculation_refresh_preserves_a_concurrently_saved_draft(self):
+        card_id = self.make_order("Synthetic concurrent draft")
+        loaded = self.runtime.service.get_completion_act_form({"card_id": card_id})
+        form = loaded["form"]
+        form["calculation_mode"] = "manual_net"
+        form["items"] = [
+            {"name": "Synthetic manual", "unit": "шт", "quantity": "1", "price": "100"}
+        ]
+        first = self.runtime.service.save_completion_act_form(
+            {
+                "card_id": card_id,
+                "form": form,
+                "expected_version": 0,
+                "expected_source_fingerprint": loaded["draft"]["current_source_fingerprint"],
+                "idempotency_key": "concurrent-initial",
+            }
+        )
+        self.load_board()
+        self.open_editor(card_id)
+        self.page.wait_for_function(
+            "document.querySelector('#completionActGrossTotal')?.textContent === '105,00'"
+        )
+        self.page.locator("#completionActBasis").fill("Local unsaved basis")
+        other = first["form"]
+        other["items"][0]["price"] = "200"
+        other["basis"] = "Concurrently saved basis"
+        concurrent = self.runtime.service.save_completion_act_form(
+            {
+                "card_id": card_id,
+                "form": other,
+                "expected_version": 1,
+                "expected_source_fingerprint": first["draft"]["current_source_fingerprint"],
+                "idempotency_key": "concurrent-other",
+            }
+        )
+        self.assertEqual(concurrent["totals"]["gross"], "210.00")
+        self.page.locator("#completionActUpdateCalculationButton").click()
+        self.page.wait_for_function(
+            "document.querySelector('#status')?.textContent.includes('другом окне') || "
+            "document.querySelector('#completionActEditorFooterMeta')?.textContent.includes('другом окне')"
+        )
+        self.assertEqual(
+            self.page.locator("#completionActBasis").input_value(), "Local unsaved basis"
+        )
+        with self.page.expect_response(
+            lambda response: response.url.endswith("/api/save_completion_act_form")
+        ) as saved:
+            self.page.locator("#completionActSaveButton").click()
+        self.assertEqual(saved.value.status, 409)
+        unchanged = self.runtime.service.get_completion_act_form({"card_id": card_id})
+        self.assertEqual(unchanged["draft"]["version"], 2)
+        self.assertEqual(unchanged["totals"]["gross"], "210.00")
+        self.assertEqual(unchanged["form"]["basis"], "Concurrently saved basis")
+
     def test_loading_another_card_cannot_reuse_linked_rows(self):
         a, b = self.make_order("Synthetic linked A"), self.make_order("Synthetic linked B", "200")
         self.load_board()

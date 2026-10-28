@@ -10,7 +10,7 @@ from typing import Any
 from ..services.document_money import DocumentMoneyError, document_number, money, net_line_money
 from .errors import PrintModuleError
 from .formatting import _money_display, _parse_decimal
-from .template_money import money_template_fields, rounding_notes_present
+from .template_money import money_template_fields, rounding_notes_present, template_uses_tax
 
 MONEY_DOCUMENTS = frozenset(
     {
@@ -34,6 +34,18 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
     )
     if raw:
         errors.append(_unverified_template_issue())
+    tax = context["money_tax_context"]
+    needs_tax = document.id in TAX_DOCUMENTS or (
+        not template.is_builtin and template_uses_tax(template.content)
+    )
+    if needs_tax and not tax["known"]:
+        errors.append(
+            {
+                "code": "tax_status_unknown",
+                "field": "tax_label",
+                "message": "Укажите налоговый статус заказа или профиля печати.",
+            }
+        )
     if document.id not in MONEY_DOCUMENTS and not has_money:
         result["valid"] = not errors
         return result
@@ -67,15 +79,6 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
             errors.append(
                 {"code": "document_total_out_of_range", "field": field, "message": str(error)}
             )
-    tax = context["money_tax_context"]
-    if document.id in TAX_DOCUMENTS and not tax["known"]:
-        errors.append(
-            {
-                "code": "tax_status_unknown",
-                "field": "tax_label",
-                "message": "Укажите налоговый статус заказа или профиля печати.",
-            }
-        )
     rows = (
         []
         if document.id == "completion_act"

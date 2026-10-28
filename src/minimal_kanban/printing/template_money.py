@@ -12,10 +12,19 @@ _MONEY_FIELD = re.compile(
     r"(?:^|_)(?:price|total|subtotal|sum|amount|vat|prepayment|due|paid|gross|base|remaining|rounding_adjustment)(?:_|$)"
 )
 _QUANTITY_FIELD = re.compile(r"(?:^|_)quantity(?:_|$)")
+_TAX_FIELD = re.compile(r"(?:^|_)(?:vat|tax)(?:_|$)")
 _INVISIBLE_STYLE = re.compile(
     r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|"
     r"opacity\s*:\s*(?:0(?:\.0*)?|\.0+)\s*(?:!important\s*)?(?:;|$))"
 )
+
+
+def template_uses_tax(content: str) -> bool:
+    return any(
+        _TAX_FIELD.search(part)
+        for path in template_value_paths(content)
+        for part in path.split(".")
+    )
 
 
 def money_template_fields(content: str) -> tuple[bool, bool]:
