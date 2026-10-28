@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -64,6 +66,17 @@ class FakeBoardApi:
 
 class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory(prefix="synthetic-mcp-hardening-")
+        self.addCleanup(directory.cleanup)
+        self.oauth_state_file = Path(directory.name) / "state.json"
+        for target, value in (
+            ("minimal_kanban.mcp.oauth_provider.get_app_data_dir", Path(directory.name)),
+            ("minimal_kanban.mcp.oauth_provider.get_mcp_oauth_state_file", self.oauth_state_file),
+            ("minimal_kanban.mcp.server.get_mcp_bearer_token", None),
+        ):
+            isolated = patch(target, return_value=value)
+            isolated.start()
+            self.addCleanup(isolated.stop)
         self.manager_patch = patch("minimal_kanban.mcp.server._try_register_autostop_manager_tools")
         self.manager_patch.start()
         self.addCleanup(self.manager_patch.stop)
@@ -153,6 +166,7 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
                 path="/mcp",
                 bearer_token="mcp-secret",
                 public_endpoint_url="http://[bad",
+                oauth_state_file=self.oauth_state_file,
             )
 
         result = await server._tool_manager.call_tool("get_connector_identity", {})
