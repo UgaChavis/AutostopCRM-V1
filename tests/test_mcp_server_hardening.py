@@ -93,6 +93,59 @@ class McpServerHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def _call(self, tool_name: str, args: dict[str, Any] | None = None) -> Any:
         return await self.server._tool_manager.call_tool(tool_name, args or {})
 
+    async def test_revoking_access_token_removes_its_family_only(self) -> None:
+        from cryptography.fernet import Fernet
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        from minimal_kanban.mcp.oauth_provider import (
+            DEFAULT_KANBAN_SCOPES,
+            ProductionOAuthAuthorizationServerProvider,
+        )
+
+        provider = ProductionOAuthAuthorizationServerProvider(
+            issuer_url="https://agent.example",
+            resource_url="https://agent.example/mcp",
+            state_file=self.oauth_state_file.parent / "revoke-state.json",
+            state_key=Fernet.generate_key(),
+        )
+        client = OAuthClientInformationFull(
+            client_id="synthetic-client", redirect_uris=["https://chatgpt.com/callback"]
+        )
+        state = provider._default_state()
+        families = {}
+        for family in ("family-to-revoke", "unrelated-family"):
+            args = {
+                "client_id": "synthetic-client",
+                "subject": "synthetic-owner",
+                "scopes": list(DEFAULT_KANBAN_SCOPES),
+                "family_id": family,
+            }
+            access = provider._issue_access_token(**args)
+            refresh = provider._issue_refresh_token(**args)
+            state["access_tokens"][provider._token_digest(access.token)] = (
+                provider._stored_secret_model(access)
+            )
+            state["refresh_tokens"][provider._token_digest(refresh.token)] = (
+                provider._stored_secret_model(refresh)
+            )
+            families[family] = (access, refresh)
+        provider._write_state_unlocked(state)
+
+        revoked_access, revoked_refresh = families["family-to-revoke"]
+        other_access, other_refresh = families["unrelated-family"]
+        self.assertIsNotNone(await provider.load_access_token(revoked_access.token))
+        self.assertIsNotNone(await provider.load_refresh_token(client, revoked_refresh.token))
+
+        await provider.revoke_token(revoked_access)
+
+        self.assertIsNone(await provider.load_access_token(revoked_access.token))
+        self.assertIsNone(await provider.load_refresh_token(client, revoked_refresh.token))
+        self.assertIsNotNone(await provider.load_access_token(other_access.token))
+        self.assertIsNotNone(await provider.load_refresh_token(client, other_refresh.token))
+        after_revoke = provider._state_file.read_bytes()
+        await provider.revoke_token(revoked_access)
+        self.assertEqual(provider._state_file.read_bytes(), after_revoke)
+
     def _last_call(self, name: str) -> dict[str, Any]:
         for call_name, payload in reversed(self.board_api.calls):
             if call_name == name:
