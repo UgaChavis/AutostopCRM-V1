@@ -358,7 +358,20 @@ class JsonStore:
 
     def _read_single_card_snapshot(self, card_id):
         """Use an independently verified local commit, or the normal safe snapshot."""
-        if not _SNAPSHOT_REQUIRES_FILE_LOCK:
+        if _SNAPSHOT_REQUIRES_FILE_LOCK and sys.platform == "win32":
+            from .windows_state_verifier import verified_committed_file
+
+            with self._lock:
+                cached = self._committed_card_source
+                if cached is not None:
+                    with self._process_lock.acquire(existing_only=True):
+                        with verified_committed_file(self._state_file, cached[1]) as verified:
+                            if verified is not None:
+                                result = cached[2].for_card(self, card_id)
+                                if verified.current():
+                                    return result
+                    self._committed_card_source = None
+        elif not _SNAPSHOT_REQUIRES_FILE_LOCK:
             with self._lock:
                 cached = self._committed_card_source
                 signature = self._repair_order_file_signature()
@@ -377,7 +390,7 @@ class JsonStore:
             reject_deeply_nested_native_json,
         )
 
-        if _SNAPSHOT_REQUIRES_FILE_LOCK or payload is None:
+        if payload is None:
             self._committed_card_source = None
             return
         signature = self._repair_order_file_signature()

@@ -7,6 +7,7 @@ import math
 import os
 import random
 import struct
+import sys
 import tempfile
 from copy import deepcopy
 from pathlib import Path
@@ -68,7 +69,8 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
             first["card"]["title"] = "SYNTHETIC_CALLER_EDIT"
             first["card"]["repair_order"]["works"].append({"name": "SYNTHETIC_EDIT"})
             second = self.service.get_card({"card_id": self.card_id})
-            self.assertEqual(read.call_count, 2 if json_store._SNAPSHOT_REQUIRES_FILE_LOCK else 0)
+            emulated_lock = json_store._SNAPSHOT_REQUIRES_FILE_LOCK and sys.platform != "win32"
+            self.assertEqual(read.call_count, 2 if emulated_lock else 0)
         self.assertEqual(second["card"]["title"], "SYNTHETIC_TITLE_ONE")
         self.assertEqual(second["card"]["repair_order"]["works"], [])
         self.assertEqual(second["card"]["client_vehicle_id"], self.client_a["vehicles"][0]["id"])
@@ -149,9 +151,6 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
 
     def test_external_edit_during_fast_read_retries_from_disk(self):
         cached = self.store._committed_card_source
-        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
-            self.assertIsNone(cached)
-            return
         self.assertIsNotNone(cached)
         source = cached[2]
         old = self.state_file.stat()
@@ -163,22 +162,27 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
 
         def replace_after_snapshot(*args):
             snapshot = original(*args)
-            self.state_file.write_bytes(changed)
-            os.utime(self.state_file, ns=(old.st_atime_ns, old.st_mtime_ns))
+            if sys.platform == "win32":
+                # The open verifier must exclude a writer until this snapshot is built.
+                with self.assertRaises(OSError):
+                    self.state_file.write_bytes(changed)
+            else:
+                self.state_file.write_bytes(changed)
+                os.utime(self.state_file, ns=(old.st_atime_ns, old.st_mtime_ns))
             changed_during_read.append(True)
             return snapshot
 
         with patch.object(source, "for_card", side_effect=replace_after_snapshot):
             result = self.service.get_card({"card_id": self.card_id})
         self.assertTrue(changed_during_read)
-        self.assertEqual(result["card"]["title"], "SYNTHETIC_TITLE_TWO")
-        self.assertEqual(self.state_file.read_bytes(), changed)
+        self.assertEqual(
+            result["card"]["title"],
+            "SYNTHETIC_TITLE_ONE" if sys.platform == "win32" else "SYNTHETIC_TITLE_TWO",
+        )
+        self.assertEqual(self.state_file.read_bytes(), data if sys.platform == "win32" else changed)
 
     def test_external_edit_during_cache_verification_prevents_fast_path(self):
         cached = self.store._committed_card_source
-        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
-            self.assertIsNone(cached)
-            return
         self.assertIsNotNone(cached)
         payload = cached[1]
         old = self.state_file.stat()
@@ -197,7 +201,8 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
             side_effect=read_then_external_edit,
         ):
             self.store._prime_committed_card_source(payload)
-        self.assertIsNone(self.store._committed_card_source)
+        if sys.platform != "win32":
+            self.assertIsNone(self.store._committed_card_source)
         self.assertEqual(
             self.service.get_card({"card_id": self.card_id})["card"]["title"],
             "SYNTHETIC_TITLE_TWO",
@@ -240,9 +245,6 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
 
     def test_unverified_bytes_do_not_prime_the_fast_path(self):
         cached = self.store._committed_card_source
-        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
-            self.assertIsNone(cached)
-            return
         self.assertIsNotNone(cached)
         payload = cached[1]
         self.store._committed_card_source = None
@@ -272,9 +274,6 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
 
     def test_depth_is_walked_when_the_encoder_cannot_prove_its_limit(self):
         cached = self.store._committed_card_source
-        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
-            self.assertIsNone(cached)
-            return
         self.assertIsNotNone(cached)
         self.store._committed_card_source = None
         with (

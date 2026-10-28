@@ -47,7 +47,7 @@ class ContextSnapshotCacheTests(CardServiceCase):
             second = self.service.get_card({"card_id": self.card_id})
             self.assertEqual(second["card"]["title"], "CACHE_TITLE_ONE")
             self.assertEqual(second["card"]["repair_order"]["works"], [])
-            self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 0)
+            self.assertEqual(read.call_count, 0)
         self.assertEqual(before, self.files())
 
     def test_event_details_are_detached_from_cached_models(self):
@@ -113,18 +113,23 @@ class ContextSnapshotCacheTests(CardServiceCase):
         self.assertEqual(files, self.files())
 
     def test_forced_lock_mode_reads_fresh_without_writes(self):
-        assert_fresh_under_file_lock(
-            self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
-        )
+        with patch.object(self.store, "_committed_card_source", None):
+            assert_fresh_under_file_lock(
+                self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
+            )
 
     @unittest.skipUnless(sys.platform == "win32", "Windows one-byte lock backing file")
     def test_windows_default_lock_is_held_and_missing_lock_fails(self):
-        assert_locked_read_and_missing_lock(
-            self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
-        )
+        with patch.object(self.store, "_committed_card_source", None):
+            assert_locked_read_and_missing_lock(
+                self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
+            )
 
     def test_forced_lock_is_held_and_missing_lock_fails(self):
-        with patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True):
+        with (
+            patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(self.store, "_committed_card_source", None),
+        ):
             assert_locked_read_and_missing_lock(
                 self, lambda: self.service.get_card({"card_id": self.card_id})["card"]["title"]
             )
