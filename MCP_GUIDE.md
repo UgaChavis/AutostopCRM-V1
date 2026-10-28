@@ -94,6 +94,18 @@ verified handoff result supports telling the client that the request was passed
 to a colleague; prepared, sent and delivered are separate states. The Manager
 client process owns this sequence and uses the existing CRM handoff flow.
 
+`scripts/check_client_handoff.py --manager-root /path/to/AutostopManager` runs
+three optional local cross-repository rehearsals with the existing development
+and Telegram test dependencies (POSIX/root fixture profile). It consumes the
+Manager's synthetic client proposals, then executes actual CardService/Gateway
+handlers and private Unix Telegram RPC: exact preliminary-consent handoff,
+lost CRM response with idempotent retry and no false confirmation, and customer
+text/table/one-page PDF/reference JPEG output with media-failure handling.
+TCP, UDP and DNS are blocked; business storage and media stay temporary. The
+JSON result reports the Manager HEAD and whether its worktree was dirty.
+Model decisions remain controlled fixture inputs. This does not attest live
+delivery, arbitrary future model output, visual/OCR correctness or part fitment.
+
 ## Telegram behavior diagram edits
 
 The diagram at `/telegram-agent-behavior` is a shared CRM record, not executable
