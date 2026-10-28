@@ -285,6 +285,82 @@ class ContextLinkAndTextSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
                     before == self.snapshot(), "Invalid link read changed synthetic files"
                 )
 
+    async def test_orphan_and_duplicate_client_links_fail_without_vehicle(self):
+        original = json.loads(self.state_file.read_text())
+        for scenario in ("orphan", "duplicate", "invalid_record", "normalized_card_id"):
+            with self.subTest(scenario=scenario):
+                state = json.loads(json.dumps(original))
+                card = next(item for item in state["cards"] if item["id"] == self.cards[0])
+                card["client_vehicle_id"] = ""
+                if scenario == "orphan":
+                    card["client_id"] = "SYNTHETIC_UNKNOWN_CLIENT"
+                elif scenario == "normalized_card_id":
+                    card["client_id"] += " "
+                else:
+                    client = next(
+                        item for item in state["clients"] if item["id"] == card["client_id"]
+                    )
+                    if scenario == "duplicate":
+                        state["clients"].append(dict(client))
+                    else:
+                        client["phones"] = 7
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                for name in ("get_card", "get_card_context", "get_repair_order"):
+                    result = await self.call(name, {"card_id": self.cards[0]}, raw=True)
+                    self.assertFalse(result["ok"], f"Unverified client accepted by {name}")
+                    self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                    self.assertTrue(before == self.snapshot(), "Raw read changed synthetic files")
+                    hidden = await self.call_hidden(name, {"card_id": self.cards[0]})
+                    self.assertFalse(hidden["ok"], f"Hidden {name} accepted an unverified client")
+                    self.assertEqual(hidden["data"]["error"]["code"], "state_file_corrupted")
+                    self.assertTrue(before == self.snapshot(), "Hidden raw read changed files")
+                for entity in ("card", "repair_order"):
+                    for detail in ("summary", "full"):
+                        result = await self.call(
+                            "agent_entity_context",
+                            {"entity": entity, "entity_id": self.cards[0], "detail": detail},
+                        )
+                        self.assertFalse(result["ok"], "Gateway accepted an unverified client")
+                        self.assertIn("state_file_corrupted", result["warnings"])
+                        self.assertTrue(before == self.snapshot(), "Gateway read changed files")
+
+    async def test_valid_empty_and_legacy_client_links_without_vehicle_remain_readable(self):
+        original = json.loads(self.state_file.read_text())
+        for scenario in ("valid", "empty", "null", "missing", "legacy"):
+            with self.subTest(scenario=scenario):
+                state = json.loads(json.dumps(original))
+                card = next(item for item in state["cards"] if item["id"] == self.cards[0])
+                card["client_vehicle_id"] = ""
+                if scenario == "empty":
+                    card["client_id"] = ""
+                elif scenario == "null":
+                    card["client_id"] = None
+                elif scenario == "missing":
+                    del card["client_id"]
+                elif scenario == "legacy":
+                    client = next(
+                        item for item in state["clients"] if item["id"] == card["client_id"]
+                    )
+                    card["client_id"] = client["id"] = "synthetic-legacy-client"
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                for name in ("get_card", "get_card_context", "get_repair_order"):
+                    result = await self.call(name, {"card_id": self.cards[0]}, raw=True)
+                    self.assertTrue(result["ok"], f"{name} rejected {scenario}")
+                    self.assertEqual(
+                        result["data"]["card"]["client_id"], card.get("client_id") or ""
+                    )
+                    self.assertTrue(before == self.snapshot(), "Raw read changed synthetic files")
+                for entity in ("card", "repair_order"):
+                    for detail in ("summary", "full"):
+                        result = await self.call(
+                            "agent_entity_context",
+                            {"entity": entity, "entity_id": self.cards[0], "detail": detail},
+                        )
+                        self.assertTrue(result["ok"], f"Gateway rejected {scenario}")
+                        self.assertTrue(before == self.snapshot(), "Gateway read changed files")
+
     async def test_raw_card_context_renders_text_in_memory_without_any_file_changes(self):
         raw_tool = self.raw_server._tool_manager.get_tool("get_card_context")
         self.assertTrue(raw_tool.annotations.readOnlyHint)

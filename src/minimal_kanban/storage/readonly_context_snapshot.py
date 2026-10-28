@@ -1,6 +1,6 @@
 """Independent context-read models with checks against unsaved legacy identities."""
 
-from ..models import normalize_client_vehicles, normalize_text, parse_datetime
+from ..models import ClientProfile, normalize_text, parse_datetime
 from ..repair_order import RepairOrderPayment, RepairOrderRow, normalize_repair_order_payments
 from .json_store import StateFileCorruptedError, _validate_snapshot_financial_fields
 
@@ -22,6 +22,7 @@ class ReadonlyContextSnapshot(dict):
         self._cards = _index(state.get("cards"))
         self._clients = _index(state.get("clients"))
         self._events = _index(state.get("events"))
+        self._link_clients = {client.id: client for client in bundle["clients"]}
 
     @staticmethod
     def _source(index, key, *, alias=None):
@@ -80,18 +81,25 @@ class ReadonlyContextSnapshot(dict):
         for vehicle in client.vehicles:
             self._source(vehicles, vehicle.id, alias="client_vehicle_id")
 
-    def require_card_vehicle_link(self, card):
+    def require_card_client_links(self, card):
+        if not card.client_id:
+            if card.client_vehicle_id:
+                raise StateFileCorruptedError("Связь автомобиля не подтверждена клиентом.")
+            return
+        source = self._source(self._clients, card.client_id)
+        client = self._link_clients.get(card.client_id)
+        if client is None:
+            try:
+                client = ClientProfile.from_dict(source)
+            except (OverflowError, TypeError, ValueError):
+                raise StateFileCorruptedError("Запись связанного клиента повреждена.") from None
+            self._link_clients[card.client_id] = client
         if not card.client_vehicle_id:
             return
-        if not card.client_id:
-            raise StateFileCorruptedError("Связь автомобиля не подтверждена клиентом.")
-        source = self._source(self._clients, card.client_id)
         raw = source.get("vehicles", [])
         vehicles = _index(raw if isinstance(raw, list) else [raw], alias="client_vehicle_id")
         self._source(vehicles, card.client_vehicle_id, alias="client_vehicle_id")
-        if not any(
-            vehicle.id == card.client_vehicle_id for vehicle in normalize_client_vehicles(raw)
-        ):
+        if not any(vehicle.id == card.client_vehicle_id for vehicle in client.vehicles):
             raise StateFileCorruptedError("Связь автомобиля не подтверждена клиентом.")
 
     def require_event(self, event):

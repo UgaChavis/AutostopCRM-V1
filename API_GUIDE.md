@@ -450,8 +450,11 @@ require an exact stored `client_id`, and their totals count only those records.
 Excluded text matches are signaled by `related_card_client_match_unverified`.
 The ordinary service/API client profile retains its existing matching behavior
 unless this flag is explicitly set. In read-only card and repair-order context,
-a stored `client_vehicle_id` must resolve uniquely to a retained vehicle of the
-stored client; otherwise the read fails with `state_file_corrupted`.
+a nonempty stored `client_id` must resolve to exactly one client source record
+that can be normalized, even when no vehicle ID is present. A stored
+`client_vehicle_id` must resolve uniquely to a retained vehicle of that client;
+otherwise the read fails with `state_file_corrupted`. An empty client ID is
+allowed when the vehicle ID is also empty.
 
 The MCP `get_card_context` requests a read-only snapshot for both values of
 `include_repair_order_text`. When text is requested, it is rendered in memory
@@ -479,8 +482,8 @@ still include them. Text coincidence does not establish a client-card
 relationship; confirm it independently before relying on it or making a write.
 Selected card, client, vehicle and attachment identifiers are checked against
 their source records; certain malformed financial and attachment data fail
-closed. A card's stored client and vehicle IDs are checked for normalization
-and, when a vehicle ID exists, for unique membership in the stored client;
+closed. A card's stored client and vehicle IDs are checked for normalization,
+unique client existence and, when a vehicle ID exists, membership in that client;
 this does not validate every relationship or all stored fields. Non-Windows
 snapshots are cached by filesystem signature and service responses are detached
 from the cached models; Windows snapshots use the existing writer lock and are

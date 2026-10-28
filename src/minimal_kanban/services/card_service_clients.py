@@ -137,7 +137,7 @@ class CardServiceClientsMixin:
             for card in related_cards:
                 bundle.require_card(card)
                 if strict_links:
-                    bundle.require_card_vehicle_link(card)
+                    bundle.require_card_client_links(card)
                 read_warnings.update(bundle.card_warnings(card))
                 if card.client_id != client.id:
                     read_warnings.add("related_card_client_match_unverified")

@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import quote
+from uuid import NAMESPACE_URL, uuid5
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -193,10 +194,14 @@ class ApiTransportContractTests(unittest.TestCase):
     def test_repair_order_number_search_reaches_archived_orders_beyond_limit(self) -> None:
         state = self.store.read_bundle()
         created_at = "2024-01-01T10:00:00+00:00"
+
+        def card_id(number: int) -> str:
+            return str(uuid5(NAMESPACE_URL, f"synthetic-repair-order-{number}"))
+
         cards = [
             Card.from_dict(
                 {
-                    "id": f"archived-repair-order-{number}",
+                    "id": card_id(number),
                     "title": "Закрытая работа",
                     "description": "",
                     "column": "inbox",
@@ -228,8 +233,10 @@ class ApiTransportContractTests(unittest.TestCase):
         status, first_page = self._get(base + "&sort_by=number&sort_dir=desc", headers=auth)
         first_ids = {item["card_id"] for item in first_page["data"]["repair_orders"]}
         self.assertEqual(200, status)
+        self.assertEqual(300, len(first_page["data"]["repair_orders"]))
         self.assertEqual(300, len(first_ids))
-        self.assertNotIn("archived-repair-order-489", first_ids)
+        self.assertEqual(first_ids, {card_id(number) for number in [1489, *range(513, 812)]})
+        self.assertNotIn(card_id(489), first_ids)
         self.assertEqual(812, first_page["data"]["meta"]["archived_total"])
 
         status, found = self._get(
@@ -238,7 +245,7 @@ class ApiTransportContractTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertEqual(
-            ["archived-repair-order-489"],
+            [card_id(489)],
             [item["card_id"] for item in found["data"]["repair_orders"]],
         )
         self.assertEqual(1, found["data"]["meta"]["total"])
@@ -255,9 +262,53 @@ class ApiTransportContractTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertEqual(
-            ["archived-repair-order-489"],
+            [card_id(489)],
             [item["card_id"] for item in selected_client["data"]["repair_orders"]],
         )
+
+    def test_redacted_repair_order_hides_non_uuid_id_and_private_markers(self) -> None:
+        state = self.store.read_bundle()
+        created_at = "2024-01-01T10:00:00+00:00"
+        card = Card.from_dict(
+            {
+                "id": "SYNTHETIC_PRIVATE_ID_MARKER",
+                "title": "SYNTHETIC_PRIVATE_TITLE_MARKER",
+                "vehicle": "SYNTHETIC_PRIVATE_VEHICLE_MARKER",
+                "column": "inbox",
+                "archived": True,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "deadline_timestamp": "2024-01-02T10:00:00+00:00",
+                "repair_order": {
+                    "number": "489",
+                    "status": "closed",
+                    "opened_at": created_at,
+                    "closed_at": "2024-01-02T09:00:00+00:00",
+                    "client": "SYNTHETIC_PRIVATE_CLIENT_MARKER",
+                },
+            }
+        )
+        self.store.write_bundle(
+            columns=state["columns"],
+            cards=[card],
+            stickies=state["stickies"],
+            events=state["events"],
+            settings=state["settings"],
+        )
+        auth = {"Authorization": "Bearer transport-test-token"}
+        status, response = self._get(
+            "/api/list_repair_orders?status=closed&limit=300&compact=true&redact_private=true"
+            "&query=SYNTHETIC_PRIVATE_CLIENT_MARKER&search_field=client",
+            headers=auth,
+        )
+        self.assertEqual(200, status)
+        items = response["data"]["repair_orders"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["number"], "489")
+        self.assertEqual(items[0]["card_id"], "")
+        self.assertTrue(items[0]["card_id_redacted"])
+        self.assertTrue(items[0]["client_present"])
+        self.assertNotIn("SYNTHETIC_PRIVATE_", json.dumps(response))
 
     def test_service_error_preserves_public_envelope(self) -> None:
         handler = self.server._server.RequestHandlerClass  # type: ignore[union-attr]

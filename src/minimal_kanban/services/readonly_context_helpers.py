@@ -54,7 +54,7 @@ def validate_context_relations(
             for card in related:
                 bundle.require_card(card)
                 if strict_links:
-                    bundle.require_card_vehicle_link(card)
+                    bundle.require_card_client_links(card)
             related_by_client[client.id] = related
     return related_by_client
 
@@ -73,7 +73,7 @@ def serialize_context_client(service, client, bundle, related_by_client, *, comp
 
 def checked_card_warnings(bundle, card):
     bundle.require_card(card, include_attachments=True)
-    bundle.require_card_vehicle_link(card)
+    bundle.require_card_client_links(card)
     return bundle.card_warnings(card)
 
 
