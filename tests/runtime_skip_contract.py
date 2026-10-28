@@ -37,6 +37,12 @@ WINDOWS_LINUX_STORAGE_CASES = {
 WINDOWS_UNIX_SOCKET_CASES = frozenset(
     {"test_bounded_protocol_round_trip", "test_command_metadata_is_only_sent_in_protocol_envelope"}
 )
+LINUX_WINDOWS_SHARE_CASES = frozenset(
+    {
+        ("VerifiedWindowsFileTests", "test_native_handle_excludes_writes_and_rename"),
+        ("WindowsCommittedCardLockTests", "test_native_windows_read_holds_existing_lock"),
+    }
+)
 
 
 def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
@@ -49,6 +55,14 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
     unexpected = []
     for test, reason in skipped:
         if reason in allowed:
+            continue
+        if (
+            platform.startswith("linux")
+            and type(test).__module__.removeprefix("tests.") == "test_windows_state_verifier"
+            and (type(test).__name__, getattr(test, "_testMethodName", None))
+            in LINUX_WINDOWS_SHARE_CASES
+            and reason == "Windows share modes"
+        ):
             continue
         if (
             platform == "win32"

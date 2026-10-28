@@ -39,6 +39,23 @@ class RuntimeSkipContractTests(unittest.TestCase):
             len(unexpected_skips([(self, "Windows job handle lifetime")], "darwin")), 1
         )
 
+    def test_windows_share_exclusions_require_exact_linux_test_cases(self):
+        from tests.runtime_skip_contract import LINUX_WINDOWS_SHARE_CASES
+
+        reason = "Windows share modes"
+        for family_name, name in LINUX_WINDOWS_SHARE_CASES:
+            for module in ("test_windows_state_verifier", "tests.test_windows_state_verifier"):
+                family = type(
+                    family_name,
+                    (unittest.TestCase,),
+                    {"__module__": module, name: lambda self: None},
+                )
+                test = family(name)
+                self.assertEqual(unexpected_skips([(test, reason)], "linux"), [])
+                self.assertEqual(len(unexpected_skips([(test, reason)], "win32")), 1)
+                self.assertEqual(len(unexpected_skips([(test, "other reason")], "linux")), 1)
+        self.assertEqual(len(unexpected_skips([(self, reason)], "linux")), 1)
+
     def test_retained_wal_exclusions_require_the_exact_linux_only_storage_case(self):
         from tests.runtime_skip_contract import WINDOWS_LINUX_STORAGE_CASES
 
