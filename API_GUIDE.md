@@ -435,6 +435,41 @@ using the state file's device, inode, size, modification and change times;
 each caller receives a separate copy. This is a filesystem signature, not a
 content hash. Windows reads are uncached.
 
+`get_client`, `get_card`, `get_card_context` with
+`include_repair_order_text=false`, and `get_repair_order` with
+`create_if_missing=false` also use read-only context snapshots. They do not
+repair the stored state or change generated order files. A returned order file
+path is an expected path and does not promise the file exists. Explicit
+`get_repair_order(create_if_missing=true)` and repair-order text operations
+retain their separate write/materialization behavior. Diagnostic warnings may
+still write to or rotate application logs.
+
+For legacy data the read-only context may contain `read_warnings`:
+`deadline_calculated_from_created_at` means the displayed deadline was
+deterministically calculated rather than loaded from the stored timestamp;
+`repair_order_row_identity_unverified` and
+`repair_order_payment_identity_unverified` indicate a generated, normalized,
+missing or duplicate line/payment ID. These values must not be treated as
+proof of a unique stored identifier. The gateway preserves the warnings in
+summary and full context and withholds all affected row or payment IDs and
+deadline-derived fields from its response; client-context warnings are in
+`meta.read_warnings`. A warning for one related order causes the client context
+to withhold payment IDs across its returned orders. Existing direct service
+responses retain the legacy values for compatibility and include warnings; the
+gateway safeguard does not protect other raw MCP methods or write workflows.
+`related_card_client_match_unverified` means that at least one related card is
+included by a name, telephone or similar text match rather than an exact
+`client_id`. Text coincidence does not establish the client-card relationship;
+confirm the exact link independently before relying on it or making a write.
+Selected card, client, vehicle and attachment identifiers are checked against
+their source records; certain malformed financial and attachment data fail
+closed. A card's stored client and vehicle IDs are checked for normalization,
+but vehicle ownership and every relationship are not independently verified.
+These checks are not complete validation of all stored fields. Non-Windows
+snapshots are cached by filesystem signature and service responses are detached
+from the cached models; Windows snapshots use the existing writer lock and are
+not cached.
+
 An optional `search_field` scopes `query` before sorting and `limit` to
 `number`, `date`, `client`, `phone`, `vehicle`, `summary`, or `license_plate`.
 `search_field=number` matches the complete normalized repair-order number;

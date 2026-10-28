@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from copy import deepcopy
 from functools import lru_cache
 from typing import Any
 
@@ -121,9 +122,22 @@ class CardServiceClientsMixin:
         with self._lock:
             payload = payload or {}
             order_limit = self._validated_limit(payload.get("order_limit"), default=30, maximum=200)
-            bundle = self._store.read_bundle()
+            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
             client = self._find_client(bundle["clients"], payload.get("client_id"))
-            return self._client_profile_payload(client, bundle["cards"], order_limit=order_limit)
+            bundle.require_client(client)
+            related_cards = self._client_related_cards(client, bundle["cards"])
+            read_warnings = set()
+            for card in related_cards:
+                bundle.require_card(card)
+                read_warnings.update(bundle.card_warnings(card))
+                if card.client_id != client.id:
+                    read_warnings.add("related_card_client_match_unverified")
+            result = self._client_profile_payload(
+                client, bundle["cards"], order_limit=order_limit, related_cards=related_cards
+            )
+            if read_warnings:
+                result["meta"]["read_warnings"] = sorted(read_warnings)
+            return deepcopy(result)
 
     def get_client_stats(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -1433,13 +1447,22 @@ class CardServiceClientsMixin:
         return payload
 
     def _client_profile_payload(
-        self, client: ClientProfile, cards: list[Card], *, order_limit: int
+        self,
+        client: ClientProfile,
+        cards: list[Card],
+        *,
+        order_limit: int,
+        related_cards: list[Card] | None = None,
     ) -> dict[str, Any]:
-        related_cards = self._client_related_cards(client, cards)
+        related_cards = (
+            related_cards
+            if related_cards is not None
+            else self._client_related_cards(client, cards)
+        )
+        order_cards = [card for card in related_cards if self._card_has_repair_order(card)]
         orders = [
-            self._serialize_repair_order_list_item(card)
-            for card in related_cards
-            if self._card_has_repair_order(card)
+            self._serialize_repair_order_list_item(card, materialize=False)
+            for card in order_cards[:order_limit]
         ]
         vehicles = self._client_vehicles(client, cards, related_cards=related_cards)
         return {
@@ -1450,10 +1473,10 @@ class CardServiceClientsMixin:
                 related_cards=related_cards,
             ),
             "vehicles": vehicles,
-            "repair_orders": orders[:order_limit],
+            "repair_orders": orders,
             "meta": {
-                "repair_orders_total": len(orders),
-                "repair_orders_returned": min(len(orders), order_limit),
+                "repair_orders_total": len(order_cards),
+                "repair_orders_returned": len(orders),
                 "vehicles_total": len(vehicles),
                 "order_limit": order_limit,
             },

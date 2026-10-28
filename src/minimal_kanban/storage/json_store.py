@@ -257,6 +257,8 @@ class JsonStore:
         self._read_cache_bundle: dict[str, Any] | None = None
         self._repair_order_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._repair_order_snapshot_cards: list[Card] | None = None
+        self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
+        self._context_snapshots: dict[tuple[str, ...], Any] = {}
         self._validated_state_signature: tuple[int, int, int, int] | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
         self._trusted_client_versions: dict[str, tuple[int, str]] = {}
@@ -317,6 +319,35 @@ class JsonStore:
 
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
+
+    def _read_context_bundle_snapshot(self, *, domains):
+        """Return a private snapshot for read-only service code; never mutate its models."""
+        from .readonly_context_snapshot import build_context_snapshot
+
+        domain_key = tuple(sorted(domains))
+        guard = (
+            self._process_lock.acquire(existing_only=True)
+            if _SNAPSHOT_REQUIRES_FILE_LOCK
+            else nullcontext()
+        )
+        with self._lock, guard:
+            signature = (
+                None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
+            )
+            if signature is not None and signature == self._context_snapshot_signature:
+                cached = self._context_snapshots.get(domain_key)
+                if cached is not None:
+                    return cached
+            snapshot = build_context_snapshot(
+                self, self._read_state(preserve_corrupted=False), domain_key
+            )
+            if signature is not None and signature == self._repair_order_file_signature():
+                if signature != self._context_snapshot_signature:
+                    self._context_snapshots.clear()
+                self._context_snapshot_signature = signature
+                self._context_snapshots[domain_key] = snapshot
+                return snapshot
+            return snapshot
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
         """Read cards with orders without state, feed, or order-artifact writes.
@@ -1267,6 +1298,8 @@ class JsonStore:
         self._read_cache_bundle = None
         self._repair_order_snapshot_signature = None
         self._repair_order_snapshot_cards = None
+        self._context_snapshot_signature = None
+        self._context_snapshots.clear()
         self._trusted_card_versions.clear()
         self._trusted_client_versions.clear()
         self._trusted_sticky_versions.clear()

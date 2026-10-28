@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from collections import Counter
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from logging import Logger
@@ -105,6 +106,7 @@ from ..vehicle_profile import (
     VehicleProfile,
     normalize_license_plate,
 )
+from . import readonly_context_helpers as read_context
 from .bundle_draft import BundleDraft, DraftEvents, detach_card
 from .card_attachments import _ALLOWED_ATTACHMENT_EXTENSIONS as _ALLOWED_ATTACHMENT_EXTENSIONS
 from .card_attachments import _ALLOWED_ATTACHMENT_TYPES_LABEL as _ALLOWED_ATTACHMENT_TYPES_LABEL
@@ -2456,8 +2458,17 @@ class CardService(
             include_repair_order_text = self._validated_optional_bool(
                 payload, "include_repair_order_text", default=True
             )
-            bundle = self._store.read_bundle()
+            bundle = (
+                self._store.read_bundle()
+                if include_repair_order_text
+                else self._store._read_context_bundle_snapshot(
+                    domains=("clients", "stickies", "events", "settings")
+                )
+            )
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            read_warnings = read_context.maybe_card_warnings(
+                bundle, card, not include_repair_order_text
+            )
             column_labels = self._column_labels(bundle["columns"])
             board_context_payload = self._build_board_context_payload(
                 bundle["columns"],
@@ -2477,72 +2488,56 @@ class CardService(
             viewer_username = normalize_actor_name(payload.get("actor_name"), default="") or None
             has_repair_order = self._card_has_repair_order(card)
             linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
-            return {
-                "card": self._serialize_card(
-                    card,
-                    bundle["events"],
-                    column_labels=column_labels,
-                    event_counts={card.id: len(card_events)},
-                    include_removed_attachments=True,
-                    viewer_username=viewer_username,
-                ),
-                "events": events,
-                "attachments": active_attachments,
-                "removed_attachments": removed_attachments,
-                "client": (
-                    self._serialize_client(linked_client, bundle["cards"], include_stats=True)
-                    if linked_client is not None
-                    else None
-                ),
-                "client_suggestions": [
-                    self._serialize_client(
-                        client, bundle["cards"], include_stats=True, compact=True
-                    )
-                    for _, client in self._rank_client_matches(
-                        bundle["clients"],
-                        " ".join(
-                            part
-                            for part in (
-                                card.vehicle_profile.customer_name,
-                                card.vehicle_profile.customer_phone,
-                                *list(card.vehicle_profile.customer_phones or []),
-                                card.repair_order.client,
-                                card.repair_order.phone,
-                            )
-                            if part
-                        ),
-                    )[:5]
-                ]
-                if any(
-                    part
-                    for part in (
-                        card.vehicle_profile.customer_name,
-                        card.vehicle_profile.customer_phone,
-                        *list(card.vehicle_profile.customer_phones or []),
-                        card.repair_order.client,
-                        card.repair_order.phone,
-                    )
+            matches = read_context.ranked_context_clients(self, card, bundle["clients"])
+            if not include_repair_order_text:
+                read_context.validate_context_relations(
+                    self, bundle, card_events, event_limit, linked_client, matches, read_warnings
                 )
-                else [],
-                "repair_order_text": (
-                    self._repair_order_text_payload(card, operator_payload=payload)
-                    if include_repair_order_text and has_repair_order
-                    else None
-                ),
-                "board_context": {
-                    "context": board_context_payload["context"],
-                    "text": board_context_payload["text"],
-                },
-                "meta": {
-                    "event_limit": event_limit,
-                    "events_total": len(card_events),
-                    "events_returned": len(events),
-                    "has_more_events": len(card_events) > len(events),
-                    "attachments_total": len(active_attachments),
-                    "removed_attachments_total": len(removed_attachments),
-                    "has_repair_order": has_repair_order,
-                },
-            }
+            return deepcopy(
+                {
+                    **({"read_warnings": read_warnings} if read_warnings else {}),
+                    "card": self._serialize_card(
+                        card,
+                        bundle["events"],
+                        column_labels=column_labels,
+                        event_counts={card.id: len(card_events)},
+                        include_removed_attachments=True,
+                        viewer_username=viewer_username,
+                    ),
+                    "events": events,
+                    "attachments": active_attachments,
+                    "removed_attachments": removed_attachments,
+                    "client": (
+                        self._serialize_client(linked_client, bundle["cards"], include_stats=True)
+                        if linked_client is not None
+                        else None
+                    ),
+                    "client_suggestions": [
+                        self._serialize_client(
+                            client, bundle["cards"], include_stats=True, compact=True
+                        )
+                        for _, client in matches
+                    ],
+                    "repair_order_text": (
+                        self._repair_order_text_payload(card, operator_payload=payload)
+                        if include_repair_order_text and has_repair_order
+                        else None
+                    ),
+                    "board_context": {
+                        "context": board_context_payload["context"],
+                        "text": board_context_payload["text"],
+                    },
+                    "meta": {
+                        "event_limit": event_limit,
+                        "events_total": len(card_events),
+                        "events_returned": len(events),
+                        "has_more_events": len(card_events) > len(events),
+                        "attachments_total": len(active_attachments),
+                        "removed_attachments_total": len(removed_attachments),
+                        "has_repair_order": has_repair_order,
+                    },
+                }
+            )
 
     def get_ai_chat_knowledge(self, payload: dict | None = None) -> dict:
         payload = payload or {}
@@ -2571,11 +2566,16 @@ class CardService(
             create_if_missing = self._validated_optional_bool(
                 payload, "create_if_missing", default=True
             )
-            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
+            bundle = (
+                self._read_card_bundle_for_update(payload.get("card_id", ""))
+                if create_if_missing
+                else self._store._read_context_bundle_snapshot(domains=("events",))
+            )
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
+            read_warnings = read_context.maybe_card_warnings(bundle, card, not create_if_missing)
             self._ensure_repair_order_state_supported(card)
             actor_name, source = self._audit_identity(payload, default_source="ui")
             created = False
@@ -2628,21 +2628,24 @@ class CardService(
                         cash_transactions=bundle["cash_transactions"],
                         events=events,
                     )
-            return {
-                "card_id": card.id,
-                "heading": card.heading(),
-                "card": self._serialize_card(
-                    card,
-                    events,
-                    column_labels=self._column_labels(columns),
-                    viewer_username=actor_name,
-                ),
-                "repair_order": card.repair_order.to_dict(),
-                "meta": {
-                    "has_any_data": self._card_has_repair_order(card),
-                    "created": created,
-                },
-            }
+            return deepcopy(
+                {
+                    **({"read_warnings": read_warnings} if read_warnings else {}),
+                    "card_id": card.id,
+                    "heading": card.heading(),
+                    "card": self._serialize_card(
+                        card,
+                        events,
+                        column_labels=self._column_labels(columns),
+                        viewer_username=actor_name,
+                    ),
+                    "repair_order": card.repair_order.to_dict(),
+                    "meta": {
+                        "has_any_data": self._card_has_repair_order(card),
+                        "created": created,
+                    },
+                }
+            )
 
     def update_repair_order(self, payload: dict | None = None) -> dict:
         with self._lock:

@@ -15,6 +15,7 @@ from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..models import normalize_actor_name
 from ..repair_order import repair_order_payment_method_from_cashbox_name
+from .agent_context_safety import _entity_context_summary, _guard_unverified_context_values
 from .agent_gateway_support import (
     AGENT_GATEWAY_FORMAT,
     AGENT_GATEWAY_TOOL_NAMES,
@@ -224,57 +225,6 @@ def _completion_act_dry_run_proof(
 
 
 _GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
-
-_ENTITY_CONTEXT_SUMMARY_FIELDS = {
-    "card": DEFAULT_CARD_FIELDS,
-    "client": ("id", "short_id", "client_type", "updated_at"),
-    "cashbox": ("id", "short_id", "name", "updated_at"),
-    "inventory": (
-        "id",
-        "short_id",
-        "name",
-        "catalog_number",
-        "unit",
-        "quantity",
-        "updated_at",
-    ),
-    "file": ("id", "extension", "mime_type", "size_bytes", "updated_at", "exists_on_disk"),
-}
-_REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS = ("number", "status", "opened_at", "closed_at")
-
-
-def _entity_context_summary(entity: str, data: Any) -> dict[str, Any]:
-    if not isinstance(data, Mapping):
-        return {}
-    if entity == "repair_order":
-        card = data.get("card")
-        repair_order = data.get("repair_order")
-        return {
-            "card": _slim_card(card, ("id", "short_id", "updated_at"))
-            if isinstance(card, Mapping)
-            else {},
-            "repair_order": _slim_card(repair_order, _REPAIR_ORDER_CONTEXT_SUMMARY_FIELDS)
-            if isinstance(repair_order, Mapping)
-            else {},
-        }
-    target_key = {
-        "card": "card",
-        "client": "client",
-        "cashbox": "cashbox",
-        "inventory": "item",
-        "file": "file",
-    }.get(entity)
-    if target_key is None:
-        return {}
-    target = data.get(target_key)
-    summary = {
-        target_key: _slim_card(target, _ENTITY_CONTEXT_SUMMARY_FIELDS[entity])
-        if isinstance(target, Mapping)
-        else {}
-    }
-    if entity == "client" and isinstance(data.get("meta"), Mapping):
-        summary["meta"] = _slim_card(data["meta"], ("vehicles_total", "repair_orders_total"))
-    return summary
 
 
 def _maintenance_release_smoke_headers(
@@ -2357,6 +2307,7 @@ def register_agent_gateway_v2(
                 max_depth=8 if detail == "full" else 5,
             )
         )
+        _guard_unverified_context_values(entity, context_data, data)
         source_meta = {} if detail == "summary" else _compact_object(meta)
         payload = _envelope(
             ok=ok,
