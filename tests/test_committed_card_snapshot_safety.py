@@ -69,8 +69,10 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
             first["card"]["title"] = "SYNTHETIC_CALLER_EDIT"
             first["card"]["repair_order"]["works"].append({"name": "SYNTHETIC_EDIT"})
             second = self.service.get_card({"card_id": self.card_id})
-            emulated_lock = json_store._SNAPSHOT_REQUIRES_FILE_LOCK and sys.platform != "win32"
-            self.assertEqual(read.call_count, 2 if emulated_lock else 0)
+            if sys.platform != "win32":
+                self.assertEqual(
+                    read.call_count, 2 if json_store._SNAPSHOT_REQUIRES_FILE_LOCK else 0
+                )
         self.assertEqual(second["card"]["title"], "SYNTHETIC_TITLE_ONE")
         self.assertEqual(second["card"]["repair_order"]["works"], [])
         self.assertEqual(second["card"]["client_vehicle_id"], self.client_a["vehicles"][0]["id"])

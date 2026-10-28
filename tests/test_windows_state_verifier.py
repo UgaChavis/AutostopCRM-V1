@@ -180,6 +180,19 @@ class WindowsCommittedCardLockTests(CardServiceCase):
         self.assertIsNone(self.store._committed_card_source)
         self.assertTrue(opened and opened[0].closed)
 
+    def test_unavailable_verifier_keeps_detached_responses(self):
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(json_store.sys, "platform", "win32"),
+            patch.object(windows_state_verifier, "_open_read_without_writers", side_effect=OSError),
+            patch.object(self.store, "_read_state", wraps=self.store._read_state) as read,
+        ):
+            first = self.service.get_card({"card_id": self.card_id})
+            first["card"]["title"] = "SYNTHETIC_CALLER_EDIT"
+            second = self.service.get_card({"card_id": self.card_id})
+        self.assertEqual(second["card"]["title"], "SYNTHETIC_WINDOWS_CARD")
+        self.assertEqual(read.call_count, 2)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows share modes")
     def test_native_windows_read_holds_existing_lock(self):
         self._assert_verified_read_holds_lock()
