@@ -3,6 +3,29 @@
 from copy import deepcopy
 
 
+def client_readonly_related_cards(service, bundle, clients, cards):
+    related = {client.id: [] for client in clients}
+    client_ids_by_key = service._client_ids_by_match_key(clients)
+    for card in cards:
+        if card.client_id:
+            matching = {card.client_id} if card.client_id in related else set()
+        else:
+            matching = set()
+            for key in service._card_client_values(card):
+                matching.update(client_ids_by_key.get(key, set()))
+        if not matching:
+            continue
+        # Validate against every raw card with this ID before any deduplication.
+        bundle.require_card_identity(card)
+        for client_id in matching:
+            related[client_id].append(card)
+    for cards_for_client in related.values():
+        cards_for_client.sort(
+            key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True
+        )
+    return related
+
+
 def prepare_card_context(service, payload):
     include_text = service._validated_optional_bool(
         payload, "include_repair_order_text", default=True

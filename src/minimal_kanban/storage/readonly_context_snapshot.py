@@ -21,14 +21,46 @@ def _index(raw, *, alias=None):
     return result
 
 
+def _require_raw_search_identities(rows, *, unique):
+    """Reject invented IDs before model normalization can drop or create records."""
+    if not isinstance(rows, list):
+        raise StateFileCorruptedError("Снимок поиска содержит поврежденный список.")
+    seen = set()
+    for row in rows:
+        raw_id = row.get("id") if isinstance(row, dict) else None
+        if (
+            not isinstance(raw_id, str)
+            or not raw_id
+            or raw_id != normalize_text(raw_id, limit=128)
+            or (unique and raw_id in seen)
+        ):
+            raise StateFileCorruptedError("Недостоверный идентификатор в исходных данных поиска.")
+        seen.add(raw_id)
+
+
+def _search_clients(raw_clients):
+    clients = []
+    for raw in raw_clients:
+        try:
+            client = ClientProfile.from_dict(raw)
+        except (OverflowError, TypeError, ValueError):
+            raise StateFileCorruptedError("Исходная запись клиента повреждена.") from None
+        if client.id != raw["id"]:
+            raise StateFileCorruptedError("Недостоверный идентификатор клиента в поиске.")
+        clients.append(client)
+    return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))
+
+
 class ReadonlyContextSnapshot(dict):
-    def __init__(self, bundle, state, *, source_indexes=None):
+    def __init__(self, bundle, state, *, source_indexes=None, cards_index=None):
         super().__init__(bundle)
         if source_indexes is None:
-            self._cards = _index(state.get("cards"))
+            self._cards = cards_index if cards_index is not None else _index(state.get("cards"))
             self._clients = _index(state.get("clients"))
             self._events = _index(state.get("events"))
         else:
+            if cards_index is not None:
+                raise ValueError("Conflicting source indexes")
             self._cards, self._clients, self._events = source_indexes
         self._link_clients = {client.id: client for client in bundle["clients"]}
 
@@ -43,8 +75,11 @@ class ReadonlyContextSnapshot(dict):
             raise StateFileCorruptedError("Недостоверный идентификатор в снимке состояния.")
         return source
 
+    def require_card_identity(self, card):
+        return self._source(self._cards, card.id)
+
     def require_card(self, card, *, include_attachments=False):
-        source = self._source(self._cards, card.id)
+        source = self.require_card_identity(card)
         if not parse_datetime(source.get("created_at")) or not parse_datetime(
             source.get("updated_at")
         ):
@@ -249,16 +284,34 @@ class CommittedCardSource:
 
 def build_context_snapshot(store, state, domains):
     raw_cards = state.get("cards")
-    if not isinstance(raw_cards, list) or any(not isinstance(card, dict) for card in raw_cards):
+    needs_cards = "client_search" not in domains or "client_search_cards" in domains
+    if needs_cards and (
+        not isinstance(raw_cards, list) or any(not isinstance(card, dict) for card in raw_cards)
+    ):
         raise StateFileCorruptedError("Список карточек отсутствует или поврежден.")
     for name in ("clients", "stickies", "events"):
         if name not in domains:
             continue
         if name in state and not isinstance(state[name], list):
             raise StateFileCorruptedError("Снимок состояния содержит поврежденный список.")
-    columns, _ = store._normalize_columns(state)
-    cards, _ = store._normalize_cards(state, columns)
-    clients = store._normalize_clients(state)[0] if "clients" in domains else []
+    raw_clients = state.get("clients", [])
+    cards_index = None if needs_cards else {}
+    clients = []
+    if "client_search" in domains:
+        _require_raw_search_identities(raw_clients, unique=True)
+        clients = _search_clients(raw_clients)
+    if "client_search_cards" in domains:
+        _require_raw_search_identities(raw_cards, unique=False)
+        # Capture collisions from the unnormalized source, including entries that
+        # card retention may omit from the normalized snapshot.
+        cards_index = _index(raw_cards)
+    if needs_cards:
+        columns, _ = store._normalize_columns(state)
+        cards, _ = store._normalize_cards(state, columns)
+    else:
+        columns, cards = [], []
+    if "clients" in domains and "client_search" not in domains:
+        clients = store._normalize_clients(state)[0]
     stickies = store._normalize_stickies(state)[0] if "stickies" in domains else []
     events = store._normalize_events(state)[0] if "events" in domains else []
     settings = store._normalize_settings(state)[0] if "settings" in domains else {}
@@ -272,4 +325,5 @@ def build_context_snapshot(store, state, domains):
             "settings": settings,
         },
         state,
+        cards_index=cards_index,
     )

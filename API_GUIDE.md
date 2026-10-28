@@ -461,8 +461,10 @@ different explicit client ID is excluded, while an unassigned text match is a
 candidate with `client_relation=unverified`; it does not contribute to confirmed
 card totals and does not supply a client-vehicle ID. Card-derived vehicle fields
 in `related_card_candidates` are separately marked `vehicle_relation=unverified`.
-IDs for all matches counted in `total` must be unique and match saved records;
-an invalid counted identity makes the read fail closed even beyond the limit.
+Every source client must have a unique canonical ID and be parseable, even beyond
+the result limit. Card-based search and statistics require canonical source card
+IDs and reject collisions affecting the considered clients. Profile-only lists
+do not normalize cards. Invalid source identities make the read fail closed.
 The existing `/api/search_clients` and `/api/list_clients` UI behavior remains
 unchanged.
 

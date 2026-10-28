@@ -16,6 +16,7 @@ from ..models import (
     utc_now_iso,
 )
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED
+from .readonly_context_helpers import client_readonly_related_cards
 
 _PHONE_PATTERN = re.compile(
     r"(?:\+7|8)\s*(?:\(\s*\d{3}\s*\)|\d{3})\s*[\- ]?\s*\d{3}\s*[\- ]?\s*\d{2}\s*[\- ]?\s*\d{2}"
@@ -124,13 +125,21 @@ class CardServiceClientsMixin:
             payload = payload or {}
             limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
             include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
-            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
+            domains = (
+                ("clients", "client_search", "client_search_cards")
+                if include_stats
+                else (
+                    "clients",
+                    "client_search",
+                )
+            )
+            bundle = self._store._read_context_bundle_snapshot(domains=domains)
             clients = self._ordered_clients(bundle["clients"])
             for client in clients:
                 bundle.require_client_identity(client)
             selected = clients[:limit]
             related = (
-                self._client_readonly_related_cards(selected, bundle["cards"])
+                self._client_readonly_related_cards(bundle, selected, bundle["cards"])
                 if include_stats
                 else {}
             )
@@ -159,14 +168,16 @@ class CardServiceClientsMixin:
             payload = payload or {}
             query = normalize_text(payload.get("query"), default="", limit=240)
             limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
-            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
+            bundle = self._store._read_context_bundle_snapshot(
+                domains=("clients", "client_search", "client_search_cards")
+            )
             prepared = getattr(self, "_client_readonly_search_prepared", None)
             if prepared is None or prepared[0] is not bundle:
                 clients = self._ordered_clients(bundle["clients"])
                 client_index = self._client_search_index_for(
                     clients, signature=("readonly-client-search", id(bundle))
                 )
-                related = self._client_readonly_related_cards(clients, bundle["cards"])
+                related = self._client_readonly_related_cards(bundle, clients, bundle["cards"])
                 related_fields = {
                     client.id: [
                         value
@@ -211,16 +222,8 @@ class CardServiceClientsMixin:
                 },
             }
 
-    def _client_readonly_related_cards(self, clients, cards):
-        related = self._client_related_cards_map(clients, cards)
-        return {
-            client.id: [
-                card
-                for card in related.get(client.id, [])
-                if not card.client_id or card.client_id == client.id
-            ]
-            for client in clients
-        }
+    def _client_readonly_related_cards(self, bundle, clients, cards):
+        return client_readonly_related_cards(self, bundle, clients, cards)
 
     def _serialize_readonly_client(self, bundle, client, related, *, include_stats, query=""):
         bundle.require_client(client)

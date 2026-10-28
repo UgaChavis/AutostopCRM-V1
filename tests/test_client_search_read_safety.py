@@ -403,6 +403,173 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
         self.assertEqual(raw["error"]["code"], "state_file_corrupted")
         self.assertEqual(before, self.snapshot())
 
+    async def test_unparseable_raw_client_cannot_disappear_from_counts(self):
+        original = json.loads(self.state_file.read_text())
+        for raw_client in (
+            {"display_name": "SYNTHETIC_DROPPED", "phones": 7},
+            {"id": "SYNTHETIC_DROPPED_ID", "display_name": "SYNTHETIC_DROPPED", "phones": 7},
+        ):
+            with self.subTest(raw_client=raw_client):
+                state = json.loads(json.dumps(original))
+                state["clients"].append(raw_client)
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                for raw, name, arguments in (
+                    (False, "agent_search", {"entity": "client", "limit": 2}),
+                    (True, "search_clients", {"limit": 2}),
+                    (True, "list_clients", {"limit": 2, "include_stats": True}),
+                    (True, "list_clients", {"limit": 2, "include_stats": False}),
+                ):
+                    result = await self.call(name, arguments, raw=raw)
+                    self.assertFalse(result["ok"], result)
+                    if raw:
+                        self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                    else:
+                        self.assertIn("state_file_corrupted", result["warnings"])
+                        self.assertEqual(result["data"]["items"], [])
+                    self.assertEqual(before, self.snapshot())
+                hidden = await self.call_hidden("search_clients", {"limit": 2})
+                self.assertFalse(hidden["ok"])
+                self.assertIn("state_file_corrupted", json.dumps(hidden))
+                self.assertEqual(before, self.snapshot())
+
+    async def test_missing_raw_ids_fail_before_client_or_card_normalization(self):
+        original = json.loads(self.state_file.read_text())
+        for entity in ("client", "card"):
+            with self.subTest(entity=entity):
+                state = json.loads(json.dumps(original))
+                target = state["clients"][0] if entity == "client" else state["cards"][0]
+                target.pop("id")
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                target_method = (
+                    "minimal_kanban.storage.readonly_context_snapshot.ClientProfile.from_dict"
+                    if entity == "client"
+                    else "minimal_kanban.storage.json_store.JsonStore._normalize_cards"
+                )
+                with patch(
+                    target_method, side_effect=AssertionError("must not normalize")
+                ) as method:
+                    result = await self.call("search_clients", {}, raw=True)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                method.assert_not_called()
+                self.assertEqual(before, self.snapshot())
+
+    async def test_noncanonical_raw_card_ids_fail_closed(self):
+        original = json.loads(self.state_file.read_text())
+        for bad_id in ("", " " + self.cards[0] + " ", 7, "x" * 129):
+            with self.subTest(bad_id=bad_id):
+                state = json.loads(json.dumps(original))
+                state["cards"][0]["id"] = bad_id
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                with patch.object(self.store, "_normalize_cards") as normalize_cards:
+                    result = await self.call("search_clients", {}, raw=True)
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["error"]["code"], "state_file_corrupted")
+                normalize_cards.assert_not_called()
+                self.assertEqual(before, self.snapshot())
+
+    async def test_foreign_duplicate_cannot_mask_an_explicit_client_card(self):
+        def duplicate_cross_client(state):
+            a = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            b["id"] = a["id"]
+            state["cards"] = [b, a]
+
+        self.edit_state(duplicate_cross_client)
+        before = self.snapshot()
+        for raw, name, arguments in (
+            (False, "agent_search", {"entity": "client", "query": "SYNTHETIC_A"}),
+            (True, "search_clients", {"query": "SYNTHETIC_A"}),
+            (True, "list_clients", {"limit": 1, "include_stats": True}),
+        ):
+            result = await self.call(name, arguments, raw=raw)
+            self.assertFalse(result["ok"], result)
+            if raw:
+                self.assertEqual(result["error"]["code"], "state_file_corrupted")
+            else:
+                self.assertIn("state_file_corrupted", result["warnings"])
+                self.assertEqual(result["data"]["items"], [])
+            self.assertEqual(before, self.snapshot())
+
+    async def test_unrelated_duplicate_does_not_hide_or_block_selected_client(self):
+        def duplicate_unrelated(state):
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            state["cards"].append(dict(card_b))
+
+        self.edit_state(duplicate_unrelated)
+        before = self.snapshot()
+        result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["data"]["clients"][0]["id"], self.client_a["id"])
+        self.assertEqual(result["data"]["clients"][0]["stats"]["cards_total"], 1)
+        self.assertEqual(before, self.snapshot())
+
+    async def test_collision_remains_visible_if_retention_omits_one_raw_card(self):
+        def create_collision_beyond_retention(state):
+            active = next(card for card in state["cards"] if card["id"] == self.cards[0])
+            archived = {
+                **active,
+                "archived": True,
+                "client_id": "",
+                "client_vehicle_id": "",
+                "vehicle_profile": {},
+                "repair_order": {},
+                "updated_at": "2000-01-01T00:00:00+00:00",
+            }
+            newer = [
+                {
+                    **archived,
+                    "id": f"SYNTHETIC_ARCHIVED_{index}",
+                    "updated_at": "2025-01-01T00:00:00+00:00",
+                }
+                for index in range(300)
+            ]
+            state["cards"] = [active, *newer, archived]
+
+        self.edit_state(create_collision_beyond_retention)
+        before = self.snapshot()
+        observed = {}
+        original_retention = self.store._apply_card_retention
+
+        def record_retention(cards):
+            retained, changed = original_retention(cards)
+            observed["changed"] = changed
+            observed["raw_id_count"] = sum(card.id == self.cards[0] for card in cards)
+            observed["retained_id_count"] = sum(card.id == self.cards[0] for card in retained)
+            return retained, changed
+
+        with patch.object(self.store, "_apply_card_retention", side_effect=record_retention):
+            result = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertEqual(observed, {"changed": True, "raw_id_count": 2, "retained_id_count": 1})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "state_file_corrupted")
+        self.assertEqual(before, self.snapshot())
+
+    async def test_profile_only_list_does_not_normalize_an_unrelated_bad_card(self):
+        def break_unrelated_card(state):
+            card_b = next(card for card in state["cards"] if card["id"] == self.cards[1])
+            card_b.pop("id")
+
+        self.edit_state(break_unrelated_card)
+        before = self.snapshot()
+        with patch.object(
+            self.store, "_normalize_cards", side_effect=AssertionError("must not normalize cards")
+        ) as normalize_cards:
+            profiles = await self.call(
+                "list_clients", {"limit": 1, "include_stats": False}, raw=True
+            )
+        normalize_cards.assert_not_called()
+        self.assertTrue(profiles["ok"], profiles)
+        self.assertEqual(profiles["data"]["clients"][0]["id"], self.client_a["id"])
+        self.assertEqual(profiles["data"]["meta"]["total"], 2)
+        with_stats = await self.call("list_clients", {"limit": 1, "include_stats": True}, raw=True)
+        self.assertFalse(with_stats["ok"])
+        self.assertEqual(with_stats["error"]["code"], "state_file_corrupted")
+        self.assertEqual(before, self.snapshot())
+
     async def test_repeated_search_reuses_only_the_current_readonly_snapshot(self):
         self.edit_state(lambda state: state.update(settings="SYNTHETIC_LEGACY"))
         before = self.snapshot()
