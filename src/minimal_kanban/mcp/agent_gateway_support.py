@@ -880,3 +880,55 @@ __all__ = [
     "MANAGER_GATEWAY_DEPENDENCY_NAMES",
     "PERMANENT_AGENT_GATEWAY_TOOL_NAMES",
 ]
+
+
+def _create_card_outcome_unknown(operation: str, result: dict[str, Any]) -> bool:
+    """A lost create response cannot prove that its POST did not commit."""
+    meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    return operation == "create_card" and (
+        meta.get("outcome_uncertain") is True
+        or _error_code(result)
+        in {
+            "board_api_unreachable",
+            "capability_failed",
+            "board_api_malformed_response",
+            "board_api_invalid_response",
+        }
+    )
+
+
+def _raw_completion_fields(
+    *,
+    outcome_unknown: bool,
+    executor_ok: bool,
+    verification_passed: bool,
+    ledger_closed: bool,
+    run_id: int | None,
+    ledger_error: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Describe raw completion without downgrading a lost write to known failure."""
+    ok = executor_ok and verification_passed
+    overall_ok = ok and ledger_closed
+    warnings = (
+        ["outcome_unknown_exact_readback_required_do_not_change_idempotency_key"]
+        if outcome_unknown
+        else []
+        if overall_ok
+        else ["verification_failed_compensation_required"]
+        if executor_ok and not verification_passed
+        else ["workflow_ledger_close_failed"]
+        if ok
+        else ["raw_capability_failed"]
+    )
+    return {
+        "warnings": warnings,
+        "next_actions": [
+            f"workflow_status(run_id={run_id}); reconcile the original create_card request before any retry; do not use a new idempotency key"
+        ]
+        if outcome_unknown
+        else _raw_next_actions(overall_ok, run_id),
+        "meta": {
+            "ledger_error": _compact_object(ledger_error) if ledger_error else None,
+            **({"outcome_uncertain": True, "readback_required": True} if outcome_unknown else {}),
+        },
+    }

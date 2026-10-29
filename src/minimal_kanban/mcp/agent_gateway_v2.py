@@ -30,6 +30,7 @@ from .agent_gateway_support import (
     _board_workflow_arguments,
     _compact_object,
     _contains_value,
+    _create_card_outcome_unknown,
     _cursor_offset,
     _decimal_text,
     _envelope,
@@ -42,7 +43,7 @@ from .agent_gateway_support import (
     _normalize_limit,
     _policy_error,
     _positive_decimal,
-    _raw_next_actions,
+    _raw_completion_fields,
     _read_annotations,
     _response_data,
     _selected_fields,
@@ -82,6 +83,7 @@ from .gateway_media import (
 from .gateway_store_context import (
     bootstrap_store_context_requests,
     bootstrap_store_context_summary,
+    runtime_status_payload,
 )
 from .gateway_store_workflow import handle_store_workflow
 from .oauth_provider import (
@@ -354,18 +356,6 @@ def register_agent_gateway_v2(
         }
 
     _board_call = executor.run_sync
-
-    async def _safe_board_read(function: Any, **arguments: Any) -> dict[str, Any]:
-        try:
-            return _as_dict(await _board_call(function, **arguments))
-        except Exception:  # noqa: BLE001 - optional read failures remain independently degraded.
-            return {
-                "ok": False,
-                "error": {
-                    "code": "crm_read_unavailable",
-                    "operation": getattr(function, "__name__", "board_read"),
-                },
-            }
 
     async def _invoke(
         name: str,
@@ -1923,41 +1913,9 @@ def register_agent_gateway_v2(
             if store_requested
             else {"ok": None, "status": "not_requested"}
         )
-        crm_ok = bool(crm_payload.get("ok"))
-        store_ok = bool(store_payload.get("ok"))
-        data = (
-            dict(crm_payload.get("data") or {}) if isinstance(crm_payload.get("data"), dict) else {}
+        payload = runtime_status_payload(
+            crm_payload, store_payload, store_requested=store_requested
         )
-        data["store"] = {
-            "ok": store_ok if store_requested else None,
-            "requested": store_requested,
-            "status": str(store_payload.get("status") or ("ready" if store_ok else "degraded")),
-            "summary": _compact_object(store_payload.get("summary") or {}, item_limit=10),
-            "data": _compact_object(store_payload.get("data"), item_limit=10, key_limit=40),
-            "warnings": [str(item) for item in store_payload.get("warnings") or []][:10],
-        }
-        warnings = [str(item) for item in crm_payload.get("warnings") or []]
-        if store_requested and not store_ok:
-            warnings.append("store_adapter_degraded")
-        payload = dict(crm_payload)
-        payload.update(
-            {
-                "ok": crm_ok,
-                "status": "ready"
-                if crm_ok and (store_ok or not store_requested)
-                else "degraded"
-                if crm_ok
-                else "failed",
-                "data": data,
-                "warnings": list(dict.fromkeys(warnings)),
-            }
-        )
-        payload.setdefault("format", AGENT_GATEWAY_FORMAT)
-        payload.setdefault("summary", {})
-        payload.setdefault("next_actions", [])
-        payload.setdefault("verification", {})
-        payload.setdefault("page", {})
-        payload.setdefault("meta", {})
         return _tool_result(payload, label="get_runtime_status")
 
     @server.tool(
@@ -1986,13 +1944,13 @@ def register_agent_gateway_v2(
                 manager_payload = {"ok": False, "error": str(exc)}
 
         sample_size = _normalize_limit(sample_limit, default=8, maximum=20)
-        context_task = _safe_board_read(board_api.get_board_context)
+        context_task = executor.read_optional(board_api.get_board_context)
         cards_task = (
-            _safe_board_read(
+            executor.read_optional(
                 board_api.search_cards, query=query, include_archived=False, limit=sample_size
             )
             if query.strip()
-            else _safe_board_read(
+            else executor.read_optional(
                 board_api.get_cards, include_archived=False, compact=True, limit=sample_size
             )
         )
@@ -3273,18 +3231,7 @@ def register_agent_gateway_v2(
                 or result_meta.get("readback_required") is True
             )
         )
-        # A lost response to create_card cannot prove that the POST did not commit.
-        # Retain this exact request/key for reconciliation instead of reporting failed.
-        crm_create_outcome_unknown = normalized_name == "create_card" and (
-            result_meta.get("outcome_uncertain") is True
-            or _error_code(result)
-            in {
-                "board_api_unreachable",
-                "capability_failed",
-                "board_api_malformed_response",
-                "board_api_invalid_response",
-            }
-        )
+        crm_create_outcome_unknown = _create_card_outcome_unknown(normalized_name, result)
         if crm_create_outcome_unknown:
             verification.update({"outcome_uncertain": True, "readback_required": True})
         executor_ok = (
@@ -3376,38 +3323,20 @@ def register_agent_gateway_v2(
                 "schema_hash": current_hash,
             },
             data=data,
-            warnings=(
-                ["outcome_unknown_exact_readback_required_do_not_change_idempotency_key"]
-                if crm_create_outcome_unknown
-                else []
-                if overall_ok
-                else ["verification_failed_compensation_required"]
-                if executor_ok and not verification_passed
-                else ["workflow_ledger_close_failed"]
-                if ok
-                else ["raw_capability_failed"]
-            ),
             verification={
                 "schema_hash_verified": True,
                 "executor_ok": executor_ok,
                 "ledger_closed": ledger_closed,
                 **verification,
             },
-            next_actions=(
-                [
-                    f"workflow_status(run_id={run_id}); reconcile the original create_card request before any retry; do not use a new idempotency key"
-                ]
-                if crm_create_outcome_unknown
-                else _raw_next_actions(overall_ok, run_id)
+            **_raw_completion_fields(
+                outcome_unknown=crm_create_outcome_unknown,
+                executor_ok=executor_ok,
+                verification_passed=verification_passed,
+                ledger_closed=ledger_closed,
+                run_id=run_id,
+                ledger_error=ledger_error,
             ),
-            meta={
-                "ledger_error": _compact_object(ledger_error) if ledger_error else None,
-                **(
-                    {"outcome_uncertain": True, "readback_required": True}
-                    if crm_create_outcome_unknown
-                    else {}
-                ),
-            },
         )
         return _tool_result(payload, label="call_raw_capability")
 

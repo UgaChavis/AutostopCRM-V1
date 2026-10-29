@@ -45,7 +45,7 @@ from minimal_kanban.mcp.store_gateway import (
 )
 from tests.gateway_v2_editorial_preview_contracts import GatewayV2EditorialPreviewContractsMixin
 from tests.gateway_v2_oauth_contracts import GatewayV2OAuthContractTestsMixin
-from tests.gateway_v2_read_contracts import GatewayV2ReadContractTestsMixin
+from tests.gateway_v2_read_contracts import GatewayV2ReadContractTestsMixin, fake_board_cards
 from tests.gateway_v2_store_quote_conductor_support import (
     StoreQuoteConductorCasesMixin,
     register_fake_store_quote_conductor,
@@ -151,34 +151,7 @@ class FakeBoardApi:
     def health(self) -> dict:
         return {"ok": True, "data": {"status": "healthy"}}
 
-    def get_cards(
-        self, *, include_archived: bool = False, compact: bool = True, limit: int | None = None
-    ) -> dict:
-        cards = [
-            {
-                "id": f"card-{index}",
-                "short_id": f"C-{index}",
-                "vehicle": "Vehicle",
-                "title": f"Task {index}",
-                "column": "inbox",
-                "column_label": "Inbox",
-                "tags": [],
-                "status": "ok",
-                "indicator": "green",
-                "remaining_seconds": 200_000,
-                "deadline_timestamp": "2026-07-13T00:00:00+00:00",
-                "client_id": "",
-                "board_summary": "",
-                "updated_at": "2026-07-11T00:00:00+00:00",
-                "deadline_heat_glow_color": "large-ui-only-value",
-            }
-            for index in range(4 if include_archived else 3)
-        ]
-        return {
-            "ok": True,
-            "data": {"cards": cards if limit is None else cards[:limit]},
-            "meta": {"compact": compact},
-        }
+    get_cards = fake_board_cards
 
     def search_cards(self, **arguments: object) -> dict:
         limit = arguments.get("limit")

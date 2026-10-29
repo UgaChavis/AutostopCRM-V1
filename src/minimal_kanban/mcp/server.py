@@ -908,14 +908,7 @@ def create_mcp_server(
                 meta=_timed_meta(
                     tool_name,
                     started_at,
-                    meta={
-                        **({"applied_params": applied_params} if applied_params else {}),
-                        **(
-                            {"outcome_uncertain": True, "readback_required": True}
-                            if tool_name == "create_card"
-                            else {}
-                        ),
-                    },
+                    meta=_payloads._create_transport_error_meta(tool_name, applied_params),
                 ),
             )
         except (OverflowError, TypeError, ValueError) as exc:

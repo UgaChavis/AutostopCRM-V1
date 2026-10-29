@@ -32,7 +32,7 @@ from .operator_visibility import (
     public_snapshot_settings,
     visible_audit_events,
 )
-from .readonly_context_helpers import checked_card_warnings, detached_card_response
+from .readonly_context_helpers import card_sample, checked_card_warnings, detached_card_response
 from .snapshot_cache import (
     COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
     PreparedSnapshotData,
@@ -222,12 +222,7 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             events = visible_audit_events(payload, bundle["events"])
             cards = self._visible_cards(bundle["cards"], include_archived=include_archived)
-            total_cards = len(cards)
-            # Bound the expensive projection/serialization before preparing card metadata.
-            if payload.get("limit") is not None:
-                cards = cards[
-                    : self._validated_limit(payload.get("limit"), default=20, maximum=100)
-                ]
+            cards, total_cards = card_sample(cards, payload, self._validated_limit)
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 cards,
