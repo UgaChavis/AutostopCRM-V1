@@ -169,6 +169,28 @@ If configuration changed while a check ran, its result becomes a warning asking
 for a new check instead of reporting success for the old endpoint. Explicit full
 draft saves and reset-to-defaults retain their replacement semantics.
 
+## Manager instruction roots
+
+Select one Manager instruction root before reading its modules or skills:
+
+- For a work-Telegram job, use the physical root and revision pinned to that
+  exact job. Do not replace them with the latest checkout or the current link.
+- For other live work, resolve `/opt/autostop-manager-releases/current` to its
+  physical snapshot, read its `REVISION`, and use that snapshot's instructions.
+  Verify the installed manifest and active process independently when the task
+  requires runtime evidence; a source Git HEAD is not an installed revision.
+- For development, select the Manager checkout or worktree explicitly, record
+  its Git HEAD and current diff, and use its instructions for source changes.
+  Keep the CRM checkout and its HEAD/diff distinct from the Manager source.
+
+Read the selected root's `AGENTS.md`, then its relevant
+`docs/agent/modules/M1.md`, `M2.md`, `C2.md`, or other module. Resolve their
+instruction references within the same root. In mixed source/live work, record
+both roots and revisions. Preserve the caller's cwd and unrelated work; do not
+copy runtime or switch checkouts to select an instruction version. GitHub links
+are reference navigation, not authority for a live version; use an immutable
+commit when sharing a particular source revision.
+
 ## Release Checklist
 
 While editing documentation, run:
@@ -211,6 +233,9 @@ those saved directories to roll back. `--skills-root` selects an explicit
 installation root; otherwise the helper uses `CODEX_HOME/skills` or
 `~/.codex/skills`. Installed copies are artifacts, not independently edited
 documentation. Developer skills are excluded from the runtime image.
+Apply a versioned skill installation only when that installation is in the
+approved scope. A source-only PR leaves the installed skill unchanged until
+the separately selected update.
 
 The embedded agent has a separate effective prompt: a nonempty
 `agent/system_prompt.md` under its app-data directory replaces the code default;
@@ -702,8 +727,9 @@ separate root-only `/opt/AutostopManager/.crm-mcp.env`, with
 `AUTOSTOP_CRM_MCP_BEARER_TOKEN` matching the configured CRM bearer. This file
 belongs in the single configuration backup when the maintenance changes it.
 
-The legacy CRM E8 Web Research Gateway contract serves the current Manager
-[E15 public research module](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/E15.md).
+The legacy CRM E8 Web Research Gateway contract serves Manager's E15 public
+research module. Read `docs/agent/modules/E15.md` from the Manager root selected
+by [Manager instruction roots](#manager-instruction-roots).
 The Automation Center also uses this credential for feed readiness.
 
 After an offline update, verify the scheduler's configured CRM and Manager
@@ -715,14 +741,33 @@ not register a digest consumer, open a delivery or advance an ACK. Restore only
 the explicitly selected application's prior operating state after acceptance.
 
 Do not copy the bearer into Manager's general `.env`. Store operations through
-current Manager [F1](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F1.md)
-and [F2](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/F2.md)
-require completed native MCP activation; E7 was the older Store module label.
+Manager's F1 and F2 require completed native MCP activation and the relevant
+permission. Read their `docs/agent/modules/F1.md` and `F2.md` in the selected
+Manager root; E7 was the older Store module label.
 
 ## GitHub-Only Publication
 
-When the approved endpoint is the GitHub branch rather than a production rollout,
-start from a clean, fully verified candidate and fetch the exact lowercase ref:
+### Source-only pull requests
+
+When the approved endpoint is source publication for later review, prepare a
+clean feature worktree from the current `autostopcrm-v1` branch. Preserve other
+checkouts and their uncommitted changes. Run checks for the changed behavior
+and documentation, push the feature branch without force, and open a PR against
+`autostopcrm-v1`. Record the remote branch SHA after an independent
+`git ls-remote --heads` readback, confirm the PR head through GitHub, and wait for
+the required fast PR checks. If the base moved, integrate it and recheck the
+affected behavior before publishing the updated candidate.
+
+An instruction-only PR uses the targeted documentation checks above. It does
+not install the global skill, update a running application, dispatch full
+quality/image workflows, or authorize merge. Describe the remaining exact-SHA
+release qualification in the PR; source checks do not establish runtime or
+instruction-delivery acceptance.
+
+### Release candidate after merge
+
+When the approved endpoint includes a main-branch release candidate, start from
+the reviewed candidate and fetch the exact lowercase ref:
 
 ```powershell
 $candidateSha = (git rev-parse HEAD).Trim()
@@ -744,8 +789,8 @@ selected final commit. If the branch moved before dispatch, reassess and test
 the new final candidate. A run for a PR merge ref or an older commit is not
 release evidence.
 
-This path does not authorize SSH, `deploy.sh`, a server fast-forward, or live
-smoke. A successful GitHub push and CI run are not a production rollout.
+Neither publication path authorizes SSH, `deploy.sh`, a server fast-forward, or
+live smoke. A successful GitHub push and CI run are not a production rollout.
 
 ## Deploy
 
