@@ -1,5 +1,5 @@
 {
-  "content_hash": "324a5f36c73ebca1fd07177e4e26271e52f73f6c16cae67ae13c27bdbf726ef8",
+  "content_hash": "07b7ce43c9b00c08233720de1738b733699f74140b7925f8773645ff0a0bd45d",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -291,9 +291,9 @@
       "input_notes": [
         "Обезличенный запрос, регион, состояние/комплектность; listing точной детали."
       ],
-      "instruction_hash": "4089b9f2e99f4033b3e2ef85e67b6dc0c9f7d5908611c0634684ea2be02ec85e",
+      "instruction_hash": "6664c499542ab8e57aa63d90dd498dc6b2437af849f5e6fb78b333979e7ab238",
       "instruction_ref": "docs/agent/modules/E10.md",
-      "instruction_text": "# E10 — Б/у, контрактные и восстановленные детали\n\nОбъявления и sourcing leads\nРодитель: [E1](E1.md). Устойчивый ключ: `used_parts_offers`.\n\n## Входы\n\nОбезличенный запрос, регион, состояние/комплектность; listing точной детали.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Поиск объявлений Avito](../tools/manager-avito-search-listings.md) | reefapi · network_read · implemented | `avito_search_listings` |\n| [Чтение одного объявления Avito](../tools/manager-avito-read-listing.md) | reefapi · network_read · implemented | `avito_read_listing` |\n| [Начать bounded vendor task Drom](../tools/manager-drom-start-parts-search.md) | webbee · job_write · implemented | `drom_start_parts_search` |\n| [Статус и результаты vendor task Drom](../tools/manager-drom-get-parts-search.md) | webbee · job_read · implemented | `drom_get_parts_search` |\n\n## Достаточность и границы\n\n- Queued task не найдённая деталь; б/у, reman и новая — разные сегменты.\n\n## Следующий выбор\n\nПосле запуска Drom читай ту же задачу до завершения, не создавая дубль из-за задержки. Применимость — [E6](E6.md), оценка уже собранных объявлений — [E11](E11.md).\n\nПодробный контракт: [справочник](../references/market-listings.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E10 — Б/у, контрактные и восстановленные детали\n\nОбъявления и sourcing leads\nРодитель: [E1](E1.md). Устойчивый ключ: `used_parts_offers`.\n\n## Входы\n\nОбезличенный запрос, регион, состояние/комплектность; listing точной детали.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Поиск объявлений Avito](../tools/manager-avito-search-listings.md) | reefapi · network_read · implemented | `avito_search_listings` |\n| [Чтение одного объявления Avito](../tools/manager-avito-read-listing.md) | reefapi · network_read · implemented | `avito_read_listing` |\n| [Начать bounded vendor task Drom](../tools/manager-drom-start-parts-search.md) | webbee · job_write · implemented | `drom_start_parts_search` |\n| [Статус и результаты vendor task Drom](../tools/manager-drom-get-parts-search.md) | webbee · job_read · implemented | `drom_get_parts_search` |\n\n## Достаточность и границы\n\n- Queued task не найдённая деталь; б/у, reman и новая — разные сегменты.\n\n## Следующий выбор\n\nПосле запуска Drom сохрани исходные `task_id`/`uid`. Для обычного ожидания `queued/running` выполняй не более двух чтений `drom_get_parts_search` в текущем клиентском ходе и только в пределах оставшегося общего бюджета задания. Если результат не готов в этих пределах, дай полезный предварительный ответ, используй доступную альтернативу либо согласованную передачу человеку по клиентскому скиллу.\n\nЗадержка не разрешает новый start. После завершения хода не создавай цели, таймеры или polling. Лимит обычного ожидания не отменяет сверку неизвестного исхода исходного действия и не разрешает обходить блокировку новых отправок. Применимость — [E6](E6.md), оценка уже собранных объявлений — [E11](E11.md).\n\nПодробный контракт: [справочник](../references/market-listings.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "used_parts_offers",
       "parent": "E1",
       "purpose": "Объявления и sourcing leads",
@@ -5262,7 +5262,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "396934029d609ea90dcc6ab72f10ecbf959e5637",
+  "source_revision": "3a0736428088e106c7739a87d14c0b03e7e3d2a9",
   "tools": [
     {
       "also_used_in": [],
