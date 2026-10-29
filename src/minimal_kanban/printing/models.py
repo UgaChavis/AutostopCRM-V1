@@ -132,7 +132,9 @@ class PrintServiceProfile:
         }
 
     @classmethod
-    def from_dict(cls, payload: Any) -> PrintServiceProfile:
+    def from_dict(
+        cls, payload: Any, *, explicit_empty_fields: tuple[str, ...] = ()
+    ) -> PrintServiceProfile:
         if not isinstance(payload, dict):
             return cls()
         defaults = cls()
@@ -167,15 +169,19 @@ class PrintServiceProfile:
                 continue
             if item.name in text_limits:
                 cleaned = _clean_text(raw, limit=text_limits[item.name])
-                # An explicitly cleared phone must stay empty so print templates
-                # can fall back to the general number (or a dash). Missing keys
-                # still use the profile defaults, as before.
-                if cleaned or item.name in {
-                    "phone",
-                    "reception_phone",
-                    "signer_position",
-                    "signer_name",
-                }:
+                # Legacy blank requisites still receive defaults. New explicit
+                # clears are recorded separately so they survive a reload.
+                if (
+                    cleaned
+                    or item.name in explicit_empty_fields
+                    or item.name
+                    in {
+                        "phone",
+                        "reception_phone",
+                        "signer_position",
+                        "signer_name",
+                    }
+                ):
                     values[item.name] = cleaned
             else:
                 values[item.name] = raw
@@ -191,6 +197,7 @@ class PrintModuleSettings:
     default_template_ids: dict[str, str] = field(default_factory=dict)
     service_profile: PrintServiceProfile = field(default_factory=PrintServiceProfile)
     tax_label_explicit: bool = False
+    service_profile_explicit_empty_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         self.default_printer = _clean_text(self.default_printer, limit=120)
@@ -225,6 +232,22 @@ class PrintModuleSettings:
             return cls()
         defaults = cls()
         service_profile_payload = defaults.service_profile.to_dict()
+        marked_fields = payload.get("_service_profile_explicit_empty_fields")
+        explicit_empty_fields = (
+            tuple(
+                sorted(
+                    {
+                        key
+                        for key in marked_fields
+                        if isinstance(key, str)
+                        and key in service_profile_payload
+                        and key != "company_name"
+                    }
+                )
+            )
+            if isinstance(marked_fields, list)
+            else ()
+        )
         if isinstance(payload.get("service_profile"), dict):
             for key, value in payload["service_profile"].items():
                 if value is None:
@@ -232,6 +255,7 @@ class PrintModuleSettings:
                 if (
                     isinstance(value, str)
                     and not value.strip()
+                    and key not in explicit_empty_fields
                     and key
                     not in {
                         "phone",
@@ -249,7 +273,15 @@ class PrintModuleSettings:
             paper_size=payload.get("paper_size", defaults.paper_size),
             orientation=payload.get("orientation", defaults.orientation),
             default_template_ids=payload.get("default_template_ids", defaults.default_template_ids),
-            service_profile=PrintServiceProfile.from_dict(service_profile_payload),
+            service_profile=PrintServiceProfile.from_dict(
+                service_profile_payload, explicit_empty_fields=explicit_empty_fields
+            ),
+            service_profile_explicit_empty_fields=tuple(
+                key
+                for key in explicit_empty_fields
+                if isinstance(service_profile_payload.get(key), str)
+                and not service_profile_payload[key].strip()
+            ),
             tax_label_explicit=bool(
                 payload.get("_tax_label_explicit") is not False
                 and isinstance(payload.get("service_profile"), dict)

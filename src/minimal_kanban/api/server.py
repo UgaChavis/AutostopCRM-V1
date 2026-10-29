@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import hmac
 import ipaddress
 import json
 import logging
@@ -50,6 +49,7 @@ from ..operator_permissions import (
     operator_has_permission,
 )
 from ..performance import request_performance_trace
+from ..security_comparison import ascii_secret_matches
 from ..services.automation_center_service import AutomationCenterService
 from ..services.card_service import CardService
 from ..services.change_feed_service import ChangeFeedService
@@ -1283,7 +1283,7 @@ class AuthenticationPolicy:
             and not self.is_proxied_request(handler)
             and automation_protocol == "crm_digest_v1"
             and automation_token
-            and hmac.compare_digest(auth_header, f"Bearer {automation_token}")
+            and ascii_secret_matches(f"Bearer {automation_token}", auth_header)
         ):
             setattr(handler, "_automation_feed_authenticated", True)
             return True
@@ -1512,9 +1512,9 @@ class AuthenticationPolicy:
         identity = str(handler.headers.get("X-Autostop-Agent-Identity", "") or "").strip()
         supplied_token = str(handler.headers.get("X-Autostop-Agent-Token", "") or "").strip()
         expected_token = str(get_mcp_bearer_token() or "").strip()
-        if not identity or not hmac.compare_digest(identity, policy.service_identity):
+        if not identity or not ascii_secret_matches(policy.service_identity, identity):
             return None
-        if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        if not expected_token or not ascii_secret_matches(expected_token, supplied_token):
             return None
         session = {
             "token": "service-identity",

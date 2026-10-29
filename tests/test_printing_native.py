@@ -46,17 +46,18 @@ class NativePrintingTests(unittest.TestCase):
             patch("PySide6.QtWebEngineWidgets.QWebEngineView", return_value=view),
             patch("PySide6.QtCore.QEventLoop", return_value=loop),
             patch("PySide6.QtCore.QTimer", return_value=timer),
+            patch("minimal_kanban.printing.pdf._webengine_print_source"),
         )
+        patches = [self.enterContext(item) for item in patches]
         return SimpleNamespace(view=view, timer=timer, printer=printer, patches=patches)
 
     def test_native_print_uses_full_html_and_waits_for_spool_acknowledgement(self):
         scenario = self.renderer("ok")
-        with scenario.patches[0], scenario.patches[1], scenario.patches[2]:
-            _print_webengine_html(
-                "<table><tr><td>1,2345 × 6 = 7,41</td></tr></table>", scenario.printer
-            )
+        html = "<table><tr><td>1,2345 × 6 = 7,41</td></tr></table>"
+        _print_webengine_html(html, scenario.printer)
         scenario.view.print.assert_called_once_with(scenario.printer)
-        self.assertIn("1,2345", scenario.view.setHtml.call_args.args[0])
+        scenario.patches[3].assert_called_once_with(scenario.view.page(), html)
+        scenario.view.setHtml.assert_not_called()
         scenario.view.deleteLater.assert_called_once()
         scenario.timer.stop.assert_called_once()
 
@@ -64,21 +65,27 @@ class NativePrintingTests(unittest.TestCase):
         for outcome in ("load_failed", "printer_failed"):
             with self.subTest(outcome=outcome):
                 scenario = self.renderer(outcome)
-                with scenario.patches[0], scenario.patches[1], scenario.patches[2]:
-                    with self.assertRaises(PrinterBackendError):
-                        _print_webengine_html("<p>Synthetic</p>", scenario.printer)
+                with self.assertRaises(PrinterBackendError):
+                    _print_webengine_html("<p>Synthetic</p>", scenario.printer)
                 if outcome == "load_failed":
                     scenario.view.print.assert_not_called()
 
     def test_timeout_aborts_but_retains_printer_until_late_completion(self):
         scenario = self.renderer("timeout")
         before = len(_pending_print_jobs)
-        with scenario.patches[0], scenario.patches[1], scenario.patches[2]:
-            with self.assertRaises(PrinterBackendError):
-                _print_webengine_html("<p>Synthetic</p>", scenario.printer)
+        with self.assertRaises(PrinterBackendError):
+            _print_webengine_html("<p>Synthetic</p>", scenario.printer)
         scenario.printer.abort.assert_called_once()
         scenario.view.deleteLater.assert_not_called()
         self.assertEqual(len(_pending_print_jobs), before + 1)
         scenario.view.printFinished.emit(False)
         self.assertEqual(len(_pending_print_jobs), before)
+        scenario.view.deleteLater.assert_called_once()
+
+    def test_native_print_reports_source_io_failure(self):
+        scenario = self.renderer("ok")
+        scenario.patches[3].side_effect = OSError("Synthetic disk failure")
+        with self.assertRaisesRegex(PrinterBackendError, "подготовить HTML"):
+            _print_webengine_html("<p>Synthetic</p>", scenario.printer)
+        scenario.view.print.assert_not_called()
         scenario.view.deleteLater.assert_called_once()

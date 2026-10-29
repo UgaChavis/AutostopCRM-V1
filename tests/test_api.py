@@ -5663,7 +5663,7 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
 
         self.assertEqual(status, 200)
         invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
-        self.assertIn("<td>Налоговый режим</td><td>Без НДС</td>", invoice_html)
+        self.assertIn('<td colspan="2">Без НДС</td>', invoice_html)
         self.assertNotIn("В том числе НДС (5%)", invoice_html)
         self.assertIn("1 176,47", invoice_html)
 
@@ -5749,12 +5749,14 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         )
         self.assertEqual(status, 200)
         html = preview["data"]["documents"][0]["pages"][0]["html"]
-        self.assertIn("Реквизиты покупателя", html)
+        self.assertIn("Покупатель", html)
         self.assertIn("ООО Контрагент", html)
         self.assertIn("2468000000", html)
-        self.assertIn("40702810900000000001", html)
-        self.assertIn("Тест Банк", html)
-        self.assertIn("Иванов Иван", html)
+        self.assertIn("246801001", html)
+        self.assertIn("660000, г. Красноярск, ул. Тестовая, 1", html)
+        self.assertNotIn("40702810900000000001", html)
+        self.assertNotIn("Тест Банк", html)
+        self.assertNotIn("Иванов Иван", html)
         self.assertNotIn("Реквизиты клиента не указаны", html)
 
     def test_invoice_preview_autodetects_client_requisites_from_repair_order(self) -> None:
@@ -5825,11 +5827,13 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         )
         self.assertEqual(status, 200)
         html = preview["data"]["documents"][0]["pages"][0]["html"]
-        self.assertIn("Реквизиты покупателя", html)
+        self.assertIn("Покупатель", html)
         self.assertIn("ООО Контрагент", html)
         self.assertIn("2468000000", html)
-        self.assertIn("40702810900000000001", html)
-        self.assertIn("Тест Банк", html)
+        self.assertIn("246801001", html)
+        self.assertIn("660000, г. Красноярск, ул. Тестовая, 1", html)
+        self.assertNotIn("40702810900000000001", html)
+        self.assertNotIn("Тест Банк", html)
         self.assertNotIn("Реквизиты клиента не указаны", html)
 
     def test_inspection_sheet_form_routes_save_preview_and_autofill(self) -> None:

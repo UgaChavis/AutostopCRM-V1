@@ -4,32 +4,37 @@ from __future__ import annotations
 
 import re
 import uuid
-from html.parser import HTMLParser
 
 from .template_engine import render_template, template_value_paths
+from .template_visibility import visible_print_text
 
 _MONEY_FIELD = re.compile(
-    r"(?:^|_)(?:price|total|subtotal|sum|amount|vat|prepayment|due|paid|gross|base|remaining|rounding_adjustment)(?:_|$)"
+    r"(?:^|_)(?:price|totals?|subtotal|sum|amount|vat|prepayment|due|paid|gross|base|remaining|rounding_adjustment)(?:_|$)"
 )
 _QUANTITY_FIELD = re.compile(r"(?:^|_)quantity(?:_|$)")
 _TAX_FIELD = re.compile(r"(?:^|_)(?:vat|tax)(?:_|$)")
-_INVISIBLE_STYLE = re.compile(
-    r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse)|"
-    r"opacity\s*:\s*(?:0(?:\.0*)?|\.0+)\s*(?:!important\s*)?(?:;|$))"
-)
 
 
-def template_uses_tax(content: str) -> bool:
+def template_uses_tax(content: str, *, paths=None) -> bool:
     return any(
-        _TAX_FIELD.search(part)
-        for path in template_value_paths(content)
-        for part in path.split(".")
+        any(_TAX_FIELD.search(part) for part in path.split("."))
+        or path.startswith(("invoice.", "regulated.", "completion_act."))
+        and any(_MONEY_FIELD.search(part) for part in path.split("."))
+        for path in (template_value_paths(content) if paths is None else paths)
     )
 
 
-def money_template_fields(content: str) -> tuple[bool, bool]:
+def template_money_sources(paths) -> set[str]:
+    return {
+        path.split(".", 1)[0]
+        for path in paths
+        if any(_MONEY_FIELD.search(part) for part in path.split("."))
+    }
+
+
+def money_template_fields(content: str, *, paths=None) -> tuple[bool, bool]:
     has_money = raw = False
-    for path in template_value_paths(content):
+    for path in template_value_paths(content) if paths is None else paths:
         parts = [part.strip() for part in path.split(".")]
         field = parts[-1]
         monetary = any(_MONEY_FIELD.search(part) for part in parts)
@@ -45,62 +50,14 @@ def money_template_fields(content: str) -> tuple[bool, bool]:
     return has_money, raw
 
 
-class _VisibleText(HTMLParser):
-    _void = frozenset(
-        {
-            "area",
-            "base",
-            "br",
-            "col",
-            "embed",
-            "hr",
-            "img",
-            "input",
-            "link",
-            "meta",
-            "param",
-            "source",
-            "track",
-            "wbr",
-        }
-    )
-    _hidden = frozenset({"head", "script", "style", "template", "noscript"})
-
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.stack: list[tuple[str, bool]] = []
-        self.text: list[str] = []
-
-    def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
-        hidden = bool(
-            self.stack
-            and self.stack[-1][1]
-            or tag in self._hidden
-            or "hidden" in attributes
-            or _INVISIBLE_STYLE.search((attributes.get("style") or "").lower())
-        )
-        if tag not in self._void:
-            self.stack.append((tag, hidden))
-
-    def handle_startendtag(self, tag, attrs):
-        before = len(self.stack)
-        self.handle_starttag(tag, attrs)
-        del self.stack[before:]
-
-    def handle_endtag(self, tag):
-        for index in range(len(self.stack) - 1, -1, -1):
-            if self.stack[index][0] == tag:
-                del self.stack[index:]
-                break
-
-    def handle_data(self, data):
-        if not self.stack or not self.stack[-1][1]:
-            self.text.append(data)
-
-
 def rounding_notes_present(
-    content: str, context: dict, rows: list[dict], *, settlement: bool
+    content: str,
+    context: dict,
+    rows: list[dict],
+    *,
+    settlement: bool,
+    aggregate_settlement: bool = True,
+    aggregate_rows: list[dict] | None = None,
 ) -> bool:
     required = {
         id(row): row["rounding_adjustment_display"]
@@ -118,12 +75,9 @@ def rounding_notes_present(
         emissions.append((path.strip().split(".")[-1].strip(), row_id, value))
         return f"{prefix}{index}S{prefix}{text}{prefix}{index}E{prefix}"
 
-    parser = _VisibleText()
-    parser.feed(render_template(content, context, value_renderer=trace))
-    parser.close()
-    visible = "".join(parser.text)
+    visible = visible_print_text(render_template(content, context, value_renderer=trace))
     found = {
-        int(match.group(1))
+        int(match.group(1)): match.group(2)
         for match in re.finditer(
             re.escape(prefix)
             + r"(\d+)S"
@@ -141,8 +95,18 @@ def rounding_notes_present(
     settlement_found = False
     for index in found:
         field, row_id, value = emissions[index]
-        if field == "rounding_notes_html" and value == context.get("rounding_notes_html") and value:
-            return True
+        if (
+            field == "rounding_notes_html"
+            and value == context.get("rounding_notes_html")
+            and value
+            and "".join(visible_print_text(value).split()) == "".join(found[index].split())
+        ):
+            covered.update(
+                required
+                if aggregate_rows is None
+                else (id(row) for row in aggregate_rows if id(row) in required)
+            )
+            settlement_found |= aggregate_settlement
         if (
             field == "rounding_adjustment_display"
             and row_id in required

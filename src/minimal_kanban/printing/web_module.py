@@ -1453,7 +1453,7 @@ _PRINTING_SCRIPT_PART3 += (
       return combinedPrintPagesHtml(pages, 'Акт выполненных работ', 'Нет данных акта для печати.');
     }
 
-    function runCompletionActBrowserPrint(preview = null) {
+    function runCompletionActBrowserPrint(preview = null, operation = capturePrintOperation()) {
       const currentPreview = preview && typeof preview === 'object'
         ? preview
         : repairOrderPrintState.completionAct.preview;
@@ -1461,7 +1461,7 @@ _PRINTING_SCRIPT_PART3 += (
       const pages = Array.isArray(currentPreview?.pages)
         ? currentPreview.pages
         : [];
-      return runBrowserPrintHtml(completionActCombinedHtml(pages));
+      return runBrowserPrintHtml(completionActCombinedHtml(pages), operation);
     }
 
     async function exportRepairOrderPrintPdf() {

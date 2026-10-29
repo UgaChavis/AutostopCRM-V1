@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 import secrets
@@ -36,6 +35,7 @@ from .operator_permissions import (
     normalize_operator_permissions,
     unknown_operator_permissions,
 )
+from .security_comparison import ascii_secret_matches
 from .services.card_service import CardService
 from .services.errors import ServiceError
 from .storage.change_feed_projection import (
@@ -113,7 +113,7 @@ def _verify_password(password: str, password_hash: str) -> bool:
         salt.encode("utf-8"),
         iterations,
     ).hex()
-    return hmac.compare_digest(actual, expected)
+    return ascii_secret_matches(actual, expected)
 
 
 def _truthy_env(name: str) -> bool:
@@ -418,7 +418,7 @@ class OperatorAuthService:
                         if item.get("username") != username
                         or (
                             current_session_token
-                            and hmac.compare_digest(
+                            and ascii_secret_matches(
                                 str(item.get("token") or ""), current_session_token
                             )
                         )
@@ -652,7 +652,7 @@ class OperatorAuthService:
             return None
         with self._locked_state() as state:
             for item in state["sessions"]:
-                if not hmac.compare_digest(str(item.get("token") or ""), raw_token):
+                if not ascii_secret_matches(str(item.get("token") or ""), raw_token):
                     continue
                 user = self._find_user(state["users"], item.get("username"))
                 if user is None:

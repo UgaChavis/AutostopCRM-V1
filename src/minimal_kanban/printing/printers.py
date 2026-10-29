@@ -129,8 +129,10 @@ def print_html(
 
 def _print_webengine_html(html: str, printer: object) -> None:
     """Use the PDF renderer's HTML engine and await native spool completion."""
+    from .pdf import _webengine_print_source
+
     try:
-        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QTimer
         from PySide6.QtWebEngineWidgets import QWebEngineView
     except Exception as exc:
         raise PrinterBackendError("Qt WebEngine недоступен для печати.") from exc
@@ -174,11 +176,13 @@ def _print_webengine_html(html: str, printer: object) -> None:
     view.loadFinished.connect(loaded)
     view.printFinished.connect(printed)
     try:
-        view.setHtml(str(html or ""), QUrl("about:blank"))
-        timer.start(45_000)
-        loop.exec()
+        with _webengine_print_source(view.page(), html):
+            timer.start(45_000)
+            loop.exec()
         if state["error"]:
             raise PrinterBackendError(state["error"])
+    except OSError as exc:
+        raise PrinterBackendError("Не удалось подготовить HTML для печати.") from exc
     finally:
         timer.stop()
         if state["printing"]:

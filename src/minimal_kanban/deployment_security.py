@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .config import get_app_data_dir
+from .security_comparison import ascii_secret_matches
 
 PRODUCTION_ENVIRONMENTS = frozenset({"prod", "production"})
 DEFAULT_SERVICE_IDENTITY = "codex-owner-agent"
@@ -98,7 +99,7 @@ def release_smoke_proof_matches(token: str, revision: str, proof: str) -> bool:
     normalized_revision = str(revision or "").strip().casefold()
     if not token or _RELEASE_SMOKE_REVISION_RE.fullmatch(normalized_revision) is None:
         return False
-    return hmac.compare_digest(release_smoke_proof(token, normalized_revision), str(proof or ""))
+    return ascii_secret_matches(release_smoke_proof(token, normalized_revision), str(proof or ""))
 
 
 def oauth_state_key_is_valid(value: str) -> bool:

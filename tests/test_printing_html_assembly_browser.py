@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from tests.source_path_support import ensure_source_path
 
 ensure_source_path()
 
 from minimal_kanban.printing.document_rendering import wrap_document_html  # noqa: E402
+from minimal_kanban.printing.service import PrintModuleService  # noqa: E402
 from minimal_kanban.printing.web_module import PRINTING_WEB_MODULE_SCRIPT  # noqa: E402
 from tests.browser_ui_support import UiBrowserTestCase  # noqa: E402
 from tests.test_printing_async_context import function_source  # noqa: E402
+from tests.test_printing_service import build_card  # noqa: E402
 
 
 def printable_page(label: str, *, head: str = "", body_style: str = "") -> dict[str, str]:
@@ -126,6 +131,53 @@ function repairOrderPrintCurrentPageIndex() { return testPageIndex; }
         self.assertEqual(result.count('class="document-shell"'), 1)
         self.assertNotIn("page-break-after:always", result)
 
+    def test_invoice_v5_styles_do_not_restyle_neighbor_documents(self) -> None:
+        from minimal_kanban.printing.invoice_v5 import INVOICE_V5_STYLES
+
+        neighbors = (
+            '<div class="document-page repair-order-v6" id="neighbor-order">'
+            '<h1 id="neighbor-title">Заказ-наряд</h1>'
+            '<span class="label" id="neighbor-label">Нейтральная подпись</span>'
+            '<div class="bank" id="neighbor-bank">Нейтральный блок</div></div>'
+            '<div class="document-page regulated-page regulated-page--landscape" '
+            'id="neighbor-regulated">Альбомный документ</div>'
+        )
+        baseline = wrap_document_html(neighbors, title="Соседние формы").replace(
+            INVOICE_V5_STYLES, ""
+        )
+        self.page.set_content(baseline)
+        self.page.emulate_media(media="print")
+        snapshot = """() => ['neighbor-order', 'neighbor-title', 'neighbor-label',
+          'neighbor-bank', 'neighbor-regulated'].map(id => {
+            const style = getComputedStyle(document.getElementById(id));
+            return Object.fromEntries(['fontSize', 'fontFamily', 'fontWeight', 'color',
+              'backgroundColor', 'paddingLeft', 'marginLeft', 'width', 'lineHeight',
+              'page', 'boxSizing'].map(key => [key, style[key]]));
+          })"""
+        before = self.page.evaluate(snapshot)
+        with tempfile.TemporaryDirectory() as directory:
+            service = PrintModuleService(Path(directory))
+            invoice = service.preview_documents(build_card(), selected_document_ids=["invoice"])[
+                "documents"
+            ][0]
+        # Restore the emitted assembler after set_content replaced its script context.
+        self.page.add_script_tag(
+            content="""function escapeHtml(value) {
+              const span = document.createElement('span');
+              span.textContent = String(value ?? ''); return span.innerHTML;
+            }"""
+            + function_source("combinedPrintPagesHtml")
+        )
+        combined = self.page.evaluate(
+            "pages => combinedPrintPagesHtml(pages)", [{"html": baseline}, *invoice["pages"]]
+        )
+        self.page.set_content(combined)
+        self.assertEqual(self.page.evaluate(snapshot), before)
+        self.assertEqual(self.page.locator(".document-page.invoice-v5").count(), 1)
+        self.assertEqual(self.page.locator(".document-shell > .document-page").count(), 3)
+        self.assertEqual(self.page.locator("html").count(), 1)
+        self.assertEqual(self.page.locator("body").count(), 1)
+
     def test_styles_survive_and_page_siblings_keep_their_print_break(self) -> None:
         head = "<style>.unique-head { color: rgb(1, 2, 3); }</style>"
         link = '<link rel="stylesheet" href="data:text/css,.linked%7Bcolor:red%7D">'
@@ -151,6 +203,50 @@ function repairOrderPrintCurrentPageIndex() { return testPageIndex; }
             .evaluate("element => getComputedStyle(element).breakBefore"),
             "page",
         )
+
+    def test_repair_order_exact_numbers_fit_without_changing_normal_columns(self) -> None:
+        # A4 minus the named page's 9 mm margins; the form adds its own 5 mm padding.
+        self.page.set_viewport_size({"width": 726, "height": 1100})
+        self.page.emulate_media(media="print")
+        with tempfile.TemporaryDirectory() as directory:
+            service = PrintModuleService(Path(directory))
+            for precise in (False, True):
+                with self.subTest(precise=precise):
+                    card = build_card()
+                    if precise:
+                        for rows in (card.repair_order.works, card.repair_order.materials):
+                            rows[0].quantity = "0.12345678901"
+                            rows[0].price = "123.12345678901"
+                            rows[0].total = ""
+                    document = service.preview_documents(
+                        card, selected_document_ids=["repair_order"]
+                    )["documents"][0]
+                    self.page.set_content(document["pages"][0]["html"])
+                    tables = self.page.locator(".ro-v6-lines").evaluate_all(
+                        """tables => tables.map(table => {
+                          const width = table.getBoundingClientRect().width;
+                          return Array.from(table.querySelector('tbody tr').cells).map(cell => {
+                            const box = cell.getBoundingClientRect();
+                            const range = document.createRange();
+                            range.selectNodeContents(cell);
+                            const text = range.getBoundingClientRect();
+                            return {value: cell.textContent, percent: box.width / width * 100,
+                              left: box.left, right: box.right,
+                              textLeft: text.left, textRight: text.right};
+                          });
+                        })"""
+                    )
+                    self.assertEqual(len(tables), 2)
+                    for cells in tables:
+                        if precise:
+                            self.assertEqual(cells[1]["value"], "0,12345678901")
+                            self.assertEqual(cells[2]["value"], "123,12345678901")
+                        else:
+                            for cell, expected in zip(cells, (55, 11, 17, 17), strict=True):
+                                self.assertAlmostEqual(cell["percent"], expected, delta=0.1)
+                        for cell in cells[1:]:
+                            self.assertGreaterEqual(cell["textLeft"], cell["left"] + 9.5)
+                            self.assertLessEqual(cell["textRight"], cell["right"] - 9.5)
 
     def test_completion_act_uses_the_same_wrapper_and_handles_empty_preview(self) -> None:
         pages = [printable_page("ACT-1"), printable_page("ACT-2")]

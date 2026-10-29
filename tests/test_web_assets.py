@@ -4225,7 +4225,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function readRegulatedPrintOverridesFromInputs()", BOARD_WEB_APP_HTML)
         self.assertIn("function repairOrderPrintIsManualMode()", BOARD_WEB_APP_HTML)
         self.assertIn("function syncRepairOrderPrintPrinterState()", BOARD_WEB_APP_HTML)
-        self.assertIn("function runRepairOrderBrowserPrint()", BOARD_WEB_APP_HTML)
+        self.assertIn("function runRepairOrderBrowserPrint(operation =", BOARD_WEB_APP_HTML)
         self.assertIn("isPrintRunning: false,", BOARD_WEB_APP_HTML)
         self.assertIn("let printStarted = false;", BOARD_WEB_APP_HTML)
         self.assertIn("if (printStarted || settled) return;", BOARD_WEB_APP_HTML)
@@ -4406,7 +4406,8 @@ class WebAssetsTests(unittest.TestCase):
             1
         ].split("function handleCompletionActFormInput(event)", 1)[0]
         self.assertIn(
-            "await operation.wait(runCompletionActBrowserPrint(preview));", completion_print
+            "await operation.wait(runCompletionActBrowserPrint(preview, browserOperation));",
+            completion_print,
         )
         for operation_source in (completion_export, completion_print):
             self.assertIn("const editRevision =", operation_source)
@@ -4442,10 +4443,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const parser = new DOMParser();", BOARD_WEB_APP_HTML)
         self.assertIn("documentNode.querySelector('.document-shell')", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "return runBrowserPrintHtml(completionActCombinedHtml(pages));",
+            "return runBrowserPrintHtml(completionActCombinedHtml(pages), operation);",
             BOARD_WEB_APP_HTML,
         )
-        main_print_helper = BOARD_WEB_APP_HTML.split("function runRepairOrderBrowserPrint()", 1)[
+        main_print_helper = BOARD_WEB_APP_HTML.split("function runRepairOrderBrowserPrint(", 1)[
             1
         ].split("async function exportRepairOrderPrintPdf()", 1)[0]
         self.assertIn("const selectedIds = repairOrderPrintSelectedIds();", main_print_helper)
@@ -4456,7 +4457,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("repairOrderPrintWorkspaceDocuments()", main_print_helper)
         self.assertIn("previewByDocument?.completion_act", main_print_helper)
         self.assertIn(
-            "return runBrowserPrintHtml(completionActCombinedHtml(pages));",
+            "return runBrowserPrintHtml(completionActCombinedHtml(pages), operation);",
             main_print_helper,
         )
         main_print_job = BOARD_WEB_APP_HTML.split("async function runRepairOrderPrintJob()", 1)[
@@ -4469,7 +4470,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertLess(
             main_print_job.index("await operation.wait(refreshRepairOrderPrintPreview"),
-            main_print_job.index("await operation.wait(runRepairOrderBrowserPrint()"),
+            main_print_job.index("await operation.wait(runRepairOrderBrowserPrint(operation)"),
         )
         self.assertIn("function cancelPendingRepairOrderPrintPreview()", BOARD_WEB_APP_HTML)
         cancel_all_helper = BOARD_WEB_APP_HTML.split(
@@ -4479,7 +4480,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("if (options?.throwOnError) throw error;", BOARD_WEB_APP_HTML)
         completion_print_helper = BOARD_WEB_APP_HTML.split(
             "function completionActCombinedHtml(pages)", 1
-        )[1].split("function runCompletionActBrowserPrint(preview = null)", 1)[0]
+        )[1].split("function runCompletionActBrowserPrint(preview = null,", 1)[0]
         self.assertIn("return combinedPrintPagesHtml(pages,", completion_print_helper)
         shared_print_helper = BOARD_WEB_APP_HTML.split("function combinedPrintPagesHtml(", 1)[
             1
@@ -4492,7 +4493,7 @@ class WebAssetsTests(unittest.TestCase):
             shared_print_helper,
         )
         completion_browser_print = BOARD_WEB_APP_HTML.split(
-            "function runCompletionActBrowserPrint(preview = null)", 1
+            "function runCompletionActBrowserPrint(preview = null,", 1
         )[1].split("async function exportRepairOrderPrintPdf()", 1)[0]
         self.assertIn("const currentPreview = preview", completion_browser_print)
         self.assertIn("currentPreview?.pages", completion_browser_print)

@@ -14,7 +14,12 @@ from ..models import (
     normalize_text,
     utc_now_iso,
 )
-from ..repair_order import REPAIR_ORDER_ROW_VALUE_LIMIT, REPAIR_ORDER_ROWS_LIMIT, RepairOrderRow
+from ..repair_order import (
+    REPAIR_ORDER_ROW_VALUE_LIMIT,
+    REPAIR_ORDER_ROWS_LIMIT,
+    RepairOrder,
+    RepairOrderRow,
+)
 
 
 class CardServiceInventoryMixin:
@@ -260,6 +265,7 @@ class CardServiceInventoryMixin:
                 cash_transactions=bundle["cash_transactions"],
                 settings=bundle["settings"],
                 digest_correlation_id=digest_correlation_id,
+                operation="inventory_write_off",
             )
             updated_item = InventoryItem(
                 id=item.id,
@@ -427,6 +433,7 @@ class CardServiceInventoryMixin:
                         cash_transactions=bundle["cash_transactions"],
                         settings=bundle["settings"],
                         digest_correlation_id=digest_correlation_id,
+                        operation="inventory_return",
                     )
             movement = self._build_inventory_movement(
                 item=updated_item,
@@ -486,6 +493,46 @@ class CardServiceInventoryMixin:
                 else None,
                 "meta": {"row_index": row_index},
             }
+
+    def _ensure_correction_inventory_materials_unchanged(
+        self, previous_order: RepairOrder, order: RepairOrder, *, operation: str = ""
+    ) -> None:
+        next_by_id = {row.id: row for row in order.materials}
+        previous_by_id = {row.id: row for row in previous_order.materials}
+        link_fields = ("inventory_movement_id", "inventory_item_id", "inventory_unit")
+        invalid_row = None
+        for previous in previous_order.materials:
+            if not previous.inventory_movement_id:
+                continue
+            current = next_by_id.get(previous.id)
+            previous_link = tuple(getattr(previous, field) for field in link_fields)
+            current_link = tuple(getattr(current, field, "") for field in link_fields)
+            # Only the native return can clear a link while restoring stock in
+            # the same commit; otherwise a second edit could bypass this guard.
+            link_allowed = current_link == previous_link or (
+                operation == "inventory_return" and not any(current_link)
+            )
+            if current is None or current.quantity != previous.quantity or not link_allowed:
+                invalid_row = previous
+                break
+        if operation != "inventory_write_off":
+            for current in order.materials:
+                previous = previous_by_id.get(current.id)
+                if current.inventory_movement_id and (
+                    previous is None or not previous.inventory_movement_id
+                ):
+                    invalid_row = current
+                    break
+        if invalid_row is not None:
+            self._fail(
+                "inventory_material_movement_active",
+                "Складские связи изменяются только отдельными операциями списания и возврата.",
+                status_code=409,
+                details={
+                    "row_id": invalid_row.id,
+                    "inventory_movement_id": invalid_row.inventory_movement_id,
+                },
+            )
 
     def _build_inventory_item_from_payload(
         self, payload: dict[str, Any], *, existing: InventoryItem | None

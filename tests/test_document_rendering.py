@@ -78,24 +78,26 @@ class DocumentRenderingTests(unittest.TestCase):
         parser = _ScopedText()
         parser.feed(preview["documents"][0]["pages"][0]["html"])
         final_text = "".join(
-            text for text, classes in parser.fragments if "doc-invoice-final" in classes
+            text for text, classes in parser.fragments if "inv-v5-final" in classes
         )
         for label in (
-            "Итого",
+            "Сумма счёта",
             "В том числе НДС (5%)",
-            "Всего к оплате",
-            "Сумма прописью",
-            "Подписи",
-            "Руководитель",
-            "Бухгалтер",
+            "Учтённая предоплата",
+            "К оплате",
+            "К оплате прописью",
+            PrintModuleSettings().service_profile.signer_position,
+            PrintModuleSettings().service_profile.signer_name,
+            "М.П.",
         ):
             self.assertIn(label, final_text)
+        self.assertNotIn("Бухгалтер", final_text)
         accounts = [
             text
             for text, classes in parser.fragments
-            if "doc-bank-table__account" in classes and text.strip()
+            if "inv-v5-bank-number" in classes and len(text.strip()) == 20
         ]
-        self.assertEqual(len(accounts), 4)
+        self.assertEqual(len(accounts), 2)
         self.assertTrue(all(len(account) == 20 and account.isdigit() for account in accounts))
 
     def test_shell_escapes_only_title_and_keeps_styles_and_nested_body(self) -> None:

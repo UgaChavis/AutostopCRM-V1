@@ -30,7 +30,7 @@ REPAIR_ORDER_V6_STYLES = """
 .ro-v6-note-value { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .ro-v6-section { margin-bottom: 16px; }
 .ro-v6-section-title { font-size: 17px; font-weight: 700; line-height: 1.25; margin: 0 0 8px; break-after: avoid; page-break-after: avoid; }
-.ro-v6-lines { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px; line-height: 1.35; }
+.ro-v6-lines { width: 100%; border-collapse: collapse; table-layout: auto; font-size: 14px; line-height: 1.35; }
 .ro-v6-lines thead { display: table-header-group; }
 .ro-v6-lines tfoot { display: table-row-group; }
 .ro-v6-lines th { background: #f5f6f7; border-top: .75px solid #cfd4d9; border-bottom: .75px solid #cfd4d9; padding: 6px 10px; text-align: left; font-size: 11px; font-weight: 700; }

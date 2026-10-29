@@ -11,6 +11,7 @@ To add a new printable document:
 
 from __future__ import annotations
 
+from .invoice_v5 import INVOICE_V5_STYLES, INVOICE_V5_TEMPLATE
 from .layout import COMPLETION_ACT_LAYOUT
 from .models import PrintDocumentDefinition, PrintTemplateRecord
 from .repair_order_future_v2 import (
@@ -461,6 +462,17 @@ PRINT_BASE_STYLES = """
     text-align: right;
     font-size: 6pt;
   }
+  .regulated-upd-total {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .regulated-tax-table--sample .regulated-upd-reference {
+    border: 0;
+    padding: 2mm 0 0;
+    text-align: right;
+    font-size: 6pt;
+    line-height: 1.05;
+  }
   .regulated-summary {
     display: flex;
     justify-content: space-between;
@@ -661,6 +673,10 @@ PRINT_BASE_STYLES = """
   .regulated-page--upd .regulated-tax-table--sample tbody tr:nth-child(6) td,
   .regulated-page--upd .regulated-tax-table--sample tbody tr:nth-child(8) td {
     height: 29px;
+  }
+  .regulated-page--upd .regulated-tax-table tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   .regulated-tax-table--sample .regulated-column-codes th {
     font-size: 5pt;
@@ -1070,7 +1086,15 @@ PRINT_BASE_STYLES = """
       font-size: 6pt;
     }
   }
-  @page completion-act-page { size: A4 portrait; margin: 9mm; }
+  @page completion-act-page {
+    size: A4 portrait;
+    margin: 9mm;
+    @bottom-right {
+      content: "Лист " counter(page) " из " counter(pages);
+      font-family: Arial, "Segoe UI", sans-serif;
+      font-size: 6pt;
+    }
+  }
   @page { size: A4; margin: 9mm; }
   @media print {
     html,
@@ -1099,6 +1123,9 @@ PRINT_BASE_STYLES = """
       margin: 0;
       box-shadow: none;
       border: 0;
+    }
+    .regulated-page--upd {
+      padding-bottom: 0;
     }
     .document-page + .document-page {
       break-before: page;
@@ -1154,9 +1181,7 @@ PRINT_BASE_STYLES = (
         str(COMPLETION_ACT_LAYOUT.final_block_margin_top_mm),
     )
 )
-PRINT_BASE_STYLES = (
-    f"{PRINT_BASE_STYLES}\n{FUTURE_REPAIR_ORDER_V2_STYLES}\n{REPAIR_ORDER_V6_STYLES}".strip()
-)
+PRINT_BASE_STYLES = f"{PRINT_BASE_STYLES}\n{FUTURE_REPAIR_ORDER_V2_STYLES}\n{REPAIR_ORDER_V6_STYLES}\n{INVOICE_V5_STYLES}".strip()
 
 
 _BUILTIN_CREATED_AT = "2026-04-06T00:00:00+00:00"
@@ -1316,146 +1341,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "invoice",
             "standard",
             "Стандартный счет",
-            """
-<div class="document-page">
-  <div class="doc-invoice-notice">
-    Внимание! Оплата данного счета означает согласие с указанными в нем работами, материалами и условиями поставки. Уведомление об оплате обязательно.
-  </div>
-  <table class="doc-bank-table">
-    <colgroup>
-      <col style="width: 30%">
-      <col style="width: 24%">
-      <col style="width: 20%">
-      <col style="width: 26%">
-    </colgroup>
-    <tr>
-      <td colspan="2"><div class="doc-bank-table__label">Банк получателя</div><div class="doc-bank-table__value"><strong>{{service.bank_name}}</strong></div></td>
-      <td><div class="doc-bank-table__label">БИК</div><div class="doc-bank-table__value"><strong>{{service.bik}}</strong></div></td>
-      <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{service.correspondent_account}}</strong></div></td>
-    </tr>
-    <tr>
-      <td><div class="doc-bank-table__label">ИНН</div><div class="doc-bank-table__value"><strong>{{service.inn}}</strong></div></td>
-      <td><div class="doc-bank-table__label">КПП</div><div class="doc-bank-table__value"><strong>{{service.kpp}}</strong></div></td>
-      <td colspan="2"><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{service.settlement_account}}</strong></div></td>
-    </tr>
-    <tr>
-      <td colspan="4"><div class="doc-bank-table__label">Получатель</div><div class="doc-bank-table__value"><strong>{{service.legal_name}}</strong></div></td>
-    </tr>
-  </table>
-  <table class="doc-head-table">
-    <tr>
-      <td class="doc-head-table__left">
-        <table class="doc-head-table" style="margin-bottom:0;">
-          <tr>
-            <td style="width:104px; vertical-align:top; padding-right:12px;">
-              <div class="doc-brand-mark">
-                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop">{{/service.brand_logo_data_uri}}
-                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
-              </div>
-            </td>
-            <td style="vertical-align:top;">
-              <div class="doc-brand-copy">
-                <div class="doc-kicker">Платежный документ</div>
-                <h1 class="doc-title">Счет на оплату</h1>
-                <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </td>
-      <td class="doc-head-table__right">
-        <div class="doc-service">
-          <div class="doc-service__name">{{service.company_name}}</div>
-          <div class="doc-service__meta">{{service.legal_name}}</div>
-          <div class="doc-service__meta">{{service.address}}</div>
-          <div class="doc-service__meta">Тел. {{service.reception_phone}} · {{service.website}}</div>
-        </div>
-      </td>
-    </tr>
-  </table>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Сведения по счету</h2>
-    <table class="doc-meta-table">
-      <tr>
-        <td><div class="doc-label">Поставщик</div><div class="doc-value">{{service.legal_name}}, ИНН {{service.inn}}, {{service.address}}, тел. {{service.reception_phone}}</div></td>
-        <td><div class="doc-label">Покупатель</div><div class="doc-value">{{client.invoice_name_display}} · {{client.phone_display}}</div></td>
-        <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}} · {{vehicle.license_plate_display}} · VIN {{vehicle.vin_display}}</div></td>
-      </tr>
-    </table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Реквизиты покупателя</h2>
-    {{#client.has_requisites}}
-    <table class="doc-bank-table">
-      <colgroup>
-        <col style="width: 30%">
-        <col style="width: 24%">
-        <col style="width: 20%">
-        <col style="width: 26%">
-      </colgroup>
-      <tr>
-        <td colspan="2"><div class="doc-bank-table__label">Покупатель</div><div class="doc-bank-table__value"><strong>{{client.invoice_name_display}}</strong></div></td>
-        <td><div class="doc-bank-table__label">ИНН</div><div class="doc-bank-table__value"><strong>{{client.inn}}</strong></div></td>
-        <td><div class="doc-bank-table__label">КПП</div><div class="doc-bank-table__value"><strong>{{client.kpp}}</strong></div></td>
-      </tr>
-      <tr>
-        <td colspan="2"><div class="doc-bank-table__label">Банк</div><div class="doc-bank-table__value"><strong>{{client.bank_name}}</strong></div></td>
-        <td><div class="doc-bank-table__label">БИК</div><div class="doc-bank-table__value"><strong>{{client.bik}}</strong></div></td>
-        <td><div class="doc-bank-table__label">Сч. №</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{client.checking_account}}</strong></div></td>
-      </tr>
-      <tr>
-        <td><div class="doc-bank-table__label">К/с</div><div class="doc-bank-table__value doc-bank-table__account"><strong>{{client.correspondent_account}}</strong></div></td>
-        <td colspan="3"><div class="doc-bank-table__label">Юр. адрес</div><div class="doc-bank-table__value"><strong>{{client.legal_address}}</strong></div></td>
-      </tr>
-      <tr>
-        <td><div class="doc-bank-table__label">Контактное лицо</div><div class="doc-bank-table__value"><strong>{{client.contact_person}}</strong></div></td>
-        <td><div class="doc-bank-table__label">Должность</div><div class="doc-bank-table__value"><strong>{{client.contact_position}}</strong></div></td>
-        <td colspan="2"><div class="doc-bank-table__label">Телефон / e-mail</div><div class="doc-bank-table__value"><strong>{{client.phone_display}} · {{client.email_display}}</strong></div></td>
-      </tr>
-    </table>
-    {{/client.has_requisites}}
-    {{^client.has_requisites}}
-    <div class="doc-note">Реквизиты клиента не указаны в карточке. Для организации привяжите клиентский профиль с ИНН, счетом и банковскими данными.</div>
-    {{/client.has_requisites}}
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Позиции счета</h2>
-    <table class="doc-table"><colgroup><col style="width: 7%"><col><col style="width: 12%"><col style="width: 12%"><col style="width: 15%"><col style="width: 16%"></colgroup><thead><tr><th class="doc-table__narrow">№</th><th>Наименование товара, работ, услуг</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__narrow">Ед. изм.</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#invoice.line_items}}<tr><td class="doc-table__narrow">{{index}}</td><td>{{section_label}}: {{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__narrow">{{unit_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/invoice.line_items}}
-      {{^invoice.line_items}}<tr><td class="doc-table__empty" colspan="6">Нет строк для счета</td></tr>{{/invoice.line_items}}
-    </tbody><tfoot><tr><td colspan="5">Итого</td><td class="doc-table__sum">{{invoice.subtotal_display}}</td></tr></tfoot></table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Назначение платежа</h2>
-    <div class="doc-note">{{service.payment_purpose}}</div>
-  </section>
-  <div class="doc-invoice-final"><table class="doc-totals-table">
-    <tr><td>Итого</td><td>{{invoice.subtotal_display}}</td></tr>
-    {{#invoice.has_vat}}<tr><td>В том числе {{invoice.tax_label}}</td><td>{{invoice.vat_display}}</td></tr>{{/invoice.has_vat}}
-    {{^invoice.has_vat}}<tr><td>Налоговый режим</td><td>{{invoice.tax_label}}</td></tr>{{/invoice.has_vat}}
-    {{#invoice.has_prepayment}}<tr><td>Предоплата</td><td>{{invoice.prepayment_display}}</td></tr>{{/invoice.has_prepayment}}
-    {{#invoice.has_settlement_rounding_adjustment}}<tr><td>Округление зачёта предоплаты</td><td>{{invoice.settlement_rounding_adjustment_display}}</td></tr>{{/invoice.has_settlement_rounding_adjustment}}<tr class="doc-totals-table__grand"><td>Всего к оплате</td><td>{{invoice.amount_due_display}}</td></tr>
-  </table>
-  <div class="doc-invoice-words">Сумма прописью: <strong>{{invoice.amount_due_words_display}}</strong></div>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Подписи</h2>
-    <table class="doc-signatures-table">
-      <tr>
-        <td>
-          <div class="doc-signatures__role">Руководитель</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">{{service.legal_name}}</div>
-        </td>
-        <td>
-          <div class="doc-signatures__role">Бухгалтер</div>
-          <div class="doc-signature-line">&nbsp;</div>
-          <div class="doc-signature-caption">{{service.legal_name}}</div>
-        </td>
-      </tr>
-    </table>
-  </section></div>
-</div>
-            """,
+            INVOICE_V5_TEMPLATE,
         ),
         _record(
             "invoice_factura",
@@ -1487,8 +1373,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </div>
   <table class="regulated-requisites-table regulated-requisites-table--invoice">
     <colgroup>
-      <col style="width:47mm"><col style="width:105mm"><col style="width:8mm">
-      <col style="width:39mm"><col style="width:75mm"><col style="width:8mm">
+      <col style="width:16.666667%"><col style="width:37.234043%"><col style="width:2.836879%">
+      <col style="width:13.829787%"><col style="width:26.595745%"><col style="width:2.836879%">
     </colgroup>
     <tr>
       <td class="regulated-req-label">Продавец</td><td class="regulated-req-value">{{regulated.seller_name_display}}</td><td class="regulated-req-code">(2)</td>
@@ -1675,8 +1561,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
       </div>
       <table class="regulated-requisites-table regulated-requisites-table--upd">
         <colgroup>
-          <col style="width:42mm"><col style="width:95mm"><col style="width:6mm">
-          <col style="width:39mm"><col style="width:72mm"><col style="width:6mm">
+          <col style="width:16.153846%"><col style="width:36.538462%"><col style="width:2.307692%">
+          <col style="width:15%"><col style="width:27.692308%"><col style="width:2.307692%">
         </colgroup>
         <tr>
           <td class="regulated-req-label">Продавец</td><td class="regulated-req-value">{{regulated.seller_name_display}}</td><td class="regulated-req-code">(2)</td>
@@ -1769,6 +1655,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td>{{customs_declaration_display}}</td>
       </tr>{{/regulated.rows}}
       {{^regulated.rows}}<tr><td class="regulated-center" colspan="16">Работы и материалы не указаны</td></tr>{{/regulated.rows}}
+    </tbody>
+    <tbody class="regulated-upd-total">
       <tr class="regulated-strong">
         <td colspan="8" class="regulated-total-label">Итого</td>
         <td class="regulated-money">{{regulated.subtotal_display}}</td>
@@ -1778,9 +1666,9 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
         <td class="regulated-money">{{regulated.total_with_tax_display}}</td>
         <td colspan="3"></td>
       </tr>
+      <tr><td class="regulated-upd-reference" colspan="16">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}}</td></tr>
     </tbody>
   </table>
-  <div class="regulated-page-footer">УПД № {{regulated.document_number_display}} от {{regulated.document_date_display}}</div>
 </div>
 <!-- AUTOSTOPCRM_PAGE_BREAK -->
 <div class="document-page regulated-page regulated-page--landscape regulated-page--upd">
@@ -2284,8 +2172,8 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
   </section>
   <section class="doc-totals">
     <div class="doc-totals__row"><span>Товары</span><span>{{totals.materials_display}}</span></div>
-    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Оплачено</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
-    <div class="doc-totals__row doc-totals__row--grand"><span>К оплате</span><span>{{totals.materials_display}}</span></div>
+    {{#totals.has_prepayment}}<div class="doc-totals__row"><span>Оплачено по заказ-наряду</span><span>{{totals.prepayment_display}}</span></div>{{/totals.has_prepayment}}
+    <div class="doc-totals__row doc-totals__row--grand"><span>К оплате по заказ-наряду ({{repair_order.payment_method_label}})</span><span>{{totals.due_display}}</span></div>
   </section>
   <section class="doc-section">
     <h2 class="doc-section__title">Условия продажи</h2>

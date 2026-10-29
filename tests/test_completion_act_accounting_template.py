@@ -203,8 +203,9 @@ class CompletionActAccountingTemplateTests(unittest.TestCase):
             self.assertNotIn(removed_fragment, template)
 
     def test_print_css_enforces_a4_logical_pages_and_repeatable_table_headers(self) -> None:
-        self.assertIn(
-            "@page completion-act-page { size: A4 portrait; margin: 9mm; }", PRINT_BASE_STYLES
+        self.assertRegex(
+            PRINT_BASE_STYLES,
+            r"@page completion-act-page\s*\{\s*size: A4 portrait;\s*margin: 9mm;",
         )
         self.assertIn(".completion-act__items thead", PRINT_BASE_STYLES)
         self.assertIn("display: table-header-group;", PRINT_BASE_STYLES)

@@ -54,6 +54,7 @@ from .change_feed_projection import cached_crm_source_signatures
 from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
 from .limited_io import read_bytes_limited, read_text_limited
+from .state_shape import validate_state_shape
 
 SLOW_STORAGE_OPERATION_MS = 250.0
 JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
@@ -1160,6 +1161,13 @@ class JsonStore:
                 payload,
                 message="state file JSON is too deeply nested",
             )
+            if not isinstance(payload, dict):
+                raise ValueError("state file must contain an object")
+            if preserve_corrupted:
+                # Full normalization/feed publication may write every domain.
+                # Read-only snapshots validate just their requested domains and
+                # must retain access when unrelated legacy data is malformed.
+                validate_state_shape(payload)
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError):
             if not preserve_corrupted:
                 raise StateFileCorruptedError("Файл состояния поврежден.") from None
@@ -1172,18 +1180,6 @@ class JsonStore:
             raise StateFileCorruptedError(
                 f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             ) from None
-        if not isinstance(payload, dict):
-            if not preserve_corrupted:
-                raise StateFileCorruptedError("Файл состояния поврежден.") from None
-            self._validated_state_signature = None
-            backup = self._preserve_corrupted_state()
-            self._log_warning(
-                "Файл состояния имеет некорректный корневой тип, резервная копия сохранена: %s",
-                backup.name,
-            )
-            raise StateFileCorruptedError(
-                f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
-            )
         if preserve_corrupted:
             self._validated_state_signature = self._state_signature()
         return payload

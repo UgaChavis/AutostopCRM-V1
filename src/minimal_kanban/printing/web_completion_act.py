@@ -866,7 +866,10 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         if (repairOrderPrintState.completionAct.editRevision !== editRevision) {
           throw new Error('Данные акта изменились во время подготовки печати. Повторите действие.');
         }
-        await operation.wait(runCompletionActBrowserPrint(preview));
+        const browserOperation = capturePrintOperation('', { currentContext: () =>
+          operation.current() && completionActEditorSessionIsCurrent(session)
+          && repairOrderPrintState.completionAct.editRevision === editRevision });
+        await operation.wait(runCompletionActBrowserPrint(preview, browserOperation));
         setStatus('Открыто системное окно печати акта.', false);
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;

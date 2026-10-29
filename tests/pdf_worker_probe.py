@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import threading
 import traceback
 from pathlib import Path
+from urllib.parse import quote
 
 WORKER_HTML = """
 <!doctype html>
@@ -25,11 +27,29 @@ def main() -> int:
 
     result: dict[str, bytes] = {}
     errors: list[str] = []
+    private_directory = tempfile.TemporaryDirectory(prefix="print-source-probe-")
+    private_path = Path(private_directory.name) / "synthetic-private.html"
+    private_path.write_text("PRIVATE_FILE_MARKER_DO_NOT_RENDER", encoding="utf-8")
+    # This remains below the subprocess input cap but exceeds setHtml's 2 MB
+    # percent-encoded URL limit. Local resources must remain inaccessible.
+    html = (
+        WORKER_HTML.replace(
+            "</body>",
+            f'<iframe src="{private_path.as_uri()}"></iframe>'
+            "<script>try {const r = new XMLHttpRequest();"
+            f"r.open('GET', {json.dumps(private_path.as_uri())}, false);r.send();"
+            "document.body.append(r.responseText);} catch(e) {"
+            "document.body.append(' LOCAL_FILE_BLOCKED');}</script></body>",
+        )
+        + "<!--"
+        + "я" * 400_000
+        + "-->"
+    )
 
     def render() -> None:
         try:
             # A plain-text fallback must not hide a broken native Qt path.
-            result["pdf"] = pdf.render_html_to_pdf_bytes(WORKER_HTML)
+            result["pdf"] = pdf.render_html_to_pdf_bytes(html)
         except Exception:
             errors.append(traceback.format_exc())
 
@@ -38,6 +58,7 @@ def main() -> int:
     # The production subprocess owns its 45-second deadline. The parent test
     # bounds this entire isolated probe, including startup and PDF inspection.
     worker.join()
+    private_directory.cleanup()
     if errors:
         sys.stderr.write("\n".join(errors))
         return 1
@@ -56,6 +77,7 @@ def main() -> int:
         "pages": document.pageCount(),
         "text": "\n".join(document.getAllText(page).text() for page in range(document.pageCount())),
         "source_file": str(Path(pdf.__file__).resolve()),
+        "html_encoded_bytes": len(quote(html)),
     }
     document.close()
     app.processEvents()

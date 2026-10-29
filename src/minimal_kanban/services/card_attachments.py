@@ -16,6 +16,7 @@ from io import BytesIO
 from pathlib import Path, PurePath
 from typing import Any
 
+from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import fromstring as safe_xml_fromstring
 
 from ..models import (
@@ -671,7 +672,12 @@ class CardAttachmentsMixin:
         prefix = content.lstrip()[:2048].lower()
         if b"<!doctype" in prefix or b"<!entity" in prefix:
             raise ET.ParseError("XML entities are not supported in attachments.")
-        return safe_xml_fromstring(content)
+        try:
+            return safe_xml_fromstring(content)
+        except DefusedXmlException as exc:
+            # Encodings and long prologs can bypass the cheap prefix check.
+            # Keep rejected XML on the same bounded extraction fallback path.
+            raise ET.ParseError("XML entities are not supported in attachments.") from exc
 
     def _read_attachment_zip_member(
         self,

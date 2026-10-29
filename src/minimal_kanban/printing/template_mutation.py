@@ -29,12 +29,12 @@ def delete_custom_template_state(
         # intended bytes are already durable, acknowledge the completed delete
         # instead of inviting a retry of an operation that already happened.
         if service._read_custom_templates() == templates:
-            service._sync_change_feed()
+            service._sync_change_feed(act_lock_held=True)
             return
         settings.default_template_ids[document_type] = record.id
         try:
             service._write_settings(settings, sync_change_feed=False)
         finally:
-            service._sync_change_feed()
+            service._sync_change_feed(act_lock_held=True)
         raise
-    service._sync_change_feed()
+    service._sync_change_feed(act_lock_held=True)

@@ -53,6 +53,8 @@ from .formatting import (
     _parse_decimal,
     _round_money,
 )
+from .input_validation import validate_print_order_input
+from .invoice_v5 import invoice_v5_context
 from .layout import COMPLETION_ACT_LAYOUT
 from .manual_documents import (
     ManualDocumentProfile,
@@ -89,8 +91,16 @@ from .money_validation import (
 )
 from .mutation_lock import print_state_mutation_boundary, print_state_mutation_locked
 from .pdf import PdfRenderError, render_html_to_pdf_bytes
+from .prepared_job import PreparedPrintJob
 from .printers import PrinterBackendError, list_printers, print_html
 from .repair_order_terms import warranty_terms_html
+from .store_validation import (
+    print_store_unavailable,
+    require_store_shape,
+    validate_inspection_form,
+    validate_settings_store,
+    validate_template_record,
+)
 from .template_engine import TemplateRenderError, render_template
 from .template_mutation import delete_custom_template_state
 
@@ -992,22 +1002,24 @@ def _safe_json_read(
     default: Any,
     max_bytes: int | None = None,
 ) -> Any:
-    if not path.exists():
-        return deepcopy(default)
     try:
-        return json.loads(
+        payload = json.loads(
             _read_print_json_text(path, max_bytes=max_bytes),
             parse_constant=_reject_json_constant,
         )
-    except (ValueError, OSError, UnicodeDecodeError, RecursionError):
+    except FileNotFoundError:
         return deepcopy(default)
+    except (ValueError, OSError, RecursionError) as exc:
+        raise print_store_unavailable(path) from exc
+    require_store_shape(isinstance(payload, type(default)), path)
+    return payload
 
 
 def _read_print_json_text(path: Path, *, max_bytes: int | None = None) -> str:
     limit = PRINT_JSON_FILE_MAX_BYTES if max_bytes is None else max_bytes
-    if path.stat().st_size > limit:
-        raise ValueError("print json file is too large")
     with path.open("rb") as handle:
+        if os.fstat(handle.fileno()).st_size > limit:
+            raise ValueError("print json file is too large")
         payload = handle.read(limit + 1)
     if len(payload) > limit:
         raise ValueError("print json file is too large")
@@ -1323,12 +1335,15 @@ class PrintModuleService(CompletionActCalculationMixin):
         self._builtin_templates = {item.id: item for item in builtin_template_records()}
         self._change_feed_store = change_feed_store
         self._logger = logger
+        self._print_feed_initialization_pending = False
+        self._backend_job_lock = threading.RLock()
         with print_state_mutation_boundary(self):
             self._migrate_legacy_completion_act_forms(process_locked=True)
             self._sync_change_feed(initialize=True, act_lock_held=True)
 
     @staticmethod
     def card_with_editor_overrides(card: Card, payload: dict) -> Card:
+        validate_print_order_input(payload)
         base = card.repair_order.to_storage_dict()
         overrides = RepairOrder.from_dict(payload).to_storage_dict()
         if not overrides.get("number") and base.get("number"):
@@ -1346,6 +1361,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         raw_payload = payload if isinstance(payload, dict) else {}
         parsed_payload = _parse_manual_document_text(request_text)
         merged_payload = _merge_manual_document_payload(parsed_payload, raw_payload)
+        validate_print_order_input(merged_payload, manual=True)
         client_payload_raw = merged_payload.get("client") or merged_payload.get("counterparty")
         client_payload = client_payload_raw if isinstance(client_payload_raw, dict) else {}
         client_name = _first_text(
@@ -1548,7 +1564,7 @@ class PrintModuleService(CompletionActCalculationMixin):
             },
         }
 
-    def export_documents_pdf(
+    def prepare_documents_pdf(
         self,
         card: Card,
         *,
@@ -1559,7 +1575,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         template_overrides: dict[str, str] | None = None,
         document_overrides: dict[str, Any] | None = None,
         print_settings: dict[str, Any] | None = None,
-    ) -> tuple[bytes, str, dict[str, Any]]:
+    ) -> PreparedPrintJob:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         selected_ids = self._normalized_document_ids(selected_document_ids)
@@ -1576,33 +1592,52 @@ class PrintModuleService(CompletionActCalculationMixin):
         require_valid_document_batch(document_payloads)
         combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
-        try:
-            pdf_bytes = render_html_to_pdf_bytes(
-                combined_html,
-                paper_size=settings.paper_size,
-                orientation=render_orientation,
-                title=f"AutoStop CRM {card.heading()}",
-                allow_plain_text_fallback=False,
-            )
-        except PdfRenderError as exc:
-            raise PrintModuleError("pdf_error", str(exc), status_code=500) from exc
         file_name = self._build_export_file_name(
             card,
             selected_ids,
             document_payloads=document_payloads,
         )
-        return (
-            pdf_bytes,
-            file_name,
-            {
-                "documents": [export_document_meta(payload) for payload in document_payloads],
-                "money_validation": aggregate_money_validation(document_payloads),
-                "paper_size": settings.paper_size,
-                "orientation": render_orientation,
-            },
+        return PreparedPrintJob(
+            html=combined_html,
+            paper_size=settings.paper_size,
+            orientation=render_orientation,
+            title=f"AutoStop CRM {card.heading()}",
+            file_name=file_name,
+            response_json=json.dumps(
+                {
+                    "documents": [export_document_meta(payload) for payload in document_payloads],
+                    "money_validation": aggregate_money_validation(document_payloads),
+                    "paper_size": settings.paper_size,
+                    "orientation": render_orientation,
+                },
+                ensure_ascii=False,
+                allow_nan=False,
+            ),
         )
 
-    def print_documents(
+    def backend_job(self):
+        """Reserve one backend job before taking CRM locks or allocating its HTML."""
+        return self._backend_job_lock
+
+    def export_documents_pdf(self, card: Card, **kwargs) -> tuple[bytes, str, dict[str, Any]]:
+        with self.backend_job():
+            return self.export_prepared_pdf(self.prepare_documents_pdf(card, **kwargs))
+
+    @staticmethod
+    def export_prepared_pdf(job: PreparedPrintJob) -> tuple[bytes, str, dict[str, Any]]:
+        try:
+            pdf_bytes = render_html_to_pdf_bytes(
+                job.html,
+                paper_size=job.paper_size,
+                orientation=job.orientation,
+                title=job.title,
+                allow_plain_text_fallback=False,
+            )
+        except PdfRenderError as exc:
+            raise PrintModuleError("pdf_error", str(exc), status_code=500) from exc
+        return pdf_bytes, job.file_name, json.loads(job.response_json)
+
+    def prepare_print_documents(
         self,
         card: Card,
         *,
@@ -1614,7 +1649,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         document_overrides: dict[str, Any] | None = None,
         print_settings: dict[str, Any] | None = None,
         printer_name: str = "",
-    ) -> dict[str, Any]:
+    ) -> PreparedPrintJob:
         order = repair_order or card.repair_order
         settings = self._merged_settings(print_settings)
         requested_printer = _normalize_text(printer_name or settings.default_printer, limit=120)
@@ -1637,18 +1672,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         require_valid_document_batch(document_payloads)
         combined_html = combined_document_html(document_payloads)
         render_orientation = _print_render_orientation(settings, selected_ids)
-        try:
-            print_html(
-                combined_html,
-                printer_name=requested_printer,
-                copies=settings.copies,
-                paper_size=settings.paper_size,
-                orientation=render_orientation,
-                title=f"AutoStop CRM {card.heading()}",
-            )
-        except PrinterBackendError as exc:
-            raise PrintModuleError("printer_unavailable", str(exc), status_code=503) from exc
-        return {
+        response = {
             "printer_name": requested_printer,
             "copies": settings.copies,
             "documents": [
@@ -1657,6 +1681,34 @@ class PrintModuleService(CompletionActCalculationMixin):
             ],
             "money_validation": aggregate_money_validation(document_payloads),
         }
+        return PreparedPrintJob(
+            html=combined_html,
+            paper_size=settings.paper_size,
+            orientation=render_orientation,
+            title=f"AutoStop CRM {card.heading()}",
+            printer_name=requested_printer,
+            copies=settings.copies,
+            response_json=json.dumps(response, ensure_ascii=False, allow_nan=False),
+        )
+
+    def print_documents(self, card: Card, **kwargs) -> dict[str, Any]:
+        with self.backend_job():
+            return self.print_prepared_documents(self.prepare_print_documents(card, **kwargs))
+
+    @staticmethod
+    def print_prepared_documents(job: PreparedPrintJob) -> dict[str, Any]:
+        try:
+            print_html(
+                job.html,
+                printer_name=job.printer_name,
+                copies=job.copies,
+                paper_size=job.paper_size,
+                orientation=job.orientation,
+                title=job.title,
+            )
+        except PrinterBackendError as exc:
+            raise PrintModuleError("printer_unavailable", str(exc), status_code=503) from exc
+        return json.loads(job.response_json)
 
     @print_state_mutation_locked
     def save_template(
@@ -1676,6 +1728,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         if not normalized_content:
             raise PrintModuleError("validation_error", "Шаблон не может быть пустым.")
         templates = self._read_custom_templates()
+        settings = self._read_settings()
         existing = next((item for item in templates if item.id == template_id), None)
         if existing is not None:
             document_policy.require_template_unlocked(existing.document_type)
@@ -1701,7 +1754,6 @@ class PrintModuleService(CompletionActCalculationMixin):
             )
             templates.append(record)
         self._write_custom_templates(templates)
-        settings = self._read_settings()
         templates = self._template_payloads_for_document_type(
             normalized_document_type, settings=settings
         )
@@ -1723,9 +1775,9 @@ class PrintModuleService(CompletionActCalculationMixin):
             source="custom",
         )
         templates = self._read_custom_templates()
+        settings = self._read_settings()
         templates.append(duplicate)
         self._write_custom_templates(templates)
-        settings = self._read_settings()
         templates = self._template_payloads_for_document_type(
             source.document_type, settings=settings
         )
@@ -1873,6 +1925,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         context["rounding_notes_html"] = rounding_notes_html(document, context)
         try:
             fragment = render_template(effective_template.content, context)
+            money_validation = document_money_validation(document, context, effective_template)
         except TemplateRenderError as exc:
             raise PrintModuleError("template_error", f"Шаблон поврежден: {exc}") from exc
         return {
@@ -1897,7 +1950,7 @@ class PrintModuleService(CompletionActCalculationMixin):
                 else ""
             ),
             "document_guard": invoice_guard(document.id, context),
-            "money_validation": document_money_validation(document, context, effective_template),
+            "money_validation": money_validation,
             "money_summary": document_money_summary(document, context),
             "calculation_mode": context.get("completion_act", {}).get("calculation_mode"),
             "calculation_fingerprint": context.get("completion_act", {}).get(
@@ -1963,29 +2016,32 @@ class PrintModuleService(CompletionActCalculationMixin):
 
     def _read_settings(self) -> PrintModuleSettings:
         raw = _safe_json_read(self._settings_path, default={})
+        validate_settings_store(raw, self._settings_path)
         return PrintModuleSettings.from_dict(raw)
 
     def _write_settings(
         self, settings: PrintModuleSettings, *, sync_change_feed: bool = True
     ) -> None:
+        payload = {**settings.to_dict(), "_tax_label_explicit": settings.tax_label_explicit}
+        if settings.service_profile_explicit_empty_fields:
+            payload["_service_profile_explicit_empty_fields"] = list(
+                settings.service_profile_explicit_empty_fields
+            )
         _safe_json_write(
             self._settings_path,
-            {**settings.to_dict(), "_tax_label_explicit": settings.tax_label_explicit},
+            payload,
         )
         if sync_change_feed:
-            self._sync_change_feed()
+            self._sync_change_feed(act_lock_held=True)
 
     def _read_custom_templates(self) -> list[PrintTemplateRecord]:
         raw = _safe_json_read(self._templates_path, default=[])
-        if not isinstance(raw, list):
-            return []
         templates: list[PrintTemplateRecord] = []
         seen_ids: set[str] = set()
         for item in raw:
-            record = PrintTemplateRecord.from_dict(item)
+            record = validate_template_record(item, self._templates_path)
             if (
-                record is not None
-                and not record.is_builtin
+                not record.is_builtin
                 and record.id not in self._builtin_templates
                 and record.id not in seen_ids
                 and record.document_type in SUPPORTED_PRINT_DOCUMENT_TYPES
@@ -2000,7 +2056,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         payload = [record.to_dict() for record in records if not record.is_builtin]
         _safe_json_write(self._templates_path, payload)
         if sync_change_feed:
-            self._sync_change_feed()
+            self._sync_change_feed(act_lock_held=True)
 
     def _templates_by_document_type(
         self, *, settings: PrintModuleSettings
@@ -2087,11 +2143,18 @@ class PrintModuleService(CompletionActCalculationMixin):
             return current
         merged = current.to_dict()
         service_profile = dict(current.service_profile.to_dict())
+        explicit_empty_fields = set(current.service_profile_explicit_empty_fields)
         if isinstance(payload.get("service_profile"), dict):
             for key, value in payload["service_profile"].items():
+                if key in service_profile and key != "company_name":
+                    if isinstance(value, str) and not value.strip():
+                        explicit_empty_fields.add(key)
+                    else:
+                        explicit_empty_fields.discard(key)
                 service_profile[str(key)] = value
         merged.update({key: value for key, value in payload.items() if key != "service_profile"})
         merged["service_profile"] = service_profile
+        merged["_service_profile_explicit_empty_fields"] = sorted(explicit_empty_fields)
         result = PrintModuleSettings.from_dict(merged)
         profile = payload.get("service_profile")
         result.tax_label_explicit = (
@@ -3254,23 +3317,21 @@ class PrintModuleService(CompletionActCalculationMixin):
 
     def _read_inspection_sheet_form_map(self) -> dict[str, dict[str, Any]]:
         raw = _safe_json_read(self._inspection_sheet_forms_path, default={})
-        if not isinstance(raw, dict):
-            return {}
         normalized: dict[str, dict[str, Any]] = {}
         for key, value in raw.items():
             card_id = _normalize_text(key, limit=128)
-            if not card_id or not isinstance(value, dict):
-                continue
+            require_store_shape(bool(card_id), self._inspection_sheet_forms_path)
+            validate_inspection_form(value, self._inspection_sheet_forms_path)
             normalized[card_id] = InspectionSheetFormData.from_dict(value).to_dict()
         return normalized
 
     def _write_inspection_sheet_form_map(self, payload: dict[str, dict[str, Any]]) -> None:
         _safe_json_write(self._inspection_sheet_forms_path, payload)
-        self._sync_change_feed()
+        self._sync_change_feed(act_lock_held=True)
 
     def reconcile_change_feed(self) -> None:
         with print_state_mutation_boundary(self):
-            self._sync_change_feed()
+            self._sync_change_feed(act_lock_held=True)
             self._reconcile_pending_completion_act_change_feed(lock_held=True)
 
     def _sync_completion_act_change_feed(self, record: CompletionActDraftData) -> None:
@@ -3328,14 +3389,31 @@ class PrintModuleService(CompletionActCalculationMixin):
     def _sync_change_feed(self, *, initialize: bool = False, act_lock_held: bool = False) -> None:
         if self._change_feed_store is None:
             return
+        initialize = initialize or self._print_feed_initialization_pending
+        try:
+            settings = self._read_settings().to_dict()
+            templates = [item.to_dict() for item in self._read_custom_templates()]
+            inspection_sheet_forms = self._read_inspection_sheet_form_map()
+        except PrintModuleError as exc:
+            if exc.code != "print_store_unavailable":
+                raise
+            # A partial snapshot cannot distinguish unreadable data from deletes.
+            # Defer publication, including startup, without blocking the CRM or
+            # reporting failure after an unrelated valid file was already saved.
+            self._print_feed_initialization_pending = initialize
+            if self._logger is not None:
+                self._logger.warning(
+                    "print_change_feed_deferred error=%s file=%s", exc.code, exc.details["file"]
+                )
+            return
         completion_act_forms = {}
         if initialize:
             records = self._read_completion_act_form_map(act_lock_held)
             completion_act_forms = {key: record.to_dict() for key, record in records.items()}
         projected = project_print_module(
-            settings=self._read_settings().to_dict(),
-            templates=[item.to_dict() for item in self._read_custom_templates()],
-            inspection_sheet_forms=self._read_inspection_sheet_form_map(),
+            settings=settings,
+            templates=templates,
+            inspection_sheet_forms=inspection_sheet_forms,
             completion_act_forms=completion_act_forms,
         )
         try:
@@ -3344,6 +3422,7 @@ class PrintModuleService(CompletionActCalculationMixin):
                 # takes a bounded full draft snapshot.
                 self._change_feed_store.initialize_external_projection("print_module", projected)
                 self._change_feed_store.reconcile_external_projection("print_module", projected)
+                self._print_feed_initialization_pending = False
             else:
                 self._change_feed_store.reconcile_external_projection_slice(
                     "print_module",
@@ -3625,7 +3704,24 @@ class PrintModuleService(CompletionActCalculationMixin):
                 warnings.append("Часть полей не заполнена, проверьте документ перед печатью.")
             if not base_line_items:
                 warnings.append("В документе нет работ и материалов.")
+        invoice_view = (
+            invoice_v5_context(
+                invoice_line_items,
+                service_kpp=settings.service_profile.kpp,
+                client_kpp=client_context["kpp"],
+                signer_position=settings.service_profile.signer_position,
+                signer_name=settings.service_profile.signer_name,
+                number_display=_display(order.number),
+                date_display=_date_only_display(order.date or order.opened_at),
+                amount_due_display=_money_display(invoice_amount_due),
+                vehicle=order.vehicle or card.vehicle_display(),
+                license_plate=order.license_plate,
+            )
+            if document.id == "invoice"
+            else {}
+        )
         return {
+            "invoice_v5": invoice_view,
             "money_tax_context": invoice_tax,
             "service": {
                 **settings.service_profile.to_dict(),

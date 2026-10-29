@@ -245,7 +245,10 @@ class PrintingMoneyApiCases:
         invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
         repair_order_html = preview["data"]["documents"][2]["pages"][0]["html"]
         self.assertIn("ООО Документ Без Карточки", invoice_html)
-        self.assertIn("40702810900000000001", invoice_html)
+        self.assertIn("2468000000", invoice_html)
+        self.assertIn("246801001", invoice_html)
+        self.assertIn("660000, г. Красноярск, ул. Тестовая, 1", invoice_html)
+        self.assertNotIn("40702810900000000001", invoice_html)
         self.assertIn("5 882,35", invoice_html)
         self.assertIn("Nissan X-Trail T32", repair_order_html)
 
@@ -328,7 +331,7 @@ class PrintingMoneyApiCases:
         invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
         self.assertIn("ООО Текстовый Документ", invoice_html)
         self.assertIn("2468003333", invoice_html)
-        self.assertIn("40702810900000000001", invoice_html)
+        self.assertNotIn("40702810900000000001", invoice_html)
         self.assertIn("4 000,00", invoice_html)
         self.assertIn("В том числе НДС", invoice_html)
 

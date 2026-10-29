@@ -10,7 +10,13 @@ from typing import Any
 from ..services.document_money import DocumentMoneyError, document_number, money, net_line_money
 from .errors import PrintModuleError
 from .formatting import _money_display, _parse_decimal
-from .template_money import money_template_fields, rounding_notes_present, template_uses_tax
+from .template_engine import template_value_paths
+from .template_money import (
+    money_template_fields,
+    rounding_notes_present,
+    template_money_sources,
+    template_uses_tax,
+)
 
 MONEY_DOCUMENTS = frozenset(
     {
@@ -29,14 +35,26 @@ TAX_DOCUMENTS = frozenset({"invoice", "invoice_factura", "upd", "completion_act"
 def document_money_validation(document: Any, context: dict, template: Any) -> dict:
     result = {"money_policy_version": 2, "valid": True, "errors": [], "warnings": []}
     errors, warnings = result["errors"], result["warnings"]
-    has_money, raw = (
-        money_template_fields(template.content) if not template.is_builtin else (False, False)
+    paths = (
+        tuple(template_value_paths(template.content, context)) if not template.is_builtin else ()
     )
+    has_money, raw = (
+        money_template_fields(template.content, paths=paths)
+        if not template.is_builtin
+        else (False, False)
+    )
+    sources = template_money_sources(paths)
+    invoice_money = document.id == "invoice" or "invoice" in sources
+    regulated_money = document.id in {"invoice_factura", "upd"} or "regulated" in sources
+    act_money = document.id == "completion_act" or "completion_act" in sources
+    if act_money and not context["completion_act"]:
+        errors.append(_unverified_template_issue())
+        act_money = False
     if raw:
         errors.append(_unverified_template_issue())
     tax = context["money_tax_context"]
     needs_tax = document.id in TAX_DOCUMENTS or (
-        not template.is_builtin and template_uses_tax(template.content)
+        not template.is_builtin and template_uses_tax(template.content, paths=paths)
     )
     if needs_tax and not tax["known"]:
         errors.append(
@@ -72,6 +90,39 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                 "grand",
             )
         }
+    if invoice_money:
+        total_fields.update(
+            {
+                f"invoice.{key}": context["invoice"][key]
+                for key in ("total", "vat", "prepayment", "amount_due")
+            }
+        )
+    if regulated_money:
+        total_fields.update(
+            {f"regulated.{key}": context["regulated"][key] for key in ("total_with_tax", "vat")}
+        )
+    if act_money:
+        total_fields.update(
+            {
+                f"completion_act.{key}": context["completion_act"]["totals"][key]
+                for key in ("gross", "vat")
+            }
+        )
+    if "totals" in sources:
+        total_fields.update(
+            {
+                f"totals.{key}": context["totals"][key]
+                for key in (
+                    "works",
+                    "materials",
+                    "cash_total",
+                    "noncash_total",
+                    "prepayment",
+                    "due",
+                    "grand",
+                )
+            }
+        )
     for field, value in total_fields.items():
         try:
             document_number(value, field=field)
@@ -83,8 +134,9 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
         []
         if document.id == "completion_act"
         and context["completion_act"].get("calculation_mode") == "manual_net"
+        and not (sources - {"completion_act"})
         else context["materials"]
-        if document.id == "parts_sale"
+        if document.id == "parts_sale" and not (sources - {"materials"})
         else context["works"] + context["materials"]
     )
     for index, row in enumerate(rows):
@@ -119,7 +171,7 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                     )
         except DocumentMoneyError as error:
             errors.append({"code": "number_out_of_range", "row": index + 1, "message": str(error)})
-    if document.id == "invoice":
+    if invoice_money:
         adjustment = context["invoice"]["settlement_rounding_adjustment"]
         if abs(adjustment) > Decimal("0.02"):
             errors.append(
@@ -130,7 +182,7 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                     "message": "Остаток к оплате не согласован с предоплатой.",
                 }
             )
-    if document.id == "completion_act":
+    if act_money:
         act = context["completion_act"]
         errors.extend(act.get("money_errors", []))
         if act.get("money_policy_version") == 1 or act.get("legacy_review_pending"):
@@ -154,10 +206,32 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
         if document.id in {"invoice_factura", "upd"}
         else context["completion_act"].get("items", [])
         if document.id == "completion_act"
+        else context["materials"]
+        if document.id == "parts_sale"
         else rows
     )
+    aggregate_rows = displayed_rows
+    additional_rows = []
+    if sources & {"totals", "future_repair_order_v2", "vehicle_acceptance_act"}:
+        additional_rows.extend(rows)
+    if "works" in sources:
+        additional_rows.extend(context["works"])
+    if sources & {"materials", "parts_sale", "parts_sale_items"}:
+        additional_rows.extend(context["materials"])
+    if "line_items" in sources:
+        additional_rows.extend(context["line_items"])
+    if invoice_money:
+        additional_rows.extend(context["invoice"]["line_items"])
+    if regulated_money:
+        additional_rows.extend(context["regulated"]["rows"])
+    if act_money:
+        additional_rows.extend(context["completion_act"].get("items", []))
+    displayed_rows = list({id(row): row for row in [*displayed_rows, *additional_rows]}.values())
+    act_row_ids = (
+        {id(row) for row in context["completion_act"].get("items", [])} if act_money else set()
+    )
     for index, row in enumerate(displayed_rows):
-        if document.id == "completion_act" and (
+        if id(row) in act_row_ids and (
             row.get("quantity_display") == "—"
             or row.get("price_without_vat") is None
             or row.get("sum_without_vat") is None
@@ -198,20 +272,26 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
             template.content,
             context,
             displayed_rows,
-            settlement=document.id == "invoice"
-            and context["invoice"]["has_settlement_rounding_adjustment"],
+            settlement=invoice_money and context["invoice"]["has_settlement_rounding_adjustment"],
+            aggregate_settlement=document.id == "invoice",
+            aggregate_rows=aggregate_rows,
         )
     ):
-        errors.append(_unverified_template_issue())
+        errors.append(_unverified_template_issue(rounding=True))
     result["valid"] = not errors
     return result
 
 
-def _unverified_template_issue() -> dict:
+def _unverified_template_issue(*, rounding: bool = False) -> dict:
     return {
         "code": "template_money_format_unverified",
         "field": "template",
-        "message": "Используйте денежные поля *_display и видимые примечания округления соответствующих строк.",
+        "message": (
+            "Примечания округления соответствующих строк и зачёта предоплаты должны быть видны при печати. "
+            "Если они уже добавлены, упростите их CSS: внешние стили, неизвестные условия, скрипты, обрезка и сложное позиционирование не позволяют подтвердить видимость."
+            if rounding
+            else "Используйте денежные поля *_display и видимые примечания округления соответствующих строк."
+        ),
     }
 
 

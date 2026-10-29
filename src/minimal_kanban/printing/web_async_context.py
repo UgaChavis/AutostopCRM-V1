@@ -35,7 +35,7 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
       invalidatePrintTemplateContext();
     }
 
-    function capturePrintOperation(scope = '', { card = true, workspace = true, mode = true, template = false, inspection = false, selection = false } = {}) {
+    function capturePrintOperation(scope = '', { card = true, workspace = true, mode = true, template = false, inspection = false, selection = false, currentContext = null } = {}) {
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const editing = state.cardEditingGeneration || 0;
@@ -59,7 +59,8 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
         && (!inspection || inspectionGeneration === printInspectionGeneration)
         && (!selection || (selectedIds === JSON.stringify(repairOrderPrintState.selectedDocumentIds || [])
           && activeDocumentId === repairOrderPrintState.activeDocumentId))
-        && (!scope || printOperationTokens.get(scope) === token);
+        && (!scope || printOperationTokens.get(scope) === token)
+        && (!currentContext || currentContext());
       const check = () => {
         if (current()) return;
         const error = new Error('');
@@ -143,15 +144,15 @@ PRINTING_BROWSER_LIFECYCLE_SCRIPT = r"""
         throw error;
       }
     }
-    function runRepairOrderBrowserPrint() {
+    function runRepairOrderBrowserPrint(operation = capturePrintOperation('', { selection: true })) {
       const selectedIds = repairOrderPrintSelectedIds();
       requirePrintMoneyValid(selectedIds.map((id) => repairOrderPrintState.previewByDocument?.[id]));
       if (selectedIds.length === 1 && selectedIds[0] === 'completion_act') {
         const preview = repairOrderPrintState.previewByDocument?.completion_act;
         const pages = Array.isArray(preview?.pages) ? preview.pages : [];
-        return runBrowserPrintHtml(completionActCombinedHtml(pages));
+        return runBrowserPrintHtml(completionActCombinedHtml(pages), operation);
       }
-      return runBrowserPrintHtml(repairOrderPrintCombinedHtml());
+      return runBrowserPrintHtml(repairOrderPrintCombinedHtml(), operation);
     }
 """
 
@@ -170,7 +171,7 @@ PRINTING_JOB_SCRIPT = r"""
         if (!refreshed || selectedIds.some((documentId) => !repairOrderPrintState.previewByDocument?.[documentId])) {
           throw new Error('Не удалось обновить документ перед печатью.');
         }
-        await operation.wait(runRepairOrderBrowserPrint());
+        await operation.wait(runRepairOrderBrowserPrint(operation));
         setStatus('Открыто системное окно печати браузера.', false);
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;

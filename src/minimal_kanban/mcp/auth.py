@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 import os
 from urllib.parse import urlsplit
 
@@ -9,6 +8,7 @@ from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, Re
 from mcp.server.transport_security import TransportSecuritySettings
 
 from ..deployment_security import bearer_token_is_strong, is_loopback_host
+from ..security_comparison import ascii_secret_matches
 from ..settings_models import derive_allowed_hosts, derive_allowed_origins
 from .oauth_provider import DEFAULT_KANBAN_SCOPES
 
@@ -113,7 +113,7 @@ class StaticBearerTokenVerifier:
 
     async def verify_token(self, token: str) -> AccessToken | None:
         candidate = str(token or "").strip()
-        if not self._token or not hmac.compare_digest(candidate, self._token):
+        if not self._token or not ascii_secret_matches(self._token, candidate):
             return None
         return AccessToken(
             token=candidate,

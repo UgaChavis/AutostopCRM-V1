@@ -279,6 +279,76 @@ function syncRepairOrderPrintPrinterState(){printEls.printButton.disabled=repair
 """
         )
 
+    def test_selection_change_cancels_prepared_iframe_without_print_or_fallback(self) -> None:
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:0,editingId:'A'};
+const repairOrderPrintState={workspace:{},mode:'card',isPrintRunning:false,
+  selectedDocumentIds:['repair_order'],activeDocumentId:'repair_order',
+  previewByDocument:{repair_order:{pages:[{html:'ORDER'}]},completion_act:{pages:[{html:'ACT'}]}}};
+const printEls={printButton:{disabled:false},printerSelect:{value:'Synthetic'}};
+const timers=new Map(),frames=[],statuses=[];let seq=0,prints=0,writes=0,browserBlocked=false;
+const window={setTimeout(fn){timers.set(++seq,fn);return seq;},clearTimeout(id){timers.delete(id);}};
+const document={body:{appendChild(){}},createElement(){
+  const frame={style:{},setAttribute(){},remove(){this.removed=true;}};
+  frame.contentWindow={focus(){},print(){if(browserBlocked)throw new Error('browser blocked');
+    prints++;frame.contentWindow.onafterprint();}};
+  frame.contentDocument={open(){},write(html){frame.html=html;},close(){frame.onload();}};
+  frames.push(frame);return frame;
+}};
+function fire(){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}
+function cancelPendingRepairOrderPrintPreview(){}
+async function refreshRepairOrderPrintPreview(){return true;}
+function repairOrderPrintSelectedIds(){return repairOrderPrintState.selectedDocumentIds;}
+function repairOrderPrintCombinedHtml(){return 'ORDER';}
+function completionActCombinedHtml(pages){return pages.map(page=>page.html).join('');}
+function repairOrderPrintRequestPayload(){return {card_id:state.editingId};}
+async function api(){writes++;return {printer_name:'Synthetic'};}
+function setStatus(message){statuses.push(message);}
+function syncRepairOrderPrintPrinterState(){printEls.printButton.disabled=repairOrderPrintState.isPrintRunning;}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + "\n".join(
+                function_source(name)
+                for name in (
+                    "runBrowserPrintHtml",
+                    "requirePrintMoneyValid",
+                    "runRepairOrderBrowserPrint",
+                    "runRepairOrderPrintJob",
+                    "runCompletionActBrowserPrint",
+                )
+            )
+            + """
+(async()=>{
+  for(const selected of ['repair_order','completion_act']){
+    for(const change of [()=>repairOrderPrintState.selectedDocumentIds=['invoice'],
+                         ()=>repairOrderPrintState.activeDocumentId='invoice']){
+      repairOrderPrintState.selectedDocumentIds=[selected];repairOrderPrintState.activeDocumentId=selected;
+      const pending=runRepairOrderPrintJob();await new Promise(resolve=>setImmediate(resolve));
+      assert.equal(frames.at(-1).html,selected==='completion_act'?'ACT':'ORDER');
+      change();fire();await pending;
+      assert.equal(prints,0,'stale selection must never reach frame.print');
+      assert.equal(writes,0,'stale browser printing must not fall back to a server printer');
+      assert.equal(frames.at(-1).removed,true);assert.equal(timers.size,0);
+      assert.equal(repairOrderPrintState.isPrintRunning,false);assert.equal(printEls.printButton.disabled,false);
+      assert.equal(printFrameCancellations.size,0);assert.deepEqual(statuses,[]);
+    }
+  }
+  repairOrderPrintState.selectedDocumentIds=['completion_act'];repairOrderPrintState.activeDocumentId='completion_act';
+  const current=runRepairOrderPrintJob();await new Promise(resolve=>setImmediate(resolve));fire();await current;
+  assert.equal(prints,1);assert.equal(writes,0);while(timers.size)fire();
+  const editor=runCompletionActBrowserPrint({pages:[{html:'EDITOR ACT'}]});
+  assert.equal(frames.at(-1).html,'EDITOR ACT');fire();await editor;
+  assert.equal(prints,2);while(timers.size)fire();
+  browserBlocked=true;
+  const fallback=runRepairOrderPrintJob();await new Promise(resolve=>setImmediate(resolve));fire();await fallback;
+  assert.equal(writes,1,'current browser failure retains server fallback');
+  assert.equal(repairOrderPrintState.isPrintRunning,false);assert.equal(printFrameCancellations.size,0);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+
     def test_print_job_releases_only_its_flag_and_preserves_current_fallback(self) -> None:
         self.run_javascript(
             """
@@ -311,6 +381,64 @@ function syncRepairOrderPrintPrinterState(){printEls.printButton.disabled=repair
   pending=Promise.resolve({});browserFailure=true;
   await runRepairOrderPrintJob();assert.equal(writes,1);assert.equal(repairOrderPrintState.isPrintRunning,false);
   assert.equal(printEls.printButton.disabled,false);assert.equal(statuses.length,1);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+
+    def test_completion_editor_close_or_edit_cancels_prepared_iframe(self) -> None:
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:0,editingId:'A'};
+const repairOrderPrintState={mode:'card',completionAct:{generation:1,cardId:'A',editRevision:0,
+  preview:{pages:[{html:'ACT'}],money_validation:{valid:true}}}};
+let modalOpen=true,seq=0,prints=0;const timers=new Map(),frames=[],statuses=[];
+const printEls={completionActModal:{classList:{contains:()=>modalOpen}},
+  completionActPrintButton:{disabled:false},completionActFooterMeta:{textContent:''}};
+const window={setTimeout(fn){timers.set(++seq,fn);return seq;},clearTimeout(id){timers.delete(id);}};
+const document={body:{appendChild(){}},createElement(){
+  const frame={style:{},setAttribute(){},remove(){this.removed=true;}};
+  frame.contentWindow={focus(){},print(){prints++;frame.contentWindow.onafterprint();}};
+  frame.contentDocument={open(){},write(html){frame.html=html;},close(){frame.onload();}};
+  frames.push(frame);return frame;
+}};
+function fire(){const [id,fn]=timers.entries().next().value;timers.delete(id);fn();}
+function completionActActiveCardId(){return state.editingId;}
+function invalidateCompletionActEditorSession(){throw new Error('unexpected card change');}
+function cancelPendingCompletionActPreview(){}
+async function refreshCompletionActPreview(){return repairOrderPrintState.completionAct.preview;}
+function completionActCombinedHtml(pages){return pages.map(page=>page.html).join('');}
+function setStatus(message){statuses.push(message);}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + "\n".join(
+                function_source(name)
+                for name in (
+                    "completionActEditorSessionSnapshot",
+                    "completionActEditorSessionIsCurrent",
+                    "runBrowserPrintHtml",
+                    "requirePrintMoneyValid",
+                    "runCompletionActBrowserPrint",
+                    "printCompletionAct",
+                )
+            )
+            + """
+(async()=>{
+  for(const change of [()=>{modalOpen=false;},
+                       ()=>repairOrderPrintState.completionAct.generation++,
+                       ()=>repairOrderPrintState.completionAct.editRevision++]){
+    modalOpen=true;printEls.completionActPrintButton.disabled=false;
+    const pending=printCompletionAct();await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(frames.at(-1).html,'ACT');assert.equal(printEls.completionActPrintButton.disabled,true);
+    change();fire();await pending;
+    assert.equal(prints,0,'obsolete editor content must never reach frame.print');
+    assert.equal(frames.at(-1).removed,true);assert.equal(timers.size,0);
+    assert.equal(printFrameCancellations.size,0);assert.deepEqual(statuses,[]);
+  }
+  assert.equal(printEls.completionActPrintButton.disabled,false,'editing must not leave the button blocked');
+  const normal=printCompletionAct();await new Promise(resolve=>setImmediate(resolve));fire();await normal;
+  assert.equal(prints,1);assert.equal(statuses.length,1);assert.equal(printEls.completionActPrintButton.disabled,false);
+  while(timers.size)fire();assert.equal(frames.at(-1).removed,true);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -138,9 +140,48 @@ class PdfWorkerContractTests(unittest.TestCase):
             self._assert_fallback_content(self._render_in_worker(allow_fallback=True))
             renderer.assert_not_called()
 
+    def test_parent_cleans_child_artifacts_on_success_failure_and_timeout(self):
+        content = b"%PDF-1.4 synthetic"
+        for outcome in ("success", "failure", "timeout"):
+            with self.subTest(outcome=outcome):
+                observed = {}
+
+                def run(*args, **kwargs):
+                    directory = Path(kwargs["env"][pdf._PDF_WORKER_TEMP_ENV])
+                    observed["directory"] = directory
+                    if os.name != "nt":
+                        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+                    (directory / "abandoned.html").write_text("Private synthetic HTML")
+                    (directory / "abandoned.pdf").write_bytes(content)
+                    if outcome == "timeout":
+                        raise subprocess.TimeoutExpired("qt", 45)
+                    return subprocess.CompletedProcess(
+                        args[0],
+                        0 if outcome == "success" else 1,
+                        stdout=json.dumps(
+                            {
+                                "content_base64": base64.b64encode(content).decode("ascii"),
+                            }
+                        ).encode("utf-8"),
+                        stderr=b"Synthetic error" if outcome == "failure" else b"",
+                    )
+
+                with patch.object(pdf.subprocess, "run", side_effect=run):
+                    if outcome == "success":
+                        self.assertEqual(pdf._render_qt_pdf_in_subprocess(WORKER_HTML), content)
+                    else:
+                        exception = (
+                            subprocess.TimeoutExpired
+                            if outcome == "timeout"
+                            else pdf.PdfRenderError
+                        )
+                        with self.assertRaises(exception):
+                            pdf._render_qt_pdf_in_subprocess(WORKER_HTML)
+                self.assertFalse(observed["directory"].exists())
+
 
 class PdfWorkerNativeIntegrationTests(unittest.TestCase):
-    def test_real_worker_renders_readable_qt_pdf_without_plain_text_fallback(self):
+    def test_real_worker_renders_large_qt_pdf_without_plain_text_fallback_or_file_access(self):
         environment = dict(
             os.environ,
             PYTHONUTF8="1",
@@ -182,6 +223,9 @@ class PdfWorkerNativeIntegrationTests(unittest.TestCase):
             text = " ".join(report["text"].split())
             self.assertIn("Счет на оплату", text)
             self.assertIn("Владимир Регин", text)
+            self.assertIn("LOCAL_FILE_BLOCKED", text)
+            self.assertNotIn("PRIVATE_FILE_MARKER_DO_NOT_RENDER", text)
+            self.assertGreater(report["html_encoded_bytes"], 2 * 1024 * 1024)
             self.assertNotIn("body { color", text)
             self.assertEqual(
                 report["source_file"], str((ROOT / "src/minimal_kanban/printing/pdf.py").resolve())

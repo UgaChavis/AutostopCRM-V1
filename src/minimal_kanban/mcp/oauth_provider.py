@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from ..config import get_app_data_dir, get_mcp_oauth_state_file
 from ..json_safety import reject_deeply_nested_json
+from ..security_comparison import ascii_secret_matches
 from ..storage.file_lock import ProcessFileLock
 from ..storage.limited_io import read_text_limited
 
@@ -135,7 +136,7 @@ def verify_oauth_audit_assertion(
         payload=payload,
     )
     supplied = str(assertion or "").strip()
-    return bool(expected and supplied) and hmac.compare_digest(expected, supplied)
+    return bool(expected and supplied) and ascii_secret_matches(expected, supplied)
 
 
 class OwnerAuthorizationCode(AuthorizationCode):
@@ -249,7 +250,7 @@ class ProductionOAuthAuthorizationServerProvider(
         if not client.client_id:
             raise AuthorizeError("invalid_request", "client_id is required")
         resource = str(params.resource or self._resource_url).strip().rstrip("/")
-        if not hmac.compare_digest(resource, self._resource_url):
+        if not ascii_secret_matches(self._resource_url, resource):
             raise AuthorizeError("invalid_request", "resource does not match the MCP audience")
         scopes = self._validated_complete_scopes(params.scopes or client.scope)
         if not str(params.code_challenge or "").strip():
@@ -521,9 +522,9 @@ class ProductionOAuthAuthorizationServerProvider(
 
     async def load_access_token(self, token: str) -> OwnerAccessToken | AccessToken | None:
         secret = str(token or "").strip()
-        if not secret:
+        if not secret or not secret.isascii():
             return None
-        if self._legacy_bearer_token and hmac.compare_digest(secret, self._legacy_bearer_token):
+        if self._legacy_bearer_token and ascii_secret_matches(self._legacy_bearer_token, secret):
             return AccessToken(
                 token=secret,
                 client_id="minimal-kanban-legacy",
@@ -562,7 +563,7 @@ class ProductionOAuthAuthorizationServerProvider(
                         if not isinstance(payload, dict):
                             continue
                         same_secret = key == self._token_digest(token.token)
-                        same_family = family_id and hmac.compare_digest(
+                        same_family = family_id and ascii_secret_matches(
                             str(payload.get("family_id") or ""), family_id
                         )
                         if same_secret or same_family:

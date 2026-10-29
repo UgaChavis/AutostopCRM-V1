@@ -10,7 +10,7 @@ import uuid
 from collections import Counter
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from logging import Logger
 from pathlib import Path
 from typing import Any
@@ -72,7 +72,6 @@ from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CARD,
     REPAIR_ORDER_PAYMENT_METHOD_CASH,
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
-    REPAIR_ORDER_PAYMENTS_LIMIT,
     REPAIR_ORDER_STATUS_CLOSED,
     REPAIR_ORDER_STATUS_OPEN,
     REPAIR_ORDER_STATUS_READY,
@@ -99,7 +98,12 @@ from ..storage.audit_archive import (
     details_need_archive,
     hydrate_audit_event_details,
 )
-from ..storage.json_store import JsonStore, StateWriteConflictError, default_columns
+from ..storage.json_store import (
+    JsonStore,
+    StateFileCorruptedError,
+    StateWriteConflictError,
+    default_columns,
+)
 from ..storage.limited_io import read_text_limited
 from ..vehicle_profile import (
     VEHICLE_COMPACT_FIELDS,
@@ -149,6 +153,7 @@ from .card_service_repair_order_search import (
 from .card_service_repair_order_search import (
     CardServiceRepairOrderSearchMixin,
 )
+from .cash_amounts import cash_payment_minor, validated_cash_amount_minor
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
@@ -164,6 +169,12 @@ from .ready_column import (
     ensure_ready_column,
 )
 from .repair_order_artifacts import RepairOrderArtifactsMixin
+from .repair_order_input import (
+    invalid_order_input,
+    validate_order_input,
+    validate_order_payments,
+    validate_order_rows,
+)
 from .repair_order_number_audit import build_repair_order_number_audit
 from .repair_order_text_renderer import render_bounded_repair_order_text
 from .snapshot_service import SnapshotService
@@ -3890,15 +3901,23 @@ class CardService(
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
     def export_repair_order_print_pdf(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            if self._is_manual_print_payload(payload):
-                try:
-                    profile = self._manual_print_profile(payload)
-                    pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
-                        profile.card,
-                        repair_order=profile.card.repair_order,
-                        client=profile.client,
+        payload = payload or {}
+        profile = None
+        try:
+            with self._print_module.backend_job():
+                with self._lock:
+                    if self._is_manual_print_payload(payload):
+                        profile = self._manual_print_profile(payload)
+                        preview_card, linked_client = profile.card, profile.client
+                    else:
+                        bundle = self._store.read_bundle()
+                        card = self._find_card(bundle["cards"], payload.get("card_id"))
+                        preview_card = self._print_module_card(card, payload)
+                        linked_client = self._print_module_client(bundle, preview_card)
+                    job = self._print_module.prepare_documents_pdf(
+                        preview_card,
+                        repair_order=preview_card.repair_order,
+                        client=linked_client,
                         selected_document_ids=payload.get("selected_document_ids"),
                         selected_template_ids=payload.get("selected_template_ids")
                         if isinstance(payload.get("selected_template_ids"), dict)
@@ -3911,63 +3930,47 @@ class CardService(
                         if isinstance(payload.get("print_settings"), dict)
                         else {},
                     )
-                    return {
-                        "file_name": file_name,
-                        "mime_type": "application/pdf",
-                        "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
-                        "size_bytes": len(pdf_bytes),
-                        "meta": {
-                            **meta,
-                            "source": "manual_document",
-                            "document_without_card": True,
-                            "request_text": profile.request_text,
-                        },
-                    }
-                except PrintModuleError as exc:
-                    self._fail(
-                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
-                    )
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            preview_card = self._print_module_card(card, payload)
-            linked_client = self._print_module_client(bundle, preview_card)
-            try:
-                pdf_bytes, file_name, meta = self._print_module.export_documents_pdf(
-                    preview_card,
-                    repair_order=preview_card.repair_order,
-                    client=linked_client,
-                    selected_document_ids=payload.get("selected_document_ids"),
-                    selected_template_ids=payload.get("selected_template_ids")
-                    if isinstance(payload.get("selected_template_ids"), dict)
-                    else {},
-                    template_overrides=payload.get("template_overrides")
-                    if isinstance(payload.get("template_overrides"), dict)
-                    else {},
-                    document_overrides=self._print_document_overrides(payload),
-                    print_settings=payload.get("print_settings")
-                    if isinstance(payload.get("print_settings"), dict)
-                    else {},
-                )
-                return {
-                    "file_name": file_name,
-                    "mime_type": "application/pdf",
-                    "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
-                    "size_bytes": len(pdf_bytes),
-                    "meta": meta,
-                }
-            except PrintModuleError as exc:
-                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+                # The job owns the checked HTML and options, with no live model references.
+                # Slow image loading / Qt rendering must not hold the whole CRM lock.
+                pdf_bytes, file_name, meta = self._print_module.export_prepared_pdf(job)
+        except PrintModuleError as exc:
+            self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+        if profile is not None:
+            meta = {
+                **meta,
+                "source": "manual_document",
+                "document_without_card": True,
+                "request_text": profile.request_text,
+            }
+        return {
+            "file_name": file_name,
+            "mime_type": "application/pdf",
+            "content_base64": base64.b64encode(pdf_bytes).decode("ascii"),
+            "size_bytes": len(pdf_bytes),
+            "meta": meta,
+        }
 
     def print_repair_order_documents(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            if self._is_manual_print_payload(payload):
-                try:
-                    profile = self._manual_print_profile(payload)
-                    result = self._print_module.print_documents(
-                        profile.card,
-                        repair_order=profile.card.repair_order,
-                        client=profile.client,
+        payload = payload or {}
+        manual = self._is_manual_print_payload(payload)
+        try:
+            with self._print_module.backend_job():
+                with self._lock:
+                    if manual:
+                        profile = self._manual_print_profile(payload)
+                        preview_card, linked_client = profile.card, profile.client
+                    else:
+                        bundle = self._store.read_bundle()
+                        card = self._find_card(bundle["cards"], payload.get("card_id"))
+                        actor_name, source = self._audit_identity(payload, default_source="ui")
+                        audit_number = card.repair_order.number
+                        preview_card = self._print_module_card(card, payload)
+                        linked_client = self._print_module_client(bundle, preview_card)
+                    card_id = preview_card.id
+                    job = self._print_module.prepare_print_documents(
+                        preview_card,
+                        repair_order=preview_card.repair_order,
+                        client=linked_client,
                         selected_document_ids=payload.get("selected_document_ids"),
                         selected_template_ids=payload.get("selected_template_ids")
                         if isinstance(payload.get("selected_template_ids"), dict)
@@ -3981,65 +3984,56 @@ class CardService(
                         else {},
                         printer_name=str(payload.get("printer_name", "") or ""),
                     )
-                    return {
-                        **result,
-                        "card_id": profile.card.id,
-                        "source": "manual_document",
-                    }
-                except PrintModuleError as exc:
-                    self._fail(
-                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
-                    )
-            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            events = bundle["events"]
-            actor_name, source = self._audit_identity(payload, default_source="ui")
-            preview_card = self._print_module_card(card, payload)
-            linked_client = self._print_module_client(bundle, preview_card)
-            try:
-                result = self._print_module.print_documents(
-                    preview_card,
-                    repair_order=preview_card.repair_order,
-                    client=linked_client,
-                    selected_document_ids=payload.get("selected_document_ids"),
-                    selected_template_ids=payload.get("selected_template_ids")
-                    if isinstance(payload.get("selected_template_ids"), dict)
-                    else {},
-                    template_overrides=payload.get("template_overrides")
-                    if isinstance(payload.get("template_overrides"), dict)
-                    else {},
-                    document_overrides=self._print_document_overrides(payload),
-                    print_settings=payload.get("print_settings")
-                    if isinstance(payload.get("print_settings"), dict)
-                    else {},
-                    printer_name=str(payload.get("printer_name", "") or ""),
-                )
+                result = self._print_module.print_prepared_documents(job)
+        except PrintModuleError as exc:
+            self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+        if manual:
+            return {**result, "card_id": card_id, "source": "manual_document"}
+        try:
+            with self._lock:
+                # Record the completed job against the latest state. The card may
+                # have been edited or deleted while the printer was working.
+                bundle = self._read_bundle_for_update()
+                events = bundle["events"]
                 self._append_event(
                     events,
                     actor_name=actor_name,
                     source=source,
                     action="repair_order_printed",
                     message=f"{actor_name} отправил заказ-наряд на печать",
-                    card_id=card.id,
+                    card_id=card_id,
                     details={
-                        "number": card.repair_order.number,
-                        "selected_document_ids": result.get("selected_document_ids", []),
+                        "number": audit_number,
+                        "selected_document_ids": [
+                            document["id"] for document in result["documents"]
+                        ],
                     },
                 )
                 self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    cashboxes=bundle["cashboxes"],
-                    cash_transactions=bundle["cash_transactions"],
-                    events=events,
+                    bundle, columns=bundle["columns"], cards=bundle["cards"], events=events
                 )
-                return {
-                    **result,
-                    "card_id": preview_card.id,
-                }
-            except PrintModuleError as exc:
-                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+        except Exception as exc:
+            # Backend success is known. Never suggest repeating an already-spooled
+            # document merely because its audit commit could not be confirmed.
+            self._logger.exception("print_audit_commit_unconfirmed")
+            code = (
+                "state_file_corrupted"
+                if isinstance(exc, StateFileCorruptedError)
+                else "internal_error"
+            )
+            status_code = 503 if isinstance(exc, StateFileCorruptedError) else 500
+            self._fail(
+                exc.code if isinstance(exc, ServiceError) else code,
+                "Документ отправлен на принтер, но запись журнала не подтверждена. "
+                "Не повторяйте печать: это может создать дубликат документа.",
+                status_code=exc.status_code if isinstance(exc, ServiceError) else status_code,
+                details={
+                    **(exc.details if isinstance(exc, ServiceError) else {}),
+                    "printing_completed": True,
+                    "card_id": card_id,
+                },
+            )
+        return {**result, "card_id": card_id}
 
     def save_print_template(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -4125,7 +4119,10 @@ class CardService(
         repair_order_payload = payload.get("repair_order")
         if not isinstance(repair_order_payload, dict):
             return Card.from_dict(card.to_storage_dict())
-        return self._print_module.card_with_editor_overrides(card, repair_order_payload)
+        try:
+            return self._print_module.card_with_editor_overrides(card, repair_order_payload)
+        except PrintModuleError as exc:
+            self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
     def _is_manual_print_payload(self, payload: dict[str, Any]) -> bool:
         return bool(
@@ -6608,7 +6605,9 @@ class CardService(
         if previous_order.active_correction:
             self._ensure_correction_payments_append_only(card, previous_order, order)
         if previous_order.active_correction:
-            self._ensure_correction_inventory_materials_unchanged(previous_order, order)
+            self._ensure_correction_inventory_materials_unchanged(
+                previous_order, order, operation=operation
+            )
         self._ensure_repair_order_number_update_allowed(
             card,
             cards,
@@ -6990,25 +6989,6 @@ class CardService(
         order.active_correction = {}
         return order
 
-    def _ensure_correction_inventory_materials_unchanged(
-        self, previous_order: RepairOrder, order: RepairOrder
-    ) -> None:
-        next_by_id = {row.id: row for row in order.materials}
-        for previous in previous_order.materials:
-            if not previous.inventory_movement_id:
-                continue
-            current = next_by_id.get(previous.id)
-            if current is None or current.quantity != previous.quantity:
-                self._fail(
-                    "inventory_material_movement_active",
-                    "Складской материал сначала нужно вернуть отдельной складской операцией.",
-                    status_code=409,
-                    details={
-                        "row_id": previous.id,
-                        "inventory_movement_id": previous.inventory_movement_id,
-                    },
-                )
-
     def _repair_order_payload_with_immutable_number(self, card: Card, value: Any) -> Any:
         previous_number = normalize_text(card.repair_order.number, default="", limit=40)
         if not previous_number or not isinstance(value, dict):
@@ -7338,6 +7318,13 @@ class CardService(
             )
 
         next_cash_link_counts = Counter(payment.cash_transaction_id for payment in next_payments)
+        new_amounts = {
+            id(payment): cash_payment_minor(payment.amount)
+            for payment in next_payments
+            if payment.id not in correction_existing_ids
+            and payment.cashbox_id
+            and self._find_cash_transaction(cash_transactions, payment.cash_transaction_id) is None
+        }
         for payment in next_payments:
             if payment.id in correction_existing_ids:
                 continue
@@ -7372,7 +7359,7 @@ class CardService(
                 id=str(uuid.uuid4()),
                 cashbox_id=cashbox.id,
                 direction="income",
-                amount_minor=normalize_money_minor(payment.amount, minimum=1),
+                amount_minor=new_amounts[id(payment)],
                 note=self._validated_cash_transaction_note(
                     payment.note or f"Заказ-наряд №{next_order.number or '-'}"
                 ),
@@ -7859,7 +7846,14 @@ class CardService(
                 "Поле repair_order должно быть объектом.",
                 details={"field": "repair_order"},
             )
-        return RepairOrder.from_dict(value)
+        try:
+            order = RepairOrder.from_dict(value)
+            # All derived totals must be representable before the durable save,
+            # including overflow from otherwise valid individual row values.
+            order.to_dict()
+            return order
+        except DecimalException:
+            raise invalid_order_input("repair_order") from None
 
     def _validated_repair_order_patch(self, value) -> dict[str, Any]:
         if not isinstance(value, dict):
@@ -7958,6 +7952,7 @@ class CardService(
             canonical_patch[canonical_name] = field_value
             canonical_sources.setdefault(canonical_name, []).append(field_name)
         patch = canonical_patch
+        validate_order_input(patch)
         if "works" in patch:
             patch["works"] = self._validated_repair_order_rows(
                 patch["works"], field_name="repair_order.works"
@@ -7984,19 +7979,17 @@ class CardService(
         return patch
 
     def _validated_repair_order_rows(self, value, *, field_name: str) -> list[dict[str, str]]:
-        if not isinstance(value, list):
-            self._fail(
-                "validation_error",
-                f"Поле {field_name} должно быть массивом строк заказ-наряда.",
-                details={"field": field_name},
-            )
+        validate_order_rows(value, field=field_name)
         prepared_rows: list[dict[str, Any]] = []
         for item in value:
             prepared = dict(item) if isinstance(item, dict) else {}
             if not normalize_text(prepared.get("id"), default="", limit=80):
                 prepared["id"] = str(uuid.uuid4())
             prepared_rows.append(prepared)
-        rows = [row.to_dict() for row in normalize_repair_order_rows(prepared_rows)]
+        try:
+            rows = [row.to_dict() for row in normalize_repair_order_rows(prepared_rows)]
+        except DecimalException:
+            raise invalid_order_input(field_name) from None
         row_ids = [row["id"] for row in rows]
         if len(row_ids) != len(set(row_ids)):
             self._fail(
@@ -8016,18 +8009,7 @@ class CardService(
         return [tag.to_dict() for tag in normalize_repair_order_tags(value)]
 
     def _validated_repair_order_payments(self, value, *, field_name: str) -> list[dict[str, str]]:
-        if not isinstance(value, list):
-            self._fail(
-                "validation_error",
-                f"Поле {field_name} должно быть массивом оплат заказ-наряда.",
-                details={"field": field_name},
-            )
-        if len(value) > REPAIR_ORDER_PAYMENTS_LIMIT:
-            self._fail(
-                "validation_error",
-                f"Поле {field_name} превышает предел {REPAIR_ORDER_PAYMENTS_LIMIT} оплат.",
-                details={"field": field_name, "limit": REPAIR_ORDER_PAYMENTS_LIMIT},
-            )
+        validate_order_payments(value, field=field_name)
         payments = normalize_repair_order_payments(value)
         for index, payment in enumerate(payments, start=1):
             if payment.amount_value() <= 0:
@@ -10104,21 +10086,7 @@ class CardService(
         return normalize_text(value, default="", limit=240)
 
     def _validated_cash_amount_minor(self, payload: dict) -> int:
-        raw_value = payload.get("amount_minor")
-        if raw_value in (None, ""):
-            raw_value = payload.get("amount")
-        if raw_value in (None, ""):
-            self._fail(
-                "validation_error", "Нужно передать сумму операции.", details={"field": "amount"}
-            )
-        amount_minor = normalize_money_minor(raw_value)
-        if amount_minor < 1:
-            self._fail(
-                "validation_error",
-                "Сумма операции должна быть больше нуля.",
-                details={"field": "amount"},
-            )
-        return amount_minor
+        return validated_cash_amount_minor(payload)
 
     def _fail(
         self,

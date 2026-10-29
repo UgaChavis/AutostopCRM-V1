@@ -365,7 +365,7 @@ class PrintingServiceTests(unittest.TestCase):
         )
         invoice_html = invoice_document["pages"][0]["html"]
         repair_order_html = repair_order_document["pages"][0]["html"]
-        self.assertIn("Счет на оплату", invoice_html)
+        self.assertIn("Счёт на оплату", invoice_html)
         self.assertIn("ООО Ручной Клиент", invoice_html)
         self.assertIn("2468000000", invoice_html)
         self.assertIn("Toyota Land Cruiser 200", repair_order_html)
@@ -526,7 +526,7 @@ class PrintingServiceTests(unittest.TestCase):
             client=profile.client,
         )
 
-        self.assertIn("<td>Налоговый режим</td><td>Без НДС</td>", html)
+        self.assertIn('<td colspan="2">Без НДС</td>', html)
         self.assertNotIn("В том числе НДС (5%)", html)
         self.assertEqual(context["invoice"]["vat"], Decimal("0.00"))
         self.assertFalse(context["invoice"]["has_vat"])
@@ -633,10 +633,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn(
             "контрактные", "".join(page["html"] for page in preview["documents"][0]["pages"])
         )
-        self.assertIn("Всего к оплате", preview["documents"][1]["pages"][0]["html"])
-        self.assertIn("Предоплата", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("К оплате", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("Учтённая предоплата", preview["documents"][1]["pages"][0]["html"])
         self.assertIn("15 235,29", preview["documents"][1]["pages"][0]["html"])
-        self.assertIn("Сумма прописью", preview["documents"][1]["pages"][0]["html"])
+        self.assertIn("К оплате прописью", preview["documents"][1]["pages"][0]["html"])
         self.assertEqual(preview["documents"][0]["missing_fields"], [])
 
     def test_technical_repair_order_contains_only_operational_details(self) -> None:
@@ -1034,24 +1034,24 @@ class PrintingServiceTests(unittest.TestCase):
 
         document = preview["documents"][0]
         html = document["pages"][0]["html"]
-        self.assertIn("Счет на оплату", html)
-        self.assertIn('class="doc-brand-mark"', html)
+        self.assertIn("Счёт на оплату", html)
+        self.assertIn('class="document-page invoice-v5"', html)
         self.assertIn("БИК", html)
-        self.assertIn("Тел. 288-14-15", html)
-        self.assertIn("Внимание! Оплата данного счета", html)
-        self.assertIn("Ед. изм.", html)
+        self.assertIn("288-14-15", html)
+        self.assertNotIn("Внимание! Оплата данного счета", html)
+        self.assertIn("Количество", html)
         self.assertIn("В том числе НДС (5%)", html)
-        self.assertIn("Сумма прописью", html)
-        self.assertIn("Всего к оплате", html)
-        self.assertIn("Предоплата", html)
+        self.assertIn("К оплате прописью", html)
+        self.assertIn("К оплате", html)
+        self.assertIn("Учтённая предоплата", html)
         self.assertIn("2 941,17", html)
         self.assertIn("16 235,29", html)
         self.assertIn("1 000,00", html)
         self.assertIn("15 235,29", html)
         self.assertIn("773,12", html)
         self.assertNotIn("13 800,00", html)
-        self.assertIn("Руководитель", html)
-        self.assertIn("Бухгалтер", html)
+        self.assertIn(self.service._read_settings().service_profile.signer_position, html)
+        self.assertNotIn("Бухгалтер", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
 
@@ -1272,16 +1272,15 @@ class PrintingServiceTests(unittest.TestCase):
 
         document = preview["documents"][0]
         html = document["pages"][0]["html"]
-        self.assertIn("Реквизиты покупателя", html)
+        self.assertIn("Покупатель", html)
         self.assertIn("ООО Контрагент", html)
         self.assertIn("2468000000", html)
         self.assertIn("246801001", html)
-        self.assertIn("40702810900000000001", html)
-        self.assertIn("Тест Банк", html)
+        self.assertNotIn("40702810900000000001", html)
+        self.assertNotIn("Тест Банк", html)
         self.assertIn("660000, г. Красноярск, ул. Тестовая, 1", html)
-        self.assertIn("Иванов Иван", html)
-        self.assertIn("Директор", html)
-        self.assertIn("info@example.com", html)
+        self.assertNotIn("Иванов Иван", html)
+        self.assertNotIn("info@example.com", html)
         self.assertNotIn("Реквизиты клиента не указаны", html)
         self.assertNotIn("undefined", html)
         self.assertNotIn("NaN", html)
@@ -2094,12 +2093,12 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>393 582,35", html)
+        self.assertIn("Сумма счёта</td><td>393 582,35", html)
         self.assertIn("В том числе НДС (5%)</td><td>18 742,01", html)
-        self.assertIn("Предоплата</td><td>170 000,00", html)
-        self.assertIn("Всего к оплате</td><td>223 582,35", html)
+        self.assertIn("Учтённая предоплата</td><td>- 170 000,00", html)
+        self.assertIn("К оплате</td><td>223 582,35", html)
         self.assertIn("Двести двадцать три тысячи", html)
-        self.assertNotIn("Всего к оплате</td><td>393 582,35", html)
+        self.assertNotIn("К оплате</td><td>393 582,35", html)
 
     def test_invoice_print_grosses_cash_prepayment_as_cashless_equivalent(self) -> None:
         card = Card.from_dict(
@@ -2153,11 +2152,11 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(invoice["prepayment_display"], "47 058,82")
         self.assertEqual(invoice["amount_due"], Decimal("49776.47"))
         self.assertEqual(invoice["amount_due_display"], "49 776,47")
-        self.assertIn("Итого</td><td>96 835,29", html)
-        self.assertIn("Предоплата</td><td>47 058,82", html)
-        self.assertIn("Всего к оплате</td><td>49 776,47", html)
+        self.assertIn("Сумма счёта</td><td>96 835,29", html)
+        self.assertIn("Учтённая предоплата</td><td>- 47 058,82", html)
+        self.assertIn("К оплате</td><td>49 776,47", html)
         self.assertNotIn("40 000,00", html)
-        self.assertNotIn("Всего к оплате</td><td>96 835,29", html)
+        self.assertNotIn("К оплате</td><td>96 835,29", html)
 
     def test_invoice_print_grosses_cash_and_keeps_cashless_prepayment(self) -> None:
         card = build_payment_card(
@@ -2199,10 +2198,10 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(invoice["prepayment_display"], "12 882,35")
         self.assertEqual(invoice["amount_due"], Decimal("10647.06"))
         self.assertEqual(invoice["amount_due_display"], "10 647,06")
-        self.assertIn("Итого</td><td>23 529,41", html)
-        self.assertIn("Предоплата</td><td>12 882,35", html)
-        self.assertIn("Всего к оплате</td><td>10 647,06", html)
-        self.assertNotIn("Предоплата</td><td>12 000,00", html)
+        self.assertIn("Сумма счёта</td><td>23 529,41", html)
+        self.assertIn("Учтённая предоплата</td><td>- 12 882,35", html)
+        self.assertIn("К оплате</td><td>10 647,06", html)
+        self.assertNotIn("Учтённая предоплата</td><td>- 12 000,00", html)
 
     def test_invoice_print_hides_prepayment_row_when_order_has_no_payments(self) -> None:
         preview = self.service.preview_documents(
@@ -2212,9 +2211,9 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>23 529,41", html)
-        self.assertNotIn("Предоплата</td>", html)
-        self.assertIn("Всего к оплате</td><td>23 529,41", html)
+        self.assertIn("Сумма счёта</td><td>23 529,41", html)
+        self.assertNotIn("Учтённая предоплата</td>", html)
+        self.assertIn("К оплате</td><td>23 529,41", html)
 
     def test_invoice_print_caps_amount_due_at_zero_after_overpayment(self) -> None:
         preview = self.service.preview_documents(
@@ -2227,10 +2226,10 @@ class PrintingServiceTests(unittest.TestCase):
         )
         html = preview["documents"][0]["pages"][0]["html"]
 
-        self.assertIn("Итого</td><td>23 529,41", html)
-        self.assertIn("Предоплата</td><td>30 000,00", html)
-        self.assertIn("Всего к оплате</td><td>0,00", html)
-        self.assertNotIn("Всего к оплате</td><td>-", html)
+        self.assertIn("Сумма счёта</td><td>23 529,41", html)
+        self.assertIn("Учтённая предоплата</td><td>- 30 000,00", html)
+        self.assertIn("К оплате</td><td>0,00", html)
+        self.assertNotIn("К оплате</td><td>-", html)
 
     def test_inspection_sheet_form_roundtrip_updates_preview(self) -> None:
         initial = self.service.get_inspection_sheet_form(self.card)
@@ -2370,7 +2369,9 @@ class PrintingServiceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        self.assertEqual(self.service._read_custom_templates(), [])
+        with self.assertRaises(PrintModuleError) as caught:
+            self.service._read_custom_templates()
+        self.assertEqual(caught.exception.code, "print_store_unavailable")
 
     def test_export_and_print_use_pdf_and_printer_backends(self) -> None:
         with patch(
@@ -2469,7 +2470,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(templates_path.read_text(encoding="utf-8"), original)
         self.assertEqual(list(templates_path.parent.glob("*.tmp")), [])
 
-    def test_inspection_sheet_form_reader_ignores_oversized_json_file(self) -> None:
+    def test_inspection_sheet_form_reader_rejects_oversized_json_file(self) -> None:
         self.service._inspection_sheet_forms_path.write_text(
             json.dumps(
                 {"card-print-1": {"client": "Oversized client", "padding": "x" * 64}},
@@ -2478,11 +2479,12 @@ class PrintingServiceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        with patch("minimal_kanban.printing.service.PRINT_JSON_FILE_MAX_BYTES", 8):
-            loaded = self.service.get_inspection_sheet_form(self.card)
-
-        self.assertFalse(loaded["meta"]["has_saved_draft"])
-        self.assertNotEqual(loaded["form"]["client"], "Oversized client")
+        with (
+            patch("minimal_kanban.printing.service.PRINT_JSON_FILE_MAX_BYTES", 8),
+            self.assertRaises(PrintModuleError) as caught,
+        ):
+            self.service.get_inspection_sheet_form(self.card)
+        self.assertEqual(caught.exception.code, "print_store_unavailable")
 
     def test_inspection_sheet_form_reader_uses_bounded_binary_read(self) -> None:
         self.service._inspection_sheet_forms_path.write_text(

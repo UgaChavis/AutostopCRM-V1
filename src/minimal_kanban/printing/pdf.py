@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..json_safety import reject_deeply_nested_json
@@ -18,6 +19,7 @@ PDF_CLI_STDIN_MAX_BYTES = 8 * 1024 * 1024
 PDF_OUTPUT_MAX_BYTES = 16 * 1024 * 1024
 PDF_OUTPUT_BASE64_MAX_CHARS = ((PDF_OUTPUT_MAX_BYTES + 2) // 3) * 4
 PDF_SUBPROCESS_RESPONSE_MAX_BYTES = PDF_OUTPUT_BASE64_MAX_CHARS + 1024
+_PDF_WORKER_TEMP_ENV = "MINIMAL_KANBAN_PDF_WORKER_TEMP_DIR"
 
 
 class PdfRenderError(RuntimeError):
@@ -241,6 +243,8 @@ def _webengine_pdf_handle_load_finished(
     loop,
     success: bool,
 ) -> None:
+    if state["done"]:
+        return
     if not success:
         _webengine_pdf_finish(state, loop, "Qt WebEngine не загрузил HTML для PDF.")
         return
@@ -261,6 +265,51 @@ def _webengine_pdf_handle_load_finished(
     page.printToPdf(str(pdf_path), layout)
 
 
+@contextmanager
+def _webengine_print_source(page, html: str):
+    """Load full print HTML without Qt's 2 MB percent-encoded data URL limit."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineUrlRequestInterceptor
+
+    with tempfile.NamedTemporaryFile(
+        prefix="autostopcrm-print-source-",
+        suffix=".html",
+        delete=False,
+        dir=os.environ.get(_PDF_WORKER_TEMP_ENV) or None,
+    ) as temporary:
+        source_path = Path(temporary.name)
+    try:
+        source_path.write_text(str(html or ""), encoding="utf-8")
+        source_url = QUrl.fromLocalFile(str(source_path))
+
+        class PrintResourceInterceptor(QWebEngineUrlRequestInterceptor):
+            def interceptRequest(self, info):  # noqa: N802 - Qt override
+                url = info.requestUrl()
+                # A file origin must not give editable templates access to host
+                # files. Keep remote/data resources working as with setHtml.
+                if url.isLocalFile() and url != source_url:
+                    info.block(True)
+
+        interceptor = PrintResourceInterceptor(page)
+        # The page does not own the interceptor pointer. Keep the Python object
+        # alive through late native spool callbacks as well as normal rendering.
+        page._print_resource_interceptor = interceptor
+        page.setUrlRequestInterceptor(interceptor)
+        settings = page.settings()
+        settings.setDefaultTextEncoding("UTF-8")
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, False)
+        # Remote images worked with the previous about:blank document. The file
+        # origin needs this flag while the interceptor still denies other files.
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        page.load(source_url)
+        yield
+    finally:
+        try:
+            source_path.unlink(missing_ok=True)
+        except OSError:  # pragma: no cover - do not hide the original print failure
+            pass
+
+
 def _render_webengine_pdf_bytes(
     html: str,
     *,
@@ -271,13 +320,16 @@ def _render_webengine_pdf_bytes(
     del title
     _ensure_qt_application()
     try:
-        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QTimer
         from PySide6.QtWebEngineCore import QWebEnginePage
     except Exception as exc:
         raise PdfRenderError("Qt WebEngine недоступен для генерации красивого PDF.") from exc
 
     with tempfile.NamedTemporaryFile(
-        prefix="autostopcrm-print-web-", suffix=".pdf", delete=False
+        prefix="autostopcrm-print-web-",
+        suffix=".pdf",
+        delete=False,
+        dir=os.environ.get(_PDF_WORKER_TEMP_ENV) or None,
     ) as tmp:
         pdf_path = Path(tmp.name)
 
@@ -301,10 +353,10 @@ def _render_webengine_pdf_bytes(
             pdf_path.unlink(missing_ok=True)
         except OSError:
             pass
-        page.setHtml(str(html or ""), QUrl("about:blank"))
-        timer.start(45_000)
-        loop.exec()
-        timer.stop()
+        with _webengine_print_source(page, html):
+            timer.start(45_000)
+            loop.exec()
+            timer.stop()
         error = str(state["error"] or "")
         if error:
             raise PdfRenderError(error)
@@ -312,7 +364,9 @@ def _render_webengine_pdf_bytes(
             raise PdfRenderError("Qt WebEngine не создал PDF-файл.")
         return _read_generated_pdf_bytes(pdf_path, label="Qt WebEngine")
     finally:
+        timer.stop()
         try:
+            page.triggerAction(page.WebAction.Stop)
             page.deleteLater()
         except RuntimeError:
             pass
@@ -355,14 +409,18 @@ def _render_qt_pdf_in_subprocess(
     )
     if not os.environ.get("QT_QPA_PLATFORM") and os.name != "nt":
         env["QT_QPA_PLATFORM"] = "offscreen"
-    completed = subprocess.run(
-        [sys.executable, "-m", "minimal_kanban.printing.pdf"],
-        input=payload,
-        capture_output=True,
-        env=env,
-        timeout=45,
-        check=False,
-    )
+    # The parent owns child artifacts: subprocess.run kills a timed-out worker
+    # before its finally blocks can run, so the HTML must also be cleaned here.
+    with tempfile.TemporaryDirectory(prefix="autostopcrm-pdf-worker-") as directory:
+        env[_PDF_WORKER_TEMP_ENV] = directory
+        completed = subprocess.run(
+            [sys.executable, "-m", "minimal_kanban.printing.pdf"],
+            input=payload,
+            capture_output=True,
+            env=env,
+            timeout=45,
+            check=False,
+        )
     if completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip()
         raise PdfRenderError(f"Qt subprocess не создал PDF: {stderr}")
