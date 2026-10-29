@@ -31,12 +31,14 @@ from .agent_gateway_support import (
     _compact_object,
     _contains_value,
     _create_card_outcome_unknown,
+    _create_card_requires_reconciliation,
     _cursor_offset,
     _decimal_text,
     _envelope,
     _error_code,
     _find_mapping,
     _find_value,
+    _is_create_card_operation,
     _is_destructive_capability,
     _items_from_data,
     _maintenance_technical_write_allowed,
@@ -524,7 +526,8 @@ def register_agent_gateway_v2(
     ) -> CallToolResult:
         prior_status = str(started.get("status") or "planned")
         prior_completed = prior_status == "completed"
-        uncertain_create = operation == "create_card" and prior_status == "compensating"
+        uncertain_create = _create_card_requires_reconciliation(operation, prior_status)
+        uncertainty_flags = {"outcome_uncertain": True, "readback_required": True}
         warning = (
             "idempotency_reused_completed_result"
             if prior_completed
@@ -546,6 +549,7 @@ def register_agent_gateway_v2(
                 verification={
                     "idempotency_reused": True,
                     "prior_terminal_state": prior_status in WORKFLOW_TERMINAL_STATES,
+                    **(uncertainty_flags if uncertain_create else {}),
                 },
                 warnings=[warning],
                 next_actions=[]
@@ -555,9 +559,7 @@ def register_agent_gateway_v2(
                 ]
                 if uncertain_create
                 else [f"workflow_status(run_id={run_id}) before any retry"],
-                meta={"outcome_uncertain": True, "readback_required": True}
-                if uncertain_create
-                else {},
+                meta=uncertainty_flags if uncertain_create else {},
             ),
             label=label,
         )
@@ -937,7 +939,7 @@ def register_agent_gateway_v2(
                     "readback_ok": bool(readback.get("ok")),
                 },
             }
-        if operation == "create_card":
+        if _is_create_card_operation(operation):
             result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
             created = result_data.get("card") if isinstance(result_data.get("card"), dict) else {}
             card_id = str(created.get("id") or "")

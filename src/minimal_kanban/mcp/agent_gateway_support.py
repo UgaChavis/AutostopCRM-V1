@@ -882,10 +882,24 @@ __all__ = [
 ]
 
 
+def _is_create_card_operation(operation: str) -> bool:
+    """Match only the existing tool and its allowed raw API alias."""
+    return operation in {"create_card", "api:/api/create_card"}
+
+
+def _create_card_requires_reconciliation(operation: str, status: str) -> bool:
+    """A pending create may have committed before a crash or ledger failure."""
+    return _is_create_card_operation(operation) and status in {
+        "executing",
+        "verifying",
+        "compensating",
+    }
+
+
 def _create_card_outcome_unknown(operation: str, result: dict[str, Any]) -> bool:
     """A lost create response cannot prove that its POST did not commit."""
     meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
-    return operation == "create_card" and (
+    return _is_create_card_operation(operation) and (
         meta.get("outcome_uncertain") is True
         or _error_code(result)
         in {
