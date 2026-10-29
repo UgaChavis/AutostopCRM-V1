@@ -1,5 +1,5 @@
 {
-  "content_hash": "2309c7215e251ab7ba0809db4014d4081d664f11a9044273e51453f15567ef5b",
+  "content_hash": "324a5f36c73ebca1fd07177e4e26271e52f73f6c16cae67ae13c27bdbf726ef8",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -267,9 +267,9 @@
       "input_notes": [
         "Номер+бренд; Store offer ID/context и observed_at нужны для точного предложения."
       ],
-      "instruction_hash": "d44089b791832b5f114cd877a5248d95c4229dd96d447d1dc93dd2585b0cfd40",
+      "instruction_hash": "c7a490ed29ff2a4029d40d36768043f9b8c1bd289c221cb38e478b476a1176e0",
       "instruction_ref": "docs/agent/modules/E9.md",
-      "instruction_text": "# E9 — Новые детали и предложения\n\nПредложения, остатки и доставка\nРодитель: [E1](E1.md). Устойчивый ключ: `new_parts_offers`.\n\n## Входы\n\nНомер+бренд; Store offer ID/context и observed_at нужны для точного предложения.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Публичная цена Exist](../tools/manager-exist-price-lookup.md) | exist · network_read · implemented | `exist_price_lookup` |\n| [Поиск сущностей Store](../tools/manager-store-search.md) | store · network_read · implemented | `store_search` |\n| [Точный контекст сущности Store](../tools/manager-store-entity-context.md) | store · network_read · implemented | `store_entity_context` |\n\n## Достаточность и границы\n\n- Exist public_retail_reference не procurement; article не остаток.\n\n## Следующий выбор\n\nПозицию и партию проверяй по текущему контексту Store. Для `store_sourcing_offer` используй повторный поиск: отдельного entity context у этого типа нет, как описано в [F3](F3.md). Рыночный ориентир — [E11](E11.md), применимость — [E6](E6.md). Оформление предложения регулируют [F4](F4.md) и [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md).\n\nПодробный контракт: [справочник](../references/store-api.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E9 — Новые детали и предложения\n\nПредложения, остатки и доставка\nРодитель: [E1](E1.md). Устойчивый ключ: `new_parts_offers`.\n\n## Входы\n\nНомер+бренд; для отдельно разрешённого Store-кейса Store offer ID/context и observed_at нужны для точного предложения.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Публичная цена Exist](../tools/manager-exist-price-lookup.md) | exist · network_read · implemented | `exist_price_lookup` |\n| [Поиск сущностей Store](../tools/manager-store-search.md) | store · network_read · implemented | `store_search` |\n| [Точный контекст сущности Store](../tools/manager-store-entity-context.md) | store · network_read · implemented | `store_entity_context` |\n\n## Достаточность и границы\n\n- Exist public_retail_reference не procurement; article не остаток.\n\n## Следующий выбор\n\nПри отдельном разрешении на Store позицию и партию проверяй по его текущему контексту. Для `store_sourcing_offer` используй повторный поиск: отдельного entity context у этого типа нет, как описано в [F3](F3.md). Без разрешения используй допустимые публичные источники и передавай предварительную заявку через CRM по клиентскому скиллу. Рыночный ориентир — [E11](E11.md), применимость — [E6](E6.md). Оформление предложения регулируют [F4](F4.md) и [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md).\n\nПодробный контракт: [справочник](../references/store-api.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "new_parts_offers",
       "parent": "E1",
       "purpose": "Предложения, остатки и доставка",
@@ -5262,7 +5262,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "dd323e5e705e5a8c83a8e25d9cb7dfb7fa0abd77",
+  "source_revision": "396934029d609ea90dcc6ab72f10ecbf959e5637",
   "tools": [
     {
       "also_used_in": [],
