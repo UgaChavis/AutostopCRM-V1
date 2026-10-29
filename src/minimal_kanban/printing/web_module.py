@@ -1155,7 +1155,8 @@ _PRINTING_SCRIPT_PART2 = r"""
       const preview = repairOrderPrintCurrentPreview();
       const page = preview?.pages?.[repairOrderPrintCurrentPageIndex()] || null;
       const pageHtml = String(page?.html || '');
-      return pageHtml.includes('regulated-page--landscape')
+      const documentNode = new DOMParser().parseFromString(pageHtml, 'text/html');
+      return documentNode.body.querySelector('.document-page.regulated-page--landscape')
         ? REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS.landscape
         : REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS.portrait;
     }
@@ -1414,17 +1415,11 @@ _PRINTING_SCRIPT_PART3 = r"""
     }
 
     function repairOrderPrintCombinedHtml() {
-      const docs = repairOrderPrintWorkspaceDocuments();
-      const pages = docs.flatMap((item) => {
-        const preview = repairOrderPrintState.previewByDocument?.[item.id];
+      const pages = repairOrderPrintSelectedIds().flatMap((id) => {
+        const preview = repairOrderPrintState.previewByDocument?.[id];
         return Array.isArray(preview?.pages) ? preview.pages : [];
       });
-      const body = pages.length
-        ? pages.map((page) => page.html || '').join('<div style="page-break-after:always"></div>')
-        : '<!doctype html><html lang="ru"><body style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Нет данных для печати.</body></html>';
-      return body.includes('<!doctype html')
-        ? body
-        : '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>AutoStop CRM Print</title></head><body>' + body + '</body></html>';
+      return combinedPrintPagesHtml(pages);
     }
 
 """
@@ -1434,12 +1429,12 @@ _PRINTING_SCRIPT_PART3 += (
     + r"""
 
 
-    function completionActCombinedHtml(pages) {
+    function combinedPrintPagesHtml(pages, title = 'AutoStop CRM Print', emptyMessage = 'Нет данных для печати.') {
       const parser = new DOMParser();
       const parsedPages = (Array.isArray(pages) ? pages : []).map((page) => {
         const documentNode = parser.parseFromString(String(page?.html || ''), 'text/html');
         const shell = documentNode.querySelector('.document-shell');
-        const bodyFragment = shell?.outerHTML || documentNode.body?.innerHTML || '';
+        const bodyFragment = shell ? shell.innerHTML : (documentNode.body?.innerHTML || '');
         const headFragments = Array.from(documentNode.head?.querySelectorAll('style, link[rel="stylesheet"]') || [])
           .map((node) => node.outerHTML)
           .filter(Boolean);
@@ -1448,11 +1443,14 @@ _PRINTING_SCRIPT_PART3 += (
       const headFragments = Array.from(new Set(parsedPages.flatMap((page) => page.headFragments))).join('');
       const body = parsedPages.length
         ? parsedPages.map((page) => page.bodyFragment).join('')
-        : '<main style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">Нет данных акта для печати.</main>';
-      return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Акт выполненных работ</title>'
+        : '<main style="font-family: Segoe UI, sans-serif; padding: 32px; color: #444">' + escapeHtml(emptyMessage) + '</main>';
+      return '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title>'
         + headFragments
-        + '<style>.document-shell + .document-shell{break-before:page;page-break-before:always}</style>'
-        + '</head><body>' + body + '</body></html>';
+        + '</head><body><div class="document-shell">' + body + '</div></body></html>';
+    }
+
+    function completionActCombinedHtml(pages) {
+      return combinedPrintPagesHtml(pages, 'Акт выполненных работ', 'Нет данных акта для печати.');
     }
 
     function runCompletionActBrowserPrint(preview = null) {

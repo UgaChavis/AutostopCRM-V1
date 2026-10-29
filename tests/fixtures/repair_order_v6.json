@@ -1,0 +1,43 @@
+{
+  "card": {
+    "id": "synthetic-order-preview",
+    "vehicle": "Toyota Camry",
+    "title": "Плановое обслуживание",
+    "description": "Пример заполнения заказ-наряда",
+    "column": "inbox",
+    "created_at": "2026-10-30T10:00:00+07:00",
+    "updated_at": "2026-10-30T10:00:00+07:00",
+    "repair_order": {
+      "tax_label": "Без НДС",
+      "number": "ОБРАЗЕЦ-001",
+      "date": "30.10.2026 10:00",
+      "opened_at": "30.10.2026 10:00",
+      "client": "Пример клиента",
+      "phone": "+7 (000) 000-00-00",
+      "vehicle": "Toyota Camry",
+      "license_plate": "А000АА000",
+      "vin": "00000000000000000",
+      "mileage": "100000",
+      "payment_method": "cash",
+      "reason": "Плановое техническое обслуживание.",
+      "comment": "Пример: выполнена диагностика и замена масла.",
+      "note": "Данные документа вымышлены.",
+      "works": [
+        {"name": "Диагностика автомобиля", "quantity": "1", "price": "2000"},
+        {"name": "Замена масла и фильтра", "quantity": "1", "price": "1500"}
+      ],
+      "materials": [
+        {"name": "Масло моторное", "quantity": "4", "price": "900"},
+        {"name": "Фильтр масляный", "quantity": "1", "price": "700"}
+      ]
+    }
+  },
+  "service_profile": {
+    "company_name": "AutoStop (пример)",
+    "address": "г. Красноярск, пример адреса",
+    "phone": "+7 (000) 000-00-00",
+    "reception_phone": "000-00-00",
+    "legal_name": "Демонстрационный автосервис",
+    "tax_label": "Без НДС"
+  }
+}

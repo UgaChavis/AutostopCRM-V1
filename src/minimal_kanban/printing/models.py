@@ -167,7 +167,15 @@ class PrintServiceProfile:
                 continue
             if item.name in text_limits:
                 cleaned = _clean_text(raw, limit=text_limits[item.name])
-                if cleaned or item.name in {"signer_position", "signer_name"}:
+                # An explicitly cleared phone must stay empty so print templates
+                # can fall back to the general number (or a dash). Missing keys
+                # still use the profile defaults, as before.
+                if cleaned or item.name in {
+                    "phone",
+                    "reception_phone",
+                    "signer_position",
+                    "signer_name",
+                }:
                     values[item.name] = cleaned
             else:
                 values[item.name] = raw
@@ -224,7 +232,14 @@ class PrintModuleSettings:
                 if (
                     isinstance(value, str)
                     and not value.strip()
-                    and key not in {"signer_position", "signer_name", "tax_label"}
+                    and key
+                    not in {
+                        "phone",
+                        "reception_phone",
+                        "signer_position",
+                        "signer_name",
+                        "tax_label",
+                    }
                 ):
                     continue
                 service_profile_payload[str(key)] = value

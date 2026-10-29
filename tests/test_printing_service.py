@@ -531,7 +531,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(context["invoice"]["vat"], Decimal("0.00"))
         self.assertFalse(context["invoice"]["has_vat"])
 
-    def test_workspace_prefills_service_profile_when_settings_are_blank(self) -> None:
+    def test_workspace_prefills_requisites_but_keeps_explicitly_cleared_phones(self) -> None:
         self.service._settings_path.write_text(
             (
                 '{"service_profile":{"company_name":"","legal_name":"","address":"","phone":"",'
@@ -549,7 +549,8 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(profile["company_name"], "Auto Stop")
         self.assertEqual(profile["legal_name"], "ИП Гришкявичус Константин Владиславович")
         self.assertEqual(profile["address"], "660012, г. Красноярск, ул. Семафорная, 80, стр. 4")
-        self.assertEqual(profile["reception_phone"], "288-14-15")
+        self.assertEqual(profile["reception_phone"], "")
+        self.assertEqual(profile["phone"], "")
         self.assertEqual(profile["spare_parts_phone"], "+7 (963) 184-76-76")
         self.assertEqual(profile["website"], "autostop124.ru")
         self.assertEqual(profile["tax_label"], "")
@@ -587,7 +588,7 @@ class PrintingServiceTests(unittest.TestCase):
 
         self.assertEqual(preview["active_document_id"], "invoice")
         self.assertEqual([item["id"] for item in preview["documents"]], ["repair_order", "invoice"])
-        self.assertIn('class="doc-brand-mark"', preview["documents"][0]["pages"][0]["html"])
+        self.assertIn('class="ro-v6-logo"', preview["documents"][0]["pages"][0]["html"])
         self.assertIn("data:image/png;base64,", preview["documents"][0]["pages"][0]["html"])
         self.assertGreaterEqual(preview["documents"][0]["page_count"], 1)
         self.assertIn("Заказ-наряд", preview["documents"][0]["pages"][0]["html"])
@@ -619,7 +620,7 @@ class PrintingServiceTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "<strong>Хранение и выдача:</strong> после уведомления о готовности первые 2 дня хранения бесплатные, далее стоимость хранения составляет 150 рублей в сутки.",
+            "после уведомления о готовности первые 2 дня хранения бесплатные, далее стоимость хранения составляет 150 рублей в сутки.",
             "".join(page["html"] for page in preview["documents"][0]["pages"]),
         )
         self.assertIn(

@@ -90,6 +90,7 @@ from .money_validation import (
 from .mutation_lock import print_state_mutation_boundary, print_state_mutation_locked
 from .pdf import PdfRenderError, render_html_to_pdf_bytes
 from .printers import PrinterBackendError, list_printers, print_html
+from .repair_order_terms import warranty_terms_html
 from .template_engine import TemplateRenderError, render_template
 from .template_mutation import delete_custom_template_state
 
@@ -1240,21 +1241,7 @@ def _client_invoice_context(
 
 
 def _repair_order_warranty_terms_html() -> str:
-    return (
-        """
-<p class="doc-terms__lead">Ниже приведены гарантийные и важные условия оформления заказ-наряда. Они действуют вместе с общими правилами приема и выдачи автомобиля.</p>
-<ol class="doc-terms__list">
-  <li><strong>Гарантия сервиса:</strong> автосервис несет гарантию только за качество выполненных работ и новые оригинальные запасные части, установленные сервисом. Для АКПП срок гарантийных обязательств может составлять до 6 месяцев и распространяется только на согласованные работы и новые оригинальные детали.</li>
-  <li><strong>АКПП:</strong> при ремонте автоматической коробки передач восстанавливается только ее механическая часть. Коробка собирается на родном блоке управления (гидроблоке), и качество результата зависит в том числе от состояния этого блока. Гарантия на отремонтированную АКПП действует до 6 месяцев и распространяется только на работы и согласованные новые оригинальные детали. После первых 1000 км рекомендуется контроль уровня и состояния масла, а после 20-30 тыс. км - замена масла и масляного фильтра. Самостоятельное вскрытие, неправильная установка или нарушение эксплуатации аннулируют гарантию; если после ремонта блок управления КПП неисправен, расходы на его ремонт или замену несет заказчик.</li>
-  <li><strong>ДВС, КПП и агрегаты:</strong> на Б/У и контрактные детали и агрегаты, включая ДВС, КПП, рулевую рейку и тому подобные узлы, гарантия не предоставляется. Ремонт турбокомпрессоров, топливных форсунок, ГБЦ и других восстановленных узлов также не является гарантийным и выполняется под ответственность заказчика.</li>
-  <li><strong>Возврат деталей:</strong> снятые детали передаются заказчику только по требованию, заявленному до начала ремонта. Если требование не заявлено, детали утилизируются в процессе ремонта.</li>
-  <li><strong>Автоэлектрика, диагностика и сроки:</strong> гарантия на автоэлектрику и электропроводку составляет 10 (десять) календарных дней. Результаты диагностики и поиска неисправности не являются абсолютными, а промежуточные работы оплачиваются клиентом даже если не дали окончательного результата. Согласованные сроки являются ориентировочными и могут меняться в зависимости от поставки запчастей, объема работ и выявленных неисправностей. Нахождение клиента в ремонтной зоне допускается только в присутствии мастера.</li>
-  <li><strong>Хранение и выдача:</strong> после уведомления о готовности первые 2 дня хранения бесплатные, далее стоимость хранения составляет 150 рублей в сутки. Автомобиль выдается только после полной оплаты выполненных работ и использованных материалов.</li>
-  <li><strong>Фотофиксация и сопутствующие работы:</strong> претензии по повреждениям кузова принимаются только если фотофиксация состояния автомобиля проведена при сдаче машины совместно с представителем сервиса. Работы и сопутствующие действия стоимостью до 5000 рублей могут выполняться без отдельного согласования, если они необходимы для продолжения ремонта.</li>
-  <li><strong>Нюансы ремонта и drive-test:</strong> в рамках согласованной суммы дополнительные нюансы ремонта выполняются на усмотрение мастера и в интересах клиента. Оставляя автомобиль в ремонт, клиент соглашается на проверочный выезд по дорогам общего пользования для диагностики, адаптации и контроля результата.</li>
-</ol>
-        """
-    ).strip()
+    return warranty_terms_html()
 
 
 def _repair_order_terms_summary_html() -> str:
@@ -3650,6 +3637,9 @@ class PrintModuleService(CompletionActCalculationMixin):
                 "address": _display(settings.service_profile.address),
                 "phone": _display(settings.service_profile.phone),
                 "reception_phone": _display(settings.service_profile.reception_phone),
+                "reception_phone_display": _display(
+                    settings.service_profile.reception_phone or settings.service_profile.phone
+                ),
                 "spare_parts_phone": _display(settings.service_profile.spare_parts_phone),
                 "email": _display(settings.service_profile.email),
                 "website": _display(settings.service_profile.website),
@@ -3690,6 +3680,7 @@ class PrintModuleService(CompletionActCalculationMixin):
                 "note_display": _display(order.note),
                 "terms_summary_html": _repair_order_terms_summary_html(),
                 "warranty_terms_html": _repair_order_warranty_terms_html(),
+                "warranty_terms_v6_html": warranty_terms_html(paragraphs=True),
                 "acceptance_terms_html": _vehicle_acceptance_terms_html(),
                 "payment_summary": payment_summary_display,
             },

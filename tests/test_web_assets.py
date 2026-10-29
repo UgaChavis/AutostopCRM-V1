@@ -4164,7 +4164,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('id="repairOrderPrintPreviewStage"', BOARD_WEB_APP_HTML)
         self.assertIn("REPAIR_ORDER_PRINT_PREVIEW_VIEWPORTS", BOARD_WEB_APP_HTML)
         self.assertIn("landscape: { width: 1180, height: 860 }", BOARD_WEB_APP_HTML)
-        self.assertIn("pageHtml.includes('regulated-page--landscape')", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "documentNode.body.querySelector('.document-page.regulated-page--landscape')",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn("Math.min(1, availableWidth / viewport.width)", BOARD_WEB_APP_HTML)
         self.assertNotIn(
             ".repair-order-print-layout,\n      .print-template-editor { grid-template-columns: 1fr; grid-template-areas: none; }",
@@ -4477,12 +4480,16 @@ class WebAssetsTests(unittest.TestCase):
         completion_print_helper = BOARD_WEB_APP_HTML.split(
             "function completionActCombinedHtml(pages)", 1
         )[1].split("function runCompletionActBrowserPrint(preview = null)", 1)[0]
-        self.assertEqual(completion_print_helper.count("<!doctype html>"), 1)
-        self.assertNotIn("page.html || '').join", completion_print_helper)
-        self.assertNotIn("completion-act-print-page-break", completion_print_helper)
+        self.assertIn("return combinedPrintPagesHtml(pages,", completion_print_helper)
+        shared_print_helper = BOARD_WEB_APP_HTML.split("function combinedPrintPagesHtml(", 1)[
+            1
+        ].split("function completionActCombinedHtml(pages)", 1)[0]
+        self.assertEqual(shared_print_helper.count("<!doctype html>"), 1)
+        self.assertNotIn("page.html || '').join", shared_print_helper)
+        self.assertNotIn("completion-act-print-page-break", shared_print_helper)
         self.assertIn(
-            ".document-shell + .document-shell{break-before:page;page-break-before:always}",
-            completion_print_helper,
+            '<div class="document-shell">',
+            shared_print_helper,
         )
         completion_browser_print = BOARD_WEB_APP_HTML.split(
             "function runCompletionActBrowserPrint(preview = null)", 1

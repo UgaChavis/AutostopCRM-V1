@@ -17,6 +17,7 @@ from .repair_order_future_v2 import (
     FUTURE_REPAIR_ORDER_V2_STYLES,
     FUTURE_REPAIR_ORDER_V2_TEMPLATE,
 )
+from .repair_order_v6 import REPAIR_ORDER_V6_STYLES, REPAIR_ORDER_V6_TEMPLATE
 
 BUILTIN_PRINT_DOCUMENTS: tuple[PrintDocumentDefinition, ...] = (
     PrintDocumentDefinition(
@@ -1153,7 +1154,9 @@ PRINT_BASE_STYLES = (
         str(COMPLETION_ACT_LAYOUT.final_block_margin_top_mm),
     )
 )
-PRINT_BASE_STYLES = f"{PRINT_BASE_STYLES}\n{FUTURE_REPAIR_ORDER_V2_STYLES}".strip()
+PRINT_BASE_STYLES = (
+    f"{PRINT_BASE_STYLES}\n{FUTURE_REPAIR_ORDER_V2_STYLES}\n{REPAIR_ORDER_V6_STYLES}".strip()
+)
 
 
 _BUILTIN_CREATED_AT = "2026-04-06T00:00:00+00:00"
@@ -1225,94 +1228,7 @@ def builtin_template_records() -> tuple[PrintTemplateRecord, ...]:
             "repair_order",
             "standard",
             "Стандартный заказ-наряд",
-            """
-<div class="document-page document-page--dense">
-  <table class="doc-head-table">
-    <tr>
-      <td class="doc-head-table__left">
-        <table class="doc-head-table" style="margin-bottom:0;">
-          <tr>
-            <td style="width:104px; vertical-align:top; padding-right:12px;">
-              <div class="doc-brand-mark">
-                {{#service.brand_logo_data_uri}}<img src="{{service.brand_logo_data_uri}}" width="70" height="70" style="width:70px;height:70px;" alt="AutoStop АВТОТЕХЦЕНТР №1">{{/service.brand_logo_data_uri}}
-                {{^service.brand_logo_data_uri}}<div class="doc-brand-mark__fallback">AutoStop</div>{{/service.brand_logo_data_uri}}
-              </div>
-            </td>
-            <td style="vertical-align:top;">
-              <div class="doc-brand-copy">
-                <div class="doc-kicker">Печатная форма</div>
-                <h1 class="doc-title">Заказ-наряд</h1>
-                <div class="doc-subtitle">№ {{repair_order.number_display}} от {{dates.document_date_display}}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-      </td>
-      <td class="doc-head-table__right">
-        <div class="doc-service"><div class="doc-service__name">{{service.company_name}}</div><div class="doc-service__meta">{{service.address}}</div><div class="doc-service__meta">{{service.phone}}</div></div>
-      </td>
-    </tr>
-  </table>
-  <table class="doc-banner-table">
-    <tr>
-      <td>
-        <div class="doc-banner__label">Телефон ресепшена</div>
-        <div class="doc-banner-table__phone">{{#service.reception_phone}}{{service.reception_phone}}{{/service.reception_phone}}{{^service.reception_phone}}{{service.phone}}{{/service.reception_phone}}</div>
-      </td>
-      <td class="doc-banner-table__copy">Прием автомобиля, запись и вопросы по заказ-наряду</td>
-    </tr>
-  </table>
-  <table class="doc-meta-table">
-    <tr>
-      <td><div class="doc-label">Клиент</div><div class="doc-value">{{client.name_display}}</div></td>
-      <td><div class="doc-label">Телефон</div><div class="doc-value">{{client.phone_display}}</div></td>
-      <td><div class="doc-label">Автомобиль</div><div class="doc-value">{{vehicle.display_name}}</div></td>
-    </tr>
-    <tr>
-      <td><div class="doc-label">Госномер</div><div class="doc-value">{{vehicle.license_plate_display}}</div></td>
-      <td><div class="doc-label">VIN</div><div class="doc-value">{{vehicle.vin_display}}</div></td>
-      <td><div class="doc-label">Пробег</div><div class="doc-value">{{vehicle.mileage_display}}</div></td>
-    </tr>
-  </table>
-  <section class="doc-section"><h2 class="doc-section__title">Причина обращения</h2><div class="doc-note">{{{repair_order.reason_html}}}</div></section>
-  <section class="doc-section"><h2 class="doc-section__title">Информация для клиента</h2><div class="doc-note">{{{repair_order.client_information_html}}}</div></section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Работы</h2>
-    <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#works}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/works}}
-      {{^works}}<tr><td class="doc-table__empty" colspan="4">Работы не указаны</td></tr>{{/works}}
-    </tbody><tfoot><tr><td colspan="3">Итого работы</td><td class="doc-table__sum">{{totals.works_display}}</td></tr></tfoot></table>
-  </section>
-  <section class="doc-section">
-    <h2 class="doc-section__title">Материалы / запчасти</h2>
-    <table class="doc-table"><colgroup><col><col style="width: 12%"><col style="width: 16%"><col style="width: 16%"></colgroup><thead><tr><th>Наименование</th><th class="doc-table__narrow">Кол-во</th><th class="doc-table__sum">Цена</th><th class="doc-table__sum">Сумма</th></tr></thead><tbody>
-      {{#materials}}<tr><td>{{name}}</td><td class="doc-table__narrow">{{quantity_display}}</td><td class="doc-table__sum">{{price_display}}</td><td class="doc-table__sum">{{total_display}}{{#has_rounding_adjustment}}<small class="doc-money-note">Округление {{rounding_adjustment_display}} руб.</small>{{/has_rounding_adjustment}}</td></tr>{{/materials}}
-      {{^materials}}<tr><td class="doc-table__empty" colspan="4">Материалы не указаны</td></tr>{{/materials}}
-    </tbody><tfoot><tr><td colspan="3">Итого материалы</td><td class="doc-table__sum">{{totals.materials_display}}</td></tr></tfoot></table>
-  </section>
-  <table class="doc-totals-table">
-    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда за наличный расчет</td><td>{{totals.base_total_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__strong"><td>Стоимость заказ-наряда по безналичному расчету<br><small>включая налоги и сборы 15%</small></td><td>{{totals.noncash_total_ruble_display}}</td></tr>
-    {{#totals.has_cash_like_prepayment}}<tr><td>Предоплата за наличные</td><td>{{totals.cash_like_prepayment_ruble_display}}</td></tr>{{/totals.has_cash_like_prepayment}}
-    {{#totals.has_cashless_prepayment}}<tr><td>Предоплата по безналу</td><td>{{totals.cashless_prepayment_ruble_display}}</td></tr>{{/totals.has_cashless_prepayment}}
-    <tr class="doc-totals-table__grand"><td>Доплата по безналичному расчету</td><td>{{totals.noncash_due_ruble_display}}</td></tr>
-    <tr class="doc-totals-table__grand"><td>Доплата по наличному расчету</td><td>{{totals.cash_due_ruble_display}}</td></tr>
-  </table>
-</div>
-<!-- AUTOSTOPCRM_PAGE_BREAK -->
-<div class="document-page">
-  <section class="doc-section doc-section--warranty">
-    <h2 class="doc-section__title">Гарантийные и важные условия</h2>
-    <div class="doc-terms">{{{repair_order.warranty_terms_html}}}</div>
-  </section>
-  <section class="doc-section doc-section--signatures">
-    <div class="doc-signatures doc-signatures--inline">
-      <div class="doc-signatures__item">Администратор __________________________</div>
-      <div class="doc-signatures__item">Клиент __________________________</div>
-    </div>
-  </section>
-</div>
-            """,
+            REPAIR_ORDER_V6_TEMPLATE,
         ),
         _future_repair_order_v2_template_record(),
         _record(
