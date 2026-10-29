@@ -67,6 +67,17 @@ def _authorization_bearer_header(token: str | None) -> str | None:
     return f"Bearer {normalized}"
 
 
+def _create_card_http_error_payload(payload: dict, *, path: str, method: str, status: int) -> dict:
+    """A server error cannot prove that a dispatched create did not commit."""
+    if path != "/api/create_card" or method.strip().upper() != "POST" or not 500 <= status < 600:
+        return payload
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    return {
+        **payload,
+        "meta": {**meta, "outcome_uncertain": True, "readback_required": True},
+    }
+
+
 _MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024
 
 
@@ -282,10 +293,13 @@ class BoardApiClient:
         payload: dict[str, object] = {"text": text, "x": x, "y": y, "deadline": deadline}
         return self._request_with_identity("/api/create_sticky", payload, actor_name=actor_name)
 
-    def get_cards(self, *, include_archived: bool = False, compact: bool = True) -> dict:
-        return self._request(
-            "/api/get_cards", {"include_archived": include_archived, "compact": compact}
-        )
+    def get_cards(
+        self, *, include_archived: bool = False, compact: bool = True, limit: int | None = None
+    ) -> dict:
+        payload: dict[str, object] = {"include_archived": include_archived, "compact": compact}
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request("/api/get_cards", payload)
 
     def get_card(self, card_id: str) -> dict:
         return self._request("/api/get_card", {"card_id": card_id})
@@ -1797,7 +1811,9 @@ class BoardApiClient:
                     exc.code,
                     payload.get("error"),
                 )
-                return payload
+                return _create_card_http_error_payload(
+                    payload, path=path, method=method, status=exc.code
+                )
             finally:
                 exc.close()
         except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:

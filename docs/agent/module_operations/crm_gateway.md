@@ -50,7 +50,7 @@ release procedure; do not improvise a production test record.
 | `get_raw_capability_schema` | `name`; none | R | E; use discovered exact name |
 | `call_raw_capability` | `name`, `arguments`, `schema_hash`; `idempotency_key`, `allow_large_output`, `release_smoke_revision`, `release_smoke_proof` | R/M by named capability | E; no generic Store owner escape |
 | `get_connector_identity` | none | R | E |
-| `get_runtime_status` | none | R | E |
+| `get_runtime_status` | none; `include_store_context` (default `false`) | R | E; live Store only with explicit `true` after separate permission |
 | `ping_connector` | none | R | E |
 | `list_agent_workflows` | none; `query`, `intent`, `limit` | R | E |
 | `prepare_action_contract` | `domain`, `action`; `target_id`, `planned_changes`, `owner_intent`, `expected_revision`, `idempotency_key`, `correlation_id`, `run_id`, `actor`, `dry_run` | D | E; returns a plan only |

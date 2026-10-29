@@ -8,6 +8,8 @@ from weakref import WeakKeyDictionary
 
 from mcp.server.fastmcp.tools import Tool
 
+from .agent_gateway_support import _as_dict
+
 
 class ToolExecutor:
     """Keep blocking adapters off the request loop with bounded in-flight work."""
@@ -39,6 +41,18 @@ class ToolExecutor:
 
         worker.add_done_callback(completed)
         return await asyncio.shield(worker)
+
+    async def read_optional(self, function: Any, **arguments: Any) -> dict[str, Any]:
+        try:
+            return _as_dict(await self.run_sync(function, **arguments))
+        except Exception:  # noqa: BLE001 - optional read failures remain independently degraded.
+            return {
+                "ok": False,
+                "error": {
+                    "code": "crm_read_unavailable",
+                    "operation": getattr(function, "__name__", "board_read"),
+                },
+            }
 
     def prepare_tools(self, tools: Iterable[Tool]) -> None:
         for tool in tools:
