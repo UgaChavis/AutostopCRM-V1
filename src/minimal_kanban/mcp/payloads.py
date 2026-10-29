@@ -281,3 +281,15 @@ class ConnectorIdentityEnvelope(BaseModel):
     data: ConnectorIdentityToolData
     error: dict[str, Any] | None = None
     meta: dict[str, Any] | None = None
+
+
+def _create_transport_error_meta(tool_name: str, applied_params: dict[str, Any]) -> dict[str, Any]:
+    """Preserve post-dispatch uncertainty for card creation transport errors."""
+    return {
+        **({"applied_params": applied_params} if applied_params else {}),
+        **(
+            {"outcome_uncertain": True, "readback_required": True}
+            if tool_name == "create_card"
+            else {}
+        ),
+    }

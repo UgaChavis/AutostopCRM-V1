@@ -81,6 +81,19 @@ for the current case. Only after that permission, explicitly set
 intent or available Store capability does not provide that permission.
 The legacy `null` value remains accepted and also keeps bootstrap CRM-only.
 
+`get_runtime_status` is also CRM-only by default. Its optional
+`include_store_context=true` performs a live Store check only after separate
+permission; an unavailable Store then degrades that explicit check without
+turning CRM health into failure. Optional bootstrap reads return structured
+`degraded` results on transport failures. Card samples are limited by the backend
+before serialization; a supplied query uses the existing bounded CRM search.
+
+A `call_raw_capability` create-card attempt whose response is lost remains
+`compensating`, with `outcome_uncertain` and `readback_required` metadata. Inspect
+the original workflow and reconcile the exact request before any retry. Keep the
+original idempotency key; changing it is not recovery. This does not claim
+backend exactly-once creation after an unobservable transport outcome.
+
 `agent_search(entity="client")` and the raw `search_clients`/`list_clients`
 tools use dedicated read-only API routes. Vehicle IDs in `vehicles_preview`
 come from the saved client profile. A `related_card_candidates` entry marked

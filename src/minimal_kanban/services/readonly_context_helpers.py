@@ -156,3 +156,11 @@ def detached_card_response(card, read_warnings):
     if read_warnings:
         result["read_warnings"] = read_warnings
     return deepcopy(result)
+
+
+def card_sample(cards, payload, validated_limit):
+    """Bound card projection while retaining the full visible total."""
+    total = len(cards)
+    if payload.get("limit") is not None:
+        cards = cards[: validated_limit(payload.get("limit"), default=20, maximum=100)]
+    return cards, total

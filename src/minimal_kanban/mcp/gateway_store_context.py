@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
+from .agent_gateway_support import AGENT_GATEWAY_FORMAT, _compact_object
+
 StoreInvoker = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
@@ -55,3 +57,43 @@ def bootstrap_store_context_summary(
         "parts": compact(_store_data(results, 1), item_limit=4),
     }
     return summary, [] if ready else ["store_context_degraded"]
+
+
+def runtime_status_payload(
+    crm_payload: dict[str, Any], store_payload: dict[str, Any], *, store_requested: bool
+) -> dict[str, Any]:
+    """Keep optional Store diagnostics separate from CRM availability."""
+    crm_ok = bool(crm_payload.get("ok"))
+    store_ok = bool(store_payload.get("ok"))
+    data = dict(crm_payload.get("data") or {}) if isinstance(crm_payload.get("data"), dict) else {}
+    data["store"] = {
+        "ok": store_ok if store_requested else None,
+        "requested": store_requested,
+        "status": str(store_payload.get("status") or ("ready" if store_ok else "degraded")),
+        "summary": _compact_object(store_payload.get("summary") or {}, item_limit=10),
+        "data": _compact_object(store_payload.get("data"), item_limit=10, key_limit=40),
+        "warnings": [str(item) for item in store_payload.get("warnings") or []][:10],
+    }
+    warnings = [str(item) for item in crm_payload.get("warnings") or []]
+    if store_requested and not store_ok:
+        warnings.append("store_adapter_degraded")
+    payload = dict(crm_payload)
+    payload.update(
+        {
+            "ok": crm_ok,
+            "status": "ready"
+            if crm_ok and (store_ok or not store_requested)
+            else "degraded"
+            if crm_ok
+            else "failed",
+            "data": data,
+            "warnings": list(dict.fromkeys(warnings)),
+        }
+    )
+    payload.setdefault("format", AGENT_GATEWAY_FORMAT)
+    payload.setdefault("summary", {})
+    payload.setdefault("next_actions", [])
+    payload.setdefault("verification", {})
+    payload.setdefault("page", {})
+    payload.setdefault("meta", {})
+    return payload

@@ -228,6 +228,11 @@ Use compact board reads for polling:
 - `/api/get_board_snapshot?compact=1&include_archive=0`
 - `/api/get_cards` with `{"compact": true}`
 
+`POST /api/get_cards` also accepts an optional `limit` from 1 to 100.
+The server limits cards before projection and serialization; `meta.total`
+remains the total visible count, while `meta.returned` and `meta.has_more`
+describe the sample. Omitting `limit` keeps the full legacy response.
+
 High-traffic writes accept `response_mode=compact` where implemented and then
 return IDs and verification metadata instead of full cards.
 

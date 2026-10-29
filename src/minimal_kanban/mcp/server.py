@@ -544,7 +544,8 @@ def create_mcp_server(
             "collect exposed facts first and ask only for a real blocker. Native guarded actions remain "
             "mandatory for money, a published customer price, an order, deletion, a new external recipient, "
             "deployment, or secrets. Use raw discovery only when a focused supported tool is insufficient. "
-            "If auth or runtime state is unclear, call get_runtime_status. "
+            "If auth or runtime state is unclear, call get_runtime_status; it is CRM-only by default. "
+            "Set include_store_context=true there only after separate permission for a live Store check. "
             "If the user asks about some other kanban product or board, do not use this connector."
         ),
         host=resolved_host,
@@ -907,7 +908,7 @@ def create_mcp_server(
                 meta=_timed_meta(
                     tool_name,
                     started_at,
-                    meta={"applied_params": applied_params} if applied_params else None,
+                    meta=_payloads._create_transport_error_meta(tool_name, applied_params),
                 ),
             )
         except (OverflowError, TypeError, ValueError) as exc:
