@@ -968,6 +968,8 @@ def _register_fake_store_context_tools(server, _logger, state: dict) -> None:
 
     @server.tool(name="agent_bootstrap")
     def agent_bootstrap(query: str = "", intent: str | None = None, limit: int = 8) -> dict:
+        calls = state.setdefault("manager_bootstrap_calls", [])
+        calls.append({"query": query, "intent": intent, "limit": limit})
         return {"ok": True, "summary": {"route": "test"}}
 
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
@@ -1803,6 +1805,9 @@ class AgentGatewayV2Tests(
         )
         self.assertIn("ack_token", board_schema["properties"])
         self.assertIn("include_store_context", bootstrap_schema["properties"])
+        flag = bootstrap_schema["properties"]["include_store_context"]
+        self.assertIs(False, flag["default"])
+        self.assertEqual({"boolean", "null"}, {item["type"] for item in flag["anyOf"]})
         self.assertNotIn("store_cursor", bootstrap_schema["properties"])
         self.assertNotIn("store_ack_token", bootstrap_schema["properties"])
         self.assertNotIn("ack_token", board_schema.get("required", []))
@@ -1861,11 +1866,11 @@ class AgentGatewayV2Tests(
         self.assertEqual(1, len(digest_calls))
         self.assertEqual("store_digest", digest_calls[0]["stream"])
 
-    async def test_bootstrap_loads_bounded_store_context_for_quote_signal(self) -> None:
+    async def test_bootstrap_explicit_store_context_is_bounded(self) -> None:
         server, state = self._create_store_server()
 
         bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
-            {"query": "article-123"}, convert_result=False
+            {"query": "article-123", "include_store_context": True}, convert_result=False
         )
 
         self.assertTrue(bootstrap.structuredContent["ok"])

@@ -38,7 +38,7 @@ release procedure; do not improvise a production test record.
 
 | Tool | Required; optional input properties from active `inputSchema` | Class | Safe probe |
 | --- | --- | --- | --- |
-| `agent_bootstrap` | none; `query`, `intent`, `sample_limit`, `include_store_context` | R | E; CRM-only call without Store signal |
+| `agent_bootstrap` | none; `query`, `intent`, `sample_limit`, `include_store_context` (default `false`) | R | E; CRM-only by default; Store only with explicit `true` after separate case permission |
 | `agent_board_digest` | none; `include_archived`, `cursor`, `limit`, `fields`, `scope`, `since`, `ack_token` | R/T for ACK | E; never ACK a page without exact token |
 | `agent_search` | `entity`; `query`, `include_archived`, `limit`, `filters`, `cursor` | R | E |
 | `agent_entity_context` | `entity`, `entity_id`; `detail` | R | E; exact current ID |

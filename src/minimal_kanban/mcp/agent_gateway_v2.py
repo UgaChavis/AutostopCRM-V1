@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
-from pydantic import WithJsonSchema
+from pydantic import StrictBool, WithJsonSchema
 
 from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
@@ -1930,14 +1930,17 @@ def register_agent_gateway_v2(
 
     @server.tool(
         name="agent_bootstrap",
-        description="Optional compact CRM context plus bounded Store matches for a query or intent.",
+        description=(
+            "Optional compact CRM context; Store is excluded by default, including for a query or intent. "
+            "Set include_store_context=true only after separate permission for this case to add bounded Store matches."
+        ),
         annotations=_read_annotations("Agent Bootstrap v2"),
     )
     async def agent_bootstrap(
         query: str = "",
         intent: str | None = None,
         sample_limit: int = 8,
-        include_store_context: bool | None = None,
+        include_store_context: StrictBool | None = False,
     ) -> CallToolResult:
         manager_payload: dict[str, Any] = {}
         if manager_bootstrap_tool is not None:
@@ -1999,7 +2002,9 @@ def register_agent_gateway_v2(
                 "card_sample": sample,
             },
             warnings=list(dict.fromkeys(warnings)),
-            next_actions=["choose the relevant CRM, Store, or workflow context"],
+            next_actions=[
+                "choose relevant CRM or workflow context; Store requires separate permission for this case"
+            ],
             meta={"tool_count": len(getattr(tool_manager, "_tools", {}))},
         )
         return _tool_result(payload, label="agent_bootstrap")
