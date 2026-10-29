@@ -73,6 +73,14 @@ The public 24-tool surface contains these stable names:
   `agent_inventory_workflow`, `prepare_action_contract`, and
   `call_raw_capability`.
 
+`agent_bootstrap` defaults to `include_store_context=false`: CRM context and
+unfinished technical operations remain available without reading Store, even
+when `query` or `intent` is supplied. Store access requires separate permission
+for the current case. Only after that permission, explicitly set
+`include_store_context=true` to add the two bounded Store searches; a query,
+intent or available Store capability does not provide that permission.
+The legacy `null` value remains accepted and also keeps bootstrap CRM-only.
+
 `agent_search(entity="client")` and the raw `search_clients`/`list_clients`
 tools use dedicated read-only API routes. Vehicle IDs in `vehicles_preview`
 come from the saved client profile. A `related_card_candidates` entry marked

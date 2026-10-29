@@ -10,15 +10,13 @@ def bootstrap_store_context_requests(
     *,
     query: Any,
     intent: Any,
-    include_store_context: bool | None,
+    include_store_context: bool | None = False,
     invoke: StoreInvoker,
 ) -> tuple[bool, list[Awaitable[dict[str, Any]]]]:
-    """Build the two bounded Store reads only when the caller supplies a signal."""
+    """Build bounded Store reads only for an explicit authorized-case opt-in."""
 
     context_hint = str(query or intent or "").strip()
-    requested = (
-        bool(include_store_context) if include_store_context is not None else bool(context_hint)
-    )
+    requested = include_store_context is True
     if not requested:
         return False, []
     arguments = {

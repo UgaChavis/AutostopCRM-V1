@@ -11,10 +11,11 @@ import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from mcp.server.auth.middleware.auth_context import auth_context_var
 from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ if str(SRC) not in sys.path:
 from minimal_kanban.mcp import gateway_contract as gc
 from minimal_kanban.mcp.agent_gateway_support import _subset_matches
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2
+from minimal_kanban.mcp.gateway_store_context import bootstrap_store_context_requests
 from minimal_kanban.mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
     OAUTH_AUDIT_ASSERTION_HEADER,
@@ -968,6 +970,9 @@ def _register_fake_store_context_tools(server, _logger, state: dict) -> None:
 
     @server.tool(name="agent_bootstrap")
     def agent_bootstrap(query: str = "", intent: str | None = None, limit: int = 8) -> dict:
+        state.setdefault("manager_bootstrap_calls", []).append(
+            {"query": query, "intent": intent, "limit": limit}
+        )
         return {"ok": True, "summary": {"route": "test"}}
 
     @server.tool(name="store_runtime_status", description="INTERNAL_ONLY store runtime")
@@ -1803,6 +1808,14 @@ class AgentGatewayV2Tests(
         )
         self.assertIn("ack_token", board_schema["properties"])
         self.assertIn("include_store_context", bootstrap_schema["properties"])
+        self.assertIs(False, bootstrap_schema["properties"]["include_store_context"]["default"])
+        self.assertEqual(
+            {"boolean", "null"},
+            {
+                choice["type"]
+                for choice in bootstrap_schema["properties"]["include_store_context"]["anyOf"]
+            },
+        )
         self.assertNotIn("store_cursor", bootstrap_schema["properties"])
         self.assertNotIn("store_ack_token", bootstrap_schema["properties"])
         self.assertNotIn("ack_token", board_schema.get("required", []))
@@ -1861,11 +1874,78 @@ class AgentGatewayV2Tests(
         self.assertEqual(1, len(digest_calls))
         self.assertEqual("store_digest", digest_calls[0]["stream"])
 
-    async def test_bootstrap_loads_bounded_store_context_for_quote_signal(self) -> None:
+    async def test_bootstrap_query_or_intent_defaults_to_crm_only(self) -> None:
+        for context in ({"query": "article-123"}, {"intent": "parts_quote"}):
+            for store_option in (
+                {},
+                {"include_store_context": False},
+                {"include_store_context": None},
+            ):
+                with self.subTest(context=context, store_option=store_option):
+                    server, state = self._create_store_server()
+                    arguments = {**context, **store_option}
+
+                    result = await server._tool_manager.get_tool("agent_bootstrap").run(
+                        arguments, convert_result=False
+                    )
+
+                    self.assertTrue(result.structuredContent["ok"])
+                    self.assertEqual("ready", result.structuredContent["status"])
+                    self.assertEqual(
+                        "not_requested", result.structuredContent["summary"]["store"]["status"]
+                    )
+                    self.assertFalse(any(name.startswith("store_") for name, _ in state["calls"]))
+                    self.assertEqual(
+                        [
+                            {
+                                "query": context.get("query", ""),
+                                "intent": context.get("intent"),
+                                "limit": 8,
+                            }
+                        ],
+                        state["manager_bootstrap_calls"],
+                    )
+
+    def test_bootstrap_store_helper_requires_literal_true(self) -> None:
+        for value in (None, False, 0, 1, "true"):
+            with self.subTest(value=value):
+                invoke = Mock()
+                requested, requests = bootstrap_store_context_requests(
+                    query="article-123",
+                    intent="parts_quote",
+                    include_store_context=value,
+                    invoke=invoke,
+                )
+                self.assertFalse(requested)
+                self.assertEqual([], requests)
+                invoke.assert_not_called()
+
+        invoke = Mock()
+        requested, requests = bootstrap_store_context_requests(
+            query="article-123", intent="parts_quote", invoke=invoke
+        )
+        self.assertFalse(requested)
+        self.assertEqual([], requests)
+        invoke.assert_not_called()
+
+    async def test_bootstrap_rejects_non_boolean_store_opt_in_before_any_read(self) -> None:
+        server, state = self._create_store_server()
+        tool = server._tool_manager.get_tool("agent_bootstrap")
+        for value in (1, "true"):
+            with self.subTest(value=value), self.assertRaises(ToolError):
+                await tool.run(
+                    {"query": "article-123", "include_store_context": value}, convert_result=False
+                )
+        self.assertEqual([], state.get("manager_bootstrap_calls", []))
+        self.assertFalse(any(name.startswith("store_") for name, _ in state["calls"]))
+
+    async def test_bootstrap_loads_bounded_store_context_only_when_explicitly_requested(
+        self,
+    ) -> None:
         server, state = self._create_store_server()
 
         bootstrap = await server._tool_manager.get_tool("agent_bootstrap").run(
-            {"query": "article-123"}, convert_result=False
+            {"query": "article-123", "include_store_context": True}, convert_result=False
         )
 
         self.assertTrue(bootstrap.structuredContent["ok"])
@@ -1881,6 +1961,22 @@ class AgentGatewayV2Tests(
         )
         self.assertTrue(
             all(call["query"] == "article-123" and call["limit"] == 4 for call in search_calls)
+        )
+
+    async def test_bootstrap_explicit_store_context_uses_intent_without_query(self) -> None:
+        server, state = self._create_store_server()
+
+        result = await server._tool_manager.get_tool("agent_bootstrap").run(
+            {"intent": "parts_quote", "include_store_context": True}, convert_result=False
+        )
+
+        self.assertTrue(result.structuredContent["ok"])
+        self.assertTrue(result.structuredContent["summary"]["store"]["requested"])
+        calls = [arguments for name, arguments in state["calls"] if name == "store_search"]
+        self.assertEqual(2, len(calls))
+        self.assertEqual({"store_quote_request", "store_part"}, {call["entity"] for call in calls})
+        self.assertTrue(
+            all(call["query"] == "parts_quote" and call["limit"] == 4 for call in calls)
         )
 
     async def test_store_digest_ack_traverses_first_next_and_final_without_new_tool(self) -> None:
