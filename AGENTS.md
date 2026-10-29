@@ -10,12 +10,12 @@ read deeper documentation only when it helps the task. Business rules belong
 in shared services, used by browser, Windows client, API, and MCP.
 For a module, tool, service, or release symptom, use the
 [CRM module operations catalog](docs/agent/module_operations/README.md).
-The current Manager module instructions are the project role entrypoints:
-[M1 director](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/M1.md),
-[M2 engineer](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/M2.md),
-and [C2 CRM](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/modules/C2.md).
-Use their canonical instructions and journal procedure for the selected role;
-old plans and duplicated skills do not override them.
+Select the Manager instruction root and revision by the
+[instruction-root procedure](docs/OPERATIONS_RUNBOOK.md#manager-instruction-roots).
+Read that root's `AGENTS.md` and the relevant `docs/agent/modules/M1.md`,
+`M2.md`, or `C2.md`, including the selected role's journal procedure.
+GitHub branch links, old plans, installed skill copies, and history do not
+select or override that version.
 
 M1 may normalize authorized card content and vehicle evidence through
 `cleanup_card` with `content_only=true`, fresh revisions and an idempotency key;
