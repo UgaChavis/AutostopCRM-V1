@@ -222,6 +222,12 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             events = visible_audit_events(payload, bundle["events"])
             cards = self._visible_cards(bundle["cards"], include_archived=include_archived)
+            total_cards = len(cards)
+            # Bound the expensive projection/serialization before preparing card metadata.
+            if payload.get("limit") is not None:
+                cards = cards[
+                    : self._validated_limit(payload.get("limit"), default=20, maximum=100)
+                ]
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 cards,
@@ -241,9 +247,9 @@ class SnapshotService:
                 "meta": {
                     "include_archived": include_archived,
                     "compact": compact_cards,
-                    "total": len(cards),
+                    "total": total_cards,
                     "returned": len(serialized_cards),
-                    "has_more": False,
+                    "has_more": total_cards > len(serialized_cards),
                 },
             }
 

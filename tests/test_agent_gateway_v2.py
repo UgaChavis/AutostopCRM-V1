@@ -151,7 +151,9 @@ class FakeBoardApi:
     def health(self) -> dict:
         return {"ok": True, "data": {"status": "healthy"}}
 
-    def get_cards(self, *, include_archived: bool = False, compact: bool = True) -> dict:
+    def get_cards(
+        self, *, include_archived: bool = False, compact: bool = True, limit: int | None = None
+    ) -> dict:
         cards = [
             {
                 "id": f"card-{index}",
@@ -172,10 +174,15 @@ class FakeBoardApi:
             }
             for index in range(4 if include_archived else 3)
         ]
-        return {"ok": True, "data": {"cards": cards}, "meta": {"compact": compact}}
+        return {
+            "ok": True,
+            "data": {"cards": cards if limit is None else cards[:limit]},
+            "meta": {"compact": compact},
+        }
 
-    def search_cards(self, **_: object) -> dict:
-        return self.get_cards()
+    def search_cards(self, **arguments: object) -> dict:
+        limit = arguments.get("limit")
+        return self.get_cards(limit=limit if isinstance(limit, int) else None)
 
     def list_inventory_items(self, **_: object) -> dict:
         return {"ok": True, "data": {"items": [{"id": "inventory-1", "name": "Filter"}]}}
@@ -2240,7 +2247,7 @@ class AgentGatewayV2Tests(
             {}, convert_result=False
         )
         runtime = await server._tool_manager.get_tool("get_runtime_status").run(
-            {}, convert_result=False
+            {"include_store_context": True}, convert_result=False
         )
         crm_digest = await server._tool_manager.get_tool("agent_board_digest").run(
             {"scope": "crm", "limit": 1}, convert_result=False
