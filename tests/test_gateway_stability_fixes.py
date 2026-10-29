@@ -96,7 +96,11 @@ class ServerErrorAfterCreateBoard(CreateRecoveryBoard):
 
 class GatewayStabilityFixTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        env = patch.dict("os.environ", GATEWAY_ENV, clear=True)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        # Keep global application/maintenance reads isolated on every platform;
+        # clearing USERPROFILE without APPDATA makes Path.home fail on Windows.
+        env = patch.dict("os.environ", {**GATEWAY_ENV, "APPDATA": directory.name}, clear=True)
         env.start()
         self.addCleanup(env.stop)
         network = patch("socket.socket.connect", side_effect=AssertionError("network prohibited"))
