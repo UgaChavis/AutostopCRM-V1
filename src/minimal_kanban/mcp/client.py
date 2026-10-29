@@ -67,6 +67,17 @@ def _authorization_bearer_header(token: str | None) -> str | None:
     return f"Bearer {normalized}"
 
 
+def _create_card_http_error_payload(payload: dict, *, path: str, method: str, status: int) -> dict:
+    """A server error cannot prove that a dispatched create did not commit."""
+    if path != "/api/create_card" or method.strip().upper() != "POST" or not 500 <= status < 600:
+        return payload
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    return {
+        **payload,
+        "meta": {**meta, "outcome_uncertain": True, "readback_required": True},
+    }
+
+
 _MAX_API_RESPONSE_BYTES = 32 * 1024 * 1024
 
 
@@ -1800,7 +1811,9 @@ class BoardApiClient:
                     exc.code,
                     payload.get("error"),
                 )
-                return payload
+                return _create_card_http_error_payload(
+                    payload, path=path, method=method, status=exc.code
+                )
             finally:
                 exc.close()
         except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:

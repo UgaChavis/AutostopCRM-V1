@@ -907,6 +907,7 @@ def _create_card_outcome_unknown(operation: str, result: dict[str, Any]) -> bool
             "capability_failed",
             "board_api_malformed_response",
             "board_api_invalid_response",
+            "internal_error",
         }
     )
 

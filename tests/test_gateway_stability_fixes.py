@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import copy
+import io
+import json
 import logging
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,7 +20,7 @@ from minimal_kanban.mcp.agent_gateway_support import (
     _create_card_outcome_unknown,
     _create_card_requires_reconciliation,
 )
-from minimal_kanban.mcp.client import BoardApiTransportError
+from minimal_kanban.mcp.client import BoardApiClient, BoardApiTransportError
 from minimal_kanban.mcp.server import create_mcp_server
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.storage.json_store import JsonStore
@@ -58,11 +61,47 @@ class SyntheticCrash(BaseException):
     """Simulate interruption without turning it into a normal tool failure."""
 
 
+def synthetic_http_error(status, code):
+    payload = {
+        "ok": False,
+        "data": None,
+        "error": {"code": code, "message": "Synthetic server rejection"},
+        "meta": {"request_id": "synthetic-request"},
+    }
+    return urllib.error.HTTPError(
+        "https://crm.example/api/create_card",
+        status,
+        "Synthetic rejection",
+        None,
+        io.BytesIO(json.dumps(payload).encode()),
+    )
+
+
+class ServerErrorAfterCreateBoard(CreateRecoveryBoard):
+    def __init__(self, *, via_http):
+        super().__init__()
+        self.via_http = via_http
+
+    def create_card(self, **arguments):
+        super().create_card(**arguments)
+        if not self.via_http:
+            return {"ok": False, "error": {"code": "internal_error"}}
+        with patch(
+            "minimal_kanban.mcp.client._urlopen_no_redirect",
+            side_effect=synthetic_http_error(500, "internal_error"),
+        ):
+            client = BoardApiClient("https://crm.example/api", bearer_token="synthetic")
+            return client._request("/api/create_card", arguments)
+
+
 class GatewayStabilityFixTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        env = patch.dict("os.environ", GATEWAY_ENV, clear=False)
+        env = patch.dict("os.environ", GATEWAY_ENV, clear=True)
         env.start()
         self.addCleanup(env.stop)
+        network = patch("socket.socket.connect", side_effect=AssertionError("network prohibited"))
+        network.start()
+        self.addCleanup(network.stop)
 
     def server(self, board=None, initial_state=None, transition_hook=None):
         state = initial_state if initial_state is not None else {}
@@ -132,6 +171,97 @@ class GatewayStabilityFixTests(unittest.IsolatedAsyncioTestCase):
         conflict = (await tool.run(changed, convert_result=False)).structuredContent
         self.assertFalse(conflict["ok"])
         self.assertEqual(1, len(board.created_cards))
+
+    async def test_committed_server_error_reconnect_preserves_uncertainty_for_both_names(self):
+        for operation in ("create_card", "api:/api/create_card"):
+            for via_http in (True, False):
+                with self.subTest(operation=operation, via_http=via_http):
+                    board = ServerErrorAfterCreateBoard(via_http=via_http)
+                    server, state = self.server(board)
+                    args = await self.create_arguments(server, operation, "synthetic-http-create")
+                    first = (
+                        await server._tool_manager.get_tool("call_raw_capability").run(
+                            args, convert_result=False
+                        )
+                    ).structuredContent
+                    self.assertFalse(first["ok"])
+                    self.assertEqual("compensating", first["status"])
+                    run = state["workflow_runs"][first["run_id"]]
+                    self.assertEqual("compensating", run["status"])
+                    compensation = next(
+                        arguments
+                        for name, arguments in state["calls"]
+                        if name == "workflow_transition" and arguments["status"] == "compensating"
+                    )
+                    self.assertTrue(compensation["verification"]["outcome_uncertain"])
+                    reopened, _ = self.server(board, copy.deepcopy(state))
+                    retry = (
+                        await reopened._tool_manager.get_tool("call_raw_capability").run(
+                            args, convert_result=False
+                        )
+                    ).structuredContent
+                    self.assertEqual(first["run_id"], retry["run_id"])
+                    self.assertFalse(retry["ok"])
+                    self.assertEqual("compensating", retry["status"])
+                    for response in (first, retry):
+                        for field in ("meta", "verification"):
+                            self.assertTrue(response[field]["outcome_uncertain"])
+                            self.assertTrue(response[field]["readback_required"])
+                        self.assertIn(
+                            "do not use a new idempotency key", response["next_actions"][0]
+                        )
+                    self.assertEqual(1, len(board.created_cards))
+
+    async def test_known_create_rejections_stay_failed_without_uncertainty(self):
+        for operation in ("create_card", "api:/api/create_card"):
+            for code in ("validation_error", "auth_required", "permission_denied"):
+                with self.subTest(operation=operation, code=code):
+
+                    class RejectedCreateBoard(CreateRecoveryBoard):
+                        def create_card(self, **arguments):
+                            return {"ok": False, "error": {"code": code}}
+
+                    board = RejectedCreateBoard()
+                    server, state = self.server(board)
+                    args = await self.create_arguments(
+                        server, operation, "synthetic-known-rejection"
+                    )
+                    result = (
+                        await server._tool_manager.get_tool("call_raw_capability").run(
+                            args, convert_result=False
+                        )
+                    ).structuredContent
+                    self.assertEqual("failed", result["status"])
+                    self.assertEqual("failed", state["workflow_runs"][result["run_id"]]["status"])
+                    self.assertFalse(result["verification"]["executor_ok"])
+                    self.assertNotIn("outcome_uncertain", result["meta"])
+                    self.assertNotIn("readback_required", result["verification"])
+                    self.assertEqual(0, len(board.created_cards))
+
+    def test_http_uncertainty_is_scoped_to_exact_post_create_and_server_errors(self):
+        cases = (
+            ("/api/create_card", "POST", 500, "internal_error", True),
+            ("/api/create_card", "post", 503, "synthetic_upstream_failure", True),
+            ("/api/create_card", "POST", 400, "validation_error", False),
+            ("/api/create_card", "POST", 401, "auth_required", False),
+            ("/api/create_card", "POST", 403, "permission_denied", False),
+            ("/api/create_card", "GET", 500, "internal_error", False),
+            ("/api/create_client", "POST", 500, "internal_error", False),
+            ("/api/create_card_extra", "POST", 500, "internal_error", False),
+        )
+        for path, method, status, code, uncertain in cases:
+            with self.subTest(path=path, method=method, status=status):
+                client = BoardApiClient("https://crm.example/api", bearer_token="synthetic")
+                with patch(
+                    "minimal_kanban.mcp.client._urlopen_no_redirect",
+                    side_effect=synthetic_http_error(status, code),
+                ) as request:
+                    result = client._request(path, {"title": "Synthetic"}, method=method)
+                self.assertEqual(code, result["error"]["code"])
+                self.assertEqual("synthetic-request", result["meta"]["request_id"])
+                self.assertEqual(uncertain, result["meta"].get("outcome_uncertain", False))
+                self.assertEqual(uncertain, result["meta"].get("readback_required", False))
+                request.assert_called_once()
 
     async def test_alias_requires_exact_readback_and_keeps_live_schema_guard(self):
         for mismatch in (False, True):
