@@ -210,6 +210,16 @@ async def _exercise_client_link_roundtrip(page: Any, runtime: TempRuntime) -> di
         await suggestion.click()
     linked_card = runtime.service.get_card({"card_id": created_card_id})["card"]
     link_exact_readback_ok = linked_card.get("client_id") == runtime.client_id
+    # The link response precedes its client-side snapshot refresh. Save remains
+    # clickable during that refresh, but its mutation guard rejects the click.
+    await page.wait_for_function(
+        """({cardId, clientId}) =>
+          state.editingId === cardId && state.activeCard?.client_id === clientId
+          && !state.cardClientMutationRequest && state.activeCardIsFull
+          && document.querySelector('#saveCardButton')?.disabled === false
+        """,
+        arg={"cardId": created_card_id, "clientId": runtime.client_id},
+    )
     async with page.expect_response(
         lambda response: (
             response.request.method == "POST"
