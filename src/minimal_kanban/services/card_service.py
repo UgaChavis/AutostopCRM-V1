@@ -153,7 +153,7 @@ from .card_service_repair_order_search import (
 from .card_service_repair_order_search import (
     CardServiceRepairOrderSearchMixin,
 )
-from .cash_amounts import cash_payment_minor, validated_cash_amount_minor
+from .cash_amounts import advance_cashbox_revision, cash_payment_minor, validated_cash_amount_minor
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
@@ -3244,6 +3244,7 @@ class CardService(
                     status_code=409,
                     details={"card_id": card.id},
                 )
+            self._ensure_card_expected_updated_at(card, payload)
             actor_name, source = self._audit_identity(payload, default_source="api")
             next_payload = self._merged_repair_order_storage(
                 card.repair_order.to_storage_dict(),
@@ -3452,8 +3453,8 @@ class CardService(
     def get_repair_order_text(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update()
-            if self._synchronize_repair_order_numbers(bundle["cards"]):
+            bundle, read_only = read_context.prepare_repair_order_text(self, payload)
+            if not read_only and self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,
                     columns=bundle["columns"],
@@ -3461,6 +3462,7 @@ class CardService(
                     events=bundle["events"],
                 )
             card = self._find_card(bundle["cards"], payload.get("card_id"))
+            read_warnings = read_context.maybe_card_warnings(bundle, card, read_only)
             self._ensure_repair_order_state_supported(card)
             if not self._card_has_repair_order(card):
                 self._fail(
@@ -3473,8 +3475,10 @@ class CardService(
                 card,
                 force=True,
                 operator_payload=payload,
+                read_only=read_only,
             )
             return {
+                **({"read_warnings": read_warnings} if read_warnings else {}),
                 "card_id": card.id,
                 "heading": card.heading(),
                 "repair_order": card.repair_order.to_dict(),
@@ -7173,10 +7177,7 @@ class CardService(
     def _refresh_cashbox_updated_at(
         self, cashbox: CashBox, transactions: list[CashTransaction]
     ) -> None:
-        latest_transaction = next(iter(self._cashbox_transactions(transactions, cashbox.id)), None)
-        cashbox.updated_at = (
-            latest_transaction.created_at if latest_transaction is not None else cashbox.created_at
-        )
+        advance_cashbox_revision(cashbox)
 
     def _sync_repair_order_payment_transactions(
         self,
@@ -7208,9 +7209,27 @@ class CardService(
             if previous_order.active_correction
             else set()
         )
+        previous_payments_by_id: dict[str, list[RepairOrderPayment]] = {}
+        for previous_payment in previous_order.payments:
+            previous_payments_by_id.setdefault(previous_payment.id, []).append(previous_payment)
         for payment in next_payments:
             if payment.id in correction_existing_ids:
                 continue
+            previous_matches = previous_payments_by_id.get(payment.id, [])
+            if len(previous_matches) > 1 and payment.cash_transaction_id:
+                previous_matches = [
+                    previous
+                    for previous in previous_matches
+                    if previous.cash_transaction_id == payment.cash_transaction_id
+                ]
+            if len(previous_matches) == 1:
+                previous_payment = previous_matches[0]
+                if (
+                    previous_payment.cashbox_id
+                    and payment.cashbox_id == previous_payment.cashbox_id
+                    and payment.payment_method == previous_payment.payment_method
+                ):
+                    continue
             exact_attestation_cashbox = (
                 self._find_cashbox(cashboxes, payment.cashbox_id)
                 if attestation_mode
@@ -7301,6 +7320,11 @@ class CardService(
             cash_transactions[:] = [
                 item for item in cash_transactions if item.id != existing_transaction.id
             ]
+            affected_cashbox = next(
+                (box for box in cashboxes if box.id == existing_transaction.cashbox_id), None
+            )
+            if affected_cashbox is not None:
+                advance_cashbox_revision(affected_cashbox)
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -7375,7 +7399,7 @@ class CardService(
                     item.id,
                 )
             )
-            cashbox.updated_at = transaction.created_at
+            advance_cashbox_revision(cashbox)
             payment.cash_transaction_id = transaction.id
             self._append_event(
                 events,
@@ -9731,6 +9755,12 @@ class CardService(
                 "Срок стикера должен быть больше нуля.",
                 details={"field": "deadline"},
             )
+        if total_seconds > MAX_DEADLINE_TOTAL_SECONDS:
+            self._fail(
+                "validation_error",
+                "Срок стикера не может превышать 365 дней.",
+                details={"field": "deadline"},
+            )
         return total_seconds
 
     def _validated_vehicle(self, value) -> str:
@@ -9808,6 +9838,12 @@ class CardService(
             self._fail(
                 "validation_error",
                 "Срок карточки должен быть больше нуля.",
+                details={"field": "deadline"},
+            )
+        if total_seconds > MAX_DEADLINE_TOTAL_SECONDS:
+            self._fail(
+                "validation_error",
+                "Срок карточки не может превышать 365 дней.",
                 details={"field": "deadline"},
             )
         return total_seconds

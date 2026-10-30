@@ -85,10 +85,10 @@ from .payloads import (
     JsonEnvelope,
     McpInt,
     RepairOrderPatchPayload,
-    RepairOrderRowPayload,
     TagPayload,
     _resolved_create_card_deadline,
 )
+from .repair_order_row_writes import register_repair_order_row_writes
 from .repair_order_wire_safety import install_repair_order_wire_safety
 from .shared_file_reads import SharedFileReadContext, register_shared_file_reads
 from .shared_file_writes import SharedFileWriteContext, register_shared_file_writes
@@ -97,6 +97,7 @@ from .tool_registry import MCP_TOOL_GROUPS, PUBLIC_MCP_TOOL_NAMES
 # Preserve historic imports from mcp.server while payloads.py becomes canonical.
 ConnectorIdentityPayload = _payloads.ConnectorIdentityPayload
 ConnectorIdentityToolData = _payloads.ConnectorIdentityToolData
+RepairOrderRowPayload = _payloads.RepairOrderRowPayload
 RepairOrderPaymentPayload = _payloads.RepairOrderPaymentPayload
 StickyDeadlinePayload = _payloads.StickyDeadlinePayload
 _deadline_part_value = _payloads._deadline_part_value
@@ -2668,7 +2669,9 @@ def create_mcp_server(
         structured_output=True,
     )
     def get_repair_order(card_id: str) -> JsonEnvelope:
-        return _relay_board_call("get_repair_order", lambda: board_api.get_repair_order(card_id))
+        return _relay_board_call(
+            "get_repair_order", lambda: board_api.get_repair_order(card_id, create_if_missing=False)
+        )
 
     @server.tool(
         name="preview_repair_order_reopen",
@@ -2710,7 +2713,7 @@ def create_mcp_server(
     def get_repair_order_text(card_id: str) -> JsonEnvelope:
         return _relay_board_call(
             "get_repair_order_text",
-            lambda: board_api.get_repair_order_text(card_id),
+            lambda: board_api.get_repair_order_text(card_id, read_only=True),
         )
 
     @server.tool(
@@ -3311,49 +3314,9 @@ def create_mcp_server(
             lambda: board_api.mark_card_ready(card_id=card_id, actor_name=actor_name),
         )
 
-    @server.tool(
-        name="replace_repair_order_works",
-        description=_scoped_description(
-            "Replace the full Works table of a repair order on the current AutoStop CRM board."
-        ),
-        annotations=_write_tool_annotations("Replace Repair Order Works"),
-        structured_output=True,
+    register_repair_order_row_writes(
+        server, board_api, _scoped_description, _write_tool_annotations, _relay_board_call
     )
-    def replace_repair_order_works(
-        card_id: str,
-        rows: list[RepairOrderRowPayload],
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "replace_repair_order_works",
-            lambda: board_api.replace_repair_order_works(
-                card_id=card_id,
-                rows=[row.model_dump() for row in rows],
-                actor_name=actor_name,
-            ),
-        )
-
-    @server.tool(
-        name="replace_repair_order_materials",
-        description=_scoped_description(
-            "Replace the full Materials table of a repair order on the current AutoStop CRM board."
-        ),
-        annotations=_write_tool_annotations("Replace Repair Order Materials"),
-        structured_output=True,
-    )
-    def replace_repair_order_materials(
-        card_id: str,
-        rows: list[RepairOrderRowPayload],
-        actor_name: str | None = None,
-    ) -> JsonEnvelope:
-        return _relay_board_call(
-            "replace_repair_order_materials",
-            lambda: board_api.replace_repair_order_materials(
-                card_id=card_id,
-                rows=[row.model_dump() for row in rows],
-                actor_name=actor_name,
-            ),
-        )
 
     register_board_sticky_mutations(server, board_sticky_write_context)
 

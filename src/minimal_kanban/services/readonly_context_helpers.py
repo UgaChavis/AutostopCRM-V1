@@ -90,6 +90,16 @@ def prepare_card_context(service, payload):
     return bundle, include_text, snapshot_read, strict_links
 
 
+def prepare_repair_order_text(service, payload):
+    read_only = service._validated_optional_bool(payload, "read_only", default=False)
+    bundle = (
+        service._store._read_context_bundle_snapshot(domains=("events",))
+        if read_only
+        else service._read_bundle_for_update()
+    )
+    return bundle, read_only
+
+
 def ranked_context_clients(service, card, clients):
     search_parts = (
         card.vehicle_profile.customer_name,

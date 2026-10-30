@@ -154,11 +154,16 @@ def public_snapshot_settings(
     settings: dict[str, Any],
     *,
     include_employees_cashboxes: bool = True,
+    detach: bool = False,
 ) -> dict[str, Any]:
     excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY, "telegram_agent_behavior"}
     if not include_employees_cashboxes:
         excluded_keys.update(EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS)
-    return {key: value for key, value in settings.items() if key not in excluded_keys}
+    return {
+        key: deepcopy(value) if detach else value
+        for key, value in settings.items()
+        if key not in excluded_keys
+    }
 
 
 def project_operator_result(

@@ -64,6 +64,11 @@ from .agent_gateway_support import (
     _release_smoke_proof as _release_smoke_proof,
 )
 from .client import BoardApiClient
+from .create_readback import (
+    card_requested_fields,
+    client_requested_fields,
+    verify_created_client_state,
+)
 from .gateway_contract import (
     BOARD_WORKFLOW_OPERATIONS,
     DEFAULT_CARD_FIELDS,
@@ -890,6 +895,8 @@ def register_agent_gateway_v2(
         )
         if virtual_verification is not None:
             return virtual_verification
+        if operation == "api:/api/create_client":
+            return await verify_created_client_state(result, invoke_verification_readback)
         if operation == "create_client":
             result_data = result.get("data") if isinstance(result.get("data"), dict) else {}
             created = (
@@ -898,7 +905,7 @@ def register_agent_gateway_v2(
             client_id = str(created.get("id") or "")
             readback = await _invoke("get_client", {"client_id": client_id}) if client_id else {}
             actual = _find_mapping(readback, "id", client_id) if client_id else None
-            requested = arguments.get("client") if isinstance(arguments.get("client"), dict) else {}
+            requested = client_requested_fields(arguments)
             persisted_state = {
                 key: created[key]
                 for key in (
@@ -945,11 +952,7 @@ def register_agent_gateway_v2(
             card_id = str(created.get("id") or "")
             readback = await _invoke("get_card", {"card_id": card_id}) if card_id else {}
             actual = _find_mapping(readback, "id", card_id) if card_id else None
-            requested = {
-                key: arguments[key]
-                for key in ("title", "vehicle", "description")
-                if key in arguments
-            }
+            requested = card_requested_fields(arguments)
             persisted_state = {
                 key: created[key]
                 for key in (

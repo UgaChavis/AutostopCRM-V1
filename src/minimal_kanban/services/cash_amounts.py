@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal, DecimalException, localcontext
 
-from ..models import MONEY_MINOR_ABS_MAX, _parse_money_minor_value
+from .. import models as model_helpers
+from ..models import MONEY_MINOR_ABS_MAX, CashBox, _parse_money_minor_value, parse_datetime
 from .errors import ServiceError
+
+
+def advance_cashbox_revision(cashbox: CashBox) -> None:
+    """Advance the change marker independently of transaction business dates."""
+    now = model_helpers.utc_now()
+    previous = parse_datetime(cashbox.updated_at)
+    if previous is not None and now <= previous:
+        now = previous + timedelta(microseconds=1)
+    cashbox.updated_at = now.isoformat()
 
 
 def validated_cash_amount_minor(payload: dict) -> int:

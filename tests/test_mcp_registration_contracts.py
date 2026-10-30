@@ -48,7 +48,7 @@ _RAW_REGISTRATION_ENV = {
     "AUTOSTOP_AGENT_GATEWAY_RAW_ENABLED": "0",
 }
 _RAW_REGISTRATION_CONTRACT_SHA256 = (
-    "cc740555bf88d08aa4cffa2cc107f60b5ec60bc8cba9fbdb32ab5faf139ef794"
+    "90e7c2159f204fd4be64f43e4699c576e7a3d497b1cbde94cd689535006c7035"
 )
 _EXPECTED_MANAGER_WRITE_TOOL_NAMES = frozenset(
     {
@@ -194,6 +194,10 @@ class McpRegistrationContractTests(unittest.TestCase):
             _contract_digest(contracts),
             json.dumps(per_tool_digests, ensure_ascii=False, sort_keys=True, indent=2),
         )
+        for name in ("replace_repair_order_works", "replace_repair_order_materials"):
+            schema = tool_map[name].inputSchema
+            self.assertIn("expected_updated_at", schema["properties"])
+            self.assertNotIn("expected_updated_at", schema["required"])
         cleanup_schema = tool_map["cleanup_card"].inputSchema
         self.assertEqual(cleanup_schema["required"], ["card_id"])
         self.assertFalse(cleanup_schema["properties"]["content_only"]["default"])

@@ -992,7 +992,12 @@ class AgentControlService:
                     str(cache_entry.get("cooldown_until", "") or "").strip()
                 )
                 context_payload = self._board_service.get_card_context(
-                    {"card_id": card_id, "event_limit": 20, "include_repair_order_text": True}
+                    {
+                        "card_id": card_id,
+                        "event_limit": 20,
+                        "include_repair_order_text": True,
+                        "read_only": True,
+                    }
                 )
                 compact_context = build_ai_compact_context_packet(
                     context_payload, scenario_id="board_control", source="backend"

@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from ..models import Card, Column, StickyNote, normalize_actor_name
+from ..models import Card, Column, StickyNote
 
 SNAPSHOT_CACHE_MAX_ENTRIES = 32
 COMPACT_SNAPSHOT_CACHE_TTL_SECONDS = 1.5
@@ -60,7 +60,9 @@ class SnapshotResponseCache:
         include_archive: bool,
         archive_limit: int,
     ) -> tuple[Any, ...]:
-        normalized_viewer = normalize_actor_name(viewer_username, default="").casefold()
+        # The snapshot revision includes the supplied viewer, and card seen-state
+        # distinguishes actor names by case. Reuse only for the identical viewer.
+        normalized_viewer = str(viewer_username or "").strip()
         return (
             normalized_viewer,
             employees_cashboxes_access,

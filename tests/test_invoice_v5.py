@@ -187,6 +187,19 @@ class InvoiceV5Tests(unittest.TestCase):
                 context = self.context(settings=PrintModuleSettings.from_dict(settings))
                 self.assertEqual(context["service"]["reception_phone_display"], expected)
 
+    def test_recipient_kpp_is_hidden_and_buyer_kpp_is_preserved(self) -> None:
+        document = self.preview(
+            money_card(tax="НДС 5%"),
+            client=build_business_client(),
+            print_settings={"service_profile": {"inn": "123456789012", "kpp": "999999999"}},
+        )
+        rendered = document["pages"][0]["html"]
+        self.assertTrue(document["money_validation"]["valid"])
+        self.assertIn("ИНН 123456789012", rendered)
+        self.assertNotIn("КПП 999999999", rendered)
+        self.assertIn("КПП 246801001", rendered)
+        self.assertIn("В том числе НДС 5%", rendered)
+
     def test_sections_empty_or_present_and_untrusted_names_remain_data(self) -> None:
         for works, materials in ((False, False), (True, False), (False, True), (True, True)):
             with self.subTest(works=works, materials=materials):

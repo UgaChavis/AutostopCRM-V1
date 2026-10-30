@@ -59,6 +59,21 @@ class TemplateMoneyGuardTests(unittest.TestCase):
         self.assertEqual(card.to_storage_dict(), baseline)
         return preview
 
+    def test_current_scalar_value_retains_its_money_field_for_validation(self):
+        self.assert_guard(
+            money_card(),
+            "inspection_sheet",
+            "{{#materials}}{{#price}}{{.}}{{/price}}{{/materials}}",
+            valid=False,
+            error_code="template_money_format_unverified",
+        )
+        self.assert_guard(
+            money_card(),
+            "inspection_sheet",
+            "{{#materials}}{{#price_display}}{{.}}{{/price_display}}{{/materials}}",
+            valid=True,
+        )
+
     def test_css_and_html_hidden_required_notes_block_both_backends(self):
         card = money_card(price="1", quantity="3", total="3.01")
         table = "{{#materials}}{{quantity_display}} * {{price_display}} = {{total_display}}{{/materials}}"

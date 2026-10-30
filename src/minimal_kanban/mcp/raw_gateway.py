@@ -85,7 +85,7 @@ OPTIMISTIC_WRITE_NAMES = frozenset(
         "api:/api/set_card_ai_autofill",
         "api:/api/delete_gateway_attestation_payment_fixture",
     }
-)
+) | frozenset(("replace_repair_order_works", "replace_repair_order_materials"))
 VERSIONED_WRITE_NAMES = frozenset(
     {
         "api:/api/save_completion_act_form",

@@ -204,6 +204,72 @@ class SnapshotCacheTests(unittest.TestCase):
         )
         self.assertEqual(len({item["revision"] for item in first_results}), len(views))
 
+    def test_cache_preserves_case_sensitive_viewer_seen_state_and_revision(self) -> None:
+        self.service.create_card({"title": "Viewer state", "actor_name": "Alice", "source": "ui"})
+        alice = self._compact_view(actor_name="Alice")
+        upper = self._compact_view(actor_name="ALICE")
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        cold_upper = self.service.get_board_snapshot(upper)
+        cold_upper_revision = self.service.get_board_revision(upper)["revision"]
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        first = self.service.get_board_snapshot(alice)
+        warmed_upper = self.service.get_board_snapshot(upper)
+        warmed_upper_revision = self.service.get_board_revision(upper)["revision"]
+
+        self.assertFalse(first["cards"][0]["is_unread"])
+        self.assertTrue(cold_upper["cards"][0]["is_unread"])
+        self.assertEqual(warmed_upper["cards"], cold_upper["cards"])
+        self.assertEqual(warmed_upper["meta"]["revision"], cold_upper["meta"]["revision"])
+        self.assertEqual(warmed_upper_revision, cold_upper_revision)
+        self.assertNotEqual(first["meta"]["revision"], warmed_upper["meta"]["revision"])
+
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        self.service.get_board_revision(alice)
+        revision_after_other_viewer = self.service.get_board_revision(upper)["revision"]
+        prepared = self.snapshot_service.get_board_snapshot_for_http(upper)
+        self.assertIsInstance(prepared, PreparedSnapshotData)
+        prepared_snapshot = json.loads(prepared.render(generated_at="2026-01-01T00:00:00+00:00"))
+        self.assertTrue(prepared_snapshot["cards"][0]["is_unread"])
+        self.assertEqual(revision_after_other_viewer, cold_upper_revision)
+        self.assertEqual(prepared_snapshot["meta"]["revision"], cold_upper_revision)
+
+    def test_cache_keeps_revision_for_distinct_viewer_spellings(self) -> None:
+        views = [
+            self._compact_view(actor_name="Alice  Smith"),
+            self._compact_view(actor_name="Alice Smith"),
+        ]
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        cold_revision = self.service.get_board_revision(views[1])["revision"]
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        first_revision = self.service.get_board_revision(views[0])["revision"]
+        warmed_revision = self.service.get_board_revision(views[1])["revision"]
+        self.assertNotEqual(first_revision, cold_revision)
+        self.assertEqual(warmed_revision, cold_revision)
+
+    def test_first_snapshot_settings_do_not_alias_store_cache(self) -> None:
+        for compact in (False, True):
+            with self.subTest(compact=compact):
+                self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+                view = {"actor_name": "ALICE", "compact": compact}
+                first = self.service.get_board_snapshot(view)
+                original = first["settings"]["ai_board_control"]["enabled"]
+                revision = first["meta"]["revision"]
+                disk = self.state_file.read_bytes()
+                first["settings"]["ai_board_control"]["enabled"] = not original
+
+                self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+                repeated = self.service.get_board_snapshot(view)
+                fresh_store = JsonStore(state_file=self.state_file, logger=self.logger)
+                self.assertEqual(repeated["settings"]["ai_board_control"]["enabled"], original)
+                self.assertEqual(
+                    fresh_store.read_bundle()["settings"]["ai_board_control"]["enabled"], original
+                )
+                self.assertEqual(repeated["meta"]["revision"], revision)
+                self.assertEqual(self.state_file.read_bytes(), disk)
+                self.service.create_card({"title": "Unrelated write"})
+                reread = JsonStore(state_file=self.state_file, logger=self.logger).read_bundle()
+                self.assertEqual(reread["settings"]["ai_board_control"]["enabled"], original)
+
     def test_compact_snapshot_cache_does_not_expose_mutable_entry(self) -> None:
         card_id = self._create_card()
         view = self._compact_view()
@@ -336,8 +402,8 @@ class SnapshotCacheTests(unittest.TestCase):
 
         self.assertEqual(len(self.snapshot_service._snapshot_cache), SNAPSHOT_CACHE_MAX_ENTRIES)
         cached_viewers = {str(key[0]) for key in self.snapshot_service._snapshot_cache}
-        self.assertNotIn("viewer-0", cached_viewers)
-        self.assertIn(f"viewer-{SNAPSHOT_CACHE_MAX_ENTRIES + 6}", cached_viewers)
+        self.assertNotIn("VIEWER-0", cached_viewers)
+        self.assertIn(f"VIEWER-{SNAPSHOT_CACHE_MAX_ENTRIES + 6}", cached_viewers)
 
 
 if __name__ == "__main__":

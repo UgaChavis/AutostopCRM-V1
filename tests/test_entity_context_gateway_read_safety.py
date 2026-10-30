@@ -341,7 +341,7 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
         )
         self.assertEqual(before, self.snapshot())
 
-    async def test_raw_read_contract_uses_http_default_false_while_direct_service_default_creates(
+    async def test_raw_read_contract_explicitly_disables_creation_while_service_default_creates(
         self,
     ):
         original_settings = json.loads(self.state_file.read_text(encoding="utf-8"))["settings"]
@@ -370,7 +370,10 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
             auth_context_var.reset(context)
         payload = result.model_dump()
         self.assertTrue(payload["ok"])
-        self.assertEqual(self.calls[-1], ("/api/get_repair_order", {"card_id": self.empty_card_id}))
+        self.assertEqual(
+            self.calls[-1],
+            ("/api/get_repair_order", {"card_id": self.empty_card_id, "create_if_missing": False}),
+        )
         self.assertFalse(payload["data"]["meta"]["created"])
         self.assertFalse(payload["data"]["repair_order"]["number"])
         self.assertEqual(before, self.snapshot())
