@@ -5,7 +5,7 @@ import io
 import json
 import sys
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -31,6 +31,80 @@ def load_browser_smoke_module() -> ModuleType:
 
 
 class BrowserSmokeScriptTests(unittest.TestCase):
+    def test_client_link_roundtrip_waits_for_delayed_frontend_mutation_before_save(self) -> None:
+        load_browser_smoke_module()
+        core = sys.modules["browser_smoke_core"]
+
+        async def exercise():
+            finished = asyncio.Event()
+            waiting = asyncio.Event()
+            clicks = []
+
+            @asynccontextmanager
+            async def response(_predicate):
+                # HTTP response is available while the frontend mutation is
+                # still waiting for its subsequent snapshot refresh.
+                yield
+
+            async def click(selector):
+                clicks.append(selector)
+                if selector == "#saveCardButton":
+                    self.assertTrue(finished.is_set(), "Save raced the pending client mutation")
+
+            async def wait_until_ready(_expression, *, arg):
+                self.assertEqual(arg, {"cardId": "created-card", "clientId": "existing-client"})
+                waiting.set()
+                await finished.wait()
+
+            page = SimpleNamespace(
+                click=AsyncMock(side_effect=click),
+                fill=AsyncMock(),
+                wait_for_selector=AsyncMock(),
+                wait_for_function=AsyncMock(side_effect=wait_until_ready),
+                evaluate=AsyncMock(return_value=True),
+                expect_response=response,
+                locator=Mock(return_value=SimpleNamespace(wait_for=AsyncMock(), click=AsyncMock())),
+            )
+            runtime = SimpleNamespace(
+                client_id="existing-client",
+                client_card_id="client-order-card",
+                service=SimpleNamespace(
+                    list_clients=Mock(return_value={"clients": [{"id": "existing-client"}]}),
+                    get_board_snapshot=Mock(
+                        return_value={
+                            "cards": [{"id": "created-card", "title": "Core smoke created card"}]
+                        }
+                    ),
+                    get_card=Mock(
+                        return_value={
+                            "card": {"id": "created-card", "client_id": "existing-client"}
+                        }
+                    ),
+                ),
+            )
+            with (
+                patch.object(core, "_wait_modal_open", AsyncMock()),
+                patch.object(core, "_wait_modal_closed", AsyncMock()),
+                patch.object(core, "_wait_clients_search_ready", AsyncMock()),
+                patch.object(core, "_is_modal_open", AsyncMock(return_value=True)),
+            ):
+                task = asyncio.create_task(core._exercise_client_link_roundtrip(page, runtime))
+                try:
+                    await asyncio.wait_for(waiting.wait(), timeout=1)
+                    self.assertNotIn("#saveCardButton", clicks)
+                    self.assertFalse(task.done())
+                    finished.set()
+                    result = await asyncio.wait_for(task, timeout=1)
+                finally:
+                    if not task.done():
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                self.assertTrue(result["clients_search_selects_realistic_row"])
+                self.assertTrue(result["clients_repair_order_returns_to_client"])
+                self.assertEqual(clicks.count("#saveCardButton"), 1)
+
+        asyncio.run(exercise())
+
     def test_zero_start_port_skips_listener_probe(self) -> None:
         load_browser_smoke_module()
         runtime = sys.modules["browser_smoke_runtime"]

@@ -82,7 +82,7 @@ class DocumentRenderingTests(unittest.TestCase):
         )
         for label in (
             "Сумма счёта",
-            "В том числе НДС (5%)",
+            "В том числе НДС 5%",
             "Учтённая предоплата",
             "К оплате",
             "К оплате прописью",
