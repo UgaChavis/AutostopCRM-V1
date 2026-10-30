@@ -3684,7 +3684,7 @@ class PrintModuleService(CompletionActCalculationMixin):
             client=client,
             line_items=invoice_line_items,
             document_overrides=document_overrides,
-            tax_override=invoice_tax if document.id == "invoice" else None,
+            tax_override=invoice_tax,
         )
         invoice_tax_amount = regulated_context["vat"]
         invoice_tax_display = _money_display(invoice_tax_amount)

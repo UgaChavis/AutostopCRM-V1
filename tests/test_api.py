@@ -5733,7 +5733,8 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(regulated["data"]["money_validation"]["valid"])
         regulated_html = regulated["data"]["documents"][0]["pages"][0]["html"]
-        self.assertIn('<td class="regulated-center">Без НДС</td>', regulated_html)
+        self.assertIn('<td class="regulated-center">5%</td>', regulated_html)
+        self.assertIn("56,02", regulated_html)
         self.assertIn("1 176,47", regulated_html)
         self.assertEqual(self.store.read_bundle(), before)
 

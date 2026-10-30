@@ -25,24 +25,26 @@ class InvoiceVatProjectionTests(TestCase):
         self.assertTrue(tax["has_vat"])
         self.assertTrue(tax["known"])
 
-    def test_document_dispatch_changes_only_invoice(self):
+    def test_document_dispatch_projects_financial_documents_and_preserves_other_documents(self):
         rows = [{"quantity": Decimal(1), "total": Decimal("105.00"), "price": Decimal("105")}]
         source_tax = {"label": "НДС 20%", "rate": Decimal("0.20"), "source": "repair_order"}
-        for document_id in ("repair_order", "invoice_factura", "upd", "completion_act"):
+        for document_id in ("repair_order", "parts_sale", "vehicle_acceptance_act"):
             with self.subTest(document_id=document_id):
                 untouched_rows, untouched_tax = invoice_vat_for_document(
                     document_id, rows, source_tax
                 )
                 self.assertIs(untouched_rows, rows)
                 self.assertIs(untouched_tax, source_tax)
-        projected, tax = invoice_vat_for_document("invoice", rows, source_tax)
-        self.assertIsNot(projected, rows)
-        self.assertEqual(projected[0]["total"], rows[0]["total"])
-        self.assertEqual(projected[0]["price"], rows[0]["price"])
-        self.assertEqual(projected[0]["vat"], Decimal("5.00"))
-        self.assertEqual(tax, invoice_tax_payload())
-        self.assertEqual(source_tax["rate"], Decimal("0.20"))
-        self.assertNotIn("vat", rows[0])
+        for document_id in ("invoice", "invoice_factura", "upd", "completion_act"):
+            with self.subTest(document_id=document_id):
+                projected, tax = invoice_vat_for_document(document_id, rows, source_tax)
+                self.assertIsNot(projected, rows)
+                self.assertEqual(projected[0]["total"], rows[0]["total"])
+                self.assertEqual(projected[0]["price"], rows[0]["price"])
+                self.assertEqual(projected[0]["vat"], Decimal("5.00"))
+                self.assertEqual(tax, invoice_tax_payload())
+                self.assertEqual(source_tax["rate"], Decimal("0.20"))
+                self.assertNotIn("vat", rows[0])
 
     def test_projection_preserves_gross_price_and_original_rows(self):
         row = {

@@ -127,28 +127,20 @@ class DocumentMoneyV2Tests(unittest.TestCase):
         self.assertEqual(act["items"][0]["price_without_vat_display"], "1 064,425")
         self.assertEqual(self.card.to_storage_dict(), before)
 
-    def test_explicit_vat_zero_and_without_vat(self):
-        for tax, has_vat, label in [("Без НДС", False, "Без НДС"), ("НДС 0%", True, "НДС 0%")]:
+    def test_act_uses_five_percent_for_zero_and_without_vat_sources(self):
+        for tax in ("Без НДС", "НДС 0%"):
             context = self.context("completion_act", money_card(tax=tax))
-            self.assertEqual(context["completion_act"]["totals"]["has_vat"], has_vat)
-            self.assertEqual(context["completion_act"]["totals"]["tax_label"], label)
-            self.assertEqual(context["completion_act"]["totals"]["vat"], "0.00")
+            self.assertTrue(context["completion_act"]["totals"]["has_vat"])
+            self.assertEqual(context["completion_act"]["totals"]["tax_label"], "НДС 5%")
+            self.assertEqual(context["completion_act"]["totals"]["vat"], "319.33")
 
-    def test_unknown_tax_previews_but_blocks_pdf_and_native_backend(self):
+    def test_unknown_source_tax_still_previews_fixed_five_percent(self):
         source = money_card(tax="")
         preview = self.service.preview_documents(source, selected_document_ids=["invoice_factura"])
-        self.assertFalse(preview["documents"][0]["money_validation"]["valid"])
-        with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as pdf:
-            with self.assertRaises(PrintModuleError) as captured:
-                self.service.export_documents_pdf(source, selected_document_ids=["invoice_factura"])
-            self.assertEqual(captured.exception.code, "document_money_validation_failed")
-            pdf.assert_not_called()
-        with patch("minimal_kanban.printing.service.print_html") as printer:
-            with self.assertRaises(PrintModuleError):
-                self.service.print_documents(
-                    source, selected_document_ids=["invoice_factura"], printer_name="Synthetic"
-                )
-            printer.assert_not_called()
+        self.assertTrue(preview["documents"][0]["money_validation"]["valid"])
+        self.assertEqual(
+            self.context("invoice_factura", source)["regulated"]["tax_label"], "НДС 5%"
+        )
 
     def test_manual_fractional_act_and_batch_mode_guard(self):
         form = self.service.get_completion_act_form(self.card)["form"]
@@ -292,10 +284,10 @@ class DocumentMoneyV2Tests(unittest.TestCase):
             self.service.export_documents_pdf(source, selected_document_ids=["repair_order"])
         self.assertEqual(captured.exception.status_code, 422)
 
-    def test_tax_requires_explicit_source_and_order_has_precedence(self):
+    def test_print_tax_is_fixed_while_source_resolution_keeps_precedence(self):
         source = money_card(tax="")
         self.service.save_settings({"copies": 2})
-        self.assertFalse(
+        self.assertTrue(
             self.service.preview_documents(source, selected_document_ids=["invoice_factura"])[
                 "money_validation"
             ]["valid"]
@@ -304,19 +296,23 @@ class DocumentMoneyV2Tests(unittest.TestCase):
         valid = self.service.preview_documents(source, selected_document_ids=["invoice_factura"])
         self.assertTrue(valid["money_validation"]["valid"])
         self.assertEqual(
-            self.context("invoice_factura", card=source)["money_tax_context"]["source"],
+            self.service._document_tax(source.repair_order, self.service._read_settings())[
+                "source"
+            ],
             "service_profile",
         )
         unknown = self.service.preview_documents(
             money_card(tax="УСН неизвестно"), selected_document_ids=["invoice_factura"]
         )
-        self.assertFalse(unknown["money_validation"]["valid"])
+        self.assertTrue(unknown["money_validation"]["valid"])
         self.assertEqual(
-            self.context("invoice_factura", card=money_card(tax="Без НДС"))["regulated"]["vat"],
-            Decimal(0),
+            self.service._document_tax(
+                money_card(tax="Без НДС").repair_order, self.service._read_settings()
+            )["label"],
+            "Без НДС",
         )
         self.service.save_settings({"service_profile": {"tax_label": ""}})
-        self.assertFalse(
+        self.assertTrue(
             self.service.preview_documents(source, selected_document_ids=["invoice_factura"])[
                 "money_validation"
             ]["valid"]
@@ -453,7 +449,7 @@ class DocumentMoneyV2Tests(unittest.TestCase):
         preview = self.service.preview_documents(
             changed, selected_document_ids=["completion_act"], document_overrides=request
         )
-        self.assertEqual(preview["documents"][0]["computed_totals"]["gross"], "0.18")
+        self.assertEqual(preview["documents"][0]["computed_totals"]["gross"], "0.16")
         self.assertFalse(preview["money_validation"]["valid"])
         updated = self.service.save_completion_act_form(
             changed,
@@ -463,7 +459,7 @@ class DocumentMoneyV2Tests(unittest.TestCase):
             idempotency_key="accept-recalculation",
             accepted_calculation_fingerprint=preview["documents"][0]["calculation_fingerprint"],
         )
-        self.assertEqual(updated["totals"]["gross"], "0.18")
+        self.assertEqual(updated["totals"]["gross"], "0.16")
         self.assertFalse(updated["draft"]["is_stale"])
 
     def test_v2_snapshot_survives_standard_backup_and_restore(self):

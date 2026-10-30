@@ -126,23 +126,29 @@ class PrintServiceProfileTests(unittest.TestCase):
         self.service.save_settings({"service_profile": {"payment_purpose": ""}})
         self.assertTrue(self.stored()["_tax_label_explicit"])
         self.assertEqual(self.stored()["service_profile"]["tax_label"], "НДС 7%")
+        before = self.service._settings_path.read_bytes()
         for document_id in ("invoice", "invoice_factura", "upd"):
             with self.subTest(document_id=document_id, tax_label="НДС 7%"):
                 preview = PrintModuleService(self.root).preview_documents(
                     self.card, selected_document_ids=[document_id]
                 )
                 self.assertTrue(preview["money_validation"]["valid"])
+                self.assertIn("5%", preview["documents"][0]["pages"][0]["html"])
+                self.assertEqual(self.service._settings_path.read_bytes(), before)
                 if document_id == "invoice":
                     self.assertIn("В том числе НДС 5%", preview["documents"][0]["pages"][0]["html"])
         self.service.save_settings({"service_profile": {"tax_label": ""}})
         self.service.save_settings({"copies": 2})
         self.assertFalse(self.stored()["_tax_label_explicit"])
         self.assertEqual(self.stored()["service_profile"]["tax_label"], "")
+        before = self.service._settings_path.read_bytes()
         for document_id in ("invoice", "invoice_factura", "upd"):
             with self.subTest(document_id=document_id, tax_label=""):
                 preview = PrintModuleService(self.root).preview_documents(
                     self.card, selected_document_ids=[document_id]
                 )
-                self.assertEqual(preview["money_validation"]["valid"], document_id == "invoice")
+                self.assertTrue(preview["money_validation"]["valid"])
+                self.assertIn("5%", preview["documents"][0]["pages"][0]["html"])
+                self.assertEqual(self.service._settings_path.read_bytes(), before)
                 if document_id == "invoice":
                     self.assertIn("В том числе НДС 5%", preview["documents"][0]["pages"][0]["html"])

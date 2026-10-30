@@ -17,6 +17,7 @@ from ..services.document_money import (
 from .errors import PrintModuleError
 from .formatting import _money_display, _parse_decimal
 from .invoice_tax_visibility import invoice_tax_summary_visible
+from .regulated_tax_visibility import regulated_tax_summary_visible
 from .template_engine import template_value_paths
 from .template_money import (
     money_template_fields,
@@ -84,6 +85,18 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                 "code": "invoice_vat_summary_missing",
                 "field": "invoice.tax_label",
                 "message": "Шаблон счёта должен показывать строку «В том числе НДС 5%» и сумму НДС.",
+            }
+        )
+    if (
+        document.id in {"invoice_factura", "upd"}
+        and not template.is_builtin
+        and not regulated_tax_summary_visible(template.content, context)
+    ):
+        errors.append(
+            {
+                "code": "regulated_vat_summary_unverified",
+                "field": "regulated.tax_rate_display",
+                "message": "Шаблон должен показывать ставку НДС 5% и сумму НДС из расчёта документа или каждой строки; другие налоговые статусы недопустимы.",
             }
         )
     if document.id not in MONEY_DOCUMENTS and not has_money:
