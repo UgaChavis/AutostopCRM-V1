@@ -75,7 +75,8 @@ class VehicleAcceptanceActTests(unittest.TestCase):
             self.card, selected_document_ids=["repair_order"]
         )["documents"][0]["pages"][0]["html"]
         self.assertIn(
-            '<div class="doc-note">' + self.card.repair_order.reason + "</div>", repair_order
+            '<div class="ro-v6-note-value">' + self.card.repair_order.reason + "</div>",
+            repair_order,
         )
 
     def _render_acceptance_act(self, card: Card) -> dict[str, str]:

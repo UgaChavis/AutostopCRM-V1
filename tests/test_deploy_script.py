@@ -41,6 +41,7 @@ def _posix_bash_available() -> bool:
 
 
 class DeployScriptTests(unittest.TestCase):
+    @unittest.skipUnless(_posix_bash_available(), "a working POSIX bash is required")
     def test_retired_deploy_entrypoint_exits_before_reading_config_or_running_commands(
         self,
     ) -> None:

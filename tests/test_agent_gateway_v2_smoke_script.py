@@ -3,14 +3,21 @@ from __future__ import annotations
 import asyncio
 import sys
 import unittest
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+from mcp.types import CallToolResult, ListToolsResult, Tool
 
 if __package__:
     from tests.module_loader_support import load_module_from_file
+    from tests.source_path_support import prepend_source_path
 else:
     from module_loader_support import load_module_from_file
+    from source_path_support import prepend_source_path
+
+prepend_source_path()
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_agent_gateway_v2.py"
@@ -229,6 +236,93 @@ class AgentGatewayV2SmokeScriptTests(unittest.TestCase):
 
 
 class AgentGatewayV2SmokeProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_required_store_probe_opts_in_without_changing_default_scope(self) -> None:
+        from minimal_kanban.mcp.gateway_store_context import runtime_status_payload
+
+        module = load_script_module()
+
+        @asynccontextmanager
+        async def context(value):
+            yield value
+
+        for require_store in (False, True):
+            with self.subTest(require_store=require_store):
+                calls = []
+
+                async def call_tool(name, arguments):
+                    calls.append((name, arguments))
+                    payload = {"ok": True, "data": {}}
+                    if name == "agent_board_digest":
+                        payload["data"] = {"cards": [{"id": "synthetic-card", "short_id": "C-1"}]}
+                    elif name == "agent_search" and arguments["entity"] == "card":
+                        payload["data"] = {"items": [{"id": "synthetic-card"}]}
+                    elif name == "get_runtime_status":
+                        payload = runtime_status_payload(
+                            {"ok": True, "data": {}},
+                            {
+                                "ok": True,
+                                "summary": {
+                                    "adapter": {"quote_configured": True},
+                                    "features": {
+                                        "quote_full_read_enabled": True,
+                                        "quote_draft_write_enabled": True,
+                                        "supplier_lookup_enabled": True,
+                                    },
+                                },
+                            },
+                            store_requested=arguments.get("include_store_context") is True,
+                        )
+                    return CallToolResult(content=[], structuredContent=payload)
+
+                session = SimpleNamespace(
+                    initialize=AsyncMock(),
+                    list_tools=AsyncMock(
+                        return_value=ListToolsResult(
+                            tools=[
+                                Tool(name=name, inputSchema={"type": "object"})
+                                for name in sorted(module.EXPECTED_TOOL_NAMES)
+                            ]
+                        )
+                    ),
+                    call_tool=call_tool,
+                )
+                args = module.build_parser().parse_args(
+                    ["--require-store"] if require_store else []
+                )
+                with (
+                    patch.dict(module.os.environ, {args.token_env: "synthetic-token"}),
+                    patch.object(
+                        module, "_anonymous_access_probe", AsyncMock(return_value=(True, 401))
+                    ),
+                    patch.object(
+                        module,
+                        "_open_session",
+                        AsyncMock(return_value=(context(None), context((None, None, None)))),
+                    ),
+                    patch.object(module, "ClientSession", return_value=context(session)),
+                    patch.object(
+                        module,
+                        "_store_owner_read_checks",
+                        AsyncMock(return_value={"store_owner_capability_contract_ready": True}),
+                    ),
+                ):
+                    result = await module.check_gateway(args)
+
+                self.assertTrue(result["ok"], result)
+                runtime_calls = [
+                    arguments for name, arguments in calls if name == "get_runtime_status"
+                ]
+                self.assertEqual(
+                    [{"include_store_context": True}] if require_store else [], runtime_calls
+                )
+                if not require_store:
+                    self.assertFalse(
+                        any(
+                            arguments.get("entity", "").startswith("store_")
+                            for _, arguments in calls
+                        )
+                    )
+
     async def test_public_exhaustive_store_smoke_skips_technical_change_feed(self) -> None:
         module = load_script_module()
 

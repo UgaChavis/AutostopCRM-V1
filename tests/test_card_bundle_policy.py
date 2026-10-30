@@ -126,7 +126,6 @@ class CardBundlePolicyTests(unittest.TestCase):
                 "reopen_repair_order",
                 "_replace_repair_order_rows",
                 "set_repair_order_status",
-                "print_repair_order_documents",
                 "autofill_repair_order",
                 "start_card_timer",
                 "stop_card_timer",
@@ -167,3 +166,36 @@ class CardBundlePolicyTests(unittest.TestCase):
                     ast.dump(call.args[0]), ast.dump(ast.parse(expression, mode="eval").body)
                 )
                 self.assertEqual(call.keywords, [])
+
+    def test_native_print_uses_fresh_event_only_draft_after_backend(self):
+        directory = Path(__file__).resolve().parents[1] / "src/minimal_kanban/services"
+        tree = ast.parse((directory / "card_service.py").read_text(encoding="utf-8"))
+        service = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "CardService"
+        )
+        method = next(
+            node
+            for node in service.body
+            if isinstance(node, ast.FunctionDef) and node.name == "print_repair_order_documents"
+        )
+        calls = [
+            node
+            for node in ast.walk(method)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        (snapshot,) = [node for node in calls if node.func.attr == "read_bundle"]
+        (prepared,) = [node for node in calls if node.func.attr == "prepare_print_documents"]
+        (backend,) = [node for node in calls if node.func.attr == "print_prepared_documents"]
+        (draft,) = [node for node in calls if node.func.attr == "_read_bundle_for_update"]
+        (saved,) = [node for node in calls if node.func.attr == "_save_bundle"]
+
+        # Preparation reads only; the audit draft is acquired after the slow
+        # backend and must not select a card which may have been deleted.
+        self.assertLess(snapshot.lineno, prepared.lineno)
+        self.assertLess(prepared.lineno, backend.lineno)
+        self.assertLess(backend.lineno, draft.lineno)
+        self.assertLess(draft.lineno, saved.lineno)
+        self.assertEqual((draft.args, draft.keywords), ([], []))
+        self.assertFalse(any(node.func.attr == "_read_card_bundle_for_update" for node in calls))

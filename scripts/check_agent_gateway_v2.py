@@ -1419,7 +1419,12 @@ async def check_gateway(args: argparse.Namespace) -> dict[str, Any]:
                             session, calls, "list_agent_workflows", {"limit": 50}
                         )
                         if args.require_store:
-                            store_runtime = await _call(session, calls, "get_runtime_status")
+                            store_runtime = await _call(
+                                session,
+                                calls,
+                                "get_runtime_status",
+                                {"include_store_context": True},
+                            )
                             store_probe = await _call(
                                 session,
                                 calls,
