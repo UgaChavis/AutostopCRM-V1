@@ -77,8 +77,9 @@ class AgentReleaseBackupTests(unittest.TestCase):
             connection.execute("INSERT INTO consumers VALUES ('owner', 41)")
             connection.commit()
         printing_dir = crm_data / "printing"
-        printing_dir.mkdir()
-        (printing_dir / "completion_act_forms.json").write_text(
+        printing_dir.mkdir(mode=0o700)
+        completion_act_forms = printing_dir / "completion_act_forms.json"
+        completion_act_forms.write_text(
             json.dumps(
                 {
                     "card-act-1:cycle:1": {
@@ -90,6 +91,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        completion_act_forms.chmod(0o600)
         manager_db = root / "manager.sqlite3"
         with closing(sqlite3.connect(manager_db)) as connection:
             connection.execute("CREATE TABLE manager_runs (id INTEGER PRIMARY KEY, status TEXT)")
