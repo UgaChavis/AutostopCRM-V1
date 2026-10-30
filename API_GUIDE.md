@@ -364,6 +364,9 @@ Inactive timers report `timer_state="inactive"`, `timer_active=false`, and
 `remaining_seconds=0`. They are excluded from overdue/critical manager scans
 and from bulk deadline extension. `/api/set_card_deadline` remains compatible:
 setting a positive deadline activates and restarts the timer.
+For cards and sticky notes, the combined duration of `days`, `hours`, `minutes`,
+`seconds` and `total_seconds` must be positive and at most 365 days (31,536,000 seconds).
+An out-of-range sum returns `validation_error` without saving the operation.
 
 ## Clients And Vehicles
 
@@ -445,8 +448,10 @@ content hash. Windows reads are uncached.
 `create_if_missing=false` also use read-only context snapshots. They do not
 repair the stored state or change generated order files. A returned order file
 path is an expected path and does not promise the file exists. Explicit
-`get_repair_order(create_if_missing=true)` and repair-order text operations
-retain their separate write/materialization behavior. Diagnostic warnings may
+`get_repair_order(create_if_missing=true)` and repair-order text operations without
+`read_only=true` retain their separate write/materialization behavior. The MCP
+`get_repair_order` and `get_repair_order_text` tools use non-writing reads; the
+latter renders text in memory and returns an empty `file_path`. Diagnostic warnings may
 still write to or rotate application logs.
 
 For `get_card`, a successful local cached write can prepare a private card
@@ -542,6 +547,11 @@ Closed repair orders are read-only. Use this correction sequence:
    cashbox. Staff or unknown cashboxes are rejected rather than substituted;
 4. `POST /api/set_repair_order_status` with `status=closed`, the latest
    `expected_updated_at`, and a new `idempotency_key`.
+
+`replace_repair_order_works` and `replace_repair_order_materials` accept the
+card's `expected_updated_at`. If supplied and stale, they return
+`card_update_conflict` / HTTP 409 without replacing any rows. Legacy requests
+without a revision remain supported; guarded raw Gateway calls require one.
 
 `GET /api/get_repair_order_cycles?card_id=...` returns immutable posting
 cycles. Reopening reverses payroll postings and temporarily removes the order
@@ -763,6 +773,9 @@ unrelated password or employee-binding changes do not conflict.
   transfers and their reversals stay excluded from external journal turnover.
 - `get_cashbox` accepts `transaction_limit` and `transaction_offset`; use
   `meta.has_more` for pagination.
+- A cashbox's `updated_at` is a change revision: ledger changes advance it even
+  when transaction business dates are backdated or movements are removed. Use
+  a freshly read revision for guarded writes; transaction dates are unchanged.
 - `list_cashboxes` returns the current operator's compact `notification`
   summary. `/api/mark_cashbox_notifications_seen` advances that operator's
   receipt only through the supplied `through_transaction_id`; operations made

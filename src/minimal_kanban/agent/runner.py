@@ -35,6 +35,7 @@ from .contracts import (
 from .instructions import build_default_system_prompt
 from .openai_client import AgentModelError, OpenAIJsonAgentClient
 from .policy import ToolPolicyEngine
+from .runner_context import read_fallback_card_context
 from .runner_output import AgentRunnerOutputMixin
 from .storage import AgentStorage
 from .tools import AgentToolExecutor
@@ -1233,7 +1234,7 @@ class AgentRunner(AgentRunnerOutputMixin):
         state: dict[str, Any] = {}
         try:
             context_payload = self._board_api.get_card_context(
-                card_id, event_limit=5, include_repair_order_text=True
+                card_id, event_limit=5, include_repair_order_text=True, read_only=True
             )
             state = self._response_data(context_payload)
         except Exception:
@@ -1515,34 +1516,7 @@ class AgentRunner(AgentRunnerOutputMixin):
         try:
             return "get_card_context", self._tools.execute("get_card_context", context_args)
         except Exception:
-            card_payload = self._board_api.get_card(card_id)
-            card_data = self._response_data(card_payload)
-            card = card_data.get("card") if isinstance(card_data.get("card"), dict) else card_data
-            context: dict[str, Any] = {
-                "card": dict(card) if isinstance(card, dict) else {"id": card_id},
-                "events": [],
-            }
-            if hasattr(self._board_api, "get_repair_order"):
-                try:
-                    repair_order_payload = self._board_api.get_repair_order(card_id)
-                    repair_order_data = self._response_data(repair_order_payload)
-                    repair_order = (
-                        repair_order_data.get("repair_order")
-                        if isinstance(repair_order_data.get("repair_order"), dict)
-                        else repair_order_data
-                    )
-                    if isinstance(repair_order, dict):
-                        context["card"]["repair_order"] = repair_order
-                except Exception:
-                    pass
-            if hasattr(self._board_api, "get_repair_order_text"):
-                try:
-                    repair_order_text_payload = self._board_api.get_repair_order_text(card_id)
-                    repair_order_text_data = self._response_data(repair_order_text_payload)
-                    if isinstance(repair_order_text_data, dict):
-                        context["repair_order_text"] = repair_order_text_data
-                except Exception:
-                    pass
+            context = read_fallback_card_context(self._board_api, card_id, self._response_data)
             return "get_card", {"ok": True, "data": context}
 
     def _analyze_card_completion_context(
@@ -2132,6 +2106,7 @@ class AgentRunner(AgentRunnerOutputMixin):
                         scope_payload["card_id"],
                         event_limit=20,
                         include_repair_order_text=True,
+                        read_only=True,
                     )
                     context_data = self._response_data(context_result)
                 scope_payload["card"] = (

@@ -557,6 +557,7 @@ class AgentToolExecutor:
             include_repair_order_text=self._maybe_bool(
                 args.get("include_repair_order_text"), default=True
             ),
+            read_only=True,
         )
 
     def _get_store_quote_part_context(self, args: dict[str, Any]) -> dict[str, Any]:

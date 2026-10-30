@@ -357,6 +357,7 @@ class SnapshotService:
             serialized_stickies = [self._serialize_sticky(sticky) for sticky in stickies]
             serialized_settings = public_snapshot_settings(
                 bundle["settings"],
+                detach=True,
                 include_employees_cashboxes=employees_cashboxes_access,
             )
             meta = build_snapshot_meta(
@@ -450,10 +451,7 @@ class SnapshotService:
                     archive=archive,
                     stickies=stickies,
                     event_counts=_event_counts(events) if cards or archive else {},
-                    settings=public_snapshot_settings(
-                        bundle["settings"],
-                        include_employees_cashboxes=employees_cashboxes_access,
-                    ),
+                    settings=bundle["settings"],
                     viewer_username=viewer_username,
                     compact_cards=compact_cards,
                     include_archive=include_archive,

@@ -197,6 +197,10 @@ class DocsAuditTests(unittest.TestCase):
                     "board_card_timer_write_tool",
                 ),
                 (
+                    "src/minimal_kanban/mcp/repair_order_row_writes.py",
+                    "repair_order_row_write_tool",
+                ),
+                (
                     "src/minimal_kanban/mcp/card_attachment_reads.py",
                     "card_attachment_read_tool",
                 ),
@@ -228,6 +232,7 @@ class DocsAuditTests(unittest.TestCase):
                     "board_column_write_tool",
                     "board_sticky_write_tool",
                     "board_card_timer_write_tool",
+                    "repair_order_row_write_tool",
                     "card_attachment_read_tool",
                     "shared_file_read_tool",
                     "shared_file_write_tool",

@@ -134,7 +134,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     if normalize_text(item, default="", limit=240)
                 }
             actor_name, source = self._audit_identity(payload, default_source="api")
-            bundle = self._read_bundle_for_update("cash_transactions")
+            bundle = self._read_bundle_for_update("cash_transactions", "cashboxes")
             audit = self._build_finance_audit(bundle)
             expected_issue_ids = payload.get("expected_issue_ids")
             current_issue_ids = [str(issue.get("id") or "") for issue in audit["issues"]]
@@ -235,6 +235,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             }
             payment_links = self._finance_payment_links(bundle["cards"])
             applied: list[dict[str, object]] = []
+            changed_cashbox_ids: set[str] = set()
             for fix in planned_fixes:
                 if not isinstance(fix, dict):
                     continue
@@ -294,6 +295,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         continue
                     before = transaction.transaction_kind
                     transaction.transaction_kind = value
+                    changed_cashbox_ids.add(transaction.cashbox_id)
                     applied.append(
                         {
                             "kind": kind,
@@ -312,6 +314,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         continue
                     before = transaction.note
                     transaction.note = value
+                    changed_cashbox_ids.add(transaction.cashbox_id)
                     applied.append(
                         {
                             "kind": kind,
@@ -321,6 +324,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         }
                     )
             if applied:
+                for cashbox in bundle["cashboxes"]:
+                    if cashbox.id in changed_cashbox_ids:
+                        self._refresh_cashbox_updated_at(cashbox, bundle["cash_transactions"])
                 self._append_event(
                     bundle["events"],
                     actor_name=actor_name,
@@ -1505,7 +1511,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 item.id,
             )
         )
-        cashbox.updated_at = transaction.created_at
+        self._refresh_cashbox_updated_at(cashbox, transactions)
         return transaction
 
     def _serialize_cash_transaction(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Any
 
 from .vehicle_profile import normalize_license_plate
@@ -171,17 +171,18 @@ def _format_decimal(value: Decimal) -> str:
     return text or "0"
 
 
-def _resolved_row_total_text(total: str, computed_total: str) -> str:
+def _resolved_row_total_text(total: str, computed_total: str, legacy_total: str = "") -> str:
     if not computed_total:
         return total
     if not total:
         return computed_total
     parsed_total = _parse_decimal(total)
     parsed_computed = _parse_decimal(computed_total)
-    if (
-        parsed_total is not None
-        and parsed_computed is not None
-        and abs(parsed_total - parsed_computed) <= REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE
+    legacy_computed = _parse_decimal(legacy_total)
+    if parsed_total is not None and any(
+        candidate is not None
+        and abs(parsed_total - candidate) <= REPAIR_ORDER_ROW_TOTAL_ROUNDING_TOLERANCE
+        for candidate in (parsed_computed, legacy_computed)
     ):
         return _format_decimal(parsed_total)
     return computed_total
@@ -329,7 +330,11 @@ class RepairOrderRow:
         self.price = _normalize_single_line(self.price, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         normalized_total = _normalize_single_line(self.total, limit=REPAIR_ORDER_ROW_VALUE_LIMIT)
         computed_total = self.computed_total()
-        self.total = _resolved_row_total_text(normalized_total, computed_total)
+        self.total = _resolved_row_total_text(
+            normalized_total,
+            computed_total,
+            self.computed_total(legacy=True) if normalized_total else "",
+        )
         self.executor_id = _normalize_single_line(self.executor_id, limit=64)
         self.executor_name = _normalize_single_line(
             self.executor_name, limit=REPAIR_ORDER_FIELD_LIMIT
@@ -457,12 +462,16 @@ class RepairOrderRow:
         parsed_computed = _parse_decimal(computed_total)
         return parsed_computed if parsed_computed is not None else Decimal("0")
 
-    def computed_total(self) -> str:
+    def computed_total(self, *, legacy: bool = False) -> str:
         quantity = _parse_decimal(self.quantity)
         price = _parse_decimal(self.price)
         if quantity is None or price is None:
             return ""
-        return _format_decimal(quantity * price)
+        with localcontext() as context:
+            # Both inputs can contain up to 40 characters; keep the full product
+            # until the single monetary rounding in _format_decimal.
+            context.prec = 28 if legacy else 2 * REPAIR_ORDER_ROW_VALUE_LIMIT + 4
+            return _format_decimal(quantity * price)
 
     @classmethod
     def from_dict(cls, payload: Any, *, fallback_id: str = "") -> RepairOrderRow:

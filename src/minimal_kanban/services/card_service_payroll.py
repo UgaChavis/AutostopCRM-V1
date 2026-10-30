@@ -61,7 +61,6 @@ PAYROLL_WEEKLY_BASE_SALARY_AT = {"weekday": 4, "hour": 20, "minute": 0}
 EMPLOYEE_SALARY_RECONCILIATION_DEFAULT_DAYS = 30
 EMPLOYEE_SALARY_RECONCILIATION_MAX_DAYS = 366
 PAYROLL_DECIMAL_ABS_MAX = Decimal("1000000000000")
-PAYROLL_TERMS_LIMIT = 50
 PAYROLL_POLICY_2026_07_13_CUTOFF = "2026-07-13T00:00:00+07:00"
 _GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 PAYROLL_POLICY_2026_07_13_TERMS: dict[str, dict[str, str]] = {
@@ -2469,8 +2468,6 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 if term is None:
                     continue
                 terms.append(term)
-                if len(terms) >= PAYROLL_TERMS_LIMIT:
-                    break
         if not terms:
             term = self._normalized_payroll_term(
                 {**fallback, "effective_from": created_at},
@@ -2616,7 +2613,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 "repair_order_percent": self._format_payroll_decimal(
                     self._parse_payroll_decimal(repair_order_percent)
                 ),
-                "payroll_terms": terms[-PAYROLL_TERMS_LIMIT:],
+                "payroll_terms": terms,
             }
         )
         return next_employee
@@ -2790,7 +2787,14 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
     def _validated_payroll_month(self, value) -> str:
         normalized = normalize_text(value, default="", limit=7)
         if re.fullmatch(r"\d{4}-\d{2}", normalized):
-            return normalized
+            year, month_number = (int(part) for part in normalized.split("-", 1))
+            if year < 1 or not 1 <= month_number <= 12 or (year == 9999 and month_number == 12):
+                self._fail(
+                    "validation_error",
+                    "Укажите допустимый календарный месяц для отчёта.",
+                    details={"field": "month"},
+                )
+            return f"{year:04d}-{month_number:02d}"
         return model_helpers.utc_now().astimezone(business_timezone()).strftime("%Y-%m")
 
     def _payroll_month_bounds(self, month: str) -> tuple[datetime, datetime]:

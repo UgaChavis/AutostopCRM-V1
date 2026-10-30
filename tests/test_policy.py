@@ -378,6 +378,7 @@ class ToolPolicyEngineTests(unittest.TestCase):
                         "card_id": "card-1",
                         "event_limit": 20,
                         "include_repair_order_text": False,
+                        "read_only": True,
                     },
                 ),
             ],

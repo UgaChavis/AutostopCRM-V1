@@ -3213,6 +3213,59 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         )
         self.assertNotEqual(migrated_admin["password_hash"], admin_user["password_hash"])
 
+    def test_oversized_combined_card_and_sticky_deadlines_return_validation_error(self) -> None:
+        for route, payload in (
+            ("/api/create_card", {"title": "Deadline", "deadline": {"days": 365, "seconds": 1}}),
+            (
+                "/api/create_sticky",
+                {"text": "Deadline", "x": 0, "y": 0, "deadline": {"days": 365, "seconds": 1}},
+            ),
+        ):
+            with self.subTest(route=route):
+                status, body = self.request(route, payload)
+                self.assertEqual(status, 400)
+                self.assertFalse(body["ok"])
+                self.assertEqual(body["error"]["code"], "validation_error")
+
+    def test_repair_order_table_replacement_checks_card_revision_over_http(self) -> None:
+        for field in ("works", "materials"):
+            with self.subTest(field=field):
+                status, created = self.request("/api/create_card", {"title": "Revision test"})
+                self.assertEqual(status, 200)
+                card = created["data"]["card"]
+                status, updated = self.request(
+                    "/api/update_repair_order",
+                    {
+                        "card_id": card["id"],
+                        "expected_updated_at": card["updated_at"],
+                        "repair_order": {field: [{"name": "Newer", "quantity": "1", "price": "2"}]},
+                    },
+                )
+                self.assertEqual(status, 200)
+                state_file = Path(self.temp_dir.name) / "state.json"
+                before = state_file.read_bytes()
+                status, error = self.request(
+                    f"/api/replace_repair_order_{field}",
+                    {
+                        "card_id": card["id"],
+                        "expected_updated_at": card["updated_at"],
+                        "rows": [{"name": "Stale", "quantity": "1", "price": "1"}],
+                    },
+                )
+                self.assertEqual(status, 409)
+                self.assertEqual(error["error"]["code"], "card_update_conflict")
+                self.assertEqual(before, state_file.read_bytes())
+                status, accepted = self.request(
+                    f"/api/replace_repair_order_{field}",
+                    {
+                        "card_id": card["id"],
+                        "expected_updated_at": updated["data"]["card"]["updated_at"],
+                        "rows": [{"name": "Current", "quantity": "1", "price": "3"}],
+                    },
+                )
+                self.assertEqual(status, 200)
+                self.assertEqual(accepted["data"]["repair_order"][field][0]["name"], "Current")
+
     def test_create_column_move_card_and_update_deadline(self) -> None:
         status, created_column = self.request("/api/create_column", {"label": "Блокеры"})
         self.assertEqual(status, 200)

@@ -7,8 +7,6 @@ from typing import Any
 from .. import models as model_helpers
 from ..models import business_timezone, normalize_text, parse_datetime
 
-EMPLOYEE_ACTIVE_PERIODS_LIMIT = 20
-
 
 def _period_sort_key(period: dict[str, str]) -> datetime:
     parsed = parse_datetime(period.get("start_at"))
@@ -34,8 +32,6 @@ def normalized_employee_active_periods(
             if end_at and parse_datetime(end_at) is None:
                 end_at = ""
             periods.append({"start_at": start_at, "end_at": end_at})
-            if len(periods) >= EMPLOYEE_ACTIVE_PERIODS_LIMIT:
-                break
     if not periods:
         fallback_end = "" if is_active else (updated_at or created_at)
         periods.append({"start_at": created_at, "end_at": fallback_end})
@@ -71,7 +67,7 @@ def employee_active_periods_after_state_change(
             )
         elif not periods[-1].get("end_at"):
             periods[-1]["end_at"] = changed_at
-    return periods[-EMPLOYEE_ACTIVE_PERIODS_LIMIT:]
+    return periods
 
 
 def employee_active_periods_for_save(

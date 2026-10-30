@@ -275,8 +275,15 @@ class FinanceAuditPaymentFixTests(CardServiceCase):
                     t for t in expected["cash_transactions"] if t.id == transaction_id
                 ).transaction_kind = "repair_order_payment"
                 self.assertEqual(expected["cash_transactions"], after["cash_transactions"])
+                cashbox_id = next(
+                    t.cashbox_id for t in before["cash_transactions"] if t.id == transaction_id
+                )
+                old_cashbox = next(box for box in expected["cashboxes"] if box.id == cashbox_id)
+                new_cashbox = next(box for box in after["cashboxes"] if box.id == cashbox_id)
+                self.assertNotEqual(old_cashbox.updated_at, new_cashbox.updated_at)
+                old_cashbox.updated_at = new_cashbox.updated_at
                 for key in set(before) - {"events", "cash_transactions"}:
-                    self.assertEqual(before[key], after[key])
+                    self.assertEqual(expected[key], after[key])
                 events = after["events"][len(before["events"]) :]
                 self.assertEqual(
                     ["finance_audit_safe_fix_applied"], [event.action for event in events]

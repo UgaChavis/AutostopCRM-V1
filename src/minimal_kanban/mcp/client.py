@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import math
 import re
@@ -1040,8 +1041,11 @@ class BoardApiClient:
     def get_repair_order_cycles(self, card_id: str) -> dict:
         return self._request("/api/get_repair_order_cycles", {"card_id": card_id})
 
-    def get_repair_order_text(self, card_id: str) -> dict:
-        return self._request("/api/get_repair_order_text", {"card_id": card_id})
+    def get_repair_order_text(self, card_id: str, *, read_only: bool | None = None) -> dict:
+        payload: dict[str, object] = {"card_id": card_id}
+        if read_only is not None:
+            payload["read_only"] = read_only
+        return self._request("/api/get_repair_order_text", payload)
 
     def download_repair_order_print_pdf(
         self,
@@ -1377,8 +1381,11 @@ class BoardApiClient:
         card_id: str,
         rows: list[dict[str, object]],
         actor_name: str | None = None,
+        expected_updated_at: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "rows": rows}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/replace_repair_order_works", payload, actor_name=actor_name
         )
@@ -1389,8 +1396,11 @@ class BoardApiClient:
         card_id: str,
         rows: list[dict[str, object]],
         actor_name: str | None = None,
+        expected_updated_at: str | None = None,
     ) -> dict:
         payload: dict[str, object] = {"card_id": card_id, "rows": rows}
+        if expected_updated_at is not None:
+            payload["expected_updated_at"] = expected_updated_at
         return self._request_with_identity(
             "/api/replace_repair_order_materials", payload, actor_name=actor_name
         )
@@ -1798,10 +1808,10 @@ class BoardApiClient:
                 self._log("board_api_request path=%s status=%s", path, response.status)
                 return parsed
         except urllib.error.HTTPError as exc:
-            if 300 <= exc.code < 400:
-                message = f"Локальный API вернул перенаправление для {path}."
-                raise BoardApiTransportError(message) from exc
             try:
+                if 300 <= exc.code < 400:
+                    message = f"Локальный API вернул перенаправление для {path}."
+                    raise BoardApiTransportError(message) from exc
                 payload = self._parse_json_payload(
                     self._read_response_body(exc, path=path), path=path
                 )
@@ -1814,9 +1824,12 @@ class BoardApiClient:
                 return _create_card_http_error_payload(
                     payload, path=path, method=method, status=exc.code
                 )
+            except (OSError, ValueError, http.client.HTTPException) as read_error:
+                message = f"Не удалось прочитать ответ локального API для {path}."
+                raise BoardApiTransportError(message) from read_error
             finally:
                 exc.close()
-        except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        except (OSError, ValueError, http.client.HTTPException) as exc:
             if str(method or "POST").strip().upper() == "GET" and _allow_retry:
                 self._log("board_api_request path=%s retry_after_transport_error=%s", path, exc)
                 return self._request(

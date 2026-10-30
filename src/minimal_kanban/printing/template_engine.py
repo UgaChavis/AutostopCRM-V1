@@ -82,6 +82,8 @@ def _lookup_in_context(context: Any, key: str) -> Any:
 
 
 def _resolve(path: str, stack: list[Any], stack_paths: list[str]) -> tuple[Any, str]:
+    if str(path or "").strip() == ".":
+        return stack[0], stack_paths[0]
     parts = [part for part in str(path or "").strip().split(".") if part]
     if not parts:
         return "", str(path or "")
