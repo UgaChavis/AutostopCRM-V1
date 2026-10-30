@@ -7,9 +7,16 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from ..services.document_money import DocumentMoneyError, document_number, money, net_line_money
+from ..services.document_money import (
+    DocumentMoneyError,
+    document_number,
+    money,
+    net_line_money,
+    resolve_document_tax,
+)
 from .errors import PrintModuleError
 from .formatting import _money_display, _parse_decimal
+from .invoice_tax_visibility import invoice_tax_summary_visible
 from .template_engine import template_value_paths
 from .template_money import (
     money_template_fields,
@@ -46,6 +53,9 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
     sources = template_money_sources(paths)
     invoice_money = document.id == "invoice" or "invoice" in sources
     regulated_money = document.id in {"invoice_factura", "upd"} or "regulated" in sources
+    regulated_unit_money = regulated_money or any(
+        path.rsplit(".", 1)[-1] in {"regulated_price", "regulated_price_display"} for path in paths
+    )
     act_money = document.id == "completion_act" or "completion_act" in sources
     if act_money and not context["completion_act"]:
         errors.append(_unverified_template_issue())
@@ -62,6 +72,18 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                 "code": "tax_status_unknown",
                 "field": "tax_label",
                 "message": "Укажите налоговый статус заказа или профиля печати.",
+            }
+        )
+    if (
+        document.id == "invoice"
+        and not template.is_builtin
+        and not invoice_tax_summary_visible(template.content, context)
+    ):
+        errors.append(
+            {
+                "code": "invoice_vat_summary_missing",
+                "field": "invoice.tax_label",
+                "message": "Шаблон счёта должен показывать строку «В том числе НДС 5%» и сумму НДС.",
             }
         )
     if document.id not in MONEY_DOCUMENTS and not has_money:
@@ -244,7 +266,7 @@ def document_money_validation(document: Any, context: dict, template: Any) -> di
                     "message": "Заполните количество и цену денежной строки.",
                 }
             )
-        if row.get("money_error"):
+        if row.get("money_error") or (regulated_unit_money and row.get("regulated_money_error")):
             errors.append(
                 {
                     "code": "unit_precision_unavailable",
@@ -317,6 +339,29 @@ def document_money_summary(document: Any, context: dict) -> dict:
         totals = context["completion_act"]["totals"]
         return {"total": totals["gross"], "vat": totals["vat"]}
     return {}
+
+
+def batch_document_money_summary(document: Any, context: dict) -> dict:
+    summary = document_money_summary(document, context)
+    if document.id == "completion_act":
+        act = context["completion_act"]
+        if act.get("calculation_mode") != "order_cashless":
+            return summary
+        # These totals belong to the displayed calculation, including a saved
+        # snapshot. The current order's tax may differ from that saved status.
+        tax = resolve_document_tax(act["totals"]["tax_label"])
+    elif document.id in {"invoice", "invoice_factura", "upd"}:
+        tax = context["money_tax_context"]
+    else:
+        return summary
+    return {
+        **summary,
+        "tax_status": {
+            "known": tax["known"],
+            "has_vat": tax["has_vat"],
+            "rate": format(tax["rate"].normalize(), "f"),
+        },
+    }
 
 
 def rounding_notes_html(document: Any, context: dict) -> str:

@@ -498,7 +498,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertEqual(material.quantity, "0")
         self.assertEqual(material.price, "0")
 
-    def test_manual_invoice_can_render_without_vat(self) -> None:
+    def test_manual_invoice_includes_vat_without_changing_source_tax_or_total(self) -> None:
         profile = self.service.manual_document_profile(
             {
                 "document_number": "NO-VAT-1",
@@ -526,10 +526,25 @@ class PrintingServiceTests(unittest.TestCase):
             client=profile.client,
         )
 
-        self.assertIn('<td colspan="2">Без НДС</td>', html)
-        self.assertNotIn("В том числе НДС (5%)", html)
-        self.assertEqual(context["invoice"]["vat"], Decimal("0.00"))
-        self.assertFalse(context["invoice"]["has_vat"])
+        self.assertIn("В том числе НДС 5%</td><td>56,02", html)
+        self.assertEqual(context["invoice"]["tax_label"], "НДС 5%")
+        self.assertEqual(context["invoice"]["vat"], Decimal("56.02"))
+        self.assertTrue(context["invoice"]["has_vat"])
+        self.assertEqual(context["invoice"]["total"], Decimal("1176.47"))
+        self.assertEqual(context["invoice"]["amount_due"], Decimal("1176.47"))
+        self.assertEqual(context["invoice"]["line_items"][0]["price"], Decimal("1176.47"))
+        self.assertEqual(profile.card.repair_order.tax_label, "Без НДС")
+        for document_id in ("invoice_factura", "upd"):
+            with self.subTest(document_id=document_id):
+                regulated = self.service._build_document_context(
+                    profile.card,
+                    profile.card.repair_order,
+                    document=self.service._document_definition(document_id),
+                    settings=self.service._read_settings(),
+                    client=profile.client,
+                )["regulated"]
+                self.assertEqual(regulated["vat"], Decimal("0.00"))
+                self.assertEqual(regulated["total_with_tax"], Decimal("1176.47"))
 
     def test_workspace_prefills_requisites_but_keeps_explicitly_cleared_phones(self) -> None:
         self.service._settings_path.write_text(
@@ -1040,7 +1055,7 @@ class PrintingServiceTests(unittest.TestCase):
         self.assertIn("288-14-15", html)
         self.assertNotIn("Внимание! Оплата данного счета", html)
         self.assertIn("Количество", html)
-        self.assertIn("В том числе НДС (5%)", html)
+        self.assertIn("В том числе НДС 5%", html)
         self.assertIn("К оплате прописью", html)
         self.assertIn("К оплате", html)
         self.assertIn("Учтённая предоплата", html)
@@ -2094,7 +2109,7 @@ class PrintingServiceTests(unittest.TestCase):
         html = preview["documents"][0]["pages"][0]["html"]
 
         self.assertIn("Сумма счёта</td><td>393 582,35", html)
-        self.assertIn("В том числе НДС (5%)</td><td>18 742,01", html)
+        self.assertIn("В том числе НДС 5%</td><td>18 742,01", html)
         self.assertIn("Учтённая предоплата</td><td>- 170 000,00", html)
         self.assertIn("К оплате</td><td>223 582,35", html)
         self.assertIn("Двести двадцать три тысячи", html)

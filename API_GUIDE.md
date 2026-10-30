@@ -613,10 +613,12 @@ significant precision (at least two decimals), derived prices use the minimum
 without trailing zeroes. A permitted source-row adjustment of one kopeck has a
 signed printed note. Order amounts and the cashless coefficient `0.85` are unchanged.
 
-Tax comes from `repair_order.tax_label` (also accepted as `taxLabel` by order
-updates), then an explicitly saved effective print profile `service_profile.tax_label`.
-Missing or unknown tax status blocks final output; no implicit 5% rate is used.
-`Без НДС` and an explicit `0%` rate remain distinct. VAT is rounded per row and
+The invoice uses an inclusive 5% VAT rate, independently of the saved tax status;
+its existing row amounts and cashless total remain unchanged. Other tax documents
+use `repair_order.tax_label` (also accepted as `taxLabel`), then an explicitly saved
+print profile `service_profile.tax_label`. For those documents a missing or unknown
+tax status blocks final output, and `Без НДС` and an explicit `0%` remain distinct.
+A combined batch is blocked if its document VAT totals disagree. VAT is rounded per row and
 summed. Inclusive amounts use `gross × rate / (1 + rate)`; manual net acts round
 the row net amount before adding VAT. Invoice debt is the authoritative
 `noncash_due`; settlement rounding up to two kopecks has a separate signed note.
@@ -627,6 +629,10 @@ Preview, PDF metadata and native-print responses contain `money_validation`:
 Documents also contain their own validation result. Preview remains available
 with monetary problems; PDF and native print fail before rendering/spooling
 with HTTP 422, `document_money_validation_failed`, and validation details.
+Custom invoice templates must visibly render the included VAT label and amount
+from `invoice.tax_label` and `invoice.vat_display` together. Incompatible saved
+templates remain unchanged and previewable, but PDF and print are blocked until
+the template is corrected.
 The existing `document_guard` invoice fields remain.
 
 Act forms and draft records carry `money_policy_version` and `calculation_mode`:

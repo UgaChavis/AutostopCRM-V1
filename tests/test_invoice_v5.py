@@ -218,16 +218,12 @@ class InvoiceV5Tests(unittest.TestCase):
                 if not works and not materials:
                     self.assertIn("Работы и материалы не указаны", rendered)
 
-    def test_tax_zero_is_distinct_from_without_vat(self) -> None:
-        for tax, expected in (
-            ("Без НДС", "Без НДС"),
-            ("НДС 0%", "В том числе НДС 0%"),
-            ("НДС 5%", "В том числе НДС 5%"),
-        ):
+    def test_invoice_shows_five_percent_for_each_source_tax_status(self) -> None:
+        for tax in ("Без НДС", "НДС 0%", "НДС 5%"):
             with self.subTest(tax=tax):
                 document = self.preview(money_card(tax=tax))
                 self.assertTrue(document["money_validation"]["valid"])
-                self.assertIn(expected, document["pages"][0]["html"])
+                self.assertIn("В том числе НДС 5%", document["pages"][0]["html"])
 
     def test_invoice_number_cannot_escape_the_running_header_style(self) -> None:
         self.card.repair_order.number = 'X"; } </style><script>invoiceNumberProbe()</script>'
