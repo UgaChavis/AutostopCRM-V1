@@ -5696,29 +5696,46 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         self.assertEqual(printed["data"]["copies"], 2)
         print_backend.assert_called_once()
 
-    def test_repair_order_print_module_manual_invoice_supports_no_vat(self) -> None:
+    def test_repair_order_print_module_manual_invoice_includes_vat_without_writing(self) -> None:
+        before = self.store.read_bundle()
+        manual_document = {
+            "document_number": "NO-VAT-API",
+            "document_date": "15.06.2026",
+            "tax_label": "Без НДС",
+            "client": {"display_name": "ООО Без НДС", "inn": "2468000000"},
+            "vehicle": {"name": "Toyota Camry", "vin": "JTNB11HK203123456"},
+            "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
+        }
         status, preview = self.request(
             "/api/preview_repair_order_print_documents",
             {
                 "document_without_card": True,
-                "manual_document": {
-                    "document_number": "NO-VAT-API",
-                    "document_date": "15.06.2026",
-                    "tax_label": "Без НДС",
-                    "client": {"display_name": "ООО Без НДС", "inn": "2468000000"},
-                    "vehicle": {"name": "Toyota Camry", "vin": "JTNB11HK203123456"},
-                    "works": [{"name": "Диагностика", "quantity": "1", "price": "1000"}],
-                },
+                "manual_document": manual_document,
                 "selected_document_ids": ["invoice"],
                 "active_document_id": "invoice",
             },
         )
 
         self.assertEqual(status, 200)
+        self.assertTrue(preview["data"]["money_validation"]["valid"])
         invoice_html = preview["data"]["documents"][0]["pages"][0]["html"]
-        self.assertIn('<td colspan="2">Без НДС</td>', invoice_html)
-        self.assertNotIn("В том числе НДС (5%)", invoice_html)
-        self.assertIn("1 176,47", invoice_html)
+        self.assertIn("В том числе НДС 5%</td><td>56,02", invoice_html)
+        self.assertIn("Сумма счёта</td><td>1 176,47", invoice_html)
+        self.assertIn("К оплате</td><td>1 176,47", invoice_html)
+        status, regulated = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                "document_without_card": True,
+                "manual_document": manual_document,
+                "selected_document_ids": ["invoice_factura"],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(regulated["data"]["money_validation"]["valid"])
+        regulated_html = regulated["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn('<td class="regulated-center">Без НДС</td>', regulated_html)
+        self.assertIn("1 176,47", regulated_html)
+        self.assertEqual(self.store.read_bundle(), before)
 
     def test_repair_order_print_module_api_reconciles_vat_5_for_invoice_and_upd(self) -> None:
         manual_document = {

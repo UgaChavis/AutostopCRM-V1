@@ -16,6 +16,8 @@ from minimal_kanban.printing.errors import PrintModuleError
 from minimal_kanban.printing.service import PrintModuleService
 from tests.test_document_money_v2 import money_card
 
+INVOICE_VAT_SUMMARY = "<p>В том числе {{invoice.tax_label}}: {{invoice.vat_display}} ₽</p>"
+
 
 class TemplateMoneyGuardTests(unittest.TestCase):
     def setUp(self):
@@ -118,17 +120,18 @@ class TemplateMoneyGuardTests(unittest.TestCase):
         table = "{{invoice.total_display}} {{invoice.prepayment_display}} {{invoice.amount_due_display}}"
         for document in ("invoice", "inspection_sheet", "parts_sale"):
             with self.subTest(document=document):
+                content = table + (INVOICE_VAT_SUMMARY if document == "invoice" else "")
                 self.assert_guard(
                     card,
                     document,
-                    table,
+                    content,
                     valid=False,
                     error_code="template_money_format_unverified",
                 )
                 self.assert_guard(
                     card,
                     document,
-                    table + " {{invoice.settlement_rounding_adjustment_display}}",
+                    content + " {{invoice.settlement_rounding_adjustment_display}}",
                     valid=True,
                 )
 
@@ -209,7 +212,7 @@ class TemplateMoneyGuardTests(unittest.TestCase):
             "{{#materials}}{{price_display}} {{quantity_display}} {{total_display}}{{/materials}}",
         ):
             with self.subTest(content=content):
-                self.assert_guard(card, "invoice", content, valid=True)
+                self.assert_guard(card, "invoice", content + INVOICE_VAT_SUMMARY, valid=True)
 
     def test_aggregate_does_not_cover_a_partly_hidden_set_of_notes(self):
         card = money_card(price="1", quantity="3", total="3.01")
