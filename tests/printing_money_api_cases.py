@@ -180,24 +180,60 @@ class PrintingMoneyApiCases:
             },
         )
         self.assertEqual(status, 200)
-        request = {"card_id": card_id, "selected_document_ids": ["invoice"]}
+        state_file = self.store.base_dir / "state.json"
+        before_preview = state_file.read_bytes()
+        request = {"card_id": card_id, "selected_document_ids": ["invoice_factura"]}
         status, preview = self.request("/api/preview_repair_order_print_documents", request)
         self.assertEqual(status, 200)
         self.assertFalse(preview["data"]["money_validation"]["valid"])
+        self.assertIn(
+            "tax_status_unknown",
+            {issue["code"] for issue in preview["data"]["money_validation"]["errors"]},
+        )
         with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as pdf:
             status, failure = self.request("/api/export_repair_order_print_pdf", request)
         self.assertEqual(status, 422)
         self.assertEqual(failure["error"]["code"], "document_money_validation_failed")
         pdf.assert_not_called()
+        invoice_request = {**request, "selected_document_ids": ["invoice"]}
+        status, invoice = self.request("/api/preview_repair_order_print_documents", invoice_request)
+        self.assertEqual(status, 200)
+        self.assertTrue(invoice["data"]["money_validation"]["valid"])
+        self.assertIn(
+            "В том числе НДС 5%</td><td>5,60",
+            invoice["data"]["documents"][0]["pages"][0]["html"],
+        )
+        self.assertEqual(state_file.read_bytes(), before_preview)
         before = self.store.read_bundle()
         status, updated = self.request(
             "/api/update_repair_order", {"card_id": card_id, "repair_order": {"taxLabel": "НДС 0%"}}
         )
         self.assertEqual(status, 200)
         self.assertEqual(updated["data"]["repair_order"]["tax_label"], "НДС 0%")
+        after_update = state_file.read_bytes()
         status, preview = self.request("/api/preview_repair_order_print_documents", request)
+        self.assertEqual(status, 200)
         self.assertTrue(preview["data"]["money_validation"]["valid"])
+        self.assertIn(
+            '<td class="regulated-center">0%</td>',
+            preview["data"]["documents"][0]["pages"][0]["html"],
+        )
         status, editor_preview = self.request(
+            "/api/preview_repair_order_print_documents",
+            {
+                **invoice_request,
+                "repair_order": {"works": [{"name": "Editor", "quantity": "1", "price": "100"}]},
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(editor_preview["data"]["money_validation"]["valid"])
+        self.assertEqual(
+            editor_preview["data"]["documents"][0]["document_guard"]["tax_status"], "НДС 5%"
+        )
+        invoice_html = editor_preview["data"]["documents"][0]["pages"][0]["html"]
+        self.assertIn("В том числе НДС 5%</td><td>5,60", invoice_html)
+        self.assertIn("К оплате</td><td>117,65", invoice_html)
+        status, regulated_editor_preview = self.request(
             "/api/preview_repair_order_print_documents",
             {
                 **request,
@@ -205,11 +241,16 @@ class PrintingMoneyApiCases:
             },
         )
         self.assertEqual(status, 200)
-        self.assertTrue(editor_preview["data"]["money_validation"]["valid"])
-        self.assertEqual(
-            editor_preview["data"]["documents"][0]["document_guard"]["tax_status"], "НДС 0%"
+        self.assertTrue(regulated_editor_preview["data"]["money_validation"]["valid"])
+        self.assertIn(
+            '<td class="regulated-center">0%</td>',
+            regulated_editor_preview["data"]["documents"][0]["pages"][0]["html"],
         )
+        self.assertEqual(state_file.read_bytes(), after_update)
         after = self.store.read_bundle()
+        source_order = next(card.repair_order for card in after["cards"] if card.id == card_id)
+        self.assertEqual(source_order.tax_label, "НДС 0%")
+        self.assertEqual(source_order.works[0].name, "Synthetic")
         for key in (
             "cashboxes",
             "cash_transactions",
