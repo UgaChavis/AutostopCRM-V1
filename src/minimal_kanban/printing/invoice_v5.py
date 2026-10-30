@@ -183,7 +183,7 @@ INVOICE_V5_TEMPLATE = """
   <div>
     <div class="inv-v5-label">Получатель платежа</div>
     <div class="inv-v5-party-name">{{service.legal_name}}</div>
-    <div class="inv-v5-party-details"><div class="inv-v5-party-ids"><span class="inv-v5-recipient-inn">ИНН {{service.inn}}</span>{{#invoice_v5.has_service_kpp}}<span>КПП {{service.kpp}}</span>{{/invoice_v5.has_service_kpp}}</div><div>{{service.address}}</div></div>
+    <div class="inv-v5-party-details"><div class="inv-v5-party-ids"><span class="inv-v5-recipient-inn">ИНН {{service.inn}}</span></div><div>{{service.address}}</div></div>
   </div>
   <div>
     <div class="inv-v5-label">Покупатель</div>
