@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E402
 import base64
+from copy import deepcopy
 from unittest.mock import patch
 
 if __package__:
@@ -12,6 +13,7 @@ else:
 ensure_source_path()
 
 from minimal_kanban.printing.models import SUPPORTED_PRINT_DOCUMENT_TYPES
+from minimal_kanban.repair_order import RepairOrder
 
 
 class PrintingMoneyApiCases:
@@ -19,32 +21,60 @@ class PrintingMoneyApiCases:
         status, created = self.request("/api/create_card", {"title": "Synthetic review boundaries"})
         self.assertEqual(status, 200)
         card_id = created["data"]["card"]["id"]
-        status, _ = self.request(
+        extreme_order = {
+            "tax_label": "НДС 5%",
+            "works": [
+                {
+                    "name": "Synthetic",
+                    "quantity": "1E-100000",
+                    "price": "1",
+                    "total": "0.01",
+                }
+            ],
+        }
+        before = deepcopy(self.store.read_bundle())
+        state_file = self.store.base_dir / "state.json"
+        before_bytes = state_file.read_bytes()
+        status, rejected = self.request(
             "/api/update_repair_order",
-            {
-                "card_id": card_id,
-                "repair_order": {
-                    "tax_label": "НДС 5%",
-                    "works": [
-                        {
-                            "name": "Synthetic",
-                            "quantity": "1E-100000",
-                            "price": "1",
-                            "total": "0.01",
-                        }
-                    ],
-                },
-            },
+            {"card_id": card_id, "repair_order": extreme_order},
         )
-        self.assertEqual(status, 200)
+        self.assertEqual(status, 400, rejected)
+        self.assertEqual(rejected["error"]["code"], "validation_error")
+        self.assertEqual(rejected["error"]["details"]["field"], "repair_order.works[0].quantity")
+        self.assertEqual(state_file.read_bytes(), before_bytes)
+        self.assertEqual(self.store.read_bundle(), before)
+
+        # Old persisted orders still need the print guard even though new input
+        # is now rejected. Seed only this isolated fixture through its store.
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == card_id)
+        card.repair_order = RepairOrder.from_dict(extreme_order)
+        self.store.write_bundle(**bundle)
+        historical_bytes = state_file.read_bytes()
         arguments = {"card_id": card_id, "selected_document_ids": ["invoice"]}
         status, preview = self.request("/api/preview_repair_order_print_documents", arguments)
         self.assertEqual(status, 200)
         self.assertFalse(preview["data"]["money_validation"]["valid"])
-        status, blocked = self.request("/api/export_repair_order_print_pdf", arguments)
-        self.assertEqual(status, 422)
-        self.assertEqual(blocked["error"]["code"], "document_money_validation_failed")
-        self.request(
+        self.assertIn(
+            "number_out_of_range",
+            [issue["code"] for issue in preview["data"]["money_validation"]["errors"]],
+        )
+        with (
+            patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as renderer,
+            patch("minimal_kanban.printing.service.print_html") as printer,
+        ):
+            for route in ("export_repair_order_print_pdf", "print_repair_order_documents"):
+                with self.subTest(route=route):
+                    status, blocked = self.request(
+                        f"/api/{route}", {**arguments, "printer_name": "Synthetic Printer"}
+                    )
+                    self.assertEqual(status, 422, blocked)
+                    self.assertEqual(blocked["error"]["code"], "document_money_validation_failed")
+            renderer.assert_not_called()
+            printer.assert_not_called()
+        self.assertEqual(state_file.read_bytes(), historical_bytes)
+        status, updated = self.request(
             "/api/update_repair_order",
             {
                 "card_id": card_id,
@@ -54,6 +84,7 @@ class PrintingMoneyApiCases:
                 },
             },
         )
+        self.assertEqual(status, 200, updated)
         arguments.update(
             selected_document_ids=["inspection_sheet"],
             print_settings={"service_profile": {"tax_label": ""}},

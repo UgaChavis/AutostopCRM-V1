@@ -344,6 +344,7 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
     async def test_raw_read_contract_uses_http_default_false_while_direct_service_default_creates(
         self,
     ):
+        original_settings = json.loads(self.state_file.read_text(encoding="utf-8"))["settings"]
         self.make_legacy()
         before = self.snapshot()
         token = OwnerAccessToken(
@@ -373,7 +374,20 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
         self.assertFalse(payload["data"]["meta"]["created"])
         self.assertFalse(payload["data"]["repair_order"]["number"])
         self.assertEqual(before, self.snapshot())
+        # Unlike the read-only route, the direct default creates an order and
+        # persists the whole state. It must not discard malformed settings.
+        damaged = self.state_file.read_bytes()
+        feed_before = self.store.change_feed_store.raw_events_for_test()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.get_repair_order({"card_id": self.empty_card_id})
+        self.assertEqual(self.state_file.read_bytes(), damaged)
+        self.assertEqual(self.store.change_feed_store.raw_events_for_test(), feed_before)
+
+        restored = json.loads(damaged)
+        restored["settings"] = original_settings
+        self.state_file.write_text(json.dumps(restored), encoding="utf-8")
+        before_create = self.snapshot()
         created = self.service.get_repair_order({"card_id": self.empty_card_id})
         self.assertTrue(created["meta"]["created"])
         self.assertTrue(created["repair_order"]["number"])
-        self.assertNotEqual(before, self.snapshot())
+        self.assertNotEqual(before_create, self.snapshot())
