@@ -55,6 +55,7 @@ from .formatting import (
 )
 from .input_validation import validate_print_order_input
 from .invoice_v5 import invoice_v5_context
+from .invoice_vat import invoice_vat_for_document
 from .layout import COMPLETION_ACT_LAYOUT
 from .manual_documents import (
     ManualDocumentProfile,
@@ -82,7 +83,7 @@ from .models import (
 )
 from .money_validation import (
     aggregate_money_validation,
-    document_money_summary,
+    batch_document_money_summary,
     document_money_validation,
     require_valid_document_batch,
     rounding_notes_html,
@@ -735,9 +736,10 @@ def _regulated_document_context(
     client: ClientProfile | None,
     line_items: list[dict[str, Any]],
     document_overrides: dict[str, Any] | None = None,
+    tax_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     overrides = _regulated_overrides(document_overrides)
-    tax = _invoice_tax_payload(
+    tax = tax_override or _invoice_tax_payload(
         order, settings.service_profile.tax_label if settings.tax_label_explicit else ""
     )
     raw_rows = [
@@ -1951,7 +1953,7 @@ class PrintModuleService(CompletionActCalculationMixin):
             ),
             "document_guard": invoice_guard(document.id, context),
             "money_validation": money_validation,
-            "money_summary": document_money_summary(document, context),
+            "money_summary": batch_document_money_summary(document, context),
             "calculation_mode": context.get("completion_act", {}).get("calculation_mode"),
             "calculation_fingerprint": context.get("completion_act", {}).get(
                 "calculation_fingerprint"
@@ -3642,6 +3644,9 @@ class PrintModuleService(CompletionActCalculationMixin):
             target_total=invoice_cashless_total,
             tax_rate=invoice_tax["rate"] if invoice_tax.get("has_vat") else Decimal("0"),
         )
+        invoice_line_items, invoice_tax = invoice_vat_for_document(
+            document.id, invoice_line_items, invoice_tax
+        )
         invoice_total = invoice_cashless_total
         invoice_line_items_for_document = (
             invoice_line_items if document.id == "invoice" else base_line_items
@@ -3679,6 +3684,7 @@ class PrintModuleService(CompletionActCalculationMixin):
             client=client,
             line_items=invoice_line_items,
             document_overrides=document_overrides,
+            tax_override=invoice_tax if document.id == "invoice" else None,
         )
         invoice_tax_amount = regulated_context["vat"]
         invoice_tax_display = _money_display(invoice_tax_amount)

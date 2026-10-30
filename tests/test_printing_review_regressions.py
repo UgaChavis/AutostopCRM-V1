@@ -233,7 +233,10 @@ class PrintingReviewRegressions(unittest.TestCase):
         card = money_card(
             price=".03", quantity="1", payments=[{"amount": ".02", "payment_method": "cash"}]
         )
-        base = "{{invoice.total_display}} {{invoice.prepayment_display}} {{invoice.amount_due_display}}"
+        base = (
+            "{{invoice.total_display}} {{invoice.prepayment_display}} {{invoice.amount_due_display}}"
+            "<p>В том числе {{invoice.tax_label}}: {{invoice.vat_display}}</p>"
+        )
         for suffix, expected in [
             ("", False),
             ("<!-- {{invoice.settlement_rounding_adjustment_display}} -->", False),

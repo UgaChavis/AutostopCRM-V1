@@ -136,17 +136,17 @@ class DocumentMoneyV2Tests(unittest.TestCase):
 
     def test_unknown_tax_previews_but_blocks_pdf_and_native_backend(self):
         source = money_card(tax="")
-        preview = self.service.preview_documents(source, selected_document_ids=["invoice"])
+        preview = self.service.preview_documents(source, selected_document_ids=["invoice_factura"])
         self.assertFalse(preview["documents"][0]["money_validation"]["valid"])
         with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as pdf:
             with self.assertRaises(PrintModuleError) as captured:
-                self.service.export_documents_pdf(source, selected_document_ids=["invoice"])
+                self.service.export_documents_pdf(source, selected_document_ids=["invoice_factura"])
             self.assertEqual(captured.exception.code, "document_money_validation_failed")
             pdf.assert_not_called()
         with patch("minimal_kanban.printing.service.print_html") as printer:
             with self.assertRaises(PrintModuleError):
                 self.service.print_documents(
-                    source, selected_document_ids=["invoice"], printer_name="Synthetic"
+                    source, selected_document_ids=["invoice_factura"], printer_name="Synthetic"
                 )
             printer.assert_not_called()
 
@@ -296,24 +296,28 @@ class DocumentMoneyV2Tests(unittest.TestCase):
         source = money_card(tax="")
         self.service.save_settings({"copies": 2})
         self.assertFalse(
-            self.service.preview_documents(source, selected_document_ids=["invoice"])[
+            self.service.preview_documents(source, selected_document_ids=["invoice_factura"])[
                 "money_validation"
             ]["valid"]
         )
         self.service.save_settings({"service_profile": {"tax_label": "НДС 7%"}})
-        valid = self.service.preview_documents(source, selected_document_ids=["invoice"])
+        valid = self.service.preview_documents(source, selected_document_ids=["invoice_factura"])
         self.assertTrue(valid["money_validation"]["valid"])
         self.assertEqual(
-            self.context(card=source)["money_tax_context"]["source"], "service_profile"
+            self.context("invoice_factura", card=source)["money_tax_context"]["source"],
+            "service_profile",
         )
         unknown = self.service.preview_documents(
-            money_card(tax="УСН неизвестно"), selected_document_ids=["invoice"]
+            money_card(tax="УСН неизвестно"), selected_document_ids=["invoice_factura"]
         )
         self.assertFalse(unknown["money_validation"]["valid"])
-        self.assertEqual(self.context(card=money_card(tax="Без НДС"))["invoice"]["vat"], Decimal(0))
+        self.assertEqual(
+            self.context("invoice_factura", card=money_card(tax="Без НДС"))["regulated"]["vat"],
+            Decimal(0),
+        )
         self.service.save_settings({"service_profile": {"tax_label": ""}})
         self.assertFalse(
-            self.service.preview_documents(source, selected_document_ids=["invoice"])[
+            self.service.preview_documents(source, selected_document_ids=["invoice_factura"])[
                 "money_validation"
             ]["valid"]
         )
