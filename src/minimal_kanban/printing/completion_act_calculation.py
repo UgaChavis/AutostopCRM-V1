@@ -25,6 +25,7 @@ from .formatting import (
     _number_display,
     _parse_decimal,
 )
+from .invoice_vat import invoice_tax_payload, invoice_vat_rows
 from .models import CompletionActFormData, CompletionActItemData, PrintModuleSettings
 
 
@@ -147,6 +148,14 @@ class CompletionActCalculationMixin:
                 }
                 for (section, index, row), total in zip(rows, totals, strict=True)
             ]
+        # Source tax still owns the established allocation of gross cents.
+        # The print policy only splits VAT out of those unchanged row totals.
+        projected = invoice_vat_rows(
+            [
+                {"total": result.gross, "quantity": quantity}
+                for result, quantity in zip(calculation.rows, quantities, strict=True)
+            ]
+        )
         return [
             {
                 "id": f"{section}:{row.id or f'{section}-{index + 1}'}",
@@ -154,12 +163,19 @@ class CompletionActCalculationMixin:
                 "name": row.name,
                 "unit": "ч" if section == "works" else row.inventory_unit or "шт",
                 "quantity": row.quantity,
-                "price": format(result.regulated_unit_price, "f"),
-                "subtotal": result.subtotal,
-                "vat": result.vat,
-                "gross": result.gross,
+                "price": (
+                    format(result["regulated_price"], "f")
+                    if result.get("regulated_price") is not None
+                    else row.price
+                ),
+                "subtotal": result.get("subtotal", result["total"]),
+                "vat": result.get("vat", Decimal(0)),
+                "gross": result["total"],
+                "money_error": bool(
+                    result.get("money_error") or result.get("regulated_money_error")
+                ),
             }
-            for (section, index, row), result in zip(rows, calculation.rows, strict=True)
+            for (section, index, row), result in zip(rows, projected, strict=True)
         ]
 
     def _prepare_linked_act_form(
@@ -261,9 +277,13 @@ class CompletionActCalculationMixin:
                 0, "Старый расчёт акта: обновите расчёт и сохраните новую версию перед выпуском."
             )
             return result
-        tax = self._document_tax(order or RepairOrder(), settings or self._read_settings())
+        tax = invoice_tax_payload()
         linked = (
-            self._linked_act_rows(order, tax, form.calculation_mode)
+            self._linked_act_rows(
+                order,
+                self._document_tax(order, settings or self._read_settings()),
+                form.calculation_mode,
+            )
             if order is not None and form.calculation_mode != "manual_net"
             else []
         )
@@ -409,6 +429,7 @@ class CompletionActCalculationMixin:
             "linked_client_id": card.client_id,
             "fresh_form": fresh.to_dict(),
             "tax_context": self._document_tax(order, settings),
+            "print_tax_context": invoice_tax_payload(),
             "source_money_rows": [
                 {
                     "section": section,

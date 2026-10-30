@@ -543,8 +543,10 @@ class PrintingServiceTests(unittest.TestCase):
                     settings=self.service._read_settings(),
                     client=profile.client,
                 )["regulated"]
-                self.assertEqual(regulated["vat"], Decimal("0.00"))
+                self.assertEqual(regulated["vat"], Decimal("56.02"))
+                self.assertEqual(regulated["tax_label"], "НДС 5%")
                 self.assertEqual(regulated["total_with_tax"], Decimal("1176.47"))
+                self.assertEqual(profile.card.repair_order.tax_label, "Без НДС")
 
     def test_workspace_prefills_requisites_but_keeps_explicitly_cleared_phones(self) -> None:
         self.service._settings_path.write_text(
@@ -1244,12 +1246,7 @@ class PrintingServiceTests(unittest.TestCase):
 
     def test_regulated_vat_handles_empty_label_no_vat_and_zero_rate(self) -> None:
         settings = self.service._read_settings()
-        expected = {
-            "": (False, Decimal("0.00")),
-            "Без НДС": (False, Decimal("0.00")),
-            "НДС 0%": (True, Decimal("0.00")),
-        }
-        for label, (has_vat, vat) in expected.items():
+        for label in ("", "Без НДС", "НДС 0%"):
             with self.subTest(label=label):
                 card = Card.from_dict(
                     {
@@ -1270,8 +1267,11 @@ class PrintingServiceTests(unittest.TestCase):
                     document=self.service._document_definition("upd"),
                     settings=settings,
                 )
-                self.assertEqual(context["regulated"]["vat"], vat)
-                self.assertEqual(context["regulated"]["has_vat"], has_vat)
+                self.assertEqual(context["regulated"]["vat"], Decimal("5.60"))
+                self.assertTrue(context["regulated"]["has_vat"])
+                self.assertEqual(context["regulated"]["tax_label"], "НДС 5%")
+                self.assertEqual(context["regulated"]["total_with_tax"], Decimal("117.65"))
+                self.assertEqual(card.repair_order.tax_label, label)
                 self.assertEqual(
                     context["regulated"]["subtotal"] + context["regulated"]["vat"],
                     context["regulated"]["total_with_tax"],

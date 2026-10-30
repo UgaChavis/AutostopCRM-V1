@@ -614,10 +614,12 @@ without trailing zeroes. A permitted source-row adjustment of one kopeck has a
 signed printed note. Order amounts and the cashless coefficient `0.85` are unchanged.
 
 The invoice uses an inclusive 5% VAT rate, independently of the saved tax status;
-its existing row amounts and cashless total remain unchanged. Other tax documents
-use `repair_order.tax_label` (also accepted as `taxLabel`), then an explicitly saved
-print profile `service_profile.tax_label`. For those documents a missing or unknown
-tax status blocks final output, and `Без НДС` and an explicit `0%` remain distinct.
+its existing row amounts and cashless total remain unchanged. New invoices-facturas,
+UPDs, and completion acts also use 5% VAT. Linked documents retain their established
+gross row amounts, while a manual net act adds 5% to its entered net amounts.
+The order and print profile tax settings are not rewritten by printing.
+Custom invoice-factura and UPD templates must visibly show the canonical tax rate
+and VAT amount; conflicting visible tax statuses block final output.
 A combined batch is blocked if its document VAT totals disagree. VAT is rounded per row and
 summed. Inclusive amounts use `gross × rate / (1 + rate)`; manual net acts round
 the row net amount before adding VAT. Invoice debt is the authoritative

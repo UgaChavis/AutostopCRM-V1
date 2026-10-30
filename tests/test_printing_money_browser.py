@@ -62,7 +62,7 @@ class PrintingMoneyBrowserTests(UiBrowserTestCase):
         )
         self.page.locator("#completionActUpdateCalculationButton").click()
         self.page.wait_for_function(
-            "document.querySelector('#completionActEditorFooterMeta')?.textContent.includes('После: 120,00')"
+            "document.querySelector('#completionActEditorFooterMeta')?.textContent.includes('После: 105,00')"
         )
         self.assertIn(
             "До обновления: 105,00",
@@ -75,7 +75,7 @@ class PrintingMoneyBrowserTests(UiBrowserTestCase):
         self.assertTrue(self.page.locator("#completionActSaveButton").is_disabled())
         self.page.locator("#completionActUpdateCalculationButton").click()
         self.page.wait_for_function(
-            "document.querySelector('#completionActEditorFooterMeta')?.textContent.includes('После: 132,00')"
+            "document.querySelector('#completionActEditorFooterMeta')?.textContent.includes('После: 115,50')"
         )
         self.page.locator('[data-completion-act-section="document"]').click()
         self.page.locator("#completionActBasis").fill("Synthetic free-text edit")
@@ -87,7 +87,8 @@ class PrintingMoneyBrowserTests(UiBrowserTestCase):
             self.page.locator("#completionActSaveButton").click()
         result = response.value.json()
         self.assertTrue(result["ok"], result)
-        self.assertEqual(result["data"]["totals"]["gross"], "132.00")
+        self.assertEqual(result["data"]["totals"]["gross"], "115.50")
+        self.assertEqual(result["data"]["totals"]["tax_label"], "НДС 5%")
         self.assertFalse(result["data"]["draft"]["is_stale"])
         self.assertEqual(result["data"]["form"]["basis"], "Synthetic free-text edit")
 

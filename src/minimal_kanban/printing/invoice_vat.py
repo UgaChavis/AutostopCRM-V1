@@ -22,7 +22,7 @@ def invoice_tax_payload() -> dict[str, Any]:
 def invoice_vat_for_document(
     document_id: str, rows: list[dict[str, Any]], source_tax: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if document_id != "invoice":
+    if document_id not in {"invoice", "invoice_factura", "upd", "completion_act"}:
         return rows, source_tax
     return invoice_vat_rows(rows), invoice_tax_payload()
 

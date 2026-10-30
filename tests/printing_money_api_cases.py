@@ -145,12 +145,14 @@ class PrintingMoneyApiCases:
         self.assertEqual(blocked["error"]["code"], "completion_act_recalculation_required")
         status, proposed = self.request("/api/save_completion_act_form", {**base, "dry_run": True})
         self.assertEqual(status, 200)
-        self.assertEqual(proposed["data"]["dry_run"]["projected_totals"]["gross"], "120.00")
+        self.assertEqual(proposed["data"]["dry_run"]["projected_totals"]["gross"], "105.00")
+        self.assertEqual(proposed["data"]["dry_run"]["projected_totals"]["tax_label"], "НДС 5%")
         accepted = proposed["data"]["dry_run"]["calculation_fingerprint"]
         request = {**base, "accepted_calculation_fingerprint": accepted}
         status, result = self.request("/api/save_completion_act_form", request)
         self.assertEqual(status, 200)
-        self.assertEqual(result["data"]["totals"]["gross"], "120.00")
+        self.assertEqual(result["data"]["totals"]["gross"], "105.00")
+        self.assertEqual(result["data"]["totals"]["tax_label"], "НДС 5%")
         status, replay = self.request("/api/save_completion_act_form", request)
         self.assertEqual(status, 200)
         self.assertTrue(replay["data"]["draft"]["idempotent_replay"])
@@ -185,13 +187,27 @@ class PrintingMoneyApiCases:
         request = {"card_id": card_id, "selected_document_ids": ["invoice_factura"]}
         status, preview = self.request("/api/preview_repair_order_print_documents", request)
         self.assertEqual(status, 200)
-        self.assertFalse(preview["data"]["money_validation"]["valid"])
+        self.assertTrue(preview["data"]["money_validation"]["valid"])
         self.assertIn(
-            "tax_status_unknown",
-            {issue["code"] for issue in preview["data"]["money_validation"]["errors"]},
+            '<td class="regulated-center">5%</td>',
+            preview["data"]["documents"][0]["pages"][0]["html"],
+        )
+        invalid_request = {
+            **request,
+            "selected_document_ids": ["invoice"],
+            "template_overrides": {"invoice": "<div>Сумма счёта {{invoice.total_display}} ₽</div>"},
+        }
+        status, invalid_preview = self.request(
+            "/api/preview_repair_order_print_documents", invalid_request
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(invalid_preview["data"]["money_validation"]["valid"])
+        self.assertIn(
+            "invoice_vat_summary_missing",
+            {issue["code"] for issue in invalid_preview["data"]["money_validation"]["errors"]},
         )
         with patch("minimal_kanban.printing.service.render_html_to_pdf_bytes") as pdf:
-            status, failure = self.request("/api/export_repair_order_print_pdf", request)
+            status, failure = self.request("/api/export_repair_order_print_pdf", invalid_request)
         self.assertEqual(status, 422)
         self.assertEqual(failure["error"]["code"], "document_money_validation_failed")
         pdf.assert_not_called()
@@ -215,7 +231,7 @@ class PrintingMoneyApiCases:
         self.assertEqual(status, 200)
         self.assertTrue(preview["data"]["money_validation"]["valid"])
         self.assertIn(
-            '<td class="regulated-center">0%</td>',
+            '<td class="regulated-center">5%</td>',
             preview["data"]["documents"][0]["pages"][0]["html"],
         )
         status, editor_preview = self.request(
@@ -243,7 +259,7 @@ class PrintingMoneyApiCases:
         self.assertEqual(status, 200)
         self.assertTrue(regulated_editor_preview["data"]["money_validation"]["valid"])
         self.assertIn(
-            '<td class="regulated-center">0%</td>',
+            '<td class="regulated-center">5%</td>',
             regulated_editor_preview["data"]["documents"][0]["pages"][0]["html"],
         )
         self.assertEqual(state_file.read_bytes(), after_update)
@@ -673,8 +689,10 @@ class PrintingMoneyApiCases:
                     "selected_document_ids": ["completion_act"],
                 },
             )
-        self.assertEqual(status, 422)
-        self.assertEqual(empty_export["error"]["code"], "document_money_validation_failed")
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            base64.b64decode(empty_export["data"]["content_base64"]).startswith(b"%PDF")
+        )
         status, invalid_save = self.request(
             "/api/save_completion_act_form",
             {
@@ -798,4 +816,6 @@ class PrintingMoneyApiCases:
         self.assertEqual(status, 200)
         self.assertFalse(current["data"]["draft"]["exists"])
         self.assertEqual(current["data"]["draft"]["version"], 0)
-        self.assertEqual(current["data"]["fresh_form"]["items"][0]["price"], "235.29")
+        self.assertEqual(current["data"]["fresh_form"]["items"][0]["price"], "224.09")
+        self.assertEqual(current["data"]["totals"]["gross"], "235.29")
+        self.assertEqual(current["data"]["totals"]["vat"], "11.20")

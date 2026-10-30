@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ ensure_source_path()
 
 from minimal_kanban.models import Card
 from minimal_kanban.printing.errors import PrintModuleError
+from minimal_kanban.printing.invoice_vat import invoice_vat_for_document
 from minimal_kanban.printing.service import PrintModuleService, _canonical_cashless_line_items
 from minimal_kanban.repair_order import repair_order_cashless_gross_value
 from minimal_kanban.services.document_money import resolve_document_tax
@@ -254,7 +256,7 @@ class InvoiceFixedVatTests(unittest.TestCase):
         self.assertEqual(card.to_storage_dict(), before_card)
         self.assertEqual(self.files(), before_files)
 
-    def test_invoice_and_factura_tax_mismatch_blocks_batch_without_rewriting_documents(self):
+    def test_invoice_and_factura_share_five_percent_without_rewriting_documents(self):
         card = invoice_card("НДС 20%", prices=("8500",))
         before_card, before_files = card.to_storage_dict(), self.files()
         document_ids = ["invoice", "invoice_factura"]
@@ -265,42 +267,51 @@ class InvoiceFixedVatTests(unittest.TestCase):
             individual[document_id] = preview["documents"][0]
         self.assert_money(individual["invoice"]["pages"][0]["html"], self.original_rows(card))
         factura_html = individual["invoice_factura"]["pages"][0]["html"]
-        self.assertIn("20%", factura_html)
-        self.assertIn("1 666,67", factura_html)
+        self.assertIn("5%", factura_html)
+        self.assertIn("476,19", factura_html)
 
         options = {"selected_document_ids": document_ids}
         batch = self.service.preview_documents(card, **options)
-        self.assertFalse(batch["money_validation"]["valid"])
+        self.assertTrue(batch["money_validation"]["valid"], batch["money_validation"])
         self.assertEqual({document["id"] for document in batch["documents"]}, set(document_ids))
         for document in batch["documents"]:
-            self.assertFalse(document["money_validation"]["valid"])
-            self.assertIn(
-                "document_totals_mismatch",
-                {issue["code"] for issue in document["money_validation"]["errors"]},
-            )
+            self.assertTrue(document["money_validation"]["valid"])
             self.assertEqual(document["pages"], individual[document["id"]]["pages"])
-        self.assert_backends_blocked(card, options)
+        self.service.prepare_documents_pdf(card, **options)
+        self.service.prepare_print_documents(card, printer_name="Synthetic", **options)
         self.assertEqual(card.to_storage_dict(), before_card)
         self.assertEqual(self.files(), before_files)
 
-    def test_small_batch_rejects_equal_vat_with_different_tax_status(self):
+    def test_small_batch_rejects_synthetic_legacy_tax_even_when_vat_matches(self):
         for tax in ("НДС 20%", "НДС 0%", "Без НДС"):
             for regulated in ("invoice_factura", "upd"):
                 with self.subTest(tax=tax, regulated=regulated):
                     card = invoice_card(tax, prices=("0.01",))
                     before_card, before_files = card.to_storage_dict(), self.files()
                     options = {"selected_document_ids": ["invoice", regulated]}
-                    preview = self.service.preview_documents(card, **options)
-                    self.assertFalse(preview["money_validation"]["valid"])
-                    self.assertIn(
-                        "document_totals_mismatch",
-                        {issue["code"] for issue in preview["money_validation"]["errors"]},
-                    )
-                    self.assertIn(
-                        "В том числе НДС 5%</td><td>0,00 ₽",
-                        preview["documents"][0]["pages"][0]["html"],
-                    )
-                    self.assert_backends_blocked(card, options)
+
+                    def legacy_regulated_projection(document_id, rows, source_tax):
+                        # Simulate an incompatible legacy document producer. Equal
+                        # rounded VAT must not hide its different actual tax status.
+                        if document_id == regulated:
+                            return rows, source_tax
+                        return invoice_vat_for_document(document_id, rows, source_tax)
+
+                    with patch(
+                        "minimal_kanban.printing.service.invoice_vat_for_document",
+                        side_effect=legacy_regulated_projection,
+                    ):
+                        preview = self.service.preview_documents(card, **options)
+                        self.assertFalse(preview["money_validation"]["valid"])
+                        self.assertIn(
+                            "document_totals_mismatch",
+                            {issue["code"] for issue in preview["money_validation"]["errors"]},
+                        )
+                        self.assertIn(
+                            "В том числе НДС 5%</td><td>0,00 ₽",
+                            preview["documents"][0]["pages"][0]["html"],
+                        )
+                        self.assert_backends_blocked(card, options)
                     self.assertEqual(card.to_storage_dict(), before_card)
                     self.assertEqual(self.files(), before_files)
 
@@ -322,6 +333,25 @@ class InvoiceFixedVatTests(unittest.TestCase):
                     expected_version=0,
                     idempotency_key=f"save-tax-status-{index}",
                 )
+                # Create a valid historical snapshot in the isolated temporary store.
+                # At .01 gross the old 20%, 0% and current 5% all round to zero VAT.
+                path = self.service._completion_act_record_path(
+                    self.service._completion_act_cycle_key(card, card.repair_order)
+                )
+                record = json.loads(path.read_text(encoding="utf-8"))
+                calculation = record["money_snapshot"]["calculation"]
+                historical_tax = resolve_document_tax(saved_tax)
+                calculation["tax_context"] = {
+                    **historical_tax,
+                    "rate": str(historical_tax["rate"]),
+                }
+                calculation["totals"].update(
+                    tax_label=saved_tax,
+                    has_vat=historical_tax["has_vat"],
+                    vat_rate=str(historical_tax["rate"] * 100),
+                    vat_rate_display=historical_tax["rate_display"],
+                )
+                path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
                 card.repair_order.tax_label = current_tax
                 before_card, before_files = card.to_storage_dict(), self.files()
                 options = {"selected_document_ids": [other, "completion_act"]}

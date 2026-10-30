@@ -53,8 +53,8 @@ class PrintingReviewRegressions(unittest.TestCase):
         self.assertEqual(path.read_bytes(), before)
         proposed = self.service.save_completion_act_form(changed, **arguments, dry_run=True)
         projection = proposed["dry_run"]
-        self.assertEqual(projection["projected_totals"]["gross"], "120.00")
-        self.assertEqual(projection["projected_tax_context"]["label"], "НДС 20%")
+        self.assertEqual(projection["projected_totals"]["gross"], "105.00")
+        self.assertEqual(projection["projected_tax_context"]["label"], "НДС 5%")
         self.assertTrue(projection["recalculation_required"])
         self.assertEqual(len(projection["calculation_fingerprint"]), 64)
         self.assertEqual(path.read_bytes(), before)
@@ -83,7 +83,7 @@ class PrintingReviewRegressions(unittest.TestCase):
             accepted_calculation_fingerprint=projection["calculation_fingerprint"],
         )
         self.assertEqual(saved["totals"]["gross"], "105.00")
-        self.assertEqual(updated["totals"]["gross"], "120.00")
+        self.assertEqual(updated["totals"]["gross"], "105.00")
         replay = self.service.save_completion_act_form(
             changed,
             **arguments,
