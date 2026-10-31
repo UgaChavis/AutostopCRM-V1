@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 from concurrent.futures import CancelledError, ThreadPoolExecutor
+from importlib.metadata import version as installed_version
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -25,6 +26,13 @@ from minimal_kanban.mcp.backup_drain import BackupDrain
 from minimal_kanban.mcp.client import BoardApiClient
 from minimal_kanban.mcp.runtime import McpServerRuntime
 from minimal_kanban.mcp.server import create_mcp_server
+
+REVIEWED_VERSIONS = {
+    "mcp": "1.28.1",
+    "uvicorn": "0.54.0",
+    "starlette": "1.10.0",
+    "anyio": "4.15.1",
+}
 
 
 class FakeMcp:
@@ -195,17 +203,21 @@ class BackupPredrainTests(unittest.TestCase):
         runtime._backup_app = server.streamable_http_app()
         runtime._backup_tool_fingerprint = McpAdmission(runtime._backup_app).wrap_tools(server)
         try:
-            self.assertTrue(runtime.backup_workers_idle())
+            # Version metadata is mocked only to isolate the registry check.
+            with patch(
+                "minimal_kanban.mcp.runtime.version", side_effect=REVIEWED_VERSIONS.__getitem__
+            ):
+                self.assertTrue(runtime.backup_workers_idle())
 
-            @server.resource("synthetic://resource")
-            def resource():
-                return "synthetic"
+                @server.resource("synthetic://resource")
+                def resource():
+                    return "synthetic"
 
-            self.assertFalse(runtime.backup_workers_idle())
+                self.assertFalse(runtime.backup_workers_idle())
         finally:
             runtime._backup_executor.shutdown(wait=True)
 
-    def test_actual_oauth_route_topology_is_attested(self):
+    def test_oauth_route_shape_with_mocked_reviewed_version_metadata(self):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch.dict(
@@ -232,11 +244,42 @@ class BackupPredrainTests(unittest.TestCase):
             runtime._backup_app = server.streamable_http_app()
             runtime._backup_tool_fingerprint = McpAdmission(runtime._backup_app).wrap_tools(server)
             try:
-                self.assertTrue(runtime.backup_workers_idle())
+                with patch(
+                    "minimal_kanban.mcp.runtime.version", side_effect=REVIEWED_VERSIONS.__getitem__
+                ):
+                    self.assertTrue(runtime.backup_workers_idle())
             finally:
                 runtime._backup_executor.shutdown(wait=True)
                 if getattr(server, "store_workers", None) is not None:
                     server.store_workers.close()
+
+    def test_actual_installed_version_is_checked_without_mocking(self):
+        server = FastMCP("synthetic")
+        runtime = McpServerRuntime(server, logging.getLogger("synthetic"))
+        runtime._backup_executor = TrackedExecutor()
+        runtime._backup_app = server.streamable_http_app()
+        runtime._backup_tool_fingerprint = McpAdmission(runtime._backup_app).wrap_tools(server)
+        installed = {name: installed_version(name) for name in REVIEWED_VERSIONS}
+        try:
+            if installed == REVIEWED_VERSIONS:
+                self.assertTrue(runtime.backup_workers_idle())
+            else:
+                self.assertFalse(runtime.backup_workers_idle())
+        finally:
+            runtime._backup_executor.shutdown(wait=True)
+
+    def test_unreviewed_starlette_version_fails_closed(self):
+        server = FastMCP("synthetic")
+        runtime = McpServerRuntime(server, logging.getLogger("synthetic"))
+        runtime._backup_executor = TrackedExecutor()
+        runtime._backup_app = server.streamable_http_app()
+        runtime._backup_tool_fingerprint = McpAdmission(runtime._backup_app).wrap_tools(server)
+        unreviewed = {**REVIEWED_VERSIONS, "starlette": "1.9.0"}
+        try:
+            with patch("minimal_kanban.mcp.runtime.version", side_effect=unreviewed.__getitem__):
+                self.assertFalse(runtime.backup_workers_idle())
+        finally:
+            runtime._backup_executor.shutdown(wait=True)
 
     def test_mcp_gate_rejects_new_requests_but_allows_existing_to_finish(self):
         async def scenario():
