@@ -159,6 +159,26 @@ class AgentBackgroundPauseTests(unittest.TestCase):
         thread.is_alive.return_value = False
         control.close()
 
+    def test_interrupted_close_retains_thread_and_invalidates_pause(self) -> None:
+        control = AgentControlService(Mock())
+        thread = Mock()
+        thread.is_alive.return_value = True
+        thread.join.side_effect = KeyboardInterrupt
+        control._worker_thread = thread
+        owner = control.begin_background_pause()
+        with self.assertRaises(KeyboardInterrupt):
+            control.close()
+        self.assertIs(thread, control._worker_thread)
+        self.assertEqual(
+            {"drained": False, "threads_unchanged": False, "backup_ready": False},
+            control.background_pause_status(owner),
+        )
+        self.assertFalse(control.resume_background(owner))
+        self.assertTrue(control.start_worker(logger=Mock()))
+        self.assertIs(thread, control._worker_thread)
+        thread.is_alive.return_value = False
+        control.close()
+
     def test_resume_before_active_cycle_finishes_does_not_duplicate_it(self) -> None:
         control = AgentControlService(Mock())
         control._scheduler_interval_seconds = 0.01

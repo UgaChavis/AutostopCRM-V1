@@ -168,37 +168,36 @@ class AgentControlService:
 
     def close(self) -> None:
         with self._close_lock:
-            with self._background_condition:
-                self._background_closing = True
-                self._background_generation += 1
-                self._scheduler_stop.set()
-                self._worker_stop.set()
-                self._background_condition.notify_all()
-
-            live_roles: list[str] = []
-            for attribute, role in (
-                ("_scheduler_thread", "scheduler"),
-                ("_worker_thread", "worker"),
-            ):
-                thread = getattr(self, attribute)
-                if thread is None:
-                    continue
-                if not thread.is_alive():
+            try:
+                with self._background_condition:
+                    self._background_closing = True
+                    self._background_generation += 1
+                    self._scheduler_stop.set()
+                    self._worker_stop.set()
+                    self._background_condition.notify_all()
+                live_roles: list[str] = []
+                for attribute, role in (
+                    ("_scheduler_thread", "scheduler"),
+                    ("_worker_thread", "worker"),
+                ):
+                    thread = getattr(self, attribute)
+                    if thread is None:
+                        continue
+                    if not thread.is_alive():
+                        setattr(self, attribute, None)
+                        continue
+                    thread.join(timeout=2)
+                    if thread.is_alive():
+                        live_roles.append(role)
+                        continue
                     setattr(self, attribute, None)
-                    continue
-                thread.join(timeout=2)
-                if thread.is_alive():
-                    live_roles.append(role)
-                    continue
-                setattr(self, attribute, None)
 
-            if live_roles:
+                if live_roles:
+                    roles = ", ".join(live_roles)
+                    raise RuntimeError(f"Embedded agent runtime threads did not stop: {roles}.")
+            finally:
                 with self._background_condition:
                     self._background_closing = False
-                roles = ", ".join(live_roles)
-                raise RuntimeError(f"Embedded agent runtime threads did not stop: {roles}.")
-            with self._background_condition:
-                self._background_closing = False
 
     def bind_board_service(self, board_service: Any | None) -> None:
         self._board_service = board_service
