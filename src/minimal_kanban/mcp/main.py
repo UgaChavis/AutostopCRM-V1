@@ -75,6 +75,16 @@ def _runtime_bind_host(configured_host: str | None, *, env_explicit: bool) -> st
     return host
 
 
+def _stop_embedded_api(api_server: ApiServer) -> None:
+    # Keep the admission gate closed after stop: previously accepted idle
+    # connections may still dispatch a request after the listener closes.
+    owner = object()
+    api_server.begin_request_drain(owner)
+    if not api_server.wait_request_drain(owner, 10):
+        raise RuntimeError("API request drain timed out")
+    api_server.stop()
+
+
 def _cleanup_mcp_main_resources(
     *,
     mcp_runtime: McpServerRuntime | None,
@@ -89,7 +99,7 @@ def _cleanup_mcp_main_resources(
     if embedded_agent_control is not None:
         callbacks.append(("embedded_agent", embedded_agent_control.close))
     if embedded_api_server is not None:
-        callbacks.append(("embedded_api", embedded_api_server.stop))
+        callbacks.append(("embedded_api", lambda: _stop_embedded_api(embedded_api_server)))
     if embedded_store is not None:
         callbacks.append(("embedded_store", embedded_store.close))
     callbacks.append(("logger", lambda: close_logger(logger)))

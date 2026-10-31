@@ -19,9 +19,44 @@ from minimal_kanban.api.server import (  # noqa: E402
     _admitted,
     _ApiRequestHandler,
 )
+from minimal_kanban.mcp.main import _stop_embedded_api  # noqa: E402
 
 
 class ApiAdmissionTests(unittest.TestCase):
+    def test_embedded_shutdown_waits_for_handler_and_keeps_fence_closed(self) -> None:
+        api = ApiServer(Mock(), logging.getLogger(__name__), start_port=0)
+        gate = api._request_admission
+        self.assertTrue(gate.enter())
+        done = threading.Event()
+        failures: list[BaseException] = []
+
+        def stop() -> None:
+            try:
+                _stop_embedded_api(api)
+            except BaseException as exc:
+                failures.append(exc)
+            finally:
+                done.set()
+
+        worker = threading.Thread(target=stop)
+        worker.start()
+        try:
+            self.assertFalse(done.wait(0.1))
+            self.assertFalse(gate.enter())
+            gate.leave()
+            self.assertTrue(done.wait(2))
+            self.assertFalse(gate.enter())
+            self.assertEqual([], failures)
+        finally:
+            worker.join(2)
+
+    def test_embedded_shutdown_refuses_timeout(self) -> None:
+        api = Mock()
+        api.wait_request_drain.return_value = False
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            _stop_embedded_api(api)
+        api.stop.assert_not_called()
+
     def test_owner_and_timed_out_drain_are_fail_closed(self) -> None:
         admission = ApiRequestAdmission()
         self.assertTrue(admission.enter())
