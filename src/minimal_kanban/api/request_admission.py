@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import threading
 
+from ..fence_contract import ForeignFenceHeld
+
 
 class ApiRequestAdmission:
     """Fence and count API requests only; other writers are not covered."""
@@ -27,12 +29,22 @@ class ApiRequestAdmission:
             if self._active == 0:
                 self._condition.notify_all()
 
-    def begin_drain(self) -> object:
+    def begin_drain(self, owner: object | None = None) -> object:
         with self._condition:
             if self._owner is not None:
-                raise RuntimeError("api_request_drain_already_active")
-            self._owner = object()
+                raise ForeignFenceHeld("api_request_drain_already_active")
+            self._owner = owner if owner is not None else object()
             return self._owner
+
+    def owns_drain(self, owner: object) -> bool:
+        with self._condition:
+            return self._owner is not None and self._owner is owner
+
+    def drain_state(self, owner: object) -> str:
+        with self._condition:
+            if self._owner is None:
+                return "free"
+            return "owned" if self._owner is owner else "foreign"
 
     def wait_drained(self, owner: object, timeout: float) -> bool:
         if not math.isfinite(timeout) or timeout < 0:

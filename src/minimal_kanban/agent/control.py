@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from ..config import get_api_bearer_token
+from ..fence_contract import ForeignFenceHeld
 from ..json_safety import bounded_dict_list, bounded_text_list
 from ..models import parse_datetime, utc_now, utc_now_iso
 from .compact_context import build_ai_compact_context_packet
@@ -104,19 +105,31 @@ class AgentControlService:
             worker if worker is not None and worker.is_alive() else None,
         )
 
-    def begin_background_pause(self) -> object:
+    def begin_background_pause(self, owner: object | None = None) -> object:
         """Pause only these loops; existing overdue-task semantics are unchanged.
 
         A coordinator must separately reconcile queued and unknown effects before
         accepting a backup or reopening intake.
         """
         with self._background_condition:
-            if self._background_owner is not None or self._background_closing:
+            if self._background_owner is not None:
+                raise ForeignFenceHeld("agent_background_pause_unavailable")
+            if self._background_closing:
                 raise RuntimeError("agent_background_pause_unavailable")
             self._background_initial = self._running_background_threads()
             self._background_pause_generation = self._background_generation
-            self._background_owner = object()
+            self._background_owner = owner if owner is not None else object()
             return self._background_owner
+
+    def owns_background_pause(self, owner: object) -> bool:
+        with self._background_condition:
+            return self._background_owner is not None and self._background_owner is owner
+
+    def background_pause_state(self, owner: object) -> str:
+        with self._background_condition:
+            if self._background_owner is None:
+                return "free"
+            return "owned" if self._background_owner is owner else "foreign"
 
     def background_pause_status(self, owner: object) -> dict[str, bool]:
         """Report loop state only; queue and external effects remain unverified."""

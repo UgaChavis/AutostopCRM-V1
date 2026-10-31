@@ -25,9 +25,15 @@ class ToolExecutor:
         self._workers: set[asyncio.Task[Any]] = set()
         self._admission = ExecutionAdmission()
 
-    def begin_drain(self) -> object:
+    def begin_drain(self, owner: object | None = None) -> object:
         """Fence this executor only; native async tools and other writers remain active."""
-        return self._admission.begin_drain()
+        return self._admission.begin_drain(owner)
+
+    def owns_drain(self, owner: object) -> bool:
+        return self._admission.owns_drain(owner)
+
+    def drain_state(self, owner: object) -> str:
+        return self._admission.drain_state(owner)
 
     def is_drained(self, owner: object) -> bool:
         return self._admission.is_drained(owner)

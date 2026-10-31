@@ -5,6 +5,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..fence_contract import ForeignFenceHeld
+
 
 class McpCallAdmission:
     """Track top-level tools/call coroutines, not their detached work or I/O."""
@@ -26,12 +28,22 @@ class McpCallAdmission:
                 raise RuntimeError("mcp_call_admission_unbalanced")
             self._active -= 1
 
-    def begin_drain(self) -> object:
+    def begin_drain(self, owner: object | None = None) -> object:
         with self._lock:
             if self._owner is not None:
-                raise RuntimeError("mcp_call_drain_already_active")
-            self._owner = object()
+                raise ForeignFenceHeld("mcp_call_drain_already_active")
+            self._owner = owner if owner is not None else object()
             return self._owner
+
+    def owns_drain(self, owner: object) -> bool:
+        with self._lock:
+            return self._owner is not None and self._owner is owner
+
+    def drain_state(self, owner: object) -> str:
+        with self._lock:
+            if self._owner is None:
+                return "free"
+            return "owned" if self._owner is owner else "foreign"
 
     def is_drained(self, owner: object) -> bool:
         with self._lock:

@@ -2169,12 +2169,18 @@ class ApiServer:
             display_host = f"[{display_host}]"
         return f"http://{display_host}:{self.port}"
 
-    def begin_request_drain(self) -> object:
+    def begin_request_drain(self, owner: object | None = None) -> object:
         """Close API admission; the caller must resume it in a finally block.
 
         This does not fence MCP, background work, or other processes.
         """
-        return self._request_admission.begin_drain()
+        return self._request_admission.begin_drain(owner)
+
+    def owns_request_drain(self, owner: object) -> bool:
+        return self._request_admission.owns_drain(owner)
+
+    def request_drain_state(self, owner: object) -> str:
+        return self._request_admission.drain_state(owner)
 
     def wait_request_drain(self, owner: object, timeout: float) -> bool:
         return self._request_admission.wait_drained(owner, timeout)

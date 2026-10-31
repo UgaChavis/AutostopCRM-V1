@@ -3,6 +3,8 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
+from ..fence_contract import ForeignFenceHeld
+
 
 class ExecutionAdmissionClosed(RuntimeError):
     """A new synchronous tool call was rejected before it could start."""
@@ -57,13 +59,23 @@ class ExecutionAdmission:
             ticket.state = "done"
             self._active -= 1
 
-    def begin_drain(self) -> object:
+    def begin_drain(self, owner: object | None = None) -> object:
         with self._lock:
             if self._owner is not None:
-                raise RuntimeError("mcp_executor_drain_already_active")
+                raise ForeignFenceHeld("mcp_executor_drain_already_active")
             self._generation += 1
-            self._owner = object()
+            self._owner = owner if owner is not None else object()
             return self._owner
+
+    def owns_drain(self, owner: object) -> bool:
+        with self._lock:
+            return self._owner is not None and self._owner is owner
+
+    def drain_state(self, owner: object) -> str:
+        with self._lock:
+            if self._owner is None:
+                return "free"
+            return "owned" if self._owner is owner else "foreign"
 
     def is_drained(self, owner: object) -> bool:
         with self._lock:
