@@ -4,14 +4,25 @@ import argparse
 import json
 import math
 import os
+import re
+import stat
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows does not provide a compatible flock.
+    fcntl = None  # type: ignore[assignment]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC = PROJECT_ROOT / "src"
@@ -99,6 +110,162 @@ def is_deploy_lock_held(path: Path) -> bool:
     except OSError:
         return False
     return False
+
+
+class WatchdogFenceError(RuntimeError):
+    pass
+
+
+def _fenced(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        if os.getpid() != self.owner_pid:
+            raise WatchdogFenceError("watchdog_fence_wrong_process")
+        with self.mutex:
+            if os.getpid() != self.owner_pid or not self.valid:
+                raise WatchdogFenceError("watchdog_fence_closed")
+            return method(self, *args, **kwargs)
+
+    return call
+
+
+class WatchdogFence:
+    """Cooperative exclusion and a durable marker for an unresolved effect.
+
+    Only participants that hold this exact inode lock and call ``assert_clear``
+    are blocked by the marker. The current backup does not yet check it; other
+    maintenance and Docker actors may also bypass it. This is not a global fence.
+    Never clear an unknown marker without independent, service-specific review.
+    """
+
+    def __init__(self, directory: int, path: Path, lock: int) -> None:
+        self.directory = directory
+        self.path = path
+        self.lock = lock
+        self.marker = f"{path.name}.watchdog-unknown"
+        self.owner_pid = os.getpid()
+        self.mutex = threading.RLock()
+        self.valid = True
+
+    @_fenced
+    def verify(self) -> None:
+        opened_dir = os.fstat(self.directory)
+        current_dir = self.path.parent.lstat()
+        opened_lock = os.fstat(self.lock)
+        current_lock = os.stat(self.path.name, dir_fd=self.directory, follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(current_dir.st_mode)
+            or opened_dir.st_uid != os.geteuid()
+            or opened_dir.st_mode & 0o022
+            or (opened_dir.st_dev, opened_dir.st_ino) != (current_dir.st_dev, current_dir.st_ino)
+            or not stat.S_ISREG(opened_lock.st_mode)
+            or opened_lock.st_uid != os.geteuid()
+            or opened_lock.st_mode & 0o022
+            or opened_lock.st_nlink != 1
+            or not stat.S_ISREG(current_lock.st_mode)
+            or (opened_lock.st_dev, opened_lock.st_ino)
+            != (current_lock.st_dev, current_lock.st_ino)
+        ):
+            raise WatchdogFenceError("watchdog_lock_identity_changed")
+
+    @_fenced
+    def assert_clear(self) -> None:
+        self.verify()
+        try:
+            os.stat(self.marker, dir_fd=self.directory, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise WatchdogFenceError("watchdog_unknown_effect_requires_review")
+
+    @_fenced
+    def begin_effect(self, operation: str, service: str, container_id: str | None) -> bytes:
+        self.assert_clear()
+        record = json.dumps(
+            {
+                "schema": 1,
+                "id": uuid.uuid4().hex,
+                "operation": operation,
+                "service": service,
+                "container_id": container_id,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        fd = os.open(
+            self.marker,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=self.directory,
+        )
+        try:
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_mode & 0o077
+            ):
+                raise WatchdogFenceError("watchdog_marker_invalid")
+            view = memoryview(record)
+            while view:
+                count = os.write(fd, view)
+                if count <= 0:
+                    raise OSError("marker write failed")
+                view = view[count:]
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.fsync(self.directory)
+        self.verify()
+        return record
+
+
+@contextmanager
+def watchdog_fence(path: Path):
+    """Acquire the existing deploy lock nonblockingly for the complete cycle."""
+    if fcntl is None:
+        raise WatchdogFenceError("watchdog_flock_unavailable")
+    owner_pid = os.getpid()
+    safe_release = True
+    path = Path(path)
+    if not path.is_absolute() or ".." in path.parts:
+        raise WatchdogFenceError("watchdog_lock_directory_unsafe")
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        info = os.fstat(directory)
+        if info.st_uid != os.geteuid() or info.st_mode & 0o022:
+            raise WatchdogFenceError("watchdog_lock_directory_unsafe")
+        fd = os.open(
+            path.name,
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK,
+            0o600,
+            dir_fd=directory,
+        )
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise WatchdogFenceError("watchdog_lock_busy") from exc
+            try:
+                fence = WatchdogFence(directory, path, fd)
+                safe_release = False
+                try:
+                    fence.verify()
+                    yield fence
+                finally:
+                    fence.valid = False
+                    if os.getpid() == owner_pid:
+                        with fence.mutex:
+                            pass
+                    safe_release = True
+            finally:
+                if os.getpid() == owner_pid and safe_release:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            if safe_release or os.getpid() != owner_pid:
+                os.close(fd)
+    finally:
+        if safe_release or os.getpid() != owner_pid:
+            os.close(directory)
 
 
 def check_endpoint(
@@ -274,6 +441,181 @@ class ProductionWatchdog:
         public = self._check_public_site()
         if api.ok and mcp.ok and public.ok:
             self._log("recovery verified")
+            return 0
+        self._log(
+            "recovery failed: "
+            f"api={_format_endpoint(api)}, "
+            f"mcp={_format_endpoint(mcp)}, "
+            f"public={_format_endpoint(public)}"
+        )
+        return 1
+
+    def _check_local_api(self) -> EndpointResult:
+        return self._check_endpoint(
+            self.config.local_api_health_url,
+            timeout=self.config.request_timeout_seconds,
+            expect_json_ok=True,
+        )
+
+    def _check_local_mcp(self) -> EndpointResult:
+        return self._check_endpoint(
+            self.config.local_mcp_url,
+            timeout=self.config.request_timeout_seconds,
+            acceptable_statuses=READY_MCP_STATUSES,
+        )
+
+    def _check_public_site(self) -> EndpointResult:
+        return self._check_endpoint(
+            self.config.public_site_url,
+            timeout=self.config.request_timeout_seconds,
+        )
+
+    def _run(self, command: Sequence[str]) -> CommandResult:
+        return self._run_command(command, timeout=self.config.command_timeout_seconds)
+
+
+class ExperimentalProductionWatchdog:
+    """Isolated candidate only; no CLI integration and no global Docker fence.
+
+    The default watchdog and current backup do not participate in its marker.
+    This candidate is not ready for production or backup integration.
+    """
+
+    def __init__(
+        self,
+        *,
+        config: WatchdogConfig,
+        run_command: Callable[[Sequence[str]], CommandResult] = run_command,
+        check_endpoint: Callable[..., EndpointResult] = check_endpoint,
+        is_deploy_in_progress: Callable[[], bool] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        log: Callable[[str], None] = print,
+    ) -> None:
+        self.config = config
+        self._run_command = run_command
+        self._check_endpoint = check_endpoint
+        self._is_deploy_in_progress = is_deploy_in_progress
+        self._sleep = sleep
+        self._log = log
+
+    def run_once(self) -> int:
+        if self._is_deploy_in_progress is not None and self._is_deploy_in_progress():
+            self._log("deploy lock is held; skipping watchdog cycle")
+            return 0
+        try:
+            with watchdog_fence(self.config.deploy_lock_path) as fence:
+                fence.assert_clear()
+                result = self._run_fenced(fence)
+                fence.verify()
+                return result
+        except WatchdogFenceError as exc:
+            if str(exc) == "watchdog_lock_busy":
+                self._log("deploy lock is held; skipping watchdog cycle")
+                return 0
+            self._log("watchdog fence unavailable; recovery skipped")
+            return 1
+        except OSError:
+            self._log("watchdog fence unavailable; recovery skipped")
+            return 1
+
+    def _run_fenced(self, fence: WatchdogFence) -> int:
+        container_id = self._current_container_id()
+        container_ok = self._container_ready(container_id)
+        api = self._check_local_api()
+        mcp = self._check_local_mcp()
+
+        # A Docker actor outside this lock could stop the same ID after any
+        # readback; docker restart would start that intentionally stopped ID.
+        # No automatic Docker mutation is permitted until a global fence exists.
+        if not container_ok or not api.ok or not mcp.ok:
+            self._log("CRM recovery requires independent review; no Docker action")
+            return 1
+
+        public = self._check_public_site()
+        if not public.ok:
+            self._log(f"public site failed; reloading nginx ({_format_endpoint(public)})")
+            if self._run(["nginx", "-t"]).code != 0:
+                return 1
+            return self._guarded_effect(fence, "nginx_reload", container_id, self._reload_nginx)
+
+        self._log("all checks passed")
+        return 0
+
+    def _current_container_id(self) -> str | None:
+        container = self._run(["docker", "compose", "ps", "--all", "-q", self.config.service_name])
+        container_id = container.stdout.strip()
+        if container.code != 0:
+            raise WatchdogFenceError("watchdog_container_identity_unknown")
+        if not container_id:
+            return None
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", container_id):
+            raise WatchdogFenceError("watchdog_container_identity_unknown")
+        resolved = self._run(["docker", "inspect", "--format", "{{.Id}}", container_id])
+        exact_id = resolved.stdout.strip()
+        if resolved.code != 0 or not re.fullmatch(r"[0-9a-f]{64}", exact_id):
+            raise WatchdogFenceError("watchdog_container_identity_unknown")
+        return exact_id
+
+    def _container_ready(self, container_id: str | None) -> bool:
+        if container_id is None:
+            raise WatchdogFenceError("watchdog_container_missing")
+        state = self._run(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+                container_id,
+            ]
+        )
+        if state.code != 0:
+            raise WatchdogFenceError("watchdog_container_identity_unknown")
+        raw_state = state.stdout.strip()
+        if raw_state not in {"running/healthy", "running/none", "running/unhealthy"}:
+            raise WatchdogFenceError("watchdog_container_not_stably_running")
+        return raw_state != "running/unhealthy"
+
+    def _guarded_effect(
+        self,
+        fence: WatchdogFence,
+        operation: str,
+        container_id: str | None,
+        action: Callable[[], bool],
+    ) -> int:
+        fence.verify()
+        if self._current_container_id() != container_id:
+            raise WatchdogFenceError("watchdog_container_identity_changed")
+        fence.begin_effect(operation, self.config.service_name, container_id)
+        # The service must still be running immediately before any effect.
+        # Other Docker actors outside the cooperative lock remain a boundary.
+        if not self._container_ready(container_id):
+            return 1
+        if not action() or self._verify_after_recovery() != 0:
+            return 1
+        after_id = self._current_container_id()
+        if after_id is None or (container_id is not None and after_id != container_id):
+            raise WatchdogFenceError("watchdog_container_identity_changed")
+        if not self._container_ready(after_id):
+            return 1
+        # Endpoint responses are not bound to this ID. Even with stable identity
+        # and health, clearing the marker would claim an unproven result.
+        self._log("recovery requires independent target binding verification")
+        return 1
+
+    def _reload_nginx(self) -> bool:
+        reload_result = self._run(["systemctl", "reload", "nginx"])
+        if reload_result.code == 0:
+            return True
+        self._log("nginx reload result requires review")
+        return False
+
+    def _verify_after_recovery(self) -> int:
+        self._sleep(self.config.post_recovery_delay_seconds)
+        api = self._check_local_api()
+        mcp = self._check_local_mcp()
+        public = self._check_public_site()
+        if api.ok and mcp.ok and public.ok:
+            self._log("recovery endpoints reachable; target binding unverified")
             return 0
         self._log(
             "recovery failed: "
