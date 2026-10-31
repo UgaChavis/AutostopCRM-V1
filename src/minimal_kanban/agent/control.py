@@ -67,42 +67,138 @@ class AgentControlService:
         self._last_scheduler_tick_monotonic = 0.0
         self._worker_stop = threading.Event()
         self._worker_thread: threading.Thread | None = None
+        self._background_condition = threading.Condition()
+        self._background_owner: object | None = None
+        self._background_initial: tuple[threading.Thread | None, threading.Thread | None] | None = (
+            None
+        )
+        self._background_active = 0
+        self._background_closing = False
+        self._background_generation = 0
+        self._background_pause_generation: int | None = None
+        self._close_lock = threading.Lock()
         if start_scheduler:
             self.start_scheduler()
 
     def start_scheduler(self) -> None:
-        if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
-            return
-        self._scheduler_stop.clear()
-        self._scheduler_thread = threading.Thread(
-            target=self._scheduler_loop, name="minimal-kanban-agent-scheduler", daemon=True
+        with self._background_condition:
+            self._require_background_start_allowed()
+            if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
+                return
+            self._scheduler_stop.clear()
+            self._scheduler_thread = threading.Thread(
+                target=self._scheduler_loop, name="minimal-kanban-agent-scheduler", daemon=True
+            )
+            self._scheduler_thread.start()
+
+    def _require_background_start_allowed(self) -> None:
+        if self._background_owner is not None or self._background_closing:
+            raise RuntimeError("agent_background_start_blocked")
+
+    def _running_background_threads(
+        self,
+    ) -> tuple[threading.Thread | None, threading.Thread | None]:
+        scheduler, worker = self._scheduler_thread, self._worker_thread
+        return (
+            scheduler if scheduler is not None and scheduler.is_alive() else None,
+            worker if worker is not None and worker.is_alive() else None,
         )
-        self._scheduler_thread.start()
+
+    def begin_background_pause(self) -> object:
+        """Pause only these loops; existing overdue-task semantics are unchanged.
+
+        A coordinator must separately reconcile queued and unknown effects before
+        accepting a backup or reopening intake.
+        """
+        with self._background_condition:
+            if self._background_owner is not None or self._background_closing:
+                raise RuntimeError("agent_background_pause_unavailable")
+            self._background_initial = self._running_background_threads()
+            self._background_pause_generation = self._background_generation
+            self._background_owner = object()
+            return self._background_owner
+
+    def background_pause_status(self, owner: object) -> dict[str, bool]:
+        """Report loop state only; queue and external effects remain unverified."""
+        with self._background_condition:
+            self._require_background_owner(owner)
+            unchanged = (
+                not self._background_closing
+                and self._background_pause_generation == self._background_generation
+                and self._background_initial == self._running_background_threads()
+            )
+            return {
+                "drained": self._background_active == 0 and unchanged,
+                "threads_unchanged": unchanged,
+                "backup_ready": False,
+            }
+
+    def resume_background(self, owner: object) -> bool:
+        """Unpause existing loops without changing their overdue-task policy."""
+        with self._background_condition:
+            self._require_background_owner(owner)
+            unchanged = (
+                not self._background_closing
+                and self._background_pause_generation == self._background_generation
+                and self._background_initial == self._running_background_threads()
+            )
+            self._background_owner = None
+            self._background_initial = None
+            self._background_pause_generation = None
+            self._background_condition.notify_all()
+            return unchanged
+
+    def _require_background_owner(self, owner: object) -> None:
+        if self._background_owner is None or self._background_owner is not owner:
+            raise RuntimeError("agent_background_pause_ownership_lost")
+
+    def _enter_background(self, stop: threading.Event) -> bool:
+        with self._background_condition:
+            while self._background_owner is not None and not stop.is_set():
+                self._background_condition.wait()
+            if stop.is_set():
+                return False
+            self._background_active += 1
+            return True
+
+    def _leave_background(self) -> None:
+        with self._background_condition:
+            self._background_active -= 1
+            self._background_condition.notify_all()
 
     def close(self) -> None:
-        self._scheduler_stop.set()
-        self._worker_stop.set()
+        with self._close_lock:
+            with self._background_condition:
+                self._background_closing = True
+                self._background_generation += 1
+                self._scheduler_stop.set()
+                self._worker_stop.set()
+                self._background_condition.notify_all()
 
-        live_roles: list[str] = []
-        for attribute, role in (
-            ("_scheduler_thread", "scheduler"),
-            ("_worker_thread", "worker"),
-        ):
-            thread = getattr(self, attribute)
-            if thread is None:
-                continue
-            if not thread.is_alive():
+            live_roles: list[str] = []
+            for attribute, role in (
+                ("_scheduler_thread", "scheduler"),
+                ("_worker_thread", "worker"),
+            ):
+                thread = getattr(self, attribute)
+                if thread is None:
+                    continue
+                if not thread.is_alive():
+                    setattr(self, attribute, None)
+                    continue
+                thread.join(timeout=2)
+                if thread.is_alive():
+                    live_roles.append(role)
+                    continue
                 setattr(self, attribute, None)
-                continue
-            thread.join(timeout=2)
-            if thread.is_alive():
-                live_roles.append(role)
-                continue
-            setattr(self, attribute, None)
 
-        if live_roles:
-            roles = ", ".join(live_roles)
-            raise RuntimeError(f"Embedded agent runtime threads did not stop: {roles}.")
+            if live_roles:
+                with self._background_condition:
+                    self._background_closing = False
+                roles = ", ".join(live_roles)
+                raise RuntimeError(f"Embedded agent runtime threads did not stop: {roles}.")
+            with self._background_condition:
+                self._background_closing = False
 
     def bind_board_service(self, board_service: Any | None) -> None:
         self._board_service = board_service
@@ -114,22 +210,24 @@ class AgentControlService:
         board_api_url: str | None = None,
         api_bearer_token: str | None = None,
     ) -> bool:
-        if self._worker_thread is not None and self._worker_thread.is_alive():
+        with self._background_condition:
+            self._require_background_start_allowed()
+            if self._worker_thread is not None and self._worker_thread.is_alive():
+                return True
+            if not get_agent_enabled() or not get_agent_openai_api_key():
+                return False
+            self._worker_stop.clear()
+            resolved_board_api_url = (
+                str(board_api_url or get_agent_board_api_url() or "").strip().rstrip("/")
+            )
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                args=(logger, resolved_board_api_url, api_bearer_token),
+                name="minimal-kanban-agent-worker",
+                daemon=True,
+            )
+            self._worker_thread.start()
             return True
-        if not get_agent_enabled() or not get_agent_openai_api_key():
-            return False
-        self._worker_stop.clear()
-        resolved_board_api_url = (
-            str(board_api_url or get_agent_board_api_url() or "").strip().rstrip("/")
-        )
-        self._worker_thread = threading.Thread(
-            target=self._worker_loop,
-            args=(logger, resolved_board_api_url, api_bearer_token),
-            name="minimal-kanban-agent-worker",
-            daemon=True,
-        )
-        self._worker_thread.start()
-        return True
 
     def has_active_task_for_card(self, card_id: str, *, purpose: str | None = None) -> bool:
         return self._storage.has_active_task_for_card(card_id, purpose=purpose)
@@ -596,13 +694,17 @@ class AgentControlService:
 
     def _scheduler_loop(self) -> None:
         while not self._scheduler_stop.wait(self._scheduler_interval_seconds):
+            if not self._enter_background(self._scheduler_stop):
+                return
             try:
-                self.trigger_scheduled_tasks(force=True)
-            except Exception as exc:
-                self._storage.update_status(
-                    last_heartbeat=utc_now_iso(), last_error=f"scheduler: {exc}"
-                )
-                continue
+                try:
+                    self.trigger_scheduled_tasks(force=True)
+                except Exception as exc:
+                    self._storage.update_status(
+                        last_heartbeat=utc_now_iso(), last_error=f"scheduler: {exc}"
+                    )
+            finally:
+                self._leave_background()
 
     def _agent_availability_reason(
         self,
@@ -625,76 +727,87 @@ class AgentControlService:
     def _worker_loop(
         self, logger: Any, board_api_url: str, api_bearer_token: str | None = None
     ) -> None:
-        from ..mcp.client import BoardApiClient
-        from .openai_client import OpenAIJsonAgentClient
-        from .runner import DEFAULT_SYSTEM_PROMPT, AgentRunner
+        if not self._enter_background(self._worker_stop):
+            return
+        try:
+            from ..mcp.client import BoardApiClient
+            from .openai_client import OpenAIJsonAgentClient
+            from .runner import DEFAULT_SYSTEM_PROMPT, AgentRunner
 
-        idle_sleep = max(0.2, float(get_agent_poll_interval_seconds()))
-        if not self._storage.read_prompt_text().strip():
-            self._storage.write_prompt_text(DEFAULT_SYSTEM_PROMPT)
-        if not self._storage.read_memory_text().strip():
-            self._storage.write_memory_text(
-                "CRM URL: https://crm.autostopcrm.ru\n"
-                "MCP URL: https://crm.autostopcrm.ru/mcp\n"
-                "Admin smoke credentials: use AUTOSTOP_SMOKE_OPERATOR_USERNAME/AUTOSTOP_SMOKE_OPERATOR_PASSWORD from the runtime environment.\n"
-                "Use cashbox names exactly as they exist.\n"
-                "If payment goes to cashbox 'Безналичный', the repair order withholds 15% taxes and fees from that gross incoming amount and applies the remaining 85% to the client debt.\n"
-                "Cashboxes 'Наличный' and 'Карта Мария' count as cash-like payments and do not withhold taxes and fees.\n"
-            )
+            idle_sleep = max(0.2, float(get_agent_poll_interval_seconds()))
+            if not self._storage.read_prompt_text().strip():
+                self._storage.write_prompt_text(DEFAULT_SYSTEM_PROMPT)
+            if not self._storage.read_memory_text().strip():
+                self._storage.write_memory_text(
+                    "CRM URL: https://crm.autostopcrm.ru\n"
+                    "MCP URL: https://crm.autostopcrm.ru/mcp\n"
+                    "Admin smoke credentials: use AUTOSTOP_SMOKE_OPERATOR_USERNAME/AUTOSTOP_SMOKE_OPERATOR_PASSWORD from the runtime environment.\n"
+                    "Use cashbox names exactly as they exist.\n"
+                    "If payment goes to cashbox 'Безналичный', the repair order withholds 15% taxes and fees from that gross incoming amount and applies the remaining 85% to the client debt.\n"
+                    "Cashboxes 'Наличный' and 'Карта Мария' count as cash-like payments and do not withhold taxes and fees.\n"
+                )
+        finally:
+            self._leave_background()
         runner = None
         while not self._worker_stop.is_set():
+            if not self._enter_background(self._worker_stop):
+                return
+            delay = idle_sleep
             try:
-                if not get_agent_enabled():
+                try:
+                    if not get_agent_enabled():
+                        self._storage.update_status(
+                            running=False,
+                            current_task_id=None,
+                            current_run_id=None,
+                            last_heartbeat=utc_now_iso(),
+                            last_error="",
+                        )
+                    else:
+                        if runner is None:
+                            resolved_board_api_url = (
+                                str(board_api_url or get_agent_board_api_url() or "")
+                                .strip()
+                                .rstrip("/")
+                            )
+                            if not resolved_board_api_url:
+                                raise RuntimeError(
+                                    "Board API URL is not configured for embedded agent runtime."
+                                )
+                            board_api = BoardApiClient(
+                                resolved_board_api_url,
+                                bearer_token=api_bearer_token
+                                if api_bearer_token is not None
+                                else get_api_bearer_token(),
+                                logger=logger,
+                                default_source="agent",
+                            )
+                            health = board_api.health()
+                            if not health.get("ok"):
+                                raise RuntimeError(
+                                    "Board API health check failed for embedded agent runtime."
+                                )
+                            runner = AgentRunner(
+                                storage=self._storage,
+                                board_api=board_api,
+                                model_client=OpenAIJsonAgentClient(),
+                                logger=logger,
+                            )
+                        processed = runner.run_once()
+                        delay = 0.2 if processed else idle_sleep
+                except Exception as exc:
                     self._storage.update_status(
                         running=False,
                         current_task_id=None,
                         current_run_id=None,
                         last_heartbeat=utc_now_iso(),
-                        last_error="",
+                        last_error=str(exc),
                     )
-                    self._worker_stop.wait(idle_sleep)
-                    continue
-                if runner is None:
-                    resolved_board_api_url = (
-                        str(board_api_url or get_agent_board_api_url() or "").strip().rstrip("/")
-                    )
-                    if not resolved_board_api_url:
-                        raise RuntimeError(
-                            "Board API URL is not configured for embedded agent runtime."
-                        )
-                    board_api = BoardApiClient(
-                        resolved_board_api_url,
-                        bearer_token=api_bearer_token
-                        if api_bearer_token is not None
-                        else get_api_bearer_token(),
-                        logger=logger,
-                        default_source="agent",
-                    )
-                    health = board_api.health()
-                    if not health.get("ok"):
-                        raise RuntimeError(
-                            "Board API health check failed for embedded agent runtime."
-                        )
-                    runner = AgentRunner(
-                        storage=self._storage,
-                        board_api=board_api,
-                        model_client=OpenAIJsonAgentClient(),
-                        logger=logger,
-                    )
-                processed = runner.run_once()
-            except Exception as exc:
-                self._storage.update_status(
-                    running=False,
-                    current_task_id=None,
-                    current_run_id=None,
-                    last_heartbeat=utc_now_iso(),
-                    last_error=str(exc),
-                )
-                logger.exception("embedded_agent_worker_failed error=%s", exc)
-                runner = None
-                self._worker_stop.wait(idle_sleep)
-                continue
-            self._worker_stop.wait(0.2 if processed else idle_sleep)
+                    logger.exception("embedded_agent_worker_failed error=%s", exc)
+                    runner = None
+            finally:
+                self._leave_background()
+            self._worker_stop.wait(delay)
 
     def _board_control_status_payload(self, status: dict[str, Any] | None = None) -> dict[str, Any]:
         resolved_status = status or self._storage.read_status()
