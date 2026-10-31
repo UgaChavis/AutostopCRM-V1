@@ -86,6 +86,7 @@ from .infrastructure_pages import (
     module_map_html_gzip_bytes as _module_map_html_gzip_bytes,  # noqa: F401
 )
 from .manager_structure_routes import build_manager_structure_routes
+from .request_admission import ApiRequestAdmission
 from .request_query import BOOLEAN_QUERY_KEYS
 from .route_registry import (
     EMPLOYEES_READ_PERMISSION_ROUTES,
@@ -1754,6 +1755,19 @@ class JsonRouteDispatcher:
 class _ApiRequestHandler(BaseHTTPRequestHandler):
     """Thin stdlib transport adapter; runtime collaborators live on each subclass."""
 
+    REQUEST_ADMISSION: ApiRequestAdmission
+
+    def handle_one_request(self) -> None:
+        if not self.REQUEST_ADMISSION.enter():
+            # The request line may not have arrived yet. Close the connection;
+            # do not parse or dispatch an operation after the fence closes.
+            self.close_connection = True
+            return
+        try:
+            super().handle_one_request()
+        finally:
+            self.REQUEST_ADMISSION.leave()
+
     server_version = "MinimalKanbanAPI/1.0"
     sys_version = ""
 
@@ -2129,6 +2143,7 @@ class ApiServer:
         self._change_feed_service = change_feed_service
         self._automation_center_service = automation_center_service
         self._logger = logger
+        self._request_admission = ApiRequestAdmission()
         self._thread: threading.Thread | None = None
         self._server: ThreadingHTTPServer | None = None
         resolved_host = host if host is not None else get_api_host()
@@ -2153,6 +2168,19 @@ class ApiServer:
         elif ":" in display_host and not display_host.startswith("["):
             display_host = f"[{display_host}]"
         return f"http://{display_host}:{self.port}"
+
+    def begin_request_drain(self) -> object:
+        """Close API admission; the caller must resume it in a finally block.
+
+        This does not fence MCP, background work, or other processes.
+        """
+        return self._request_admission.begin_drain()
+
+    def wait_request_drain(self, owner: object, timeout: float) -> bool:
+        return self._request_admission.wait_drained(owner, timeout)
+
+    def resume_requests(self, owner: object) -> None:
+        self._request_admission.resume(owner)
 
     def start(self) -> None:
         if self._server is not None:
@@ -2439,6 +2467,7 @@ class ApiServer:
         )
 
         class RequestHandler(_ApiRequestHandler):
+            REQUEST_ADMISSION = self._request_admission
             ROUTES = routes
             ROUTE_SPECS = route_specs
             REQUEST_CONTEXT_FACTORY = request_context_factory

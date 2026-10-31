@@ -138,6 +138,17 @@ class ApiTransportContractTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("validation_error", payload["error"]["code"])
 
+    def test_request_drain_fences_the_real_api_until_its_owner_resumes(self) -> None:
+        owner = self.server.begin_request_drain()
+        try:
+            self.assertTrue(self.server.wait_request_drain(owner, 2))
+            with self.assertRaises((OSError, http.client.RemoteDisconnected)):
+                self._get("/api/health")
+        finally:
+            self.server.resume_requests(owner)
+        status, _payload = self._get("/api/health")
+        self.assertEqual(200, status)
+
     def test_truncated_json_body_is_rejected_before_dispatch(self) -> None:
         status, payload = self._raw_post(
             "/api/get_board_revision",
