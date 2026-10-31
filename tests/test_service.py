@@ -7418,15 +7418,18 @@ class CardServiceTests(CardServiceCase):
 
     def test_repair_order_payments_route_to_cashbox_by_payment_method(self) -> None:
         supplier_cashbox = self.service.create_cashbox(
-            {"name": "Алексей Снабженец", "actor_name": "ADMIN"}
+            {"name": "Снабженец 1", "actor_name": "ADMIN"}
+        )["cashbox"]
+        second_supplier_cashbox = self.service.create_cashbox(
+            {"name": "Снабженец 2", "actor_name": "ADMIN"}
         )["cashbox"]
         cash_cashbox = self.service.create_cashbox(
-            {"name": "Касса наличных оплат", "actor_name": "ADMIN"}
+            {"name": "Наличные", "actor_name": "ADMIN"}
         )["cashbox"]
         cashless_cashbox = self.service.create_cashbox(
-            {"name": "Безналичная касса", "actor_name": "ADMIN"}
+            {"name": "Безналичный", "actor_name": "ADMIN"}
         )["cashbox"]
-        card_cashbox = self.service.create_cashbox({"name": "На карту", "actor_name": "ADMIN"})[
+        card_cashbox = self.service.create_cashbox({"name": "Карта Мария", "actor_name": "ADMIN"})[
             "cashbox"
         ]
         card = self.service.create_card(
@@ -7442,7 +7445,7 @@ class CardServiceTests(CardServiceCase):
                             "amount": "1000",
                             "paid_at": "06.04.2026 10:00",
                             "payment_method": "cash",
-                            "cashbox_id": supplier_cashbox["id"],
+                            "cashbox_id": second_supplier_cashbox["id"],
                         },
                         {
                             "amount": "2000",
@@ -7469,6 +7472,9 @@ class CardServiceTests(CardServiceCase):
         supplier_details = self.service.get_cashbox(
             {"cashbox_id": supplier_cashbox["id"], "transaction_limit": 10}
         )["cashbox"]
+        second_supplier_details = self.service.get_cashbox(
+            {"cashbox_id": second_supplier_cashbox["id"], "transaction_limit": 10}
+        )["cashbox"]
         cash_details = self.service.get_cashbox(
             {"cashbox_id": cash_cashbox["id"], "transaction_limit": 10}
         )["cashbox"]
@@ -7480,6 +7486,7 @@ class CardServiceTests(CardServiceCase):
         )["cashbox"]
 
         self.assertEqual(supplier_details["statistics"]["transactions_total"], 0)
+        self.assertEqual(second_supplier_details["statistics"]["transactions_total"], 0)
         self.assertEqual(cash_details["statistics"]["income_total_minor"], 100000)
         self.assertEqual(cashless_details["statistics"]["income_total_minor"], 200000)
         self.assertEqual(card_details["statistics"]["income_total_minor"], 300000)

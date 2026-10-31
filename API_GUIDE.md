@@ -377,6 +377,13 @@ Do not infer identity from a partial phone, name, or vehicle match.
 
 ## Repair Orders And Documents
 
+In the current AutoStop configuration, customer payments on a repair order use
+three cashboxes: cash, card transfer (карта Мария), or bank transfer. Supplier
+cashboxes are not offered as customer-payment choices. Supplier cashboxes retain
+their normal income, expense, and transfer operations; this rule does not restrict
+those operations or change existing transactions. If the cashbox configuration
+changes, review payment routing and its tests before relying on the new setup.
+
 Repair-order numbers are assigned once and are immutable. The retained
 compatibility endpoint `/api/correct_repair_order_number` is not a maintenance
 writer: it always returns HTTP 409 with
