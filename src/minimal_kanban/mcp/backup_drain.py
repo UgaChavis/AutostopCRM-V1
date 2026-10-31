@@ -176,5 +176,13 @@ def controlled_wait(
                 time.sleep(0.1)
         else:
             drain.abort()
-        for sig, old in old_handlers.items():
-            signal.signal(sig, old)
+            # A failed fsync may have left a visible READY. Revoke it where
+            # possible before returning to normal service.
+            try:
+                status_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        for sig in old_handlers:
+            # A delayed control signal must never regain its default action and
+            # terminate CRM after the supervisor has failed or stopped.
+            signal.signal(sig, signal.SIG_IGN)

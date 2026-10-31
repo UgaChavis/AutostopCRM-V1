@@ -81,9 +81,27 @@ class McpAdmission:
             # client commands require a separately gated POST.
             event = asyncio.Event()
             stream = (asyncio.get_running_loop(), event)
-            with self._sse_lock:
-                self._sse.add(stream)
-            self.requests.leave()
+            counted = True
+            registered = False
+
+            async def send_and_confirm(message):
+                nonlocal counted, registered
+                await send(message)
+                if message.get("type") != "http.response.start" or message.get("status") != 200:
+                    return
+                is_sse = any(
+                    key.lower() == b"content-type"
+                    and value.split(b";", 1)[0].strip().lower() == b"text/event-stream"
+                    for key, value in message.get("headers", ())
+                )
+                if is_sse and counted:
+                    # Register before releasing the request count: COMMIT must
+                    # be able to close every stream excluded from the drain.
+                    with self._sse_lock:
+                        self._sse.add(stream)
+                        registered = True
+                        self.requests.leave()
+                        counted = False
 
             async def receive_or_close():
                 incoming = asyncio.create_task(receive())
@@ -100,10 +118,13 @@ class McpAdmission:
                     await asyncio.gather(incoming, closing, return_exceptions=True)
 
             try:
-                await self.app(scope, receive_or_close, send)
+                await self.app(scope, receive_or_close, send_and_confirm)
             finally:
-                with self._sse_lock:
-                    self._sse.discard(stream)
+                if registered:
+                    with self._sse_lock:
+                        self._sse.discard(stream)
+                if counted:
+                    self.requests.leave()
             return
         try:
             await self.app(scope, receive, send)
@@ -115,12 +136,13 @@ class TrackedExecutor(ThreadPoolExecutor):
     def __init__(self):
         super().__init__()
         self._pending = 0
+        self._unconfirmed = False
         self._pending_lock = threading.Lock()
 
     @property
     def pending(self):
         with self._pending_lock:
-            return self._pending
+            return max(self._pending, 1) if self._unconfirmed else self._pending
 
     def submit(self, fn, /, *args, **kwargs):
         with self._pending_lock:
@@ -128,7 +150,10 @@ class TrackedExecutor(ThreadPoolExecutor):
         try:
             future = super().submit(fn, *args, **kwargs)
         except BaseException:
-            self._completed(None)
+            # The underlying executor can enqueue work and then fail to start a
+            # new thread. Its outcome remains unknown until process restart.
+            with self._pending_lock:
+                self._unconfirmed = True
             raise
         future.add_done_callback(self._completed)
         return future

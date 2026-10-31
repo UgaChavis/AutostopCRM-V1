@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -104,6 +104,30 @@ class BackupPredrainTests(unittest.TestCase):
             pass
         executor.shutdown(wait=True)
         self.assertEqual(executor.pending, 0)
+
+    def test_submit_failure_after_enqueue_remains_unconfirmed(self):
+        active, release = threading.Event(), threading.Event()
+        executor = TrackedExecutor()
+        original = ThreadPoolExecutor.submit
+
+        def enqueue_then_fail(pool, fn, *args, **kwargs):
+            original(pool, fn, *args, **kwargs)
+            raise RuntimeError("synthetic failure after enqueue")
+
+        def work():
+            active.set()
+            release.wait(2)
+
+        try:
+            with patch.object(ThreadPoolExecutor, "submit", new=enqueue_then_fail):
+                with self.assertRaises(RuntimeError):
+                    executor.submit(work)
+            self.assertTrue(active.wait(1))
+            self.assertGreater(executor.pending, 0)
+        finally:
+            release.set()
+            executor.shutdown(wait=True)
+        self.assertGreater(executor.pending, 0)
 
     def test_real_agent_loop_pauses_and_resumes_without_restarting_task(self):
         updated = threading.Event()
@@ -242,7 +266,14 @@ class BackupPredrainTests(unittest.TestCase):
         async def scenario():
             active, release = asyncio.Event(), asyncio.Event()
 
-            async def app(_scope, _receive, _send):
+            async def app(_scope, _receive, send):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"text/event-stream; charset=utf-8")],
+                    }
+                )
                 active.set()
                 await release.wait()
 
@@ -292,7 +323,14 @@ class BackupPredrainTests(unittest.TestCase):
         async def scenario():
             started = asyncio.Event()
 
-            async def app(_scope, receive, _send):
+            async def app(_scope, receive, send):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"text/event-stream")],
+                    }
+                )
                 started.set()
                 self.assertEqual(await receive(), {"type": "http.disconnect"})
 
@@ -319,6 +357,89 @@ class BackupPredrainTests(unittest.TestCase):
             wrapper.requests.resume(owner)
 
         asyncio.run(scenario())
+
+    def test_sse_auth_is_counted_until_successful_stream_response(self):
+        async def scenario():
+            auth_started, finish_auth, stream_started, release_stream = (
+                asyncio.Event() for _ in range(4)
+            )
+
+            async def app(_scope, _receive, send):
+                auth_started.set()
+                await finish_auth.wait()
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 200,
+                        "headers": [(b"content-type", b"text/event-stream; charset=utf-8")],
+                    }
+                )
+                stream_started.set()
+                await release_stream.wait()
+
+            async def send(_msg):
+                pass
+
+            wrapper = McpAdmission(app, "/mcp", True)
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/mcp",
+                "headers": [(b"accept", b"text/event-stream")],
+            }
+            stream = asyncio.create_task(wrapper(scope, None, send))
+            await auth_started.wait()
+            owner = object()
+            wrapper.requests.begin_drain(owner)
+            self.assertFalse(wrapper.requests.wait_drained(owner, 0))
+            finish_auth.set()
+            await stream_started.wait()
+            self.assertTrue(wrapper.requests.wait_drained(owner, 0))
+            release_stream.set()
+            await stream
+            self.assertTrue(wrapper.requests.wait_drained(owner, 0))
+            wrapper.requests.resume(owner)
+
+        asyncio.run(scenario())
+
+    def test_failed_or_non_sse_response_remains_counted_and_cancellation_releases(self):
+        async def scenario(status, content_type):
+            sent = asyncio.Event()
+
+            async def app(_scope, _receive, send):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": status,
+                        "headers": [(b"content-type", content_type)],
+                    }
+                )
+                sent.set()
+                await asyncio.Event().wait()
+
+            async def send(_message):
+                pass
+
+            wrapper = McpAdmission(app, "/mcp", True)
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/mcp",
+                "headers": [(b"accept", b"text/event-stream")],
+            }
+            task = asyncio.create_task(wrapper(scope, None, send))
+            await sent.wait()
+            owner = object()
+            wrapper.requests.begin_drain(owner)
+            self.assertFalse(wrapper.requests.wait_drained(owner, 0))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertTrue(wrapper.requests.wait_drained(owner, 0))
+            wrapper.requests.resume(owner)
+
+        asyncio.run(scenario(401, b"text/event-stream"))
+        asyncio.run(scenario(200, b"application/json"))
 
     def test_signal_lease_and_commit_survive_lost_controller(self):
         program = """
@@ -430,6 +551,70 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                 os.kill(proc.pid, signal.SIGTERM)
                 self.assertEqual(proc.wait(4), 0)
                 self.assertFalse(json.loads(final.read_text())["open"])
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                    proc.wait(4)
+
+    def test_visible_ready_fsync_failure_revokes_receipt_and_ignores_late_commit(self):
+        program = """
+import json, os, signal, stat, sys, time
+from pathlib import Path
+from types import SimpleNamespace
+from minimal_kanban.api.request_admission import ApiRequestAdmission
+from minimal_kanban.mcp.backup_drain import BackupDrain, controlled_wait
+mcp=SimpleNamespace(backup_admission=SimpleNamespace(requests=ApiRequestAdmission(), tools=ApiRequestAdmission(), close_idle_sse=lambda: None), backup_workers_idle=lambda: True)
+drain=BackupDrain(mcp, SimpleNamespace(backup_admission=ApiRequestAdmission()), SimpleNamespace(_request_admission=ApiRequestAdmission()))
+original=os.fsync
+def fail_ready_directory(fd):
+    path=Path(sys.argv[1])
+    if stat.S_ISDIR(os.fstat(fd).st_mode) and path.exists() and json.loads(path.read_text())['state']=='ready':
+        Path(sys.argv[3]).write_text('visible')
+        raise OSError('synthetic failure after ready rename')
+    return original(fd)
+os.fsync=fail_ready_directory
+stop=[False]
+signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__(0, True))
+try: controlled_wait(stop,drain,sys.argv[1],prepare_timeout=1,lease_timeout=1)
+except OSError:
+    Path(sys.argv[4]).write_text('fallback')
+    while not stop[0]: time.sleep(0.05)
+with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.requests.enter()},out)
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            status, final, visible, fallback = (
+                root / x for x in ("status", "final", "visible", "fallback")
+            )
+            proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    program,
+                    str(status),
+                    str(final),
+                    str(visible),
+                    str(fallback),
+                ]
+            )
+            try:
+                end = time.monotonic() + 4
+                while time.monotonic() < end and not status.exists():
+                    time.sleep(0.02)
+                self.assertEqual(json.loads(status.read_text())["state"], "idle")
+                os.kill(proc.pid, signal.SIGUSR1)
+                end = time.monotonic() + 4
+                while time.monotonic() < end and not fallback.exists():
+                    time.sleep(0.02)
+                self.assertTrue(visible.exists())
+                self.assertTrue(fallback.exists())
+                self.assertFalse(status.exists())
+                os.kill(proc.pid, signal.SIGUSR2)
+                time.sleep(0.2)
+                self.assertIsNone(proc.poll())
+                os.kill(proc.pid, signal.SIGTERM)
+                self.assertEqual(proc.wait(4), 0)
+                self.assertTrue(json.loads(final.read_text())["open"])
             finally:
                 if proc.poll() is None:
                     proc.terminate()
