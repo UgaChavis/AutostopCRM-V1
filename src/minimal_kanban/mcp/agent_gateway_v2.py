@@ -293,6 +293,7 @@ def register_agent_gateway_v2(
     *,
     connector_identity: Mapping[str, Any],
     agent_bearer_token: str | None = None,
+    experimental_executor: ToolExecutor | None = None,
 ) -> set[str]:
     """Register the compact Codex-first surface and hide raw tools behind discovery."""
 
@@ -305,7 +306,7 @@ def register_agent_gateway_v2(
                 "Production Agent Gateway requires a compatible FastMCP tool registry"
             )
         return set()
-    executor = ToolExecutor()
+    executor = experimental_executor if experimental_executor is not None else ToolExecutor()
     executor.prepare_tools(tools.values())
     if not policy.gateway_enabled:
         if policy.production:

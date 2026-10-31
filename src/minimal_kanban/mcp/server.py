@@ -60,6 +60,7 @@ from .board_sticky_writes import (
     register_board_sticky_create,
     register_board_sticky_mutations,
 )
+from .call_admission import CallTrackedFastMCP
 from .card_attachment_reads import (
     CardAttachmentReadContext,
     register_card_attachment_reads,
@@ -69,6 +70,7 @@ from .connector_diagnostics import (
     ConnectorDiagnosticsContext,
     register_connector_diagnostics,
 )
+from .drain_wiring import ExperimentalMcpDrain
 from .manager_registration import _try_register_autostop_manager_tools
 from .oauth_consent import _oauth_consent_page
 from .oauth_provider import (
@@ -433,7 +435,10 @@ def create_mcp_server(
     allowed_hosts: list[str] | tuple[str, ...] | None = None,
     allowed_origins: list[str] | tuple[str, ...] | None = None,
     oauth_state_file: Path | None = None,
+    experimental_mcp_drain: ExperimentalMcpDrain | None = None,
 ) -> FastMCP:
+    if experimental_mcp_drain is not None:
+        experimental_mcp_drain.bind_once()
     resolved_token = bearer_token if bearer_token is not None else get_mcp_bearer_token()
     resolved_host = host or get_mcp_host()
     resolved_port = port or get_mcp_port()
@@ -529,8 +534,15 @@ def create_mcp_server(
                 client_id=gateway_policy.service_identity,
             )
 
-    server = FastMCP(
+    server_class = CallTrackedFastMCP if experimental_mcp_drain is not None else FastMCP
+    drain_options = (
+        {"call_admission": experimental_mcp_drain.calls}
+        if experimental_mcp_drain is not None
+        else {}
+    )
+    server = server_class(
         name=connector_name,
+        **drain_options,
         instructions=(
             _external_product_text(
                 f"AutoStop CRM MCP connector for exactly one board instance at {effective_resource_url}. "
@@ -3426,6 +3438,7 @@ def create_mcp_server(
         board_api,
         connector_identity=connector_identity,
         agent_bearer_token=resolved_token,
+        experimental_executor=(experimental_mcp_drain.executor if experimental_mcp_drain else None),
     )
     if registered_gateway_tools:
         logger.info(
