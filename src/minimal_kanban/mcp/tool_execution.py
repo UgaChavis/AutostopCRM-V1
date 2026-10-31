@@ -9,6 +9,7 @@ from weakref import WeakKeyDictionary
 from mcp.server.fastmcp.tools import Tool
 
 from .agent_gateway_support import _as_dict
+from .execution_admission import ExecutionAdmission
 
 
 class ToolExecutor:
@@ -22,20 +23,63 @@ class ToolExecutor:
             WeakKeyDictionary()
         )
         self._workers: set[asyncio.Task[Any]] = set()
+        self._admission = ExecutionAdmission()
+
+    def begin_drain(self) -> object:
+        """Fence this executor only; native async tools and other writers remain active."""
+        return self._admission.begin_drain()
+
+    def is_drained(self, owner: object) -> bool:
+        return self._admission.is_drained(owner)
+
+    def resume(self, owner: object) -> None:
+        self._admission.resume(owner)
 
     async def run_sync(self, function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         loop = asyncio.get_running_loop()
         limit = self._limits.setdefault(loop, asyncio.Semaphore(self._max_concurrency))
+        generation = self._admission.checkpoint()
         await limit.acquire()
+        try:
+            ticket = self._admission.claim(generation)
+        except BaseException:
+            limit.release()
+            raise
+
+        def invoke() -> Any:
+            # A directly cancelled asyncio task can finish before its thread.
+            # The ticket stays active until the actual function has returned.
+            if not self._admission.start(ticket):
+                return None
+            try:
+                return function(*args, **kwargs)
+            finally:
+                self._admission.finish(ticket)
+                try:
+                    loop.call_soon_threadsafe(limit.release)
+                except RuntimeError:
+                    # A closed loop has no future waiter; accounting is complete.
+                    pass
+
         # to_thread copies request contextvars (including the authenticated owner).
         # Retain the slot until actual completion, even if the caller disconnects:
         # cancellation cannot interrupt an in-progress write or justify a retry.
-        worker = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+        coroutine = asyncio.to_thread(invoke)
+        try:
+            worker = asyncio.create_task(coroutine)
+        except BaseException:
+            coroutine.close()
+            self._admission.abandon_pending(ticket)
+            limit.release()
+            raise
         self._workers.add(worker)
 
         def completed(task: asyncio.Task[Any]) -> None:
             self._workers.discard(task)
-            limit.release()
+            # If the coroutine was cancelled before a thread began, ensure a
+            # later thread start cannot run the abandoned function.
+            if self._admission.abandon_pending(ticket):
+                limit.release()
             if not task.cancelled():
                 task.exception()  # Retrieve failures when the original waiter was cancelled.
 

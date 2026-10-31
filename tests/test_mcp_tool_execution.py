@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,6 +22,7 @@ else:
 prepend_source_path()
 
 from minimal_kanban.mcp.agent_gateway_v2 import register_agent_gateway_v2  # noqa: E402
+from minimal_kanban.mcp.execution_admission import ExecutionAdmissionClosed  # noqa: E402
 from minimal_kanban.mcp.tool_execution import ToolExecutor  # noqa: E402
 
 
@@ -138,6 +140,114 @@ class ToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(tool.fn, native)
         self.assertEqual(await tool.run({}), threading.get_ident())
 
+    async def test_executor_drain_tracks_thread_after_inner_task_is_cancelled(self) -> None:
+        executor = ToolExecutor(1)
+        started, release, finished = threading.Event(), threading.Event(), threading.Event()
+        calls: list[str] = []
+
+        def blocked() -> None:
+            calls.append("started")
+            started.set()
+            try:
+                if not release.wait(3):
+                    raise TimeoutError("test did not release tool")
+            finally:
+                finished.set()
+
+        caller = asyncio.create_task(executor.run_sync(blocked))
+        try:
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            worker = next(iter(executor._workers))
+            worker.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await caller
+            owner = executor.begin_drain()
+            self.assertFalse(executor.is_drained(owner))
+            with self.assertRaises(ExecutionAdmissionClosed):
+                await executor.run_sync(lambda: calls.append("new"))
+            with self.assertRaisesRegex(RuntimeError, "ownership_lost"):
+                executor.resume(object())
+            release.set()
+            self.assertTrue(await asyncio.to_thread(finished.wait, 1))
+            for _ in range(100):
+                if executor.is_drained(owner):
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(executor.is_drained(owner))
+            executor.resume(owner)
+            self.assertEqual(await executor.run_sync(lambda: "ready"), "ready")
+            self.assertEqual(["started"], calls)
+        finally:
+            release.set()
+
+    async def test_queued_call_is_not_replayed_after_drain_and_resume(self) -> None:
+        executor = ToolExecutor(1)
+        started, release = threading.Event(), threading.Event()
+        calls: list[str] = []
+
+        def blocked() -> None:
+            started.set()
+            if not release.wait(3):
+                raise TimeoutError("test did not release tool")
+
+        first = asyncio.create_task(executor.run_sync(blocked))
+        queued = None
+        try:
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            queued = asyncio.create_task(executor.run_sync(lambda: calls.append("queued")))
+            await asyncio.sleep(0)
+            owner = executor.begin_drain()
+            self.assertFalse(executor.is_drained(owner))
+            executor.resume(owner)
+            release.set()
+            await first
+            with self.assertRaises(ExecutionAdmissionClosed):
+                await asyncio.wait_for(queued, 1)
+            self.assertEqual([], calls)
+        finally:
+            release.set()
+            if queued is not None and not queued.done():
+                queued.cancel()
+
+    async def test_cancelled_before_thread_start_never_runs_the_function(self) -> None:
+        executor = ToolExecutor(1)
+        release_pool = threading.Event()
+        pool_started = threading.Event()
+        submitted = asyncio.Event()
+        calls: list[str] = []
+        pool = ThreadPoolExecutor(max_workers=1)
+
+        def occupy_pool() -> None:
+            pool_started.set()
+            if not release_pool.wait(3):
+                raise TimeoutError("test did not release pool")
+
+        async def queued_to_thread(function):
+            future = asyncio.get_running_loop().run_in_executor(pool, function)
+            submitted.set()
+            return await future
+
+        pool.submit(occupy_pool)
+        caller = None
+        try:
+            self.assertTrue(pool_started.wait(1))
+            with patch("minimal_kanban.mcp.tool_execution.asyncio.to_thread", queued_to_thread):
+                caller = asyncio.create_task(executor.run_sync(lambda: calls.append("called")))
+                await asyncio.wait_for(submitted.wait(), 1)
+                owner = executor.begin_drain()
+                self.assertFalse(executor.is_drained(owner))
+                next(iter(executor._workers)).cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await caller
+                self.assertTrue(executor.is_drained(owner))
+                executor.resume(owner)
+                release_pool.set()
+                await asyncio.wrap_future(pool.submit(lambda: None))
+                self.assertEqual([], calls)
+        finally:
+            release_pool.set()
+            pool.shutdown(wait=True)
+
     async def test_gateway_bootstrap_and_runtime_legacy_tools_are_offloaded(self) -> None:
         for name in ("agent_bootstrap", "get_runtime_status"):
             with self.subTest(name=name):
@@ -190,6 +300,18 @@ class ToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         executor.prepare_tools([tool])
         with self.assertRaisesRegex(ToolError, "adapter unavailable"):
             await tool.run({})
+        self.assertEqual(await executor.run_sync(lambda: "recovered"), "recovered")
+
+    async def test_task_creation_failure_releases_ticket_and_capacity(self) -> None:
+        executor = ToolExecutor(1)
+        with patch(
+            "minimal_kanban.mcp.tool_execution.asyncio.create_task", side_effect=RuntimeError
+        ):
+            with self.assertRaises(RuntimeError):
+                await executor.run_sync(lambda: "not run")
+        owner = executor.begin_drain()
+        self.assertTrue(executor.is_drained(owner))
+        executor.resume(owner)
         self.assertEqual(await executor.run_sync(lambda: "recovered"), "recovered")
 
     def test_capacity_must_be_positive(self) -> None:
