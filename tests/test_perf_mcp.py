@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
@@ -51,6 +51,48 @@ def gateway_result(*, data=None, ok: bool = True, is_error: bool = False):
         },
         isError=is_error,
     )
+
+
+@contextmanager
+def fake_manager_workers():
+    """Supply the synthetic registrar's no-I/O workers without a Manager checkout."""
+    instances = []
+
+    class StoreWorkers:
+        def __init__(self):
+            self.draining = False
+            self.closed = False
+            instances.append(self)
+
+        def status(self):
+            return {
+                "accepting": not self.draining,
+                "drained": self.draining,
+                "pending": {"read": 0, "stateful": 0, "transport": 0},
+            }
+
+        def begin_drain(self):
+            if self.closed:
+                raise RuntimeError("workers already closed")
+            self.draining = True
+            return self.status()
+
+        async def drain(self, _timeout):
+            return {**self.begin_drain(), "ok": True}
+
+        def close(self):
+            if not self.draining or self.closed:
+                raise RuntimeError("workers must drain before close")
+            self.closed = True
+
+    package = ModuleType("autostop_manager")
+    package.__path__ = []
+    module = ModuleType("autostop_manager.mcp_store_executor")
+    module.StoreWorkers = StoreWorkers
+    hidden = {name: None for name in list(sys.modules) if name.startswith("autostop_manager.")}
+    hidden.update({"autostop_manager": package, "autostop_manager.mcp_store_executor": module})
+    with patch.dict(sys.modules, hidden):
+        yield instances
 
 
 class RecordingGatewaySession:
@@ -463,12 +505,18 @@ class PerfMcpTests(unittest.TestCase):
             mcp_start_port=mcp_start_port,
         )
 
-        with patch(
-            "minimal_kanban.mcp.manager_registration._resolve_autostop_manager_registrar",
-            return_value=compatible_registrar,
+        with (
+            fake_manager_workers() as workers,
+            patch(
+                "minimal_kanban.mcp.manager_registration._resolve_autostop_manager_registrar",
+                return_value=compatible_registrar,
+            ),
         ):
             result = asyncio.run(module.run_mcp_perf(args))
 
+        self.assertEqual(1, len(workers))
+        self.assertTrue(workers[0].draining)
+        self.assertTrue(workers[0].closed)
         self.assertTrue(result["ok"])
         self.assertEqual(len(module.PERMANENT_AGENT_GATEWAY_TOOL_NAMES), result["tool_count"])
         self.assertEqual("passed", result["threshold_status"])
@@ -519,6 +567,7 @@ class PerfMcpTests(unittest.TestCase):
         )
 
         with (
+            fake_manager_workers() as workers,
             patch(
                 "minimal_kanban.mcp.manager_registration._resolve_autostop_manager_registrar",
                 return_value=fake_manager_registrar,
@@ -532,6 +581,9 @@ class PerfMcpTests(unittest.TestCase):
         ):
             asyncio.run(module.run_mcp_perf(args))
 
+        self.assertEqual(1, len(workers))
+        self.assertTrue(workers[0].draining)
+        self.assertTrue(workers[0].closed)
         self.assertEqual(len(expected_surface), raised.exception.actual_tool_count)
         self.assertEqual({}, module._ACTIVE_LOCAL_RUNTIMES)
         self.assertEqual([], module._RETAINED_FAILED_LOCAL_RUNTIMES)
