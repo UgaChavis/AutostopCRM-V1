@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from .experimental_lifecycle import ExperimentalLifecycleAuthority
 from .fence_contract import ForeignFenceHeld
 
 UNPROVEN = (
@@ -28,6 +29,9 @@ UNPROVEN = (
     "simultaneous_fence_validation",
     "cross_fence_restoration_race",
     "interrupted_cleanup_recovery",
+    "runtime_transport_attachment",
+    "server_start_stop_bypass",
+    "card_service_agent_binding",
     "process_death_recovery",
     "hard_deadline",
 )
@@ -35,7 +39,7 @@ UNPROVEN = (
 
 @dataclass(frozen=True, slots=True)
 class LocalStatus:
-    """Sequential checks, not an atomic observation or permission to back up."""
+    """Sequential fence checks, not listener proof or permission to back up."""
 
     local_checks_passed: bool
 
@@ -73,10 +77,44 @@ class ExperimentalProcessQuiescence:
     another owner may change an earlier fence before later intake reopens.
     """
 
-    def __init__(self, *, mcp: Any, agent: Any, api: Any) -> None:
+    def __init__(
+        self,
+        *,
+        mcp: Any,
+        agent: Any,
+        api: Any,
+        lifecycle: ExperimentalLifecycleAuthority | None = None,
+    ) -> None:
         self._mcp, self._agent, self._api = mcp, agent, api
+        self._lifecycle = lifecycle
+        self._capability: object | None = None
+        if lifecycle is not None:
+            from .agent.control import AgentControlService
+            from .api.request_admission import ApiRequestAdmission
+            from .api.server import ApiServer
+            from .mcp.call_admission import McpCallAdmission
+            from .mcp.drain_wiring import ExperimentalMcpDrain
+            from .mcp.execution_admission import ExecutionAdmission
+            from .mcp.tool_execution import ToolExecutor
+
+            if (
+                type(lifecycle) is not ExperimentalLifecycleAuthority
+                or type(mcp) is not ExperimentalMcpDrain
+                or mcp._bound is not True
+                or type(mcp.calls) is not McpCallAdmission
+                or type(mcp.executor) is not ToolExecutor
+                or type(mcp.executor._admission) is not ExecutionAdmission
+                or type(agent) is not AgentControlService
+                or type(api) is not ApiServer
+                or type(api._request_admission) is not ApiRequestAdmission
+                or lifecycle._pair is None
+                or lifecycle._pair[2] is not api
+            ):
+                raise RuntimeError("lifecycle_binding_invalid")
+            self._capability = lifecycle._bind_once(self._participants())
         self._session_lock = threading.Lock()
         self._used = False
+        self._lifecycle_started = False
         self._owners = {name: object() for name in ("calls", "agent", "executor", "api")}
         self._attempted: list[str] = []
         self._begun: set[str] = set()
@@ -84,23 +122,61 @@ class ExperimentalProcessQuiescence:
         self._deadline: float | None = None
         self.last_recovery_errors: tuple[str, ...] = ("recovery_not_confirmed",)
 
+    def _participants(self) -> tuple[object, ...]:
+        return (
+            self._mcp.calls,
+            self._mcp.executor,
+            self._mcp.executor._admission,
+            self._agent,
+            self._api._request_admission,
+        )
+
+    def _verify_binding(self) -> None:
+        if self._lifecycle is not None:
+            self._lifecycle._verify_binding(self._capability, self._participants())
+
+    def _capability_kw(self, name: str, operation: str) -> dict[str, object]:
+        if self._lifecycle is None:
+            return {}
+        participant = {
+            "calls": self._mcp.calls,
+            "agent": self._agent,
+            "executor": self._mcp.executor._admission,
+            "api": self._api._request_admission,
+        }[name]
+        return {
+            "capability": self._lifecycle._capability_for_step(
+                self._capability, participant, operation
+            )
+        }
+
     def _begin(self, name: str) -> None:
         # Retain the owner before the operation: even interruption immediately
         # after the fence changes leaves a usable token for readback/rollback.
         invoked = False
         try:
+            self._start_lifecycle_session()
             self._attempted.append(name)
+            self._verify_binding()
             owner = self._owners[name]
             invoked = True
             try:
                 if name == "calls":
-                    returned_owner = self._mcp.calls.begin_drain(owner)
+                    returned_owner = self._mcp.calls.begin_drain(
+                        owner, **self._capability_kw(name, "begin")
+                    )
                 elif name == "agent":
-                    returned_owner = self._agent.begin_background_pause(owner)
+                    returned_owner = self._agent.begin_background_pause(
+                        owner, **self._capability_kw(name, "begin")
+                    )
                 elif name == "executor":
-                    returned_owner = self._mcp.executor.begin_drain(owner)
+                    returned_owner = self._mcp.executor.begin_drain(
+                        owner, **self._capability_kw(name, "begin")
+                    )
                 else:
-                    returned_owner = self._api.begin_request_drain(owner)
+                    returned_owner = self._api.begin_request_drain(
+                        owner, **self._capability_kw(name, "begin")
+                    )
             except ForeignFenceHeld:
                 self._foreign_rejected.add(name)
                 raise
@@ -112,7 +188,13 @@ class ExperimentalProcessQuiescence:
                 self._attempted.remove(name)
             raise
 
+    def _start_lifecycle_session(self) -> None:
+        if self._lifecycle is not None and not self._lifecycle_started:
+            self._lifecycle._start_session(self._capability)
+            self._lifecycle_started = True
+
     def _state(self, name: str) -> str:
+        self._verify_binding()
         owner = self._owners[name]
         if name == "calls":
             result = self._mcp.calls.drain_state(owner)
@@ -130,6 +212,7 @@ class ExperimentalProcessQuiescence:
         return self._state(name) == "owned"
 
     def _drained(self, name: str) -> bool:
+        self._verify_binding()
         owner = self._owners[name]
         if name == "calls":
             return self._mcp.calls.is_drained(owner) is True
@@ -141,15 +224,18 @@ class ExperimentalProcessQuiescence:
         return self._api.wait_request_drain(owner, 0) is True
 
     def _resume(self, name: str) -> bool:
+        self._verify_binding()
         owner = self._owners[name]
         if name == "calls":
-            self._mcp.calls.resume(owner)
+            self._mcp.calls.resume(owner, **self._capability_kw(name, "resume"))
         elif name == "agent":
-            return self._agent.resume_background(owner) is True
+            return (
+                self._agent.resume_background(owner, **self._capability_kw(name, "resume")) is True
+            )
         elif name == "executor":
-            self._mcp.executor.resume(owner)
+            self._mcp.executor.resume(owner, **self._capability_kw(name, "resume"))
         else:
-            self._api.resume_requests(owner)
+            self._api.resume_requests(owner, **self._capability_kw(name, "resume"))
         return True
 
     async def _wait(self, name: str) -> None:
@@ -176,6 +262,17 @@ class ExperimentalProcessQuiescence:
         return LocalStatus(local_checks_passed=held and time.monotonic() < self._deadline)
 
     def _recover(self) -> tuple[str, ...]:
+        if self._lifecycle is None:
+            return self._recover_steps()
+        self._start_lifecycle_session()
+        with self._lifecycle.restoration(self._capability) as lease:
+            self._verify_binding()
+            errors = self._recover_steps()
+            if not errors:
+                lease.commit()
+            return errors
+
+    def _recover_steps(self) -> tuple[str, ...]:
         errors: list[str] = []
         blocked = False
         for name in reversed(self._attempted):
@@ -219,6 +316,9 @@ class ExperimentalProcessQuiescence:
             raise ValueError("quiescence_timeout_invalid")
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("quiescence_timeout_invalid")
+        if self._lifecycle is not None:
+            # Never touch an inherited local mutex before checking fork identity.
+            self._lifecycle._require_process()
         with self._session_lock:
             if self._used:
                 raise RuntimeError("quiescence_session_single_use")
@@ -238,7 +338,11 @@ class ExperimentalProcessQuiescence:
             try:
                 self.last_recovery_errors = self._recover()
             finally:
-                self._deadline = None
+                try:
+                    if self._lifecycle is not None:
+                        self._lifecycle._end_session(self._capability)
+                finally:
+                    self._deadline = None
             if self.last_recovery_errors:
                 message = ", ".join(self.last_recovery_errors)
                 if active_error is not None:

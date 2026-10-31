@@ -36,6 +36,7 @@ from ..deployment_security import (
     reject_retired_release_configuration,
     release_smoke_proof_matches,
 )
+from ..experimental_lifecycle import ExperimentalLifecycleAuthority
 from ..json_safety import reject_deeply_nested_json
 from ..mcp.oauth_provider import (
     OAUTH_AUDIT_ACTOR_HEADER,
@@ -2136,6 +2137,7 @@ class ApiServer:
         change_feed_service: ChangeFeedService | None = None,
         automation_center_service: AutomationCenterService | None = None,
         clipboard_file_provider: Callable[[], Iterable[Path | str]] | None = None,
+        experimental_lifecycle: ExperimentalLifecycleAuthority | None = None,
     ) -> None:
         reject_retired_release_configuration()
         self._service = service
@@ -2143,7 +2145,7 @@ class ApiServer:
         self._change_feed_service = change_feed_service
         self._automation_center_service = automation_center_service
         self._logger = logger
-        self._request_admission = ApiRequestAdmission()
+        self._request_admission = ApiRequestAdmission(lifecycle=experimental_lifecycle)
         self._thread: threading.Thread | None = None
         self._server: ThreadingHTTPServer | None = None
         resolved_host = host if host is not None else get_api_host()
@@ -2169,12 +2171,18 @@ class ApiServer:
             display_host = f"[{display_host}]"
         return f"http://{display_host}:{self.port}"
 
-    def begin_request_drain(self, owner: object | None = None) -> object:
+    @property
+    def lifecycle_authority(self) -> ExperimentalLifecycleAuthority | None:
+        return self._request_admission.lifecycle_authority
+
+    def begin_request_drain(
+        self, owner: object | None = None, *, capability: object | None = None
+    ) -> object:
         """Close API admission; the caller must resume it in a finally block.
 
         This does not fence MCP, background work, or other processes.
         """
-        return self._request_admission.begin_drain(owner)
+        return self._request_admission.begin_drain(owner, capability=capability)
 
     def owns_request_drain(self, owner: object) -> bool:
         return self._request_admission.owns_drain(owner)
@@ -2185,8 +2193,8 @@ class ApiServer:
     def wait_request_drain(self, owner: object, timeout: float) -> bool:
         return self._request_admission.wait_drained(owner, timeout)
 
-    def resume_requests(self, owner: object) -> None:
-        self._request_admission.resume(owner)
+    def resume_requests(self, owner: object, *, capability: object | None = None) -> None:
+        self._request_admission.resume(owner, capability=capability)
 
     def start(self) -> None:
         if self._server is not None:

@@ -8,6 +8,7 @@ from weakref import WeakKeyDictionary
 
 from mcp.server.fastmcp.tools import Tool
 
+from ..experimental_lifecycle import ExperimentalLifecycleAuthority
 from .agent_gateway_support import _as_dict
 from .execution_admission import ExecutionAdmission
 
@@ -15,7 +16,9 @@ from .execution_admission import ExecutionAdmission
 class ToolExecutor:
     """Keep blocking adapters off the request loop with bounded in-flight work."""
 
-    def __init__(self, max_concurrency: int = 8) -> None:
+    def __init__(
+        self, max_concurrency: int = 8, *, lifecycle: ExperimentalLifecycleAuthority | None = None
+    ) -> None:
         if max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
         self._max_concurrency = max_concurrency
@@ -23,11 +26,17 @@ class ToolExecutor:
             WeakKeyDictionary()
         )
         self._workers: set[asyncio.Task[Any]] = set()
-        self._admission = ExecutionAdmission()
+        self._admission = ExecutionAdmission(lifecycle=lifecycle)
 
-    def begin_drain(self, owner: object | None = None) -> object:
+    @property
+    def lifecycle_authority(self) -> ExperimentalLifecycleAuthority | None:
+        return self._admission.lifecycle_authority
+
+    def begin_drain(
+        self, owner: object | None = None, *, capability: object | None = None
+    ) -> object:
         """Fence this executor only; native async tools and other writers remain active."""
-        return self._admission.begin_drain(owner)
+        return self._admission.begin_drain(owner, capability=capability)
 
     def owns_drain(self, owner: object) -> bool:
         return self._admission.owns_drain(owner)
@@ -38,8 +47,8 @@ class ToolExecutor:
     def is_drained(self, owner: object) -> bool:
         return self._admission.is_drained(owner)
 
-    def resume(self, owner: object) -> None:
-        self._admission.resume(owner)
+    def resume(self, owner: object, *, capability: object | None = None) -> None:
+        self._admission.resume(owner, capability=capability)
 
     async def run_sync(self, function: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
         loop = asyncio.get_running_loop()

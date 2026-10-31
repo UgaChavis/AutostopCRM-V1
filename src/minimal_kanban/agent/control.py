@@ -8,6 +8,12 @@ from datetime import timedelta
 from typing import Any
 
 from ..config import get_api_bearer_token
+from ..experimental_lifecycle import (
+    ExperimentalLifecycleAuthority,
+    lifecycle_admission,
+    lifecycle_mutation,
+    lifecycle_observation,
+)
 from ..fence_contract import ForeignFenceHeld
 from ..json_safety import bounded_dict_list, bounded_text_list
 from ..models import parse_datetime, utc_now, utc_now_iso
@@ -56,9 +62,11 @@ class AgentControlService:
         *,
         scheduler_interval_seconds: float = 20.0,
         start_scheduler: bool = False,
+        experimental_lifecycle: ExperimentalLifecycleAuthority | None = None,
     ) -> None:
         self._storage = storage
-        self._board_service: Any | None = None
+        self._lifecycle = experimental_lifecycle
+        self._default_board_service: Any | None = None
         self._scheduler_interval_seconds = self._normalize_seconds(
             scheduler_interval_seconds, default=20.0, minimum=5.0
         )
@@ -81,16 +89,34 @@ class AgentControlService:
         if start_scheduler:
             self.start_scheduler()
 
-    def start_scheduler(self) -> None:
-        with self._background_condition:
-            self._require_background_start_allowed()
-            if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
-                return
-            self._scheduler_stop.clear()
-            self._scheduler_thread = threading.Thread(
-                target=self._scheduler_loop, name="minimal-kanban-agent-scheduler", daemon=True
-            )
-            self._scheduler_thread.start()
+    @property
+    def _board_service(self) -> Any | None:
+        if self._lifecycle is None:
+            return self._default_board_service
+        pair = self._lifecycle._pair
+        return pair[1] if pair is not None and pair[0] is self else None
+
+    @_board_service.setter
+    def _board_service(self, board_service: Any | None) -> None:
+        if self._lifecycle is not None:
+            raise RuntimeError("lifecycle_capability_required")
+        self._default_board_service = board_service
+
+    @property
+    def lifecycle_authority(self) -> ExperimentalLifecycleAuthority | None:
+        return self._lifecycle
+
+    def start_scheduler(self, *, capability: object | None = None) -> None:
+        with lifecycle_mutation(self._lifecycle, capability, self, "start_scheduler"):
+            with self._background_condition:
+                self._require_background_start_allowed()
+                if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
+                    return
+                self._scheduler_stop.clear()
+                self._scheduler_thread = threading.Thread(
+                    target=self._scheduler_loop, name="minimal-kanban-agent-scheduler", daemon=True
+                )
+                self._scheduler_thread.start()
 
     def _require_background_start_allowed(self) -> None:
         if self._background_owner is not None or self._background_closing:
@@ -105,67 +131,94 @@ class AgentControlService:
             worker if worker is not None and worker.is_alive() else None,
         )
 
-    def begin_background_pause(self, owner: object | None = None) -> object:
+    def begin_background_pause(
+        self, owner: object | None = None, *, capability: object | None = None
+    ) -> object:
         """Pause only these loops; existing overdue-task semantics are unchanged.
 
         A coordinator must separately reconcile queued and unknown effects before
         accepting a backup or reopening intake.
         """
-        with self._background_condition:
-            if self._background_owner is not None:
-                raise ForeignFenceHeld("agent_background_pause_unavailable")
-            if self._background_closing:
-                raise RuntimeError("agent_background_pause_unavailable")
-            self._background_initial = self._running_background_threads()
-            self._background_pause_generation = self._background_generation
-            self._background_owner = owner if owner is not None else object()
-            return self._background_owner
+        with lifecycle_mutation(self._lifecycle, capability, self, "begin"):
+            with self._background_condition:
+                if self._background_owner is not None:
+                    raise ForeignFenceHeld("agent_background_pause_unavailable")
+                if self._background_closing:
+                    raise RuntimeError("agent_background_pause_unavailable")
+                self._background_initial = self._running_background_threads()
+                self._background_pause_generation = self._background_generation
+                self._background_owner = owner if owner is not None else object()
+                return self._background_owner
 
     def owns_background_pause(self, owner: object) -> bool:
-        with self._background_condition:
-            return self._background_owner is not None and self._background_owner is owner
+        with lifecycle_observation(self._lifecycle):
+            with self._background_condition:
+                return self._background_owner is not None and self._background_owner is owner
 
     def background_pause_state(self, owner: object) -> str:
-        with self._background_condition:
-            if self._background_owner is None:
-                return "free"
-            return "owned" if self._background_owner is owner else "foreign"
+        with lifecycle_observation(self._lifecycle):
+            with self._background_condition:
+                if self._background_owner is None:
+                    return "free"
+                return "owned" if self._background_owner is owner else "foreign"
 
     def background_pause_status(self, owner: object) -> dict[str, bool]:
         """Report loop state only; queue and external effects remain unverified."""
-        with self._background_condition:
-            self._require_background_owner(owner)
-            unchanged = (
-                not self._background_closing
-                and self._background_pause_generation == self._background_generation
-                and self._background_initial == self._running_background_threads()
-            )
-            return {
-                "drained": self._background_active == 0 and unchanged,
-                "threads_unchanged": unchanged,
-                "backup_ready": False,
-            }
+        with lifecycle_observation(self._lifecycle):
+            with self._background_condition:
+                self._require_background_owner(owner)
+                unchanged = (
+                    not self._background_closing
+                    and self._background_pause_generation == self._background_generation
+                    and self._background_initial == self._running_background_threads()
+                )
+                return {
+                    "drained": self._background_active == 0 and unchanged,
+                    "threads_unchanged": unchanged,
+                    "backup_ready": False,
+                }
 
-    def resume_background(self, owner: object) -> bool:
+    def resume_background(self, owner: object, *, capability: object | None = None) -> bool:
         """Unpause existing loops without changing their overdue-task policy."""
-        with self._background_condition:
-            self._require_background_owner(owner)
-            unchanged = (
-                not self._background_closing
-                and self._background_pause_generation == self._background_generation
-                and self._background_initial == self._running_background_threads()
-            )
-            self._background_owner = None
-            self._background_initial = None
-            self._background_pause_generation = None
-            self._background_condition.notify_all()
-            return unchanged
+        with lifecycle_mutation(self._lifecycle, capability, self, "resume", owner):
+            with self._background_condition:
+                self._require_background_owner(owner)
+                unchanged = (
+                    not self._background_closing
+                    and self._background_pause_generation == self._background_generation
+                    and self._background_initial == self._running_background_threads()
+                )
+                if not unchanged and self._lifecycle is not None:
+                    raise RuntimeError("agent_background_original_state_changed")
+                self._background_owner = None
+                self._background_initial = None
+                self._background_pause_generation = None
+                self._background_condition.notify_all()
+                return unchanged
 
     def _require_background_owner(self, owner: object) -> None:
         if self._background_owner is None or self._background_owner is not owner:
             raise RuntimeError("agent_background_pause_ownership_lost")
 
     def _enter_background(self, stop: threading.Event) -> bool:
+        if self._lifecycle is not None:
+            self._lifecycle._require_process()
+            while True:
+                with self._background_condition:
+                    while self._background_owner is not None and not stop.is_set():
+                        self._background_condition.wait()
+                    if stop.is_set():
+                        return False
+                with lifecycle_admission(self._lifecycle) as allowed:
+                    if allowed:
+                        with self._background_condition:
+                            if stop.is_set():
+                                return False
+                            if self._background_owner is None:
+                                self._background_active += 1
+                                return True
+                if not allowed and not self._lifecycle.wait_open(stop):
+                    return False
         with self._background_condition:
             while self._background_owner is not None and not stop.is_set():
                 self._background_condition.wait()
@@ -175,11 +228,16 @@ class AgentControlService:
             return True
 
     def _leave_background(self) -> None:
+        if self._lifecycle is not None:
+            self._lifecycle._require_process()
         with self._background_condition:
             self._background_active -= 1
             self._background_condition.notify_all()
 
-    def close(self) -> None:
+    def close(self, *, capability: object | None = None) -> None:
+        if self._lifecycle is not None:
+            self._close_with_lifecycle(capability)
+            return
         with self._close_lock:
             try:
                 with self._background_condition:
@@ -212,8 +270,64 @@ class AgentControlService:
                 with self._background_condition:
                     self._background_closing = False
 
-    def bind_board_service(self, board_service: Any | None) -> None:
-        self._board_service = board_service
+    def _close_with_lifecycle(self, capability: object | None) -> None:
+        closing_started = False
+        close_lease = None
+        try:
+            with self._lifecycle._agent_close_start(capability, self) as close_lease:
+                with self._background_condition:
+                    if self._background_closing:
+                        raise RuntimeError("agent_background_close_in_progress")
+                    closing_started = True
+                    self._background_closing = True
+                    self._background_generation += 1
+                    self._scheduler_stop.set()
+                    self._worker_stop.set()
+                    self._background_condition.notify_all()
+            live_roles: list[str] = []
+            for attribute, role in (
+                ("_scheduler_thread", "scheduler"),
+                ("_worker_thread", "worker"),
+            ):
+                with self._lifecycle._agent_close_step(close_lease, self):
+                    with self._background_condition:
+                        thread = getattr(self, attribute)
+                if thread is None:
+                    continue
+                if thread.is_alive():
+                    thread.join(timeout=2)
+                with self._lifecycle._agent_close_step(close_lease, self):
+                    with self._background_condition:
+                        if getattr(self, attribute) is not thread:
+                            raise RuntimeError("agent_background_thread_changed")
+                        if thread.is_alive():
+                            live_roles.append(role)
+                        else:
+                            setattr(self, attribute, None)
+            if live_roles:
+                raise RuntimeError(
+                    f"Embedded agent runtime threads did not stop: {', '.join(live_roles)}."
+                )
+        finally:
+            finished = False
+            try:
+                if closing_started:
+                    with self._lifecycle._agent_close_step(close_lease, self):
+                        with self._background_condition:
+                            self._background_closing = False
+                if close_lease is not None:
+                    self._lifecycle._agent_close_finish(close_lease, self)
+                finished = True
+            finally:
+                if close_lease is not None and not finished:
+                    self._lifecycle._agent_close_poison(close_lease, self)
+
+    def bind_board_service(
+        self, board_service: Any | None, *, capability: object | None = None
+    ) -> None:
+        if self._lifecycle is not None:
+            raise RuntimeError("lifecycle_capability_required")
+        self._default_board_service = board_service
 
     def start_worker(
         self,
@@ -221,25 +335,27 @@ class AgentControlService:
         logger: Any,
         board_api_url: str | None = None,
         api_bearer_token: str | None = None,
+        capability: object | None = None,
     ) -> bool:
-        with self._background_condition:
-            self._require_background_start_allowed()
-            if self._worker_thread is not None and self._worker_thread.is_alive():
+        with lifecycle_mutation(self._lifecycle, capability, self, "start_worker"):
+            with self._background_condition:
+                self._require_background_start_allowed()
+                if self._worker_thread is not None and self._worker_thread.is_alive():
+                    return True
+                if not get_agent_enabled() or not get_agent_openai_api_key():
+                    return False
+                self._worker_stop.clear()
+                resolved_board_api_url = (
+                    str(board_api_url or get_agent_board_api_url() or "").strip().rstrip("/")
+                )
+                self._worker_thread = threading.Thread(
+                    target=self._worker_loop,
+                    args=(logger, resolved_board_api_url, api_bearer_token),
+                    name="minimal-kanban-agent-worker",
+                    daemon=True,
+                )
+                self._worker_thread.start()
                 return True
-            if not get_agent_enabled() or not get_agent_openai_api_key():
-                return False
-            self._worker_stop.clear()
-            resolved_board_api_url = (
-                str(board_api_url or get_agent_board_api_url() or "").strip().rstrip("/")
-            )
-            self._worker_thread = threading.Thread(
-                target=self._worker_loop,
-                args=(logger, resolved_board_api_url, api_bearer_token),
-                name="minimal-kanban-agent-worker",
-                daemon=True,
-            )
-            self._worker_thread.start()
-            return True
 
     def has_active_task_for_card(self, card_id: str, *, purpose: str | None = None) -> bool:
         return self._storage.has_active_task_for_card(card_id, purpose=purpose)

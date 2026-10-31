@@ -19,6 +19,7 @@ from ..agent.knowledge import build_ai_chat_knowledge_packet
 from ..agent.openai_client import AgentModelError, OpenAIJsonAgentClient
 from ..config import ATTACHMENTS_DIR_NAME, get_fast_state_writes_enabled
 from ..demo_seed import build_demo_board
+from ..experimental_lifecycle import ExperimentalLifecycleAuthority
 from ..json_safety import json_safe_api_value as _json_safe_value
 from ..models import (
     CARD_BOARD_SUMMARY_LIMIT,
@@ -436,11 +437,14 @@ class CardService(
         logger: Logger,
         attachments_dir: Path | None = None,
         repair_orders_dir: Path | None = None,
+        *,
+        experimental_lifecycle: ExperimentalLifecycleAuthority | None = None,
     ) -> None:
         self._store = store
         self._logger = logger
         self._lock = MeasuredRLock("service_lock")
-        self._agent_control: Any | None = None
+        self._lifecycle = experimental_lifecycle
+        self._default_agent_control: Any | None = None
         self._client_search_index_signature: tuple[Any, ...] | None = None
         self._client_search_index: dict[str, dict[str, Any]] = {}
         self._client_related_vehicle_fields_index_signature: tuple[Any, ...] | None = None
@@ -509,8 +513,23 @@ class CardService(
 
         self._print_module.reconcile_change_feed()
 
+    @property
+    def _agent_control(self) -> Any | None:
+        if self._lifecycle is None:
+            return self._default_agent_control
+        pair = self._lifecycle._pair
+        return pair[0] if pair is not None and pair[1] is self else None
+
+    @_agent_control.setter
+    def _agent_control(self, agent_control: Any | None) -> None:
+        if self._lifecycle is not None:
+            raise RuntimeError("lifecycle_capability_required")
+        self._default_agent_control = agent_control
+
     def attach_agent_control(self, agent_control: Any | None) -> None:
-        self._agent_control = agent_control
+        if self._lifecycle is not None:
+            raise RuntimeError("lifecycle_capability_required")
+        self._default_agent_control = agent_control
 
     def agent_status(self, payload: dict | None = None) -> dict:
         if self._agent_control is not None:
