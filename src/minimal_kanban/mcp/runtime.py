@@ -49,6 +49,10 @@ class McpServerRuntime:
         self._uvicorn_server: uvicorn.Server | None = None
         self._startup_error: BaseException | None = None
         self._startup_traceback = ""
+        # None means that no server thread has been started. False means that
+        # a started thread has not completed every cleanup step successfully.
+        self._shutdown_complete: bool | None = None
+        self._reached_ready = False
         self.logging_mode = "unconfigured"
         self.host = str(server.settings.host or "127.0.0.1").strip() or "127.0.0.1"
         self.port = int(server.settings.port)
@@ -65,10 +69,24 @@ class McpServerRuntime:
 
     def start(self) -> None:
         if self._thread is not None:
-            return
+            if (
+                self._thread.is_alive()
+                and self._reached_ready
+                and self._startup_error is None
+                and self._uvicorn_server is not None
+                and not self._uvicorn_server.should_exit
+            ):
+                return
+            raise RuntimeError("Состояние MCP runtime не подтверждено; нужна проверка.")
+        if self._shutdown_complete is False:
+            raise RuntimeError("Очистка MCP runtime не подтверждена.")
+        if self._reached_ready and self._startup_error is not None:
+            raise RuntimeError("MCP runtime завершился с ошибкой.")
 
         self._startup_error = None
         self._startup_traceback = ""
+        self._shutdown_complete = None
+        self._reached_ready = False
         self.logging_mode = self._configure_uvicorn_loggers()
         self._log(
             logging.INFO,
@@ -93,11 +111,15 @@ class McpServerRuntime:
         self._thread = threading.Thread(
             target=self._run_server, name="minimal-kanban-mcp", daemon=True
         )
+        self._shutdown_complete = False
+        # A signal can interrupt Thread.start after the native thread starts.
+        # Preserve its references and the unconfirmed state on any exception.
         self._thread.start()
 
         try:
             self._wait_until_port_is_bound()
             self._wait_until_endpoint_is_ready()
+            self._reached_ready = True
         except Exception:
             self._stop_failed_start()
             raise
@@ -109,6 +131,10 @@ class McpServerRuntime:
         if self._uvicorn_server is None:
             if self._thread is not None and self._thread.is_alive():
                 raise RuntimeError("Поток MCP runtime не остановился.")
+            if self._shutdown_complete is False:
+                raise RuntimeError("Очистка MCP runtime не подтверждена.")
+            if self._reached_ready and self._startup_error is not None:
+                raise RuntimeError("MCP runtime завершился с ошибкой.")
             self._thread = None
             return
         self._uvicorn_server.should_exit = True
@@ -116,6 +142,10 @@ class McpServerRuntime:
             self._thread.join(timeout=10)
             if self._thread.is_alive():
                 raise RuntimeError("Поток MCP runtime не остановился.")
+        if self._shutdown_complete is not True:
+            raise RuntimeError("Очистка MCP runtime не подтверждена.")
+        if self._reached_ready and self._startup_error is not None:
+            raise RuntimeError("MCP runtime завершился с ошибкой.")
         self._thread = None
         self._uvicorn_server = None
         self._log(logging.INFO, "mcp.stop.complete")
@@ -137,14 +167,49 @@ class McpServerRuntime:
                 self._startup_traceback,
             )
         finally:
-            pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.run_until_complete(loop.shutdown_default_executor())
-            loop.close()
+            try:
+                pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending:
+                    task.cancel()
+                task_cleanup_failed = False
+                if pending:
+                    results = loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+                    task_cleanup_failed = any(
+                        isinstance(result, BaseException)
+                        and not isinstance(result, asyncio.CancelledError)
+                        for result in results
+                    )
+                # asyncio reports async-generator close errors through the loop
+                # exception handler instead of raising from shutdown_asyncgens.
+                asyncgen_cleanup_failed = False
+                previous_handler = loop.get_exception_handler()
+
+                def record_asyncgen_error(active_loop, context):
+                    nonlocal asyncgen_cleanup_failed
+                    if "asyncgen" in context:
+                        asyncgen_cleanup_failed = True
+                    if previous_handler is None:
+                        active_loop.default_exception_handler(context)
+                    else:
+                        previous_handler(active_loop, context)
+
+                loop.set_exception_handler(record_asyncgen_error)
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                finally:
+                    loop.set_exception_handler(previous_handler)
+                loop.run_until_complete(loop.shutdown_default_executor())
+                loop.close()
+                if task_cleanup_failed or asyncgen_cleanup_failed:
+                    raise RuntimeError("MCP runtime task cleanup failed")
+            except BaseException as exc:  # noqa: BLE001 - retain shutdown failure for stop().
+                if self._startup_error is None:
+                    self._startup_error = exc
+                    self._startup_traceback = traceback.format_exc()
+            else:
+                self._shutdown_complete = True
 
     def _wait_until_port_is_bound(self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS) -> None:
         timeout_seconds = _normalize_startup_timeout(timeout_seconds)
