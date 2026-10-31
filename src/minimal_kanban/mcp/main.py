@@ -4,6 +4,7 @@ import os
 import signal
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from ..agent.bootstrap import start_embedded_agent_runtime
@@ -27,6 +28,7 @@ from ..services.card_service import CardService
 from ..settings_service import SettingsService
 from ..settings_store import SettingsStore
 from ..storage.json_store import JsonStore
+from .backup_drain import BackupDrain, controlled_wait
 from .client import BoardApiClient, BoardApiTransportError, discover_board_api
 from .runtime import McpServerRuntime
 from .server import create_mcp_server
@@ -75,11 +77,12 @@ def _runtime_bind_host(configured_host: str | None, *, env_explicit: bool) -> st
     return host
 
 
-def _stop_embedded_api(api_server: ApiServer) -> None:
+def _stop_embedded_api(api_server: ApiServer, backup_owner=None) -> None:
     # Keep the admission gate closed after stop: previously accepted idle
     # connections may still dispatch a request after the listener closes.
-    owner = object()
-    api_server.begin_request_drain(owner)
+    owner = backup_owner if backup_owner is not None else object()
+    if backup_owner is None:
+        api_server.begin_request_drain(owner)
     if not api_server.wait_request_drain(owner, 10):
         raise RuntimeError("API request drain timed out")
     api_server.stop()
@@ -92,6 +95,7 @@ def _cleanup_mcp_main_resources(
     embedded_api_server: ApiServer | None,
     logger: Any,
     embedded_store: JsonStore | None = None,
+    backup_drain: BackupDrain | None = None,
 ) -> None:
     callbacks: list[tuple[str, Callable[[], Any]]] = []
     if mcp_runtime is not None:
@@ -99,7 +103,8 @@ def _cleanup_mcp_main_resources(
     if embedded_agent_control is not None:
         callbacks.append(("embedded_agent", embedded_agent_control.close))
     if embedded_api_server is not None:
-        callbacks.append(("embedded_api", lambda: _stop_embedded_api(embedded_api_server)))
+        owner = backup_drain.owner if backup_drain is not None and backup_drain.committed else None
+        callbacks.append(("embedded_api", lambda: _stop_embedded_api(embedded_api_server, owner)))
     if embedded_store is not None:
         callbacks.append(("embedded_store", embedded_store.close))
     callbacks.append(("logger", lambda: close_logger(logger)))
@@ -281,6 +286,7 @@ def run() -> int:
     embedded_api_server: ApiServer | None = None
     embedded_agent_control = None
     mcp_runtime: McpServerRuntime | None = None
+    backup_drain: BackupDrain | None = None
     embedded_ownership: dict[str, Any | None] = {
         "api_server": None,
         "agent_control": None,
@@ -364,7 +370,23 @@ def run() -> int:
             return 1
 
         stop_requested = _install_mcp_stop_handlers()
-        _wait_for_mcp_shutdown(stop_requested)
+        if os.environ.get("AUTOSTOP_CRM_BACKUP_CONTROL") == "1":
+            try:
+                backup_drain = BackupDrain(
+                    mcp_runtime,
+                    embedded_ownership["agent_control"],
+                    embedded_ownership["api_server"],
+                )
+                controlled_wait(
+                    stop_requested, backup_drain, Path.home() / ".crm-backup-status.json"
+                )
+            except Exception:
+                logger.exception("mcp.backup_control_unavailable")
+                # After COMMIT an outstanding Docker stop cannot be cancelled
+                # safely, so keep the gates closed until process termination.
+                _wait_for_mcp_shutdown(stop_requested)
+        else:
+            _wait_for_mcp_shutdown(stop_requested)
 
         return 0
     finally:
@@ -374,6 +396,7 @@ def run() -> int:
             embedded_api_server=embedded_ownership["api_server"],
             logger=logger,
             embedded_store=embedded_ownership["store"],
+            backup_drain=backup_drain,
         )
 
 

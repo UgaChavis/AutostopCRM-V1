@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import math
+import os
 import socket
 import threading
 import time
 import traceback
+from importlib.metadata import version
 from logging import Logger
 
 import httpx
@@ -14,6 +17,7 @@ import uvicorn
 from mcp.server.fastmcp import FastMCP
 
 from ..logging_setup import configure_mcp_startup_logger
+from .backup_admission import McpAdmission, TrackedExecutor
 
 _READY_HTTP_STATUSES = {200, 204, 307, 308, 400, 401, 403, 405, 406}
 _STARTUP_TIMEOUT_SECONDS = 30.0
@@ -53,6 +57,10 @@ class McpServerRuntime:
         # a started thread has not completed every cleanup step successfully.
         self._shutdown_complete: bool | None = None
         self._reached_ready = False
+        self.backup_admission: McpAdmission | None = None
+        self._backup_executor: TrackedExecutor | None = None
+        self._backup_app = None
+        self._backup_tool_fingerprint = None
         self.logging_mode = "unconfigured"
         self.host = str(server.settings.host or "127.0.0.1").strip() or "127.0.0.1"
         self.port = int(server.settings.port)
@@ -98,7 +106,20 @@ class McpServerRuntime:
             self.logging_mode,
         )
 
-        app = self._server.streamable_http_app()
+        self._backup_app = self._server.streamable_http_app()
+        standalone_sse = False
+        if os.environ.get("AUTOSTOP_CRM_BACKUP_CONTROL") == "1":
+            routes = [r for r in self._backup_app.routes if getattr(r, "path", None) == self.path]
+            standalone_sse = (
+                getattr(self._server, "_event_store", None) is None
+                and len(routes) == 1
+                and type(routes[0].endpoint).__module__ == "mcp.server.fastmcp.server"
+                and type(routes[0].endpoint).__name__ == "StreamableHTTPASGIApp"
+            )
+        app = McpAdmission(self._backup_app, self.path, standalone_sse)
+        if os.environ.get("AUTOSTOP_CRM_BACKUP_CONTROL") == "1":
+            self._backup_tool_fingerprint = app.wrap_tools(self._server)
+        self.backup_admission = app
         config = uvicorn.Config(
             app=app,
             host=self.host,
@@ -156,6 +177,8 @@ class McpServerRuntime:
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
+            self._backup_executor = TrackedExecutor()
+            loop.set_default_executor(self._backup_executor)
             loop.run_until_complete(self._uvicorn_server.serve())
         except BaseException as exc:  # pragma: no cover - thread safety path
             self._startup_error = exc
@@ -221,6 +244,58 @@ class McpServerRuntime:
                     self._startup_traceback = traceback.format_exc()
             else:
                 self._shutdown_complete = True
+
+    def backup_workers_idle(self) -> bool:
+        """Inspect actual local worker completion after MCP admission is closed."""
+        executor = self._backup_executor
+        if executor is None or executor.pending:
+            return False
+        tools = getattr(getattr(self._server, "_tool_manager", None), "_tools", None)
+        if not isinstance(tools, dict) or self._backup_tool_fingerprint is None:
+            return False
+        if {
+            name: (id(tool), id(tool.fn)) for name, tool in tools.items()
+        } != self._backup_tool_fingerprint:
+            return False
+        tool_executor = getattr(self._server, "_backup_tool_executor", None)
+        if tool_executor is not None and tool_executor._workers:
+            return False
+        manager = getattr(self._server, "store_workers", None)
+        if manager is not None:
+            status = manager.status()
+            if not all(
+                status["pending"].get(kind) == 0 for kind in ("read", "stateful", "transport")
+            ):
+                return False
+        try:
+            expected = {
+                "mcp": "1.28.1",
+                "uvicorn": "0.54.0",
+                "starlette": "1.10.0",
+                "anyio": "4.15.1",
+            }
+            if any(
+                version(package) != expected_version
+                for package, expected_version in expected.items()
+            ):
+                return False
+            resources = self._server._resource_manager
+            if (
+                resources._resources
+                or resources._templates
+                or self._server._prompt_manager._prompts
+            ):
+                return False
+            for route in self._backup_app.routes:
+                endpoint = route.endpoint
+                if not (
+                    inspect.iscoroutinefunction(endpoint)
+                    or inspect.iscoroutinefunction(endpoint.__call__)
+                ):
+                    return False
+            return True
+        except Exception:
+            return False
 
     def _wait_until_port_is_bound(self, timeout_seconds: float = _STARTUP_TIMEOUT_SECONDS) -> None:
         timeout_seconds = _normalize_startup_timeout(timeout_seconds)

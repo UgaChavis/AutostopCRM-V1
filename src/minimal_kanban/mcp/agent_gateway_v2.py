@@ -306,6 +306,8 @@ def register_agent_gateway_v2(
             )
         return set()
     executor = ToolExecutor()
+    # Retain the owner: shielded tasks may outlive their HTTP requester.
+    server._backup_tool_executor = executor
     executor.prepare_tools(tools.values())
     if not policy.gateway_enabled:
         if policy.production:
