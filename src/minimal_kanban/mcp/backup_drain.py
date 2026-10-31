@@ -76,13 +76,14 @@ def controlled_wait(
 ):
     """Optional Linux-only pre-stop using host signals and a private receipt.
 
-    USR1 prepares; USR2 commits; HUP aborts only before commit. A committed
-    drain is never reopened on timeout or disconnect: the host stop worker must
-    own the unknown Docker-stop outcome. Host writers remain a separate concern.
+    USR1 prepares; USR2 commits only an attempt-bound private request; HUP
+    aborts only before commit. A committed drain is never reopened on timeout
+    or disconnect. Host writers remain a separate concern.
     """
     import json
     import os
     import signal
+    import stat
     import tempfile
     import uuid
     from pathlib import Path
@@ -100,6 +101,37 @@ def controlled_wait(
     # /proc stat comm may contain spaces or parentheses; field 22 is starttime.
     start_ticks = int(Path("/proc/self/stat").read_text().rsplit(")", 1)[1].split()[19])
     old_handlers = {}
+    command_path = directory / ".crm-backup-command.json"
+
+    def commit_requested_for_this_attempt():
+        expected = {
+            "operation": "commit",
+            "generation": generation,
+            "attempt": attempt,
+            "pid": os.getpid(),
+            "start_ticks": start_ticks,
+        }
+        try:
+            fd = os.open(command_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as source:
+                metadata = os.fstat(source.fileno())
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size > 4096
+                ):
+                    return False
+                payload = source.read(4097)
+            pairs = json.loads(payload, object_pairs_hook=lambda items: items)
+            if not isinstance(pairs, list) or len(pairs) != len(expected):
+                return False
+            result = dict(pairs)
+            return result == expected and all(
+                type(result[key]) is type(value) for key, value in expected.items()
+            )
+        except (OSError, ValueError, TypeError, UnicodeError):
+            return False
 
     def write_status(state):
         data = {
@@ -160,7 +192,12 @@ def controlled_wait(
                     write_status("aborted")
             if requested["commit"]:
                 requested["commit"] = False
-                if drain.ready and not drain.committed and time.monotonic() < lease_deadline:
+                if (
+                    drain.ready
+                    and not drain.committed
+                    and time.monotonic() < lease_deadline
+                    and commit_requested_for_this_attempt()
+                ):
                     drain.commit()
                     write_status("committed")
             if drain.ready and not drain.committed and time.monotonic() >= lease_deadline:

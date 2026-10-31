@@ -38,6 +38,16 @@ class FakeMcp:
         return self.workers_idle
 
 
+def write_commit_request(status_path, receipt):
+    request = {key: receipt[key] for key in ("generation", "attempt", "pid", "start_ticks")}
+    request["operation"] = "commit"
+    with tempfile.NamedTemporaryFile(mode="w", dir=status_path.parent, delete=False) as output:
+        json.dump(request, output)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(output.name, status_path.parent / ".crm-backup-command.json")
+
+
 class BackupPredrainTests(unittest.TestCase):
     def setUp(self):
         self.mcp = FakeMcp()
@@ -489,6 +499,7 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                 self.assertNotEqual(idle["generation"], again["generation"])
                 os.kill(proc.pid, signal.SIGUSR1)
                 ready = wait_state("ready")
+                write_commit_request(status, ready)
                 os.kill(proc.pid, signal.SIGUSR2)
                 committed = wait_state("committed")
                 self.assertEqual(
@@ -534,20 +545,82 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
             def wait_state(expected):
                 end = time.monotonic() + 4
                 while time.monotonic() < end:
-                    if status.exists() and json.loads(status.read_text())["state"] == expected:
-                        return
+                    if status.exists():
+                        data = json.loads(status.read_text())
+                        if data["state"] == expected:
+                            return data
                     time.sleep(0.02)
                 self.fail("expected state not reached: " + expected)
 
             try:
                 wait_state("idle")
                 os.kill(proc.pid, signal.SIGUSR1)
-                wait_state("ready")
+                ready = wait_state("ready")
+                write_commit_request(status, ready)
                 os.kill(proc.pid, signal.SIGUSR2)
                 wait_state("committed")
                 os.kill(proc.pid, signal.SIGHUP)
                 time.sleep(0.2)
                 self.assertIsNone(proc.poll())
+                os.kill(proc.pid, signal.SIGTERM)
+                self.assertEqual(proc.wait(4), 0)
+                self.assertFalse(json.loads(final.read_text())["open"])
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                    proc.wait(4)
+
+    def test_delayed_commit_signal_cannot_commit_next_attempt(self):
+        program = """
+import json, signal, sys
+from types import SimpleNamespace
+from minimal_kanban.api.request_admission import ApiRequestAdmission
+from minimal_kanban.mcp.backup_drain import BackupDrain, controlled_wait
+mcp=SimpleNamespace(backup_admission=SimpleNamespace(requests=ApiRequestAdmission(), tools=ApiRequestAdmission(), close_idle_sse=lambda: None), backup_workers_idle=lambda: True)
+agent=SimpleNamespace(backup_admission=ApiRequestAdmission())
+api=SimpleNamespace(_request_admission=ApiRequestAdmission())
+stop=[False]
+signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__(0, True))
+controlled_wait(stop,BackupDrain(mcp,agent,api),sys.argv[1],prepare_timeout=1,lease_timeout=3)
+with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.requests.enter()},out)
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            status, final = Path(temp) / "status", Path(temp) / "final"
+            proc = subprocess.Popen([sys.executable, "-c", program, str(status), str(final)])
+
+            def wait_state(expected):
+                end = time.monotonic() + 4
+                while time.monotonic() < end:
+                    if status.exists():
+                        data = json.loads(status.read_text())
+                        if data["state"] == expected:
+                            return data
+                    time.sleep(0.02)
+                self.fail("expected state not reached: " + expected)
+
+            try:
+                wait_state("idle")
+                os.kill(proc.pid, signal.SIGUSR1)
+                first = wait_state("ready")
+                write_commit_request(status, first)
+                os.kill(proc.pid, signal.SIGHUP)
+                wait_state("aborted")
+                os.kill(proc.pid, signal.SIGUSR1)
+                second = wait_state("ready")
+                self.assertNotEqual(first["attempt"], second["attempt"])
+                os.kill(proc.pid, signal.SIGUSR2)
+                time.sleep(0.25)
+                self.assertEqual(json.loads(status.read_text()), second)
+                write_commit_request(status, second)
+                command_path = status.parent / ".crm-backup-command.json"
+                command_path.chmod(0o644)
+                os.kill(proc.pid, signal.SIGUSR2)
+                time.sleep(0.25)
+                self.assertEqual(json.loads(status.read_text()), second)
+                command_path.chmod(0o600)
+                os.kill(proc.pid, signal.SIGUSR2)
+                committed = wait_state("committed")
+                self.assertEqual(committed["attempt"], second["attempt"])
                 os.kill(proc.pid, signal.SIGTERM)
                 self.assertEqual(proc.wait(4), 0)
                 self.assertFalse(json.loads(final.read_text())["open"])
