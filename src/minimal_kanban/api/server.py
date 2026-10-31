@@ -14,7 +14,7 @@ import unicodedata
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from functools import cache, wraps
+from functools import cache
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging import Logger
@@ -87,6 +87,7 @@ from .infrastructure_pages import (
 )
 from .manager_structure_routes import build_manager_structure_routes
 from .request_admission import ApiRequestAdmission
+from .request_admission import admitted as _admitted
 from .request_query import BOOLEAN_QUERY_KEYS
 from .route_registry import (
     EMPLOYEES_READ_PERMISSION_ROUTES,
@@ -1750,20 +1751,6 @@ class JsonRouteDispatcher:
                     "На сервере произошла непредвиденная ошибка.",
                     server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
                 )
-
-
-def _admitted(method):
-    @wraps(method)
-    def handle(self):
-        if not self.REQUEST_ADMISSION.enter():
-            self.close_connection = True
-            return
-        try:
-            return method(self)
-        finally:
-            self.REQUEST_ADMISSION.leave()
-
-    return handle
 
 
 class _ApiRequestHandler(BaseHTTPRequestHandler):

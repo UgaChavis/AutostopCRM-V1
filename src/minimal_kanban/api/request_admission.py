@@ -2,6 +2,23 @@ from __future__ import annotations
 
 import math
 import threading
+from functools import wraps
+
+
+def admitted(method):
+    """Count a dispatched handler until it finishes, or reject it during drain."""
+
+    @wraps(method)
+    def handle(self):
+        if not self.REQUEST_ADMISSION.enter():
+            self.close_connection = True
+            return
+        try:
+            return method(self)
+        finally:
+            self.REQUEST_ADMISSION.leave()
+
+    return handle
 
 
 class ApiRequestAdmission:
