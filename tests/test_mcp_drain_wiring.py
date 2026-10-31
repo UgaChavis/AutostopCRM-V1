@@ -67,6 +67,10 @@ class McpDrainWiringTests(unittest.IsolatedAsyncioTestCase):
 
     def test_handles_cannot_be_reused_for_a_second_server(self) -> None:
         handles = ExperimentalMcpDrain()
+        with self.assertRaises(AttributeError):
+            handles.calls = object()
+        with self.assertRaises(AttributeError):
+            handles.executor = object()
         handles.bind_once()
         with self.assertRaisesRegex(RuntimeError, "already_bound"):
             handles.bind_once()

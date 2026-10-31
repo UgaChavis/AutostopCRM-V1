@@ -15,10 +15,18 @@ class ExperimentalMcpDrain:
     """
 
     def __init__(self) -> None:
-        self.calls = McpCallAdmission()
-        self.executor = ToolExecutor()
+        self._calls = McpCallAdmission()
+        self._executor = ToolExecutor()
         self._lock = threading.Lock()
         self._bound = False
+
+    @property
+    def calls(self) -> McpCallAdmission:
+        return self._calls
+
+    @property
+    def executor(self) -> ToolExecutor:
+        return self._executor
 
     def bind_once(self) -> None:
         with self._lock:
