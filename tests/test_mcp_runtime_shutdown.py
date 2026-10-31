@@ -15,10 +15,12 @@ from minimal_kanban.mcp.runtime import McpServerRuntime  # noqa: E402
 
 
 class McpRuntimeShutdownTests(unittest.TestCase):
-    def runtime(self, server):
+    def runtime(self, server, manager_workers=None):
         app = SimpleNamespace(
             settings=SimpleNamespace(host="127.0.0.1", port=1, streamable_http_path="/mcp")
         )
+        if manager_workers is not None:
+            app.store_workers = manager_workers
         runtime = McpServerRuntime(app, logging.getLogger(__name__))
         runtime._uvicorn_server = server
         runtime._shutdown_complete = False
@@ -72,6 +74,74 @@ class McpRuntimeShutdownTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(failures, [])
         self.assertTrue(runtime._shutdown_complete)
+
+    def test_stop_waits_for_manager_workers_and_closes_them(self):
+        began = threading.Event()
+        release = threading.Event()
+        returned = threading.Event()
+        errors = []
+
+        class Workers:
+            closed = False
+
+            async def drain(self, timeout):
+                began.set()
+                while not release.is_set():
+                    await asyncio.sleep(0.005)
+                return {"ok": True}
+
+            def close(self):
+                self.closed = True
+
+        class Server:
+            should_exit = False
+
+            async def serve(self):
+                while not self.should_exit:
+                    await asyncio.sleep(0.005)
+
+        workers = Workers()
+        runtime = self.runtime(Server(), workers)
+
+        def stop():
+            try:
+                runtime.stop()
+            except BaseException as error:  # noqa: BLE001 - propagate test worker failure.
+                errors.append(error)
+            finally:
+                returned.set()
+
+        thread = threading.Thread(target=stop)
+        try:
+            thread.start()
+            self.assertTrue(began.wait(2))
+            self.assertFalse(returned.wait(0.1))
+        finally:
+            release.set()
+            thread.join(5)
+        self.assertEqual(errors, [])
+        self.assertTrue(returned.is_set())
+        self.assertTrue(workers.closed)
+
+    def test_manager_worker_drain_failure_is_not_a_clean_stop(self):
+        class Workers:
+            async def drain(self, timeout):
+                return {"ok": False}
+
+            def close(self):
+                raise AssertionError("incomplete workers must not be closed")
+
+        class Server:
+            should_exit = False
+
+            async def serve(self):
+                return None
+
+        runtime = self.runtime(Server(), Workers())
+        runtime._thread.join(5)
+        with self.assertRaisesRegex(RuntimeError, "Очистка"):
+            runtime.stop()
+        self.assertFalse(runtime._shutdown_complete)
 
     def test_serve_exception_never_reports_successful_stop(self):
         class Server:

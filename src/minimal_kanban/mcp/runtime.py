@@ -201,6 +201,17 @@ class McpServerRuntime:
                 finally:
                     loop.set_exception_handler(previous_handler)
                 loop.run_until_complete(loop.shutdown_default_executor())
+                # Manager adapter calls can outlive the MCP request that
+                # started them. They have their own pools and are not part
+                # of asyncio's default executor. Close their admission and
+                # wait for actual adapter and transport completion while the
+                # embedded API is still running.
+                manager_workers = getattr(self._server, "store_workers", None)
+                if manager_workers is not None:
+                    report = loop.run_until_complete(manager_workers.drain(10))
+                    if report.get("ok") is not True:
+                        raise RuntimeError("Manager MCP worker drain incomplete")
+                    manager_workers.close()
                 loop.close()
                 if task_cleanup_failed or asyncgen_cleanup_failed:
                     raise RuntimeError("MCP runtime task cleanup failed")

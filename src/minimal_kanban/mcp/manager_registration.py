@@ -111,6 +111,17 @@ def _try_register_autostop_manager_tools(server: FastMCP, logger: Logger) -> Non
         return
     _validate_autostop_manager_registrar(registrar)
 
+    # The selected Manager registrar uses this per-server owner for its
+    # stateful adapter and nested transport threads. Without it, callbacks
+    # fall back to process-global pools that MCP shutdown cannot drain.
+    try:
+        from autostop_manager.mcp_store_executor import StoreWorkers
+    except ImportError as exc:
+        raise AutostopManagerCompatibilityError(
+            "AutostopManager does not provide drainable MCP workers."
+        ) from exc
+    server.store_workers = StoreWorkers()
+
     registrar(server, include_tools=MANAGER_GATEWAY_DEPENDENCY_NAMES)
     tools = getattr(getattr(server, "_tool_manager", None), "_tools", {})
     missing = MANAGER_GATEWAY_DEPENDENCY_NAMES - set(tools)

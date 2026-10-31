@@ -360,6 +360,12 @@ class McpRegistrationContractTests(unittest.TestCase):
     ) -> None:
         manager_package = types.ModuleType("autostop_manager")
         manager_tools = types.ModuleType("autostop_manager.mcp_tools")
+        manager_workers = types.ModuleType("autostop_manager.mcp_store_executor")
+
+        class Workers:
+            pass
+
+        manager_workers.StoreWorkers = Workers
 
         def register_manager_memory_tools(
             server: FastMCP,
@@ -367,6 +373,7 @@ class McpRegistrationContractTests(unittest.TestCase):
             include_tools: frozenset[str],
         ) -> None:
             self.assertEqual(MANAGER_GATEWAY_DEPENDENCY_NAMES, frozenset(include_tools))
+            self.assertIsInstance(server.store_workers, Workers)
 
             def build_manager_tool(tool_name: str) -> Callable[[str], dict[str, str]]:
                 def manager_tool(value: str = "") -> dict[str, str]:
@@ -387,6 +394,7 @@ class McpRegistrationContractTests(unittest.TestCase):
                 {
                     "autostop_manager": manager_package,
                     "autostop_manager.mcp_tools": manager_tools,
+                    "autostop_manager.mcp_store_executor": manager_workers,
                 },
             ),
         ):
