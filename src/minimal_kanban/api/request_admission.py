@@ -27,12 +27,13 @@ class ApiRequestAdmission:
             if self._active == 0:
                 self._condition.notify_all()
 
-    def begin_drain(self) -> object:
+    def begin_drain(self, owner: object) -> None:
+        if owner is None:
+            raise ValueError("api_request_drain_owner_required")
         with self._condition:
             if self._owner is not None:
                 raise RuntimeError("api_request_drain_already_active")
-            self._owner = object()
-            return self._owner
+            self._owner = owner
 
     def wait_drained(self, owner: object, timeout: float) -> bool:
         if not math.isfinite(timeout) or timeout < 0:
@@ -48,6 +49,15 @@ class ApiRequestAdmission:
             self._require_owner(owner)
             self._owner = None
             self._condition.notify_all()
+
+    def resume_if_owned(self, owner: object) -> bool:
+        """Release only this caller's drain, including after an interrupted begin."""
+        with self._condition:
+            if self._owner is None or self._owner is not owner:
+                return False
+            self._owner = None
+            self._condition.notify_all()
+            return True
 
     def _require_owner(self, owner: object) -> None:
         if self._owner is None or self._owner is not owner:

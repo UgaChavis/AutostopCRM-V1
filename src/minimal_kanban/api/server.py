@@ -14,7 +14,7 @@ import unicodedata
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from functools import cache
+from functools import cache, wraps
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from logging import Logger
@@ -1752,25 +1752,29 @@ class JsonRouteDispatcher:
                 )
 
 
+def _admitted(method):
+    @wraps(method)
+    def handle(self):
+        if not self.REQUEST_ADMISSION.enter():
+            self.close_connection = True
+            return
+        try:
+            return method(self)
+        finally:
+            self.REQUEST_ADMISSION.leave()
+
+    return handle
+
+
 class _ApiRequestHandler(BaseHTTPRequestHandler):
     """Thin stdlib transport adapter; runtime collaborators live on each subclass."""
 
     REQUEST_ADMISSION: ApiRequestAdmission
 
-    def handle_one_request(self) -> None:
-        if not self.REQUEST_ADMISSION.enter():
-            # The request line may not have arrived yet. Close the connection;
-            # do not parse or dispatch an operation after the fence closes.
-            self.close_connection = True
-            return
-        try:
-            super().handle_one_request()
-        finally:
-            self.REQUEST_ADMISSION.leave()
-
     server_version = "MinimalKanbanAPI/1.0"
     sys_version = ""
 
+    @_admitted
     def do_OPTIONS(self) -> None:
         if self.headers.get("Origin") and not self._cors_allowed_origin():
             self.send_response(HTTPStatus.FORBIDDEN)
@@ -1779,6 +1783,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.NO_CONTENT)
         self._send_headers("application/json", 0)
 
+    @_admitted
     def do_HEAD(self) -> None:
         request_id = str(uuid.uuid4())
         parsed = _request_target_parts(self.path)
@@ -1795,6 +1800,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_IMPLEMENTED, "Unsupported method ('HEAD')")
 
+    @_admitted
     def do_GET(self) -> None:
         request_id = str(uuid.uuid4())
         parsed = _request_target_parts(self.path)
@@ -1822,6 +1828,7 @@ class _ApiRequestHandler(BaseHTTPRequestHandler):
             return
         self._not_found(request_id)
 
+    @_admitted
     def do_POST(self) -> None:
         request_id = str(uuid.uuid4())
         if self.headers.get("Origin") and not self._cors_allowed_origin():
@@ -2169,18 +2176,21 @@ class ApiServer:
             display_host = f"[{display_host}]"
         return f"http://{display_host}:{self.port}"
 
-    def begin_request_drain(self) -> object:
+    def begin_request_drain(self, owner: object) -> None:
         """Close API admission; the caller must resume it in a finally block.
 
         This does not fence MCP, background work, or other processes.
         """
-        return self._request_admission.begin_drain()
+        self._request_admission.begin_drain(owner)
 
     def wait_request_drain(self, owner: object, timeout: float) -> bool:
         return self._request_admission.wait_drained(owner, timeout)
 
     def resume_requests(self, owner: object) -> None:
         self._request_admission.resume(owner)
+
+    def resume_requests_if_owned(self, owner: object) -> bool:
+        return self._request_admission.resume_if_owned(owner)
 
     def start(self) -> None:
         if self._server is not None:

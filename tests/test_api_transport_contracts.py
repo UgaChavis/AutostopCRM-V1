@@ -139,7 +139,8 @@ class ApiTransportContractTests(unittest.TestCase):
         self.assertEqual("validation_error", payload["error"]["code"])
 
     def test_request_drain_fences_the_real_api_until_its_owner_resumes(self) -> None:
-        owner = self.server.begin_request_drain()
+        owner = object()
+        self.server.begin_request_drain(owner)
         try:
             self.assertTrue(self.server.wait_request_drain(owner, 2))
             with self.assertRaises((OSError, http.client.RemoteDisconnected)):

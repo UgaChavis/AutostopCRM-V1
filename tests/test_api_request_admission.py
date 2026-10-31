@@ -6,9 +6,8 @@ import socket
 import sys
 import threading
 import unittest
-from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -17,6 +16,7 @@ from minimal_kanban.api.request_admission import ApiRequestAdmission  # noqa: E4
 from minimal_kanban.api.server import (  # noqa: E402
     ApiServer,
     ReusableThreadingHTTPServer,
+    _admitted,
     _ApiRequestHandler,
 )
 
@@ -25,11 +25,12 @@ class ApiAdmissionTests(unittest.TestCase):
     def test_owner_and_timed_out_drain_are_fail_closed(self) -> None:
         admission = ApiRequestAdmission()
         self.assertTrue(admission.enter())
-        owner = admission.begin_drain()
+        owner = object()
+        admission.begin_drain(owner)
         self.assertFalse(admission.enter())
         self.assertFalse(admission.wait_drained(owner, 0))
         with self.assertRaisesRegex(RuntimeError, "already_active"):
-            admission.begin_drain()
+            admission.begin_drain(object())
         with self.assertRaisesRegex(RuntimeError, "ownership_lost"):
             admission.resume(object())
         admission.leave()
@@ -42,7 +43,8 @@ class ApiAdmissionTests(unittest.TestCase):
 
     def test_invalid_timeout_does_not_open_the_fence(self) -> None:
         admission = ApiRequestAdmission()
-        owner = admission.begin_drain()
+        owner = object()
+        admission.begin_drain(owner)
         for timeout in (-1, float("inf"), float("nan")):
             with self.assertRaises(ValueError):
                 admission.wait_drained(owner, timeout)
@@ -59,6 +61,7 @@ class ApiAdmissionTests(unittest.TestCase):
         class Handler(_ApiRequestHandler):
             REQUEST_ADMISSION = gate
 
+            @_admitted
             def do_GET(self) -> None:
                 calls.append("started")
                 started.set()
@@ -93,7 +96,8 @@ class ApiAdmissionTests(unittest.TestCase):
         worker = threading.Thread(target=request)
         worker.start()
         self.assertTrue(started.wait(2))
-        owner = api.begin_request_drain()
+        owner = object()
+        api.begin_request_drain(owner)
         still_held = [True]
 
         def release_if_held() -> None:
@@ -129,16 +133,62 @@ class ApiAdmissionTests(unittest.TestCase):
         admission = ApiRequestAdmission()
         handler = object.__new__(_ApiRequestHandler)
         handler.REQUEST_ADMISSION = admission
-        with patch.object(
-            BaseHTTPRequestHandler,
-            "handle_one_request",
-            side_effect=ValueError("synthetic failure"),
-        ):
-            with self.assertRaises(ValueError):
-                handler.handle_one_request()
-        owner = admission.begin_drain()
+
+        @_admitted
+        def fail(_handler):
+            raise ValueError("synthetic failure")
+
+        with self.assertRaises(ValueError):
+            fail(handler)
+        owner = object()
+        admission.begin_drain(owner)
         self.assertTrue(admission.wait_drained(owner, 0))
         admission.resume(owner)
+
+    def test_idle_socket_does_not_prevent_drain(self) -> None:
+        gate = ApiRequestAdmission()
+        accepted = threading.Event()
+
+        class Handler(_ApiRequestHandler):
+            REQUEST_ADMISSION = gate
+
+        class Server(ReusableThreadingHTTPServer):
+            def process_request(self, request, client_address):
+                accepted.set()
+                return super().process_request(request, client_address)
+
+        server = Server(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with socket.create_connection(server.server_address, timeout=2) as client:
+            self.assertTrue(accepted.wait(2))
+            owner = object()
+            gate.begin_drain(owner)
+            try:
+                self.assertTrue(gate.wait_drained(owner, 0))
+                client.settimeout(2)
+                try:
+                    client.sendall(b"GET / HTTP/1.0\r\n\r\n")
+                    self.assertEqual(b"", client.recv(1))
+                except ConnectionResetError:
+                    pass
+            finally:
+                gate.resume(owner)
+
+    def test_interrupted_begin_can_release_only_its_preselected_owner(self) -> None:
+        admission = ApiRequestAdmission()
+        owner = object()
+        with self.assertRaises(KeyboardInterrupt):
+            try:
+                admission.begin_drain(owner)
+                raise KeyboardInterrupt
+            finally:
+                self.assertFalse(admission.resume_if_owned(object()))
+                self.assertTrue(admission.resume_if_owned(owner))
+        self.assertTrue(admission.enter())
+        admission.leave()
 
 
 if __name__ == "__main__":
