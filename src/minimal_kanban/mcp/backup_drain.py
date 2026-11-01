@@ -158,6 +158,35 @@ def controlled_wait(
             if os.path.exists(name):
                 os.unlink(name)
 
+    def ready_receipt_is_unchanged():
+        expected = {
+            "pid": os.getpid(),
+            "start_ticks": start_ticks,
+            "generation": generation,
+            "attempt": attempt,
+            "state": "ready",
+        }
+        try:
+            fd = os.open(status_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+            with os.fdopen(fd, "rb") as source:
+                metadata = os.fstat(source.fileno())
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or metadata.st_size > 4096
+                ):
+                    return False
+                payload = source.read(4097)
+            if len(payload) > 4096:
+                return False
+            value = json.loads(payload)
+            return value == expected and all(
+                type(value[key]) is type(item) for key, item in expected.items()
+            )
+        except (OSError, ValueError, TypeError, UnicodeError):
+            return False
+
     def set_flag(name):
         def handler(_signum, _frame):
             requested[name] = True
@@ -204,6 +233,14 @@ def controlled_wait(
                 drain.abort()
                 write_status("aborted")
             time.sleep(0.1)
+    except BaseException:
+        if drain.committed and ready_receipt_is_unchanged():
+            # COMMIT was never published, so no controller can have sent stop.
+            # Keep gates closed and let normal cleanup/restart restore service.
+            # If the receipt is COMMITTED or unknown, retain the TERM wait:
+            # an in-flight Docker stop must not target a restarted generation.
+            stop_requested[0] = True
+        raise
     finally:
         if drain.committed:
             # A committed receipt may already have become visible even if its

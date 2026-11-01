@@ -561,7 +561,7 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                     proc.terminate()
                     proc.wait(4)
 
-    def test_visible_commit_survives_receipt_write_error(self):
+    def test_commit_receipt_write_error_keeps_gates_closed_until_safe_shutdown(self):
         program = """
 import json, os, signal, sys
 from types import SimpleNamespace
@@ -572,46 +572,82 @@ drain=BackupDrain(mcp, SimpleNamespace(backup_admission=ApiRequestAdmission()), 
 original=os.replace
 def replace_then_fail(source, target):
     state=json.load(open(source))['state']
+    if state=='committed':
+        if sys.argv[3]=='after': original(source,target)
+        raise OSError('synthetic commit receipt failure')
     original(source,target)
-    if state=='committed': raise OSError('synthetic failure after rename')
 os.replace=replace_then_fail
 stop=[False]
 signal.signal(signal.SIGTERM, lambda *_: stop.__setitem__(0, True))
 try: controlled_wait(stop,drain,sys.argv[1],prepare_timeout=1,lease_timeout=1)
 except OSError: pass
-with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.requests.enter()},out)
+with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.requests.enter(), 'stop_requested':stop[0], 'committed':drain.committed},out)
 """
-        with tempfile.TemporaryDirectory() as temp:
-            status, final = Path(temp) / "status", Path(temp) / "final"
-            proc = subprocess.Popen([sys.executable, "-c", program, str(status), str(final)])
+        for failure in ("before", "after"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                status, final = Path(temp) / "status", Path(temp) / "final"
 
-            def wait_state(expected):
-                end = time.monotonic() + 4
-                while time.monotonic() < end:
-                    if status.exists():
-                        data = json.loads(status.read_text())
-                        if data["state"] == expected:
-                            return data
-                    time.sleep(0.02)
-                self.fail("expected state not reached: " + expected)
+                def launch():
+                    return subprocess.Popen(
+                        [sys.executable, "-c", program, str(status), str(final), failure]
+                    )
 
-            try:
-                wait_state("idle")
-                os.kill(proc.pid, signal.SIGUSR1)
-                ready = wait_state("ready")
-                write_commit_request(status, ready)
-                os.kill(proc.pid, signal.SIGUSR2)
-                wait_state("committed")
-                os.kill(proc.pid, signal.SIGHUP)
-                time.sleep(0.2)
-                self.assertIsNone(proc.poll())
-                os.kill(proc.pid, signal.SIGTERM)
-                self.assertEqual(proc.wait(4), 0)
-                self.assertFalse(json.loads(final.read_text())["open"])
-            finally:
-                if proc.poll() is None:
-                    proc.terminate()
-                    proc.wait(4)
+                def wait_state(expected):
+                    end = time.monotonic() + 4
+                    while time.monotonic() < end:
+                        if status.exists():
+                            data = json.loads(status.read_text())
+                            if data["state"] == expected:
+                                return data
+                        time.sleep(0.02)
+                    self.fail("expected state not reached: " + expected)
+
+                proc = launch()
+                try:
+                    wait_state("idle")
+                    os.kill(proc.pid, signal.SIGUSR1)
+                    ready = wait_state("ready")
+                    write_commit_request(status, ready)
+                    os.kill(proc.pid, signal.SIGUSR2)
+                    if failure == "after":
+                        # Once COMMIT is visible a Docker stop may be in flight.
+                        # Keep the original process until its controller stops it.
+                        wait_state("committed")
+                        os.kill(proc.pid, signal.SIGHUP)
+                        time.sleep(0.2)
+                        self.assertIsNone(proc.poll())
+                        os.kill(proc.pid, signal.SIGTERM)
+                    # Unchanged READY needs no external TERM: no controller
+                    # could have observed COMMIT and sent a Docker stop.
+                    self.assertEqual(proc.wait(4), 0)
+                    self.assertEqual(
+                        json.loads(final.read_text()),
+                        {"open": False, "stop_requested": True, "committed": True},
+                    )
+                    self.assertEqual(
+                        json.loads(status.read_text())["state"],
+                        "ready" if failure == "before" else "committed",
+                    )
+                    final.unlink()
+                    proc = launch()
+                    again = wait_state("idle")
+                    self.assertNotEqual(again["generation"], ready["generation"])
+                    os.kill(proc.pid, signal.SIGUSR1)
+                    new_ready = wait_state("ready")
+                    # The old private command and a late signal cannot commit
+                    # the process restarted after its receipt write failed.
+                    os.kill(proc.pid, signal.SIGUSR2)
+                    time.sleep(0.2)
+                    self.assertEqual(json.loads(status.read_text()), new_ready)
+                    os.kill(proc.pid, signal.SIGHUP)
+                    wait_state("aborted")
+                    os.kill(proc.pid, signal.SIGTERM)
+                    self.assertEqual(proc.wait(4), 0)
+                    self.assertTrue(json.loads(final.read_text())["open"])
+                finally:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        proc.wait(4)
 
     def test_delayed_commit_signal_cannot_commit_next_attempt(self):
         program = """
