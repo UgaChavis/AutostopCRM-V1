@@ -117,6 +117,39 @@ class RuntimeSkipContractTests(unittest.TestCase):
             )
             self.assertEqual(len(unexpected_skips([(family(method), reason)], "win32")), 1)
 
+    def test_linux_backup_control_exclusions_require_exact_windows_cases(self):
+        from tests.runtime_skip_contract import WINDOWS_LINUX_BACKUP_CONTROL_CASES
+
+        reason = "Linux CRM backup control requires /proc and POSIX signals"
+        methods = {name: lambda self: None for name in WINDOWS_LINUX_BACKUP_CONTROL_CASES}
+        for module in ("test_backup_predrain", "tests.test_backup_predrain"):
+            family = type(
+                "BackupPredrainTests", (unittest.TestCase,), {"__module__": module, **methods}
+            )
+            for name in WINDOWS_LINUX_BACKUP_CONTROL_CASES:
+                test = family(name)
+                self.assertEqual(unexpected_skips([(test, reason)], "win32"), [])
+                self.assertEqual(len(unexpected_skips([(test, reason)], "linux")), 1)
+                self.assertEqual(len(unexpected_skips([(test, reason)], "darwin")), 1)
+                self.assertEqual(len(unexpected_skips([(test, reason + " changed")], "win32")), 1)
+        for module, family_name, method in (
+            ("unrelated", "BackupPredrainTests", next(iter(WINDOWS_LINUX_BACKUP_CONTROL_CASES))),
+            (
+                "test_backup_predrain",
+                "AnotherClass",
+                next(iter(WINDOWS_LINUX_BACKUP_CONTROL_CASES)),
+            ),
+            (
+                "test_backup_predrain",
+                "BackupPredrainTests",
+                "test_timeout_does_not_cancel_existing_writer_and_reopens",
+            ),
+        ):
+            family = type(
+                family_name, (unittest.TestCase,), {"__module__": module, method: lambda self: None}
+            )
+            self.assertEqual(len(unexpected_skips([(family(method), reason)], "win32")), 1)
+
     def test_known_native_skip_cannot_turn_an_actual_failure_into_success(self):
         result = unittest.TestResult()
         result.addSkip(self, "Windows job handle lifetime")

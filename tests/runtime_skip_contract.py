@@ -37,6 +37,14 @@ WINDOWS_LINUX_STORAGE_CASES = {
 WINDOWS_UNIX_SOCKET_CASES = frozenset(
     {"test_bounded_protocol_round_trip", "test_command_metadata_is_only_sent_in_protocol_envelope"}
 )
+WINDOWS_LINUX_BACKUP_CONTROL_CASES = frozenset(
+    {
+        "test_signal_lease_and_commit_survive_lost_controller",
+        "test_commit_receipt_write_error_keeps_gates_closed_until_safe_shutdown",
+        "test_delayed_commit_signal_cannot_commit_next_attempt",
+        "test_visible_ready_fsync_failure_revokes_receipt_and_ignores_late_commit",
+    }
+)
 LINUX_WINDOWS_SHARE_CASES = frozenset(
     {
         ("VerifiedWindowsFileTests", "test_native_handle_excludes_writes_and_rename"),
@@ -70,6 +78,14 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
             and type(test).__name__ == "AutomationControlClientTests"
             and getattr(test, "_testMethodName", None) in WINDOWS_UNIX_SOCKET_CASES
             and reason == "Unix-domain sockets are unavailable"
+        ):
+            continue
+        if (
+            platform == "win32"
+            and type(test).__module__.removeprefix("tests.") == "test_backup_predrain"
+            and type(test).__name__ == "BackupPredrainTests"
+            and getattr(test, "_testMethodName", None) in WINDOWS_LINUX_BACKUP_CONTROL_CASES
+            and reason == "Linux CRM backup control requires /proc and POSIX signals"
         ):
             continue
         if (

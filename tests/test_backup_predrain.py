@@ -33,6 +33,8 @@ REVIEWED_VERSIONS = {
     "starlette": "1.10.0",
     "anyio": "4.15.1",
 }
+LINUX_CONTROL_REASON = "Linux CRM backup control requires /proc and POSIX signals"
+linux_control_only = unittest.skipUnless(sys.platform.startswith("linux"), LINUX_CONTROL_REASON)
 
 
 class FakeMcp:
@@ -494,6 +496,7 @@ class BackupPredrainTests(unittest.TestCase):
         asyncio.run(scenario(401, b"text/event-stream"))
         asyncio.run(scenario(200, b"application/json"))
 
+    @linux_control_only
     def test_signal_lease_and_commit_survive_lost_controller(self):
         program = """
 import json, signal, sys
@@ -561,6 +564,7 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                     proc.terminate()
                     proc.wait(4)
 
+    @linux_control_only
     def test_commit_receipt_write_error_keeps_gates_closed_until_safe_shutdown(self):
         program = """
 import json, os, signal, sys
@@ -574,6 +578,8 @@ def replace_then_fail(source, target):
     state=json.load(open(source))['state']
     if state=='committed':
         if sys.argv[3]=='after': original(source,target)
+        if sys.argv[3]=='missing': os.unlink(target)
+        with open(sys.argv[2]+'.failure', 'w') as marker: marker.write('failed')
         raise OSError('synthetic commit receipt failure')
     original(source,target)
 os.replace=replace_then_fail
@@ -583,7 +589,7 @@ try: controlled_wait(stop,drain,sys.argv[1],prepare_timeout=1,lease_timeout=1)
 except OSError: pass
 with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.requests.enter(), 'stop_requested':stop[0], 'committed':drain.committed},out)
 """
-        for failure in ("before", "after"):
+        for failure in ("before", "after", "missing"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
                 status, final = Path(temp) / "status", Path(temp) / "final"
 
@@ -617,6 +623,17 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                         time.sleep(0.2)
                         self.assertIsNone(proc.poll())
                         os.kill(proc.pid, signal.SIGTERM)
+                    elif failure == "missing":
+                        marker = Path(str(final) + ".failure")
+                        end = time.monotonic() + 4
+                        while not marker.exists() and time.monotonic() < end:
+                            time.sleep(0.02)
+                        self.assertTrue(marker.exists())
+                        self.assertFalse(status.exists())
+                        os.kill(proc.pid, signal.SIGHUP)
+                        time.sleep(0.2)
+                        self.assertIsNone(proc.poll())
+                        os.kill(proc.pid, signal.SIGTERM)
                     # Unchanged READY needs no external TERM: no controller
                     # could have observed COMMIT and sent a Docker stop.
                     self.assertEqual(proc.wait(4), 0)
@@ -624,10 +641,11 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                         json.loads(final.read_text()),
                         {"open": False, "stop_requested": True, "committed": True},
                     )
-                    self.assertEqual(
-                        json.loads(status.read_text())["state"],
-                        "ready" if failure == "before" else "committed",
-                    )
+                    if failure != "missing":
+                        self.assertEqual(
+                            json.loads(status.read_text())["state"],
+                            "ready" if failure == "before" else "committed",
+                        )
                     final.unlink()
                     proc = launch()
                     again = wait_state("idle")
@@ -649,6 +667,7 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                         proc.terminate()
                         proc.wait(4)
 
+    @linux_control_only
     def test_delayed_commit_signal_cannot_commit_next_attempt(self):
         program = """
 import json, signal, sys
@@ -708,6 +727,7 @@ with open(sys.argv[2], 'w') as out: json.dump({'open':mcp.backup_admission.reque
                     proc.terminate()
                     proc.wait(4)
 
+    @linux_control_only
     def test_visible_ready_fsync_failure_revokes_receipt_and_ignores_late_commit(self):
         program = """
 import json, os, signal, stat, sys, time
