@@ -160,6 +160,23 @@ class CardDescriptionContractTests(CardServiceCase):
         self.assertIn("✅", compact_card["description_preview"])
         self.assertEqual(compact_card["description"], compact_card["description_preview"])
 
+    def test_compact_preview_normalizes_whitespace_and_preserves_redaction(self) -> None:
+        cases = (
+            ("\t **A**\u00a0\u2003++B++\r\nC \x1c D  ", "A B C D"),
+            ("X" * 479 + " \t \u00a0 Y", "X" * 479 + "…"),
+            (
+                "VIN:12345678901234567\t+7 999 123-45-67\nfoo@example.test",
+                "VIN: [VIN] [PHONE] [EMAIL]",
+            ),
+        )
+        for authored, expected in cases:
+            with self.subTest(expected=expected[:40]):
+                card = Card.from_dict({"id": "synthetic-preview", "description": authored})
+                compact = card.to_dict(compact=True)
+                self.assertEqual(expected, compact["description_preview"])
+                self.assertEqual(expected, compact["description"])
+                self.assertEqual(authored, card.to_dict()["description"])
+
     def test_explicit_empty_vehicle_preserves_title_with_separator(self) -> None:
         card = Card.from_dict(
             {

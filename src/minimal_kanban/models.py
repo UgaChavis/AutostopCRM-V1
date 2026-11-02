@@ -2024,12 +2024,9 @@ class Card:
         deadline_progress_bucket = self.deadline_progress_bucket(reference_time)
         attachments = self.attachments if include_removed_attachments else self.active_attachments()
         vehicle_display = self.vehicle_display()
-        normalized_description = _SPACES_PATTERN.sub(
-            " ",
-            _strip_card_description_formatting(self.description)
-            .replace("\r", " ")
-            .replace("\n", " "),
-        ).strip()
+        normalized_description = " ".join(
+            _strip_card_description_formatting(self.description).split()
+        )
         description_preview = normalized_description[:480].rstrip()
         if len(normalized_description) > len(description_preview):
             description_preview = description_preview.rstrip(" ,.;:-") + "…"
