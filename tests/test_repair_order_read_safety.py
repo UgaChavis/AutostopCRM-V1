@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import threading
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -130,6 +131,42 @@ class RepairOrderReadSafetyTests(CardServiceCase):
                         self.assertEqual(item[key], [])
                 self.assertEqual(before, self.state_and_files())
 
+    def test_projection_matches_detached_reader_and_response_is_isolated(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        order = next(card for card in state["cards"] if card["id"] == self.card_id)["repair_order"]
+        order["payments"] = [{"amount": "1", "note": "synthetic payment"}]
+        order["tags"] = [{"label": "synthetic tag"}]
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        original_project = self.store._project_repair_order_cards_snapshot
+        for compact in (False, True):
+            for redact in (False, True):
+                payload = {
+                    "status": "all",
+                    "compact": compact,
+                    "redact_private": redact,
+                    "sort_by": "number",
+                    "query": "PRIVATE_CLIENT",
+                    "limit": 1,
+                }
+                actual = self.service.list_repair_orders(payload)
+                with patch.object(
+                    self.store,
+                    "_project_repair_order_cards_snapshot",
+                    side_effect=lambda project: original_project(
+                        lambda cards: project(deepcopy(cards))
+                    ),
+                ):
+                    expected = self.service.list_repair_orders(payload)
+                self.assertEqual(actual, expected)
+
+        result = self.service.list_repair_orders({"status": "all"})
+        expected = deepcopy(result)
+        result["repair_orders"][0]["payments"][0]["note"] = "mutated"
+        result["repair_orders"][0]["tags"][0]["label"] = "mutated"
+        detached = self.store.read_repair_order_cards_snapshot()
+        detached[0].repair_order.payments[0].note = "mutated"
+        self.assertEqual(self.service.list_repair_orders({"status": "all"}), expected)
+
     def test_invalid_filters_and_failed_storage_read_leave_state_unchanged(self):
         before = self.state_and_files()
         for invalid in ({"card_id": ""}, {"number": ""}):
@@ -138,7 +175,7 @@ class RepairOrderReadSafetyTests(CardServiceCase):
             self.assertEqual(before, self.state_and_files())
         with patch.object(
             self.store,
-            "read_repair_order_cards_snapshot",
+            "_project_repair_order_cards_snapshot",
             side_effect=OSError("synthetic read failure"),
             create=True,
         ):

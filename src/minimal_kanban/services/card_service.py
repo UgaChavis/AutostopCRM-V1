@@ -1457,93 +1457,104 @@ class CardService(
         sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
         compact = self._validated_optional_bool(payload, "compact", default=False)
         redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
-        cards = self._store.read_repair_order_cards_snapshot()
-        ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
-        inconsistent_cards = [
-            card for card in ranked_cards if self._card_has_inconsistent_repair_order_state(card)
-        ]
-        ranked_cards = [
-            card
-            for card in ranked_cards
-            if not self._card_has_inconsistent_repair_order_state(card)
-        ]
-        open_cards = [
-            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_OPEN
-        ]
-        ready_cards = [
-            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_READY
-        ]
-        archived_cards = [
-            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
-        ]
-        if status_filter == "all":
-            ordered_cards = ranked_cards
-        elif status_filter == REPAIR_ORDER_STATUS_READY:
-            ordered_cards = ready_cards
-        elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
-            ordered_cards = archived_cards
-        else:
-            ordered_cards = open_cards
-        if exact_card_id:
-            ordered_cards = [card for card in ordered_cards if card.id == exact_card_id]
-        if exact_number:
-            ordered_cards = [
-                card
-                for card in ordered_cards
-                if str(card.repair_order.number or "").strip() == exact_number
-            ]
-        filtered_cards = self._filter_repair_order_cards(
-            ordered_cards,
-            query=query,
-            search_field=search_field,
-            status_filter=status_filter,
-        )
-        sorted_cards = sorted(
-            filtered_cards,
-            key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
-            reverse=(sort_dir == "desc"),
-        )
 
-        def serializer(card: Card) -> dict[str, object]:
-            if compact:
-                return self._serialize_repair_order_compact_item(
-                    card, redact_private=redact_private
-                )
-            return self._serialize_repair_order_list_item(
-                card, redact_private=redact_private, materialize=False
+        def project(cards: list[Card]) -> dict:
+            ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
+            inconsistent_cards = [
+                card
+                for card in ranked_cards
+                if self._card_has_inconsistent_repair_order_state(card)
+            ]
+            ranked_cards = [
+                card
+                for card in ranked_cards
+                if not self._card_has_inconsistent_repair_order_state(card)
+            ]
+            open_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status == REPAIR_ORDER_STATUS_OPEN
+            ]
+            ready_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status == REPAIR_ORDER_STATUS_READY
+            ]
+            archived_cards = [
+                card
+                for card in ranked_cards
+                if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+            ]
+            if status_filter == "all":
+                ordered_cards = ranked_cards
+            elif status_filter == REPAIR_ORDER_STATUS_READY:
+                ordered_cards = ready_cards
+            elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
+                ordered_cards = archived_cards
+            else:
+                ordered_cards = open_cards
+            if exact_card_id:
+                ordered_cards = [card for card in ordered_cards if card.id == exact_card_id]
+            if exact_number:
+                ordered_cards = [
+                    card
+                    for card in ordered_cards
+                    if str(card.repair_order.number or "").strip() == exact_number
+                ]
+            filtered_cards = self._filter_repair_order_cards(
+                ordered_cards,
+                query=query,
+                search_field=search_field,
+                status_filter=status_filter,
+            )
+            sorted_cards = sorted(
+                filtered_cards,
+                key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
+                reverse=(sort_dir == "desc"),
             )
 
-        applied_filters = {
-            **({"card_id": exact_card_id} if exact_card_id else {}),
-            **({"number": exact_number} if exact_number else {}),
-            **({"search_field": search_field} if query and search_field != "all" else {}),
-            "status": status_filter,
-        }
-        return {
-            "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
-            "meta": {
-                "limit": limit,
-                "total": len(sorted_cards),
-                "returned": min(len(sorted_cards), limit),
-                "has_more": len(sorted_cards) > limit,
+            def serializer(card: Card) -> dict[str, object]:
+                if compact:
+                    return self._serialize_repair_order_compact_item(
+                        card, redact_private=redact_private
+                    )
+                return self._serialize_repair_order_list_item(
+                    card, redact_private=redact_private, materialize=False
+                )
+
+            applied_filters = {
+                **({"card_id": exact_card_id} if exact_card_id else {}),
+                **({"number": exact_number} if exact_number else {}),
+                **({"search_field": search_field} if query and search_field != "all" else {}),
                 "status": status_filter,
-                "query": "" if redact_private else query,
-                "search_field": search_field,
-                "applied_filters": safe_repair_order_filters(applied_filters)
-                if redact_private
-                else applied_filters,
-                "sort_by": sort_by,
-                "sort_dir": sort_dir,
-                "active_total": len(open_cards),
-                "open_total": len(open_cards),
-                "ready_total": len(ready_cards),
-                "archived_total": len(archived_cards),
-                "inconsistent_total": len(inconsistent_cards),
-                "compact": compact,
-                "redact_private": redact_private,
-                "directory": "" if redact_private else str(self._repair_orders_dir),
-            },
-        }
+            }
+            return {
+                "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
+                "meta": {
+                    "limit": limit,
+                    "total": len(sorted_cards),
+                    "returned": min(len(sorted_cards), limit),
+                    "has_more": len(sorted_cards) > limit,
+                    "status": status_filter,
+                    "query": "" if redact_private else query,
+                    "search_field": search_field,
+                    "applied_filters": safe_repair_order_filters(applied_filters)
+                    if redact_private
+                    else applied_filters,
+                    "sort_by": sort_by,
+                    "sort_dir": sort_dir,
+                    "active_total": len(open_cards),
+                    "open_total": len(open_cards),
+                    "ready_total": len(ready_cards),
+                    "archived_total": len(archived_cards),
+                    "inconsistent_total": len(inconsistent_cards),
+                    "compact": compact,
+                    "redact_private": redact_private,
+                    "directory": "" if redact_private else str(self._repair_orders_dir),
+                },
+            }
+
+        return self._store._project_repair_order_cards_snapshot(project)
 
     def manager_board_scan(self, payload: dict | None = None) -> dict:
         with self._lock:

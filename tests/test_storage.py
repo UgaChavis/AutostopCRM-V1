@@ -281,6 +281,20 @@ class JsonStoreTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding="utf-8"), deep_json)
 
+    def test_readonly_state_depth_limit_accepts_boundary_and_rejects_overflow(self) -> None:
+        store = JsonStore(state_file=self.state_file, logger=self.logger)
+        for arrays, accepted in ((511, True), (512, False)):
+            with self.subTest(arrays=arrays):
+                self.state_file.write_text(
+                    '{"extra":' + "[" * arrays + "0" + "]" * arrays + "}",
+                    encoding="utf-8",
+                )
+                if accepted:
+                    self.assertIn("extra", store._read_state(preserve_corrupted=False))
+                else:
+                    with self.assertRaises(StateFileCorruptedError):
+                        store._read_state(preserve_corrupted=False)
+
     def test_read_bundle_reuses_cached_state_until_file_changes(self) -> None:
         store = JsonStore(state_file=self.state_file, logger=self.logger)
 

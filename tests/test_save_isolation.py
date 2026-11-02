@@ -170,20 +170,24 @@ class SaveIsolationTests(unittest.TestCase):
     def test_repair_order_read_uses_independent_snapshot_without_writing(self):
         card_id = self.create_order()
         source = self.store.read_bundle()
-        snapshot = self.store.read_repair_order_cards_snapshot
+        project_snapshot = self.store._project_repair_order_cards_snapshot
         before_state = (self.root / "state.json").read_bytes()
         before_files = self.order_files()
 
-        def check_cards():
-            cards = snapshot()
-            self.assertEqual(len(cards), len(source["cards"]))
-            for card, original in zip(cards, source["cards"], strict=True):
-                self.assertEqual(card.id, original.id)
-                self.assertIsNot(card, original)
-            return cards
+        def check_project(projector):
+            def check_cards(cards):
+                self.assertEqual(len(cards), len(source["cards"]))
+                for card, original in zip(cards, source["cards"], strict=True):
+                    self.assertEqual(card.id, original.id)
+                    self.assertIsNot(card, original)
+                return projector(cards)
+
+            return project_snapshot(check_cards)
 
         with (
-            patch.object(self.store, "read_repair_order_cards_snapshot", side_effect=check_cards),
+            patch.object(
+                self.store, "_project_repair_order_cards_snapshot", side_effect=check_project
+            ) as projected,
             patch.object(
                 self.service,
                 "_synchronize_repair_order_numbers",
@@ -194,6 +198,7 @@ class SaveIsolationTests(unittest.TestCase):
             ),
         ):
             result = self.service.list_repair_orders({"compact": True})
+        projected.assert_called_once()
         self.assertEqual(result["repair_orders"][0]["card_id"], card_id)
         self.assertEqual((self.root / "state.json").read_bytes(), before_state)
         self.assertEqual(self.order_files(), before_files)
