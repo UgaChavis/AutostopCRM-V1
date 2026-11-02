@@ -62,10 +62,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # The immediate print shell and split employee cache add 6.3 KB to the
-        # prior 894,120-byte startup bundle (about 1.4 KB compressed). Keep the
-        # startup asset below this updated, narrow budget.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 901_000)
+        # Description link recognition adds about 8 KB (2 KB compressed)
+        # to the previous 900,912-byte startup bundle. Keep a narrow budget.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 909_000)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"

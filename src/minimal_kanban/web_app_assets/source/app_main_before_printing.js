@@ -1122,13 +1122,163 @@
     const DESCRIPTION_MAX_LENGTH = 20000;
     const DESCRIPTION_BLOCK_TAGS = new Set(['DIV', 'P', 'LI']);
 
-    function descriptionMarkdownToHtml(value) {
-      let html = escapeHtml(String(value || ''));
-      html = html
+    function descriptionLinkTarget(text) {
+      const value = String(text || '');
+      if (!/^(?:https?:\/\/|www\.)[^\s<>"`«»“”]+$/i.test(value)) return '';
+      const target = /^www\./i.test(value) ? 'https://' + value : value;
+      try {
+        const url = new URL(target);
+        return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? target : '';
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function descriptionLinkEnd(candidate, formatting) {
+      let end = candidate.length;
+      const open = new Set(formatting);
+      const balance = { ')': 0, ']': 0, '}': 0 };
+      const pairs = { '(': ')', '[': ']', '{': '}' };
+      for (const char of candidate) {
+        if (char in pairs) balance[pairs[char]] -= 1;
+        else if (char in balance) balance[char] += 1;
+      }
+      while (end > 0) {
+        const last = candidate[end - 1];
+        const marker = ['**', '++', '*'].find((item) => open.has(item) && candidate.endsWith(item, end));
+        if (/[.,!?;:'»”’]/.test(last)) {
+          end -= 1;
+        } else if (balance[last] > 0) {
+          balance[last] -= 1;
+          end -= 1;
+        } else if (marker) {
+          end -= marker.length;
+          open.delete(marker);
+        } else {
+          break;
+        }
+      }
+      return end;
+    }
+
+    function descriptionLinks(value) {
+      const text = String(value || '');
+      const links = [];
+      const formatting = new Set();
+      let position = 0;
+      for (const match of text.matchAll(/\b(?:https?:\/\/|www\.)[^\s<>"`«»“”]+/gi)) {
+        for (const marker of text.slice(position, match.index).match(/\*\*|\+\+|\*|[\r\n]/g) || []) {
+          if (/[\r\n]/.test(marker)) formatting.delete('*');
+          else if (formatting.has(marker)) formatting.delete(marker);
+          else formatting.add(marker);
+        }
+        const end = descriptionLinkEnd(match[0], formatting);
+        const label = match[0].slice(0, end);
+        const target = descriptionLinkTarget(label);
+        if (target) links.push({ start: match.index, end: match.index + end, label, target });
+        position = match.index + (target ? end : 0);
+      }
+      return links;
+    }
+
+    function descriptionLinkHtml(link) {
+      return '<a data-description-link href="' + escapeHtml(link.target)
+        + '" target="_blank" rel="noopener noreferrer" tabindex="0">' + escapeHtml(link.label) + '</a>';
+    }
+
+    function descriptionTextToHtml(value, format = false) {
+      const text = String(value || '');
+      const links = descriptionLinks(text);
+      // Protect URLs from formatting; escape literal markers for a lossless round trip.
+      const literal = (part) => part.replace(/\uE000/g, '\uE000e');
+      let protectedText = '';
+      let position = 0;
+      links.forEach((link, index) => {
+        protectedText += literal(text.slice(position, link.start)) + '\uE000' + index + '\uE001';
+        position = link.end;
+      });
+      protectedText += literal(text.slice(position));
+      let html = escapeHtml(protectedText);
+      if (format) html = html
         .replace(/\+\+([\s\S]+?)\+\+/g, '<u>$1</u>')
         .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
         .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
-      return html.replace(/\r\n|\r|\n/g, '<br>');
+      html = html.replace(/\r\n|\r|\n/g, '<br>');
+      return html.replace(/\uE000(?:(\d+)\uE001|e)/g,
+        (_, index) => index === undefined ? '\uE000' : descriptionLinkHtml(links[Number(index)]));
+    }
+
+    function descriptionMarkdownToHtml(value) {
+      return descriptionTextToHtml(value, true);
+    }
+
+    function descriptionAnchorTarget(anchor, contexts = new Map()) {
+      if (!anchor.textContent || anchor.querySelector('br, div, p, li')) return '';
+      const parent = anchor.parentNode;
+      if (!contexts.has(parent)) {
+        let source = '';
+        const positions = new Map();
+        for (const node of parent.childNodes) {
+          const start = source.length;
+          source += descriptionNodeToMarkdown(node);
+          if (node.nodeName === 'A') positions.set(node, { start, end: source.length });
+        }
+        contexts.set(parent, { positions, links: descriptionLinks(source) });
+      }
+      const { positions, links } = contexts.get(parent);
+      const range = positions.get(anchor);
+      const link = links.find((item) => item.start <= range.start && item.end >= range.end);
+      return link?.target || '';
+    }
+
+    function syncDescriptionLinkTargets() {
+      const contexts = new Map();
+      els.cardDescriptionEditor?.querySelectorAll('a[data-description-link]').forEach((anchor) => {
+        const target = descriptionAnchorTarget(anchor, contexts);
+        if (target) anchor.setAttribute('href', target);
+        else anchor.removeAttribute('href');
+        anchor.tabIndex = target ? 0 : -1;
+      });
+    }
+
+    function handleDescriptionFocusOut(event) {
+      const editor = els.cardDescriptionEditor;
+      if (!editor || (event.relatedTarget && editor.contains(event.relatedTarget))) return;
+      let unpacked = false;
+      const contexts = new Map();
+      editor.querySelectorAll('a[data-description-link]').forEach((anchor) => {
+        const target = descriptionAnchorTarget(anchor, contexts);
+        if (!target || target !== descriptionLinkTarget(anchor.textContent)) {
+          anchor.replaceWith(...anchor.childNodes);
+          unpacked = true;
+        }
+      });
+      if (unpacked) editor.normalize();
+      const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (!node.parentElement?.closest('a') && descriptionLinks(node.nodeValue).length) nodes.push(node);
+      }
+      nodes.forEach((node) => {
+        const { fragment, marker } = descriptionPlainTextFragment(node.nodeValue);
+        marker.remove();
+        node.replaceWith(fragment);
+      });
+      syncDescriptionLinkTargets();
+    }
+
+    function handleDescriptionLink(event) {
+      if (event.type === 'keydown' && event.key !== 'Enter') return;
+      const anchor = event.target.closest?.('a[data-description-link]');
+      if (!anchor || !els.cardDescriptionEditor?.contains(anchor)) return;
+      const target = descriptionAnchorTarget(anchor);
+      if (!target) return;
+      event.preventDefault();
+      const selection = window.getSelection();
+      if (event.type === 'click' && event.detail && selection && !selection.isCollapsed) return;
+      anchor.setAttribute('href', target);
+      window.open(target, '_blank', 'noopener,noreferrer');
     }
 
     function descriptionFormatTagName(kind) {
@@ -1158,17 +1308,21 @@
       return text;
     }
 
-    function descriptionNodeToMarkdown(node) {
+    function descriptionNodeToMarkdown(node, activeFormats = new Set()) {
       if (!node) return '';
       if (node.nodeType === Node.TEXT_NODE) return String(node.nodeValue || '');
       if (node.nodeType !== Node.ELEMENT_NODE) return '';
       const element = node;
       const tag = element.tagName || '';
       if (tag === 'BR') return '\n';
-      let text = Array.from(element.childNodes || []).map(descriptionNodeToMarkdown).join('');
-      if (descriptionElementHasStyle(element, 'bold')) text = wrapDescriptionMarkdown(text, 'bold');
-      if (descriptionElementHasStyle(element, 'italic')) text = wrapDescriptionMarkdown(text, 'italic');
-      if (descriptionElementHasStyle(element, 'underline')) text = wrapDescriptionMarkdown(text, 'underline');
+      if (tag === 'A' && element.hasAttribute('data-description-link') && !element.querySelector('br, div, p, li')) {
+        return element.textContent || '';
+      }
+      const formats = ['bold', 'italic', 'underline'].filter((kind) =>
+        !activeFormats.has(kind) && descriptionElementHasStyle(element, kind));
+      const nextFormats = new Set([...activeFormats, ...formats]);
+      let text = Array.from(element.childNodes || []).map((child) => descriptionNodeToMarkdown(child, nextFormats)).join('');
+      formats.forEach((kind) => { text = wrapDescriptionMarkdown(text, kind); });
       if (tag === 'LI') text = '- ' + text;
       if (DESCRIPTION_BLOCK_TAGS.has(tag)) text += '\n';
       return text;
@@ -1177,7 +1331,7 @@
     function descriptionEditorToMarkdown(editor) {
       if (!editor) return '';
       return Array.from(editor.childNodes || [])
-        .map(descriptionNodeToMarkdown)
+        .map((node) => descriptionNodeToMarkdown(node))
         .join('')
         .replace(/\u00a0/g, ' ')
         .replace(/\n{3,}/g, '\n\n');
@@ -1239,6 +1393,7 @@
 
     function handleCardDescriptionInput() {
       if (state.cardDescriptionLoading) return;
+      syncDescriptionLinkTargets();
       syncCardDescriptionSourceFromEditor();
       syncCardDescriptionHeight();
       scheduleCardSaveDirtyStateSync();
@@ -1263,13 +1418,12 @@
         && range.compareBoundaryPoints(Range.END_TO_END, fullRange) >= 0;
     }
 
-    function descriptionPlainTextFragment(value) {
-      const fragment = document.createDocumentFragment();
+    function descriptionPlainTextFragment(value, linkify = true) {
+      const template = document.createElement('template');
+      template.innerHTML = linkify ? descriptionTextToHtml(value)
+        : escapeHtml(String(value || '')).replace(/\r\n|\r|\n/g, '<br>');
+      const fragment = template.content;
       const marker = document.createTextNode('');
-      String(value || '').split(/\r\n|\r|\n/).forEach((line, index) => {
-        if (index > 0) fragment.appendChild(document.createElement('br'));
-        fragment.appendChild(document.createTextNode(line));
-      });
       fragment.appendChild(marker);
       return { fragment, marker };
     }
@@ -1284,8 +1438,15 @@
         range.selectNodeContents(editor);
         range.collapse(false);
       }
+      const start = range.startContainer;
+      const anchor = (start.nodeType === Node.ELEMENT_NODE ? start : start.parentElement)?.closest('a[data-description-link]');
+      if (anchor && !range.collapsed && anchor.contains(range.endContainer) && range.toString() === anchor.textContent) {
+        range.selectNode(anchor);
+      }
       range.deleteContents();
-      const { fragment, marker } = descriptionPlainTextFragment(value);
+      const parent = range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? range.startContainer : range.startContainer.parentElement;
+      const { fragment, marker } = descriptionPlainTextFragment(value, !parent?.closest('a[data-description-link]'));
       range.insertNode(fragment);
       const selection = window.getSelection();
       const nextRange = document.createRange();
@@ -1306,9 +1467,8 @@
 
     function handleDescriptionPaste(event) {
       const text = String(event.clipboardData?.getData('text/plain') || '');
-      if (!text) return;
       event.preventDefault();
-      insertDescriptionPlainText(text);
+      if (text) insertDescriptionPlainText(text);
     }
 
     function applyDescriptionFormat(kind) {
@@ -1318,6 +1478,16 @@
       editor.focus();
       const range = descriptionSelectionRange();
       if (!range) return;
+      // Format whole links so Markdown markers cannot become part of a saved URL.
+      for (const edge of ['start', 'end']) {
+        const node = range[edge + 'Container'];
+        const parent = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+        const anchor = parent?.closest('a[data-description-link]');
+        if (anchor && editor.contains(anchor)) {
+          if (edge === 'start') range.setStartBefore(anchor);
+          else range.setEndAfter(anchor);
+        }
+      }
       const wrapper = document.createElement(tagName);
       if (range.collapsed) {
         wrapper.appendChild(document.createTextNode(''));

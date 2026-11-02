@@ -719,7 +719,10 @@
     els.cardDescriptionEditor.addEventListener('beforeinput', handleDescriptionBeforeInput);
     els.cardDescriptionEditor.addEventListener('input', handleCardDescriptionInput);
     els.cardDescriptionEditor.addEventListener('keydown', handleDescriptionKeyboardShortcut);
+    els.cardDescriptionEditor.addEventListener('keydown', handleDescriptionLink);
     els.cardDescriptionEditor.addEventListener('paste', handleDescriptionPaste);
+    els.cardDescriptionEditor.addEventListener('focusout', handleDescriptionFocusOut);
+    els.cardDescriptionEditor.addEventListener('click', handleDescriptionLink);
     els.cardDescriptionToolbar.addEventListener('mousedown', handleDescriptionToolbarMouseDown);
     els.cardDescriptionToolbar.addEventListener('click', handleDescriptionFormatClick);
     els.cardModal.addEventListener('input', scheduleCardSaveDirtyStateSync);
