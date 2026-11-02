@@ -843,7 +843,10 @@ old/new application combination is unnecessary.
    backups, images, caches or worktrees. An independent PC is outside this policy.
 5. Install the exact checked artifacts and necessary configuration while the
    applications remain stopped. Keep working credentials, durable queues and
-   idempotency history. Store stays at its qualified version unless an explicit
+   idempotency history. Set `AUTOSTOP_AUTOMATION_CRM_REVISION` to the selected
+   CRM image revision in the shared backup identity file and every effective
+   Manager process environment file before startup; check unit file ordering so
+   no later file overrides it. Store stays at its qualified version unless an explicit
    Store update is needed; pushing Store `main` can trigger `Deploy VPS` and
    belongs only in the maintenance window. Do not invoke the historical J1,
    cold/warm transition or CRM-only release controllers.
