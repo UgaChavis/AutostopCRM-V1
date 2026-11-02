@@ -683,6 +683,8 @@ def _sanitize_card_compact_text(value: str) -> str:
 
 def _strip_card_description_formatting(value: str) -> str:
     text = str(value or "")
+    if "*" not in text and "++" not in text:
+        return text
     for _ in range(4):
         previous = text
         text = _CARD_DESCRIPTION_UNDERLINE_PATTERN.sub(r"\1", text)
