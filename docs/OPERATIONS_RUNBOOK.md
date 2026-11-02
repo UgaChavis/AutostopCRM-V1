@@ -823,7 +823,13 @@ old/new application combination is unnecessary.
 2. Inventory the actual unit/container identities, data/config paths, active
    credentials and current versions. Calculate this window's peak disk, memory
    and time, including at least 2 GB free disk reserve. No fixed 30/34 GB budget
-   from the old combined scenario applies.
+   from the old combined scenario applies. Before stopping, compare the running
+   CRM container's OCI revision label with `AUTOSTOP_AUTOMATION_CRM_REVISION` in
+   `/etc/autostop-manager/crm-backup-identity.env` and in the actual scheduler
+   and Manager process environments. Check the effective unit drop-in and
+   `EnvironmentFile` order: a later file can override the shared identity. Fix
+   a mismatch before relying on the backup; inspect only this field, never dump
+   process environments or credentials.
 3. Preserve SSH and the controlling session. Close task intake, stop application
    consumers and Manager, CRM and Store, and verify they stopped before copying
    data or replacing files. Record any application watchdog state, stop its timer
@@ -843,7 +849,10 @@ old/new application combination is unnecessary.
    cold/warm transition or CRM-only release controllers.
 6. Launch the applications using their reviewed existing service definitions.
    Independently check physical source/image revisions, processes, authorization,
-   health and Manager → CRM → Store connectivity. Technical acceptance creates
+   health and Manager → CRM → Store connectivity. Repeat the CRM backup identity
+   comparison against the newly running container and the actual new process
+   PIDs; update the effective identity files and restart the affected processes
+   within the authorized window if needed, then verify again. Technical acceptance creates
    no customer messages, orders or payments. After acceptance, restore only a
    watchdog that was previously active, then reopen task intake.
 7. After overall successful acceptance, remove this window's temporary files,
