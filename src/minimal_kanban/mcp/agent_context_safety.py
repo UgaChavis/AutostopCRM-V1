@@ -16,6 +16,18 @@ _CONTEXT_READ_WARNING_CODES = frozenset(
 )
 
 
+def _checked_entity_response(entity: str, response: tuple) -> tuple:
+    """Do not promote a display-only saved card to verified agent context."""
+    _ok, data, meta, _error = response
+    if (
+        entity == "card"
+        and isinstance(data, Mapping)
+        and ("client_vehicle_link_unavailable" in (data.get("read_warnings") or []))
+    ):
+        return False, {}, meta, {"code": "client_vehicle_link_unavailable"}
+    return response
+
+
 def _context_read_warnings(value: Any) -> list[str]:
     return (
         [item for item in value if isinstance(item, str) and item in _CONTEXT_READ_WARNING_CODES]

@@ -2505,7 +2505,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("#saveCardButton.is-dirty:not(:disabled) {", BOARD_WEB_APP_HTML)
         self.assertNotIn("Есть несохраненные изменения", BOARD_WEB_APP_HTML)
 
-    def test_card_open_uses_cached_snapshot_and_delays_side_effects(self) -> None:
+    def test_card_open_rechecks_saved_links_and_delays_side_effects(self) -> None:
         self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
         self.assertIn("cardFetchInFlight: new Map()", BOARD_WEB_APP_HTML)
         self.assertIn("function cachedFullCardForSnapshot(card)", BOARD_WEB_APP_HTML)
@@ -2516,12 +2516,13 @@ class WebAssetsTests(unittest.TestCase):
             "api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("const cachedCard = snapshotCardById(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });",
+            "openCardModal(fullCard, { cardIsFull: true });",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("fullCard = cachedFullCard || await fetchFullCard", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "const fullCard = await fetchFullCard(normalizedCardId).catch", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
         self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)

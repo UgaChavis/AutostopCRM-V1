@@ -48,7 +48,9 @@ services:
     cap_drop:
       - ALL
     pids_limit: 256
-    mem_limit: 1g
+    # Keep room for detached read snapshots without increasing the swap allowance.
+    mem_limit: "${AUTOSTOP_CRM_MEMORY_LIMIT:-2g}"
+    memswap_limit: "${AUTOSTOP_CRM_MEMORY_SWAP_LIMIT:-3g}"
     cpus: "2.00"
     logging:
       driver: local

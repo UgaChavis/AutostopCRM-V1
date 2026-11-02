@@ -2,8 +2,9 @@
 
 from copy import deepcopy
 
-from ..models import parse_datetime
+from ..models import normalize_actor_name, parse_datetime
 from ..storage.json_store import StateFileCorruptedError
+from .operator_visibility import visible_audit_events
 
 
 def _retention_choice_key(card):
@@ -174,3 +175,98 @@ def card_sample(cards, payload, validated_limit):
     if payload.get("limit") is not None:
         cards = cards[: validated_limit(payload.get("limit"), default=20, maximum=100)]
     return cards, total
+
+
+def get_card_context(service, payload):
+    payload = payload or {}
+    event_limit = service._validated_limit(payload.get("event_limit"), default=20, maximum=200)
+    snapshot_read = (
+        service._validated_optional_bool(payload, "read_only", default=False)
+        or service._validated_optional_bool(payload, "strict_client_links", default=False)
+        or not service._validated_optional_bool(payload, "include_repair_order_text", default=True)
+    )
+    # Independent, immutable snapshots need no writer service lock to load.
+    prepared = prepare_card_context(service, payload) if snapshot_read else None
+    with service._lock:
+        bundle, include_repair_order_text, snapshot_read, strict_links = (
+            prepared if prepared is not None else prepare_card_context(service, payload)
+        )
+        card = service._find_card(bundle["cards"], payload.get("card_id"))
+        read_warnings = maybe_card_warnings(bundle, card, snapshot_read)
+        column_labels = service._column_labels(bundle["columns"])
+        board_context_payload = service._build_board_context_payload(
+            bundle["columns"],
+            bundle["cards"],
+            bundle["stickies"],
+            bundle["settings"],
+        )
+        card_events = visible_audit_events(
+            payload,
+            service._events_for_card(bundle["events"], card.id),
+        )
+        events = [event.to_dict() for event in card_events[:event_limit]]
+        active_attachments = [attachment.to_dict() for attachment in card.active_attachments()]
+        removed_attachments = [
+            attachment.to_dict() for attachment in card.attachments if attachment.removed
+        ]
+        viewer_username = normalize_actor_name(payload.get("actor_name"), default="") or None
+        has_repair_order = service._card_has_repair_order(card)
+        linked_client = service._find_client_or_none(bundle["clients"], card.client_id)
+        matches = ranked_context_clients(service, card, bundle["clients"])
+        related_by_client = {}
+        if snapshot_read:
+            related_by_client = validate_context_relations(
+                service,
+                bundle,
+                card_events,
+                event_limit,
+                linked_client,
+                matches,
+                read_warnings,
+                strict_links,
+            )
+        return deepcopy(
+            {
+                **({"read_warnings": read_warnings} if read_warnings else {}),
+                "card": service._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=column_labels,
+                    event_counts={card.id: len(card_events)},
+                    include_removed_attachments=True,
+                    viewer_username=viewer_username,
+                ),
+                "events": events,
+                "attachments": active_attachments,
+                "removed_attachments": removed_attachments,
+                "client": serialize_context_client(
+                    service, linked_client, bundle, related_by_client
+                ),
+                "client_suggestions": [
+                    serialize_context_client(
+                        service, client, bundle, related_by_client, compact=True
+                    )
+                    for _, client in matches
+                ],
+                "repair_order_text": (
+                    service._repair_order_text_payload(
+                        card, operator_payload=payload, read_only=snapshot_read
+                    )
+                    if include_repair_order_text and has_repair_order
+                    else None
+                ),
+                "board_context": {
+                    "context": board_context_payload["context"],
+                    "text": board_context_payload["text"],
+                },
+                "meta": {
+                    "event_limit": event_limit,
+                    "events_total": len(card_events),
+                    "events_returned": len(events),
+                    "has_more_events": len(card_events) > len(events),
+                    "attachments_total": len(active_attachments),
+                    "removed_attachments_total": len(removed_attachments),
+                    "has_repair_order": has_repair_order,
+                },
+            }
+        )

@@ -524,12 +524,17 @@ async function openRepairOrderModal({preloadedRepairOrderData = null} = {}) {
 function api(path, options) {
   return new Promise((resolve, reject) => requests.push({path, options, resolve, reject}));
 }
-function full(id) { return {id, updated_at: 'revision', description: 'full-' + id}; }
+function full(id) { return {id, updated_at: 'revision', description: 'full-' + id, read_warnings: []}; }
 function summary(id) { return {id, updated_at: 'revision'}; }
 function repairOrderResponse(id) {
   return {card: {...full(id), client_id: 'client-' + id}, repair_order: {number: 'RO-' + id}};
 }
 function prepareCached(id) { snapshots.set(id, summary(id)); cacheFullCard(full(id)); }
+async function openFreshCard(id) {
+  const opening = openCardWorkspace(id);
+  requests.at(-1).resolve({card: full(id)});
+  return opening;
+}
 function visibleState() {
   return {
     editingId: state.editingId, description: els.cardDescription.value,
@@ -607,7 +612,7 @@ const old = openCardWorkspace('a', {
   closeModalEl: {key: 'old-parent'}, openCardModalEl, openRepairOrder: true,
 });
 prepareCached('b');
-await openCardWorkspace('b');
+await openFreshCard('b');
 const before = visibleState();
 requests[0].resolve({card: full('a')});
 const obsoleteResult = await old;
@@ -624,7 +629,7 @@ assert.equal(obsoleteResult, null);
 snapshots.set('a', summary('a'));
 const old = openCardWorkspace('a');
 prepareCached('b');
-await openCardWorkspace('b');
+await openFreshCard('b');
 const before = visibleState();
 requests[0].resolve({card: full('a')});
 const obsoleteResult = await old;
@@ -665,16 +670,15 @@ assert.deepEqual(sideEffects, []);
 assert.equal(obsoleteResult, null);
 """)
 
-    def test_current_failure_still_rejects_and_displays_description_error(self) -> None:
+    def test_current_failure_rejects_without_opening_an_unchecked_form(self) -> None:
         self.run_node(r"""
 snapshots.set('a', summary('a'));
 const current = openCardWorkspace('a');
 const error = new Error('current-error');
 requests[0].reject(error);
 await assert.rejects(current, candidate => candidate === error);
-assert.equal(state.cardDescriptionLoading, true);
-assert.equal(els.cardDescriptionEditor.textContent, 'Не удалось загрузить описание.');
-assert.equal(els.saveCardButton.disabled, true);
+assert.equal(modalOpen, false);
+assert.equal(rendered.length, 0);
 assert.deepEqual(sideEffects, []);
 """)
 
@@ -686,31 +690,34 @@ await current;
 assert.deepEqual(statuses, [{message: 'current-error', error: true}]);
 """)
 
-    def test_cached_full_card_opens_once_without_fetch(self) -> None:
+    def test_delayed_cached_open_waits_for_checked_data_before_exposing_the_editor(self) -> None:
         self.run_node(r"""
 prepareCached('a');
-assert.deepEqual(await openCardWorkspace('a'), full('a'));
+const opening = openCardWorkspace('a');
+assert.equal(rendered.length, 0);
+assert.equal(requests.length, 1);
+assert.equal(modalOpen, false);
+assert.equal(state.activeCard, null);
+requests[0].resolve({card: full('a')});
+assert.deepEqual(await opening, full('a'));
 assert.equal(rendered.length, 1);
-assert.equal(requests.length, 0);
+assert.equal(requests.length, 1);
 assert.equal(els.saveCardButton.disabled, false);
 assert.deepEqual(sideEffects, ['a']);
 """)
 
-    def test_summary_opens_then_hydrates_once_for_current_request(self) -> None:
+    def test_summary_opens_once_after_current_saved_card_is_checked(self) -> None:
         self.run_node(r"""
 snapshots.set('a', summary('a'));
 const current = openCardWorkspace('a');
-assert.equal(rendered.length, 1);
-assert.equal(rendered[0].descriptionLoading, true);
+assert.equal(rendered.length, 0);
 const openingGeneration = state.cardEditingGeneration;
 assert.equal(requests[0].path, '/api/get_card?include_attachment_status=0&card_id=a');
 requests[0].resolve({card: full('a')});
 assert.deepEqual(await current, full('a'));
-assert.equal(rendered.length, 2);
-assert.equal(rendered[1].cardIsFull, true);
-assert.equal(rendered[1].preserveTab, true);
-assert.equal(rendered[1].hydrateExisting, true);
-assert.equal(state.cardEditingGeneration, openingGeneration);
+assert.equal(rendered.length, 1);
+assert.equal(rendered[0].cardIsFull, true);
+assert.equal(state.cardEditingGeneration, openingGeneration + 1);
 assert.equal(els.cardDescription.value, 'full-a');
 assert.equal(els.saveCardButton.disabled, false);
 assert.deepEqual(sideEffects, ['a']);
@@ -741,7 +748,7 @@ state.viewerStateGeneration += 1;
 state.operatorSessionToken = 'synthetic-session-b';
 state.cardHydrationSeq += 1;
 prepareCached('b');
-await openCardWorkspace('b');
+await openFreshCard('b');
 const before = visibleState();
 if (fails) requests[0].reject(new Error('obsolete-session-error'));
 else requests[0].resolve(repairOrderResponse('a'));
@@ -863,7 +870,7 @@ assert.equal(repairOrderOpens, 1);
 assert.equal(state.repairOrderContextGeneration, 1);
 if (obsolete) {
   prepareCached('b');
-  await openCardWorkspace('b');
+await openFreshCard('b');
 }
 const before = visibleState();
 rejectOpening(new Error('opening-error'));

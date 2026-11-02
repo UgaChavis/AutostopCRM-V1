@@ -36,6 +36,13 @@ Replacing CRM changes only `autostopcrm`; the maintenance window also stops
 Manager and Store as described below. SearXNG and unrelated services do not
 need replacement merely because CRM is updated.
 
+CRM defaults to 2 GiB RAM and 3 GiB combined RAM plus swap. Override
+`AUTOSTOP_CRM_MEMORY_LIMIT` and `AUTOSTOP_CRM_MEMORY_SWAP_LIMIT` together when
+the host budget requires different limits; the combined limit must cover RAM.
+These Compose settings take effect when the container is recreated. Check
+actual cgroup memory, swap, pressure and host headroom separately; a historical
+swap allocation alone does not establish current memory pressure.
+
 Store access uses a separate precreated external network named
 `autostop-store-agent`, created with `internal=true`. Its only allowed members
 are `autostop-app` and `autostopcrm`; `autostop-db` and all other containers
@@ -457,6 +464,15 @@ profile's Desktop; launch overrides must not redirect them to the operator's
 real profile. Full browser/PDF smoke remains a separate gate.
 
 ## Performance Smoke
+
+The application log records JSON requests taking at least one second even for
+normally quiet polling routes. Cancelled sends retain total duration, lock wait
+and lock hold metrics. Compare `service_lock_ms` with `service_lock_hold_ms`
+before attributing an entire slow request to the route which waited. On POSIX,
+independent order-list and card reads avoid the writer service lock; cold
+read-only context/order snapshots parse outside the shared store lock and are
+cached only while their file signature remains current. Context variants share
+one decoded raw state per generation instead of retaining a full copy each.
 
 The mandatory stage-1 gate uses synthetic production-sized state and does not
 touch business data:

@@ -66,7 +66,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_cached_card_opens_once_and_uncached_card_still_hydrates(self) -> None:
+    def test_cached_and_uncached_card_openings_recheck_saved_links(self) -> None:
         opener = _source_section(
             self.source, "async function openCardWorkspace(", "async function openRepairOrderCard("
         )
@@ -89,14 +89,14 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             (async () => {{
               assert.equal(await openCardWorkspace('card'), card);
               assert.equal(rendered.length, 1);
-              assert.equal(fetches, 0);
+              assert.equal(rendered[0].cardIsFull, true);
+              assert.equal(fetches, 1);
               useCache = false;
               rendered.length = 0;
               assert.equal(await openCardWorkspace('card'), card);
-              assert.equal(rendered.length, 2);
-              assert.equal(rendered[0].descriptionLoading, true);
-              assert.equal(rendered[1].cardIsFull, true);
-              assert.equal(fetches, 1);
+              assert.equal(rendered.length, 1);
+              assert.equal(rendered[0].cardIsFull, true);
+              assert.equal(fetches, 2);
               assert.deepEqual(sideEffects, ['card', 'card']);
             }})().catch(error => {{ console.error(error); process.exitCode = 1; }});
         """)

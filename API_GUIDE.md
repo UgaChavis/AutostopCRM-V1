@@ -462,6 +462,15 @@ lock and an open file handle that denies concurrent write and delete sharing,
 then compares the exact file bytes and file identity. If the handle or any
 check is unavailable, the ordinary locked read-only snapshot is used instead.
 
+`get_card` can display a saved card whose exact `client_vehicle_id` no longer
+exists under any client while its own linked client is valid. It preserves that stored ID and
+returns `read_warnings=["client_vehicle_link_unavailable"]`; the browser shows
+a warning and does not relink automatically. This display exception does not
+confirm vehicle identity. Ambiguous identifiers, an invalid client or invalid
+card/attachment identities still fail closed, as does a vehicle ID owned by
+another client. Read-only card context and
+repair-order context continue to require the exact stored client/vehicle link.
+
 `GET|POST /api/search_clients_readonly` and `/api/list_clients_readonly` use
 the same read-only snapshot for the MCP client search and list. Their response
 metadata identifies `read_only_contract=client-search-v1`; an older API without

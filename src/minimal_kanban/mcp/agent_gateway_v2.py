@@ -15,8 +15,8 @@ from .. import repair_order_redaction as _order_redaction
 from ..deployment_security import is_maintenance_mode, load_agent_gateway_security_policy
 from ..models import normalize_actor_name, normalize_text, short_entity_id
 from ..repair_order import repair_order_payment_method_from_cashbox_name
+from . import agent_context_safety as _context_safety
 from . import client_search_wire_safety as _client_search_wire
-from .agent_context_safety import _entity_context_summary, _guard_unverified_context_values
 from .agent_gateway_support import (
     AGENT_GATEWAY_FORMAT,
     AGENT_GATEWAY_TOOL_NAMES,
@@ -2344,9 +2344,11 @@ def register_agent_gateway_v2(
             response = await _board_call(board_api.get_inventory_item, entity_id)
         else:
             response = await _board_call(board_api.get_shared_file_info, entity_id)
-        ok, data, meta, error = _response_data(response)
+        ok, data, meta, error = _context_safety._checked_entity_response(
+            entity, _response_data(response)
+        )
         context_data = (
-            _entity_context_summary(entity, data)
+            _context_safety._entity_context_summary(entity, data)
             if detail == "summary"
             else _compact_object(
                 data,
@@ -2354,7 +2356,7 @@ def register_agent_gateway_v2(
                 max_depth=8 if detail == "full" else 5,
             )
         )
-        _guard_unverified_context_values(entity, context_data, data)
+        _context_safety._guard_unverified_context_values(entity, context_data, data)
         source_meta = {} if detail == "summary" else _compact_object(meta)
         payload = _envelope(
             ok=ok,

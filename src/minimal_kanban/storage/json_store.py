@@ -13,6 +13,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from logging import Logger
 from pathlib import Path
+from threading import RLock
 from typing import Any
 from uuid import uuid4
 
@@ -253,6 +254,8 @@ class JsonStore:
         self._state_file = state_file or get_state_file()
         self._logger = logger
         self._lock = MeasuredRLock("store_lock")
+        # Serialize independent snapshot builds without blocking live writers.
+        self._snapshot_lock = RLock()
         self._process_lock = ProcessFileLock(
             self._state_file.with_suffix(".lock"), metric_name="file_lock"
         )
@@ -265,6 +268,7 @@ class JsonStore:
         self._repair_order_snapshot_cards: list[Card] | None = None
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._context_snapshots: dict[tuple[str, ...], Any] = {}
+        self._context_snapshot_state: dict | None = None
         self._committed_card_source = None
         self._pending_committed_payload = None
         self._validated_state_signature: tuple[int, int, int, int] | None = None
@@ -338,23 +342,37 @@ class JsonStore:
             if _SNAPSHOT_REQUIRES_FILE_LOCK
             else nullcontext()
         )
-        with self._lock, guard:
-            signature = (
-                None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
-            )
-            if signature is not None and signature == self._context_snapshot_signature:
-                cached = self._context_snapshots.get(domain_key)
-                if cached is not None:
-                    return cached
-            snapshot = build_context_snapshot(
-                self, self._read_state(preserve_corrupted=False), domain_key
-            )
-            if signature is not None and signature == self._repair_order_file_signature():
-                if signature != self._context_snapshot_signature:
+        with self._snapshot_lock:
+            with self._lock:
+                signature = (
+                    None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
+                )
+                if signature is not None and signature == self._context_snapshot_signature:
+                    cached = self._context_snapshots.get(domain_key)
+                    if cached is not None:
+                        return cached
+                    state = self._context_snapshot_state
+                else:
+                    # Release the previous generation before allocating the next.
                     self._context_snapshots.clear()
-                self._context_snapshot_signature = signature
-                self._context_snapshots[domain_key] = snapshot
-                return snapshot
+                    self._context_snapshot_state = None
+                    self._context_snapshot_signature = None
+                    state = None
+            # POSIX writers replace the file atomically. Parse this independent
+            # version outside the store lock; publish only if it is still current.
+            with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
+                if state is None:
+                    state = self._read_state(preserve_corrupted=False)
+                snapshot = build_context_snapshot(self, state, domain_key)
+            with self._lock:
+                if signature is not None and signature == self._repair_order_file_signature():
+                    if signature != self._context_snapshot_signature:
+                        self._context_snapshots.clear()
+                    self._context_snapshot_signature = signature
+                    # Each variant indexes the same immutable raw dictionaries,
+                    # rather than retaining another decoded full state file.
+                    self._context_snapshot_state = state
+                    self._context_snapshots[domain_key] = snapshot
             return snapshot
 
     def _read_single_card_snapshot(self, card_id):
@@ -430,78 +448,78 @@ class JsonStore:
         self._committed_card_source = (signature, payload, source)
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
-        """Read cards with orders without state, feed, or order-artifact writes.
+        """Read detached orders without holding the shared store lock during parsing.
 
-        Normalization happens only in this independent snapshot. Writers replace
-        the state atomically. On Windows, opening a state file can prevent replace,
-        so use the existing writer lock without creating it. POSIX uses a separate
-        in-memory snapshot cache. Diagnostic logging can still write or rotate logs.
+        POSIX reads an atomic file version and caches it only while its signature
+        remains current. Windows retains the existing writer/file-lock boundary.
         """
         guard = (
             self._process_lock.acquire(existing_only=True)
             if _SNAPSHOT_REQUIRES_FILE_LOCK
             else nullcontext()
         )
-        with self._lock, guard:
-            signature = (
-                None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
-            )
+        with self._snapshot_lock:
+            with self._lock:
+                signature = (
+                    None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
+                )
+                cached = (
+                    self._repair_order_snapshot_cards
+                    if signature is not None and signature == self._repair_order_snapshot_signature
+                    else None
+                )
+            if cached is not None:
+                return deepcopy(cached)
+            with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
+                cards = self._build_repair_order_cards_snapshot()
+            with self._lock:
+                if signature is not None and signature == self._repair_order_file_signature():
+                    self._repair_order_snapshot_signature = signature
+                    self._repair_order_snapshot_cards = cards
+            return deepcopy(cards)
+
+    def _build_repair_order_cards_snapshot(self) -> list[Card]:
+        state = self._read_state(preserve_corrupted=False)
+        raw_cards = state.get("cards")
+        if not isinstance(raw_cards, list) or any(not isinstance(card, dict) for card in raw_cards):
+            raise StateFileCorruptedError("Список карточек отсутствует или поврежден.")
+        if any(
+            card.get("repair_order") is not None and not isinstance(card.get("repair_order"), dict)
+            for card in raw_cards
+        ):
+            raise StateFileCorruptedError("Данные заказ-наряда повреждены.")
+        identities: dict[str, bool] = {}
+        for card in raw_cards:
+            raw_order = card.get("repair_order") or {}
+            _validate_snapshot_financial_fields(raw_order)
+            try:
+                has_order = not RepairOrder.from_dict(raw_order).is_empty()
+            except (InvalidOperation, OverflowError, ValueError):
+                raise StateFileCorruptedError("Данные заказ-наряда повреждены.") from None
+            card_id = card.get("id")
+            normalized_id = str(card_id or "").strip()[:128]
+            if has_order and (
+                not isinstance(card_id, str)
+                or card_id != normalized_id
+                or not normalized_id
+                or not parse_datetime(card.get("created_at"))
+                or not parse_datetime(card.get("updated_at"))
+            ):
+                raise StateFileCorruptedError(
+                    "Невозможно безопасно прочитать карточки без идентификатора или дат."
+                )
             if (
-                signature is not None
-                and signature == self._repair_order_snapshot_signature
-                and self._repair_order_snapshot_cards is not None
+                normalized_id
+                and normalized_id in identities
+                and (has_order or identities[normalized_id])
             ):
-                return deepcopy(self._repair_order_snapshot_cards)
-            state = self._read_state(preserve_corrupted=False)
-            raw_cards = state.get("cards")
-            if not isinstance(raw_cards, list) or any(
-                not isinstance(card, dict) for card in raw_cards
-            ):
-                raise StateFileCorruptedError("Список карточек отсутствует или поврежден.")
-            if any(
-                card.get("repair_order") is not None
-                and not isinstance(card.get("repair_order"), dict)
-                for card in raw_cards
-            ):
-                raise StateFileCorruptedError("Данные заказ-наряда повреждены.")
-            identities: dict[str, bool] = {}
-            for card in raw_cards:
-                raw_order = card.get("repair_order") or {}
-                _validate_snapshot_financial_fields(raw_order)
-                try:
-                    has_order = not RepairOrder.from_dict(raw_order).is_empty()
-                except (InvalidOperation, OverflowError, ValueError):
-                    raise StateFileCorruptedError("Данные заказ-наряда повреждены.") from None
-                card_id = card.get("id")
-                normalized_id = str(card_id or "").strip()[:128]
-                if has_order and (
-                    not isinstance(card_id, str)
-                    or card_id != normalized_id
-                    or not normalized_id
-                    or not parse_datetime(card.get("created_at"))
-                    or not parse_datetime(card.get("updated_at"))
-                ):
-                    raise StateFileCorruptedError(
-                        "Невозможно безопасно прочитать карточки без идентификатора или дат."
-                    )
-                if (
-                    normalized_id
-                    and normalized_id in identities
-                    and (has_order or identities[normalized_id])
-                ):
-                    raise StateFileCorruptedError(
-                        "Идентификаторы карточек заказ-нарядов неоднозначны."
-                    )
-                if normalized_id:
-                    identities[normalized_id] = identities.get(normalized_id, False) or has_order
-            columns, _ = self._normalize_columns(state)
-            cards, _ = self._normalize_cards(state, columns)
-            cards = [card for card in cards if not card.repair_order.is_empty()]
-            if signature is not None and signature == self._repair_order_file_signature():
-                self._repair_order_snapshot_signature = signature
-                self._repair_order_snapshot_cards = cards
-                return deepcopy(cards)
-            return cards
+                raise StateFileCorruptedError("Идентификаторы карточек заказ-нарядов неоднозначны.")
+            if normalized_id:
+                identities[normalized_id] = identities.get(normalized_id, False) or has_order
+        columns, _ = self._normalize_columns(state)
+        cards, _ = self._normalize_cards(state, columns)
+        cards = [card for card in cards if not card.repair_order.is_empty()]
+        return cards
 
     def read_bundle_with_signature(
         self,
@@ -1390,6 +1408,7 @@ class JsonStore:
         self._repair_order_snapshot_cards = None
         self._context_snapshot_signature = None
         self._context_snapshots.clear()
+        self._context_snapshot_state = None
         self._committed_card_source = None
         self._pending_committed_payload = None
         self._trusted_card_versions.clear()
@@ -1407,6 +1426,12 @@ class JsonStore:
         bundle: dict[str, Any],
         signature: tuple[int, int, int, int] | None,
     ) -> None:
+        # A newly loaded or committed bundle retires all independent snapshots.
+        self._context_snapshot_signature = None
+        self._context_snapshots.clear()
+        self._context_snapshot_state = None
+        self._repair_order_snapshot_signature = None
+        self._repair_order_snapshot_cards = None
         self._read_cache_signature = signature
         self._read_cache_bundle = bundle
         self._trusted_card_versions = {
