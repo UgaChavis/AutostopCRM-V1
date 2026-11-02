@@ -336,7 +336,9 @@ class FakeBoardApi:
         include_repair_order_text: bool = False,
         read_only: bool | None = None,
         strict_client_links: bool | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict:
+        self.last_context_timeout = timeout_seconds
         del event_limit, include_repair_order_text, read_only, strict_client_links
         return {
             "ok": True,
@@ -1945,6 +1947,7 @@ class AgentGatewayV2Tests(
         )
 
         material = context.structuredContent["data"]["card"]["repair_order"]["materials"][0]
+        self.assertEqual(self.board_api.last_context_timeout, 20.0)
         self.assertEqual("inventory-1", material["inventory_item_id"])
         self.assertEqual("movement-1", material["inventory_movement_id"])
         self.assertNotIn(

@@ -1175,10 +1175,11 @@ class JsonStore:
                 self._read_state_text(),
                 parse_constant=_reject_json_constant,
             )
-            reject_deeply_nested_json(
-                payload,
-                message="state file JSON is too deeply nested",
-            )
+            # json.loads returns only native containers; avoid traversing every
+            # scalar while keeping the same depth limit for untrusted state.
+            from .readonly_context_snapshot import reject_deeply_nested_native_json
+
+            reject_deeply_nested_native_json(payload)
             if not isinstance(payload, dict):
                 raise ValueError("state file must contain an object")
             if preserve_corrupted:

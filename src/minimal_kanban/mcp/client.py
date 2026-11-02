@@ -454,6 +454,7 @@ class BoardApiClient:
         include_repair_order_text: bool = True,
         read_only: bool | None = None,
         strict_client_links: bool | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict:
         payload: dict[str, object] = {
             "card_id": card_id,
@@ -464,10 +465,13 @@ class BoardApiClient:
             payload["read_only"] = read_only
         if strict_client_links is not None:
             payload["strict_client_links"] = strict_client_links
-        return self._request(
-            "/api/get_card_context",
-            payload,
-        )
+        if timeout_seconds is None:
+            return self._request("/api/get_card_context", payload)
+        if not (
+            read_only is True or strict_client_links is True or include_repair_order_text is False
+        ):
+            raise ValueError("Extended timeout requires a read-only card context")
+        return self._request("/api/get_card_context", payload, timeout_seconds=timeout_seconds)
 
     def get_board_snapshot(
         self,
@@ -1759,6 +1763,7 @@ class BoardApiClient:
         *,
         method: str = "POST",
         extra_headers: Mapping[str, str] | None = None,
+        timeout_seconds: float | None = None,
         _allow_retry: bool = True,
     ) -> dict:
         data = None
@@ -1801,7 +1806,12 @@ class BoardApiClient:
             message = f"Некорректный URL локального API для {path}."
             raise BoardApiTransportError(message) from exc
         try:
-            with _urlopen_no_redirect(request, timeout=self._timeout_seconds) as response:
+            timeout = (
+                self._timeout_seconds
+                if timeout_seconds is None
+                else _normalize_timeout_seconds(timeout_seconds)
+            )
+            with _urlopen_no_redirect(request, timeout=timeout) as response:
                 parsed = self._parse_json_payload(
                     self._read_response_body(response, path=path), path=path
                 )
@@ -1837,9 +1847,17 @@ class BoardApiClient:
                     payload,
                     method=method,
                     extra_headers=extra_headers,
+                    timeout_seconds=timeout_seconds,
                     _allow_retry=False,
                 )
-            message = f"Не удалось подключиться к локальному API по адресу {self.base_url}."
+            is_timeout = isinstance(exc, TimeoutError) or (
+                isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError)
+            )
+            message = (
+                "Истекло время ожидания ответа локального API."
+                if is_timeout
+                else f"Не удалось подключиться к локальному API по адресу {self.base_url}."
+            )
             raise BoardApiTransportError(message) from exc
 
     def _read_response_body(self, response, *, path: str) -> bytes:

@@ -100,7 +100,9 @@ class EntityContextGatewayReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCa
                 include_repair_order_text,
                 read_only=None,
                 strict_client_links=None,
+                timeout_seconds=None,
             ):
+                del timeout_seconds
                 payload = {
                     "card_id": card_id,
                     "event_limit": event_limit,

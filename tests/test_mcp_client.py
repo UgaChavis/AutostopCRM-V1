@@ -114,6 +114,46 @@ class BoardApiClientTests(unittest.TestCase):
             60.0,
         )
 
+    def test_card_context_timeout_override_is_read_only_and_does_not_affect_writes(self) -> None:
+        client = BoardApiClient("https://board.example/api", timeout_seconds=2.5)
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self, size=-1):
+                return b'{"ok": true}'
+
+        with patch(
+            "minimal_kanban.mcp.client._urlopen_no_redirect", return_value=Response()
+        ) as urlopen:
+            client.get_card_context("card-1", strict_client_links=True, timeout_seconds=20.0)
+            client.get_card_context("card-1", strict_client_links=True)
+            client.create_card(title="Synthetic")
+        self.assertEqual(
+            [call.kwargs["timeout"] for call in urlopen.call_args_list], [20.0, 2.5, 2.5]
+        )
+        with self.assertRaises(ValueError):
+            client.get_card_context("card-1", timeout_seconds=20.0)
+
+    def test_card_context_timeout_reports_waiting_not_connection_failure(self) -> None:
+        client = BoardApiClient("https://board.example/api")
+        for exception in (TimeoutError(), urllib.error.URLError(TimeoutError())):
+            with self.subTest(exception=type(exception).__name__):
+                with patch(
+                    "minimal_kanban.mcp.client._urlopen_no_redirect", side_effect=exception
+                ) as urlopen:
+                    with self.assertRaisesRegex(BoardApiTransportError, "время ожидания"):
+                        client.get_card_context(
+                            "card-1", strict_client_links=True, timeout_seconds=20.0
+                        )
+                self.assertEqual(urlopen.call_count, 1)
+
     def test_compose_url_does_not_duplicate_api_segment(self) -> None:
         client = BoardApiClient("https://board.example/api", bearer_token="secret")
 

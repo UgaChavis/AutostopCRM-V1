@@ -2319,6 +2319,7 @@ def register_agent_gateway_v2(
                     event_limit=10,
                     include_repair_order_text=False,
                     strict_client_links=True,
+                    timeout_seconds=20.0,
                 )
                 if detail == "full"
                 else _board_call(board_api.get_card, entity_id)
