@@ -194,9 +194,9 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # Budget includes the immediate print loading shell and employee references.
-        # The 3 x 20 startup check measured +0.63% p95, below the 10% regression gate.
-        self.assertLessEqual(len(BOARD_WEB_APP_JS.encode("utf-8")), 901_000)
+        # Includes the print loading shell, employee references and description links.
+        # Before description links, the 3 x 20 startup check measured +0.63% p95.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 909_000)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]
