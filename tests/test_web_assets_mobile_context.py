@@ -39,6 +39,31 @@ class MobileWorkspaceContextRegressionTests(unittest.TestCase):
             "'repair-orders': () => {\n          invalidateRepairOrdersRequests();",
             close_named_modal,
         )
+        action = (
+            section(
+                close_named_modal,
+                "'repair-orders': () => {",
+                "        clients: () => {",
+            )
+            .removeprefix("'repair-orders': ")
+            .rstrip()
+            .removesuffix(",")
+        )
+        self.run_node(
+            """
+const assert = require('node:assert/strict');
+const calls = [], state = {repairOrdersLoadTimer: 123};
+const window = {clearTimeout(id) {calls.push(['clear', id]);}};
+function invalidateRepairOrdersRequests() {calls.push(['invalidate']);}
+function popModal(key) {calls.push(['close', key]);}
+const close = """
+            + action
+            + """;
+close();
+assert.deepEqual(calls, [['invalidate'], ['clear', 123], ['close', 'repair-orders']]);
+assert.equal(state.repairOrdersLoadTimer, null);
+"""
+        )
 
     def test_mobile_card_open_responses_belong_to_exact_workspace(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")

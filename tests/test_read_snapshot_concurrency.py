@@ -109,6 +109,44 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         current = self.store.read_repair_order_cards_snapshot()
         self.assertEqual(current[0].title, "AFTER")
 
+    def test_projector_does_not_block_writer_or_next_snapshot(self):
+        self.service.list_repair_orders({"status": "all"})
+        projecting, release, finished = threading.Event(), threading.Event(), threading.Event()
+        results, errors = [], []
+        serialize = self.service._serialize_repair_order_list_item
+
+        def paused_serialize(*args, **kwargs):
+            if threading.current_thread().name == "paused-order-projector":
+                projecting.set()
+                if not release.wait(5):
+                    raise TimeoutError("Synthetic projector was not released")
+            return serialize(*args, **kwargs)
+
+        def read():
+            try:
+                results.append(self.service.list_repair_orders({"status": "all"}))
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        with patch.object(
+            self.service, "_serialize_repair_order_list_item", side_effect=paused_serialize
+        ):
+            worker = threading.Thread(target=read, name="paused-order-projector")
+            worker.start()
+            try:
+                self.assertTrue(projecting.wait(2))
+                self.service.update_card({"card_id": self.card_id, "title": "AFTER"})
+                current = self.service.list_repair_orders({"status": "all"})
+                self.assertIn("AFTER", current["repair_orders"][0]["heading"])
+            finally:
+                release.set()
+                worker.join(5)
+        self.assertTrue(finished.is_set())
+        self.assertEqual(errors, [])
+        self.assertIn("BEFORE", results[0]["repair_orders"][0]["heading"])
+
     def test_cold_context_snapshot_does_not_block_commit_or_cache_stale_version(self):
         def snapshot():
             return self.store._read_context_bundle_snapshot(domains=("events",))

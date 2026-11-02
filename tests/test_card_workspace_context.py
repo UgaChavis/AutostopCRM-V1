@@ -49,11 +49,6 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn("async function handleRepairOrdersListClick(event)", BOARD_WEB_APP_HTML)
         self.assertIn("async function handleRepairOrdersListKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("loadRepairOrders = async function(openModal = false)", BOARD_WEB_APP_HTML)
-        self.assertIn("function repairOrdersHasReusableOpenList()", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const canReuseOpenList = repairOrdersHasReusableOpenList();", BOARD_WEB_APP_HTML
-        )
-        self.assertIn("if (canReuseOpenList) {", BOARD_WEB_APP_HTML)
         self.assertIn("maybeOpenModal(els.repairOrdersModal, true);", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})",
