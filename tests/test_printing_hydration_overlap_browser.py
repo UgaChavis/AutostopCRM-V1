@@ -1,4 +1,4 @@
-"""A saved card's late hydration must not cancel its open print workspace."""
+"""A saved card is loaded before its print workspace can be opened."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         cls.runtime = start_temp_runtime(start_port=44931)
         cls.addClassCleanup(cls.runtime.close)
 
-    def test_late_full_card_does_not_close_print_documents(self) -> None:
+    def test_full_card_is_loaded_before_opening_print_documents(self) -> None:
         context = self.browser.new_context(
             viewport={"width": 1440, "height": 960},
             extra_http_headers=self.runtime.auth_headers,
@@ -82,17 +82,18 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
             lambda route: hold_route(route, print_routes, "print"),
         )
         page.goto(self.runtime.browser_url)
-        page.wait_for_function("state.snapshot && state.operatorSessionToken")
+        page.wait_for_function(
+            "() => state.snapshot && state.operatorSessionToken && window.__AUTOSTOP_UI_BOUND__ === true"
+        )
         page.locator(
             f'.card[data-card-id="{self.runtime.client_card_id}"]:not([data-virtual-card="true"])'
         ).click()
-        page.locator("#cardModal.is-open").wait_for()
-        page.wait_for_function("() => state.activeCardIsFull === false")
-        page.wait_for_function(
-            "() => window.__AUTOSTOP_UI_BOUND__ === true "
-            "&& window.__printHydrationHeldRoutes?.card === true"
-        )
+        page.wait_for_function("() => window.__printHydrationHeldRoutes?.card === true")
         self.assertEqual(len(card_routes), 1)
+        self.assertFalse(page.locator("#cardModal.is-open").is_visible())
+        card_routes.pop().continue_()
+        page.locator("#cardModal.is-open").wait_for()
+        page.wait_for_function("() => state.activeCardIsFull === true")
         page.locator("#repairOrderButton").click()
         page.locator("#repairOrderModal.is-open").wait_for()
         page.locator("#repairOrderPrintButton").click()
@@ -105,10 +106,6 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         print_has_focus = "modal => modal.contains(document.activeElement)"
         self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
 
-        card_routes.pop().continue_()
-        page.wait_for_function("() => state.activeCardIsFull === true")
-        page.wait_for_timeout(60)
-        self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
         self.assertEqual(page.evaluate("state.editingId"), self.runtime.client_card_id)
         self.assertTrue(page.locator("#repairOrderPrintModal.is-open").is_visible())
         self.assertTrue(page.locator("#repairOrderPrintModal").evaluate(print_has_focus))
