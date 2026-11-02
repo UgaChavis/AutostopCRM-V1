@@ -160,7 +160,6 @@ from .finance_read_core import FinanceReadCore
 from .operator_visibility import (
     operator_can_access_employees_cashboxes,
     preserve_restricted_repair_order_private_fields,
-    visible_audit_events,
 )
 from .ready_column import (
     READY_CARD_TAG_COLOR,
@@ -1419,143 +1418,132 @@ class CardService(
         return self._snapshot_service.list_overdue_cards(payload)
 
     def list_repair_orders(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            status_filter = self._validated_repair_order_status(
-                payload.get("status"),
-                default=REPAIR_ORDER_STATUS_OPEN,
-                allow_all=True,
+        payload = payload or {}
+        status_filter = self._validated_repair_order_status(
+            payload.get("status"),
+            default=REPAIR_ORDER_STATUS_OPEN,
+            allow_all=True,
+        )
+        limit = self._validated_limit(
+            payload.get("limit"),
+            default=REPAIR_ORDER_FILE_RETENTION_LIMIT,
+            maximum=REPAIR_ORDER_FILE_RETENTION_LIMIT,
+        )
+        query = normalize_text(payload.get("query"), default="", limit=240)
+        exact_card_id = payload.get("card_id")
+        if exact_card_id is not None and (
+            not isinstance(exact_card_id, str)
+            or not exact_card_id.strip()
+            or len(exact_card_id) > 160
+        ):
+            self._fail(
+                "validation_error",
+                "Передайте корректный точный идентификатор карточки.",
+                details={"field": "card_id"},
             )
-            limit = self._validated_limit(
-                payload.get("limit"),
-                default=REPAIR_ORDER_FILE_RETENTION_LIMIT,
-                maximum=REPAIR_ORDER_FILE_RETENTION_LIMIT,
+        exact_card_id = exact_card_id.strip() if isinstance(exact_card_id, str) else ""
+        exact_number = payload.get("number")
+        if exact_number is not None and (
+            not isinstance(exact_number, str) or not exact_number.strip() or len(exact_number) > 80
+        ):
+            self._fail(
+                "validation_error",
+                "Передайте корректный точный номер заказ-наряда.",
+                details={"field": "number"},
             )
-            query = normalize_text(payload.get("query"), default="", limit=240)
-            exact_card_id = payload.get("card_id")
-            if exact_card_id is not None and (
-                not isinstance(exact_card_id, str)
-                or not exact_card_id.strip()
-                or len(exact_card_id) > 160
-            ):
-                self._fail(
-                    "validation_error",
-                    "Передайте корректный точный идентификатор карточки.",
-                    details={"field": "card_id"},
+        exact_number = exact_number.strip() if isinstance(exact_number, str) else ""
+        search_field = self._validated_repair_order_search_field(payload.get("search_field"))
+        sort_by = self._validated_repair_order_sort_by(payload.get("sort_by"))
+        sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
+        compact = self._validated_optional_bool(payload, "compact", default=False)
+        redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
+        cards = self._store.read_repair_order_cards_snapshot()
+        ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
+        inconsistent_cards = [
+            card for card in ranked_cards if self._card_has_inconsistent_repair_order_state(card)
+        ]
+        ranked_cards = [
+            card
+            for card in ranked_cards
+            if not self._card_has_inconsistent_repair_order_state(card)
+        ]
+        open_cards = [
+            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_OPEN
+        ]
+        ready_cards = [
+            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_READY
+        ]
+        archived_cards = [
+            card for card in ranked_cards if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+        ]
+        if status_filter == "all":
+            ordered_cards = ranked_cards
+        elif status_filter == REPAIR_ORDER_STATUS_READY:
+            ordered_cards = ready_cards
+        elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
+            ordered_cards = archived_cards
+        else:
+            ordered_cards = open_cards
+        if exact_card_id:
+            ordered_cards = [card for card in ordered_cards if card.id == exact_card_id]
+        if exact_number:
+            ordered_cards = [
+                card
+                for card in ordered_cards
+                if str(card.repair_order.number or "").strip() == exact_number
+            ]
+        filtered_cards = self._filter_repair_order_cards(
+            ordered_cards,
+            query=query,
+            search_field=search_field,
+            status_filter=status_filter,
+        )
+        sorted_cards = sorted(
+            filtered_cards,
+            key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
+            reverse=(sort_dir == "desc"),
+        )
+
+        def serializer(card: Card) -> dict[str, object]:
+            if compact:
+                return self._serialize_repair_order_compact_item(
+                    card, redact_private=redact_private
                 )
-            exact_card_id = exact_card_id.strip() if isinstance(exact_card_id, str) else ""
-            exact_number = payload.get("number")
-            if exact_number is not None and (
-                not isinstance(exact_number, str)
-                or not exact_number.strip()
-                or len(exact_number) > 80
-            ):
-                self._fail(
-                    "validation_error",
-                    "Передайте корректный точный номер заказ-наряда.",
-                    details={"field": "number"},
-                )
-            exact_number = exact_number.strip() if isinstance(exact_number, str) else ""
-            search_field = self._validated_repair_order_search_field(payload.get("search_field"))
-            sort_by = self._validated_repair_order_sort_by(payload.get("sort_by"))
-            sort_dir = self._validated_repair_order_sort_direction(payload.get("sort_dir"))
-            compact = self._validated_optional_bool(payload, "compact", default=False)
-            redact_private = self._validated_optional_bool(payload, "redact_private", default=False)
-            cards = self._store.read_repair_order_cards_snapshot()
-            ranked_cards = [card for card in cards if self._card_has_repair_order(card)]
-            inconsistent_cards = [
-                card
-                for card in ranked_cards
-                if self._card_has_inconsistent_repair_order_state(card)
-            ]
-            ranked_cards = [
-                card
-                for card in ranked_cards
-                if not self._card_has_inconsistent_repair_order_state(card)
-            ]
-            open_cards = [
-                card
-                for card in ranked_cards
-                if card.repair_order.status == REPAIR_ORDER_STATUS_OPEN
-            ]
-            ready_cards = [
-                card
-                for card in ranked_cards
-                if card.repair_order.status == REPAIR_ORDER_STATUS_READY
-            ]
-            archived_cards = [
-                card
-                for card in ranked_cards
-                if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
-            ]
-            if status_filter == "all":
-                ordered_cards = ranked_cards
-            elif status_filter == REPAIR_ORDER_STATUS_READY:
-                ordered_cards = ready_cards
-            elif status_filter == REPAIR_ORDER_STATUS_CLOSED:
-                ordered_cards = archived_cards
-            else:
-                ordered_cards = open_cards
-            if exact_card_id:
-                ordered_cards = [card for card in ordered_cards if card.id == exact_card_id]
-            if exact_number:
-                ordered_cards = [
-                    card
-                    for card in ordered_cards
-                    if str(card.repair_order.number or "").strip() == exact_number
-                ]
-            filtered_cards = self._filter_repair_order_cards(
-                ordered_cards,
-                query=query,
-                search_field=search_field,
-                status_filter=status_filter,
-            )
-            sorted_cards = sorted(
-                filtered_cards,
-                key=lambda card: self._repair_order_list_sort_key(card, sort_by=sort_by),
-                reverse=(sort_dir == "desc"),
+            return self._serialize_repair_order_list_item(
+                card, redact_private=redact_private, materialize=False
             )
 
-            def serializer(card: Card) -> dict[str, object]:
-                if compact:
-                    return self._serialize_repair_order_compact_item(
-                        card, redact_private=redact_private
-                    )
-                return self._serialize_repair_order_list_item(
-                    card, redact_private=redact_private, materialize=False
-                )
-
-            applied_filters = {
-                **({"card_id": exact_card_id} if exact_card_id else {}),
-                **({"number": exact_number} if exact_number else {}),
-                **({"search_field": search_field} if query and search_field != "all" else {}),
+        applied_filters = {
+            **({"card_id": exact_card_id} if exact_card_id else {}),
+            **({"number": exact_number} if exact_number else {}),
+            **({"search_field": search_field} if query and search_field != "all" else {}),
+            "status": status_filter,
+        }
+        return {
+            "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
+            "meta": {
+                "limit": limit,
+                "total": len(sorted_cards),
+                "returned": min(len(sorted_cards), limit),
+                "has_more": len(sorted_cards) > limit,
                 "status": status_filter,
-            }
-            return {
-                "repair_orders": [serializer(card) for card in sorted_cards[:limit]],
-                "meta": {
-                    "limit": limit,
-                    "total": len(sorted_cards),
-                    "returned": min(len(sorted_cards), limit),
-                    "has_more": len(sorted_cards) > limit,
-                    "status": status_filter,
-                    "query": "" if redact_private else query,
-                    "search_field": search_field,
-                    "applied_filters": safe_repair_order_filters(applied_filters)
-                    if redact_private
-                    else applied_filters,
-                    "sort_by": sort_by,
-                    "sort_dir": sort_dir,
-                    "active_total": len(open_cards),
-                    "open_total": len(open_cards),
-                    "ready_total": len(ready_cards),
-                    "archived_total": len(archived_cards),
-                    "inconsistent_total": len(inconsistent_cards),
-                    "compact": compact,
-                    "redact_private": redact_private,
-                    "directory": "" if redact_private else str(self._repair_orders_dir),
-                },
-            }
+                "query": "" if redact_private else query,
+                "search_field": search_field,
+                "applied_filters": safe_repair_order_filters(applied_filters)
+                if redact_private
+                else applied_filters,
+                "sort_by": sort_by,
+                "sort_dir": sort_dir,
+                "active_total": len(open_cards),
+                "open_total": len(open_cards),
+                "ready_total": len(ready_cards),
+                "archived_total": len(archived_cards),
+                "inconsistent_total": len(inconsistent_cards),
+                "compact": compact,
+                "redact_private": redact_private,
+                "directory": "" if redact_private else str(self._repair_orders_dir),
+            },
+        }
 
     def manager_board_scan(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2463,91 +2451,7 @@ class CardService(
         return changed, errors
 
     def get_card_context(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            event_limit = self._validated_limit(payload.get("event_limit"), default=20, maximum=200)
-            bundle, include_repair_order_text, snapshot_read, strict_links = (
-                read_context.prepare_card_context(self, payload)
-            )
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            read_warnings = read_context.maybe_card_warnings(bundle, card, snapshot_read)
-            column_labels = self._column_labels(bundle["columns"])
-            board_context_payload = self._build_board_context_payload(
-                bundle["columns"],
-                bundle["cards"],
-                bundle["stickies"],
-                bundle["settings"],
-            )
-            card_events = visible_audit_events(
-                payload,
-                self._events_for_card(bundle["events"], card.id),
-            )
-            events = [event.to_dict() for event in card_events[:event_limit]]
-            active_attachments = [attachment.to_dict() for attachment in card.active_attachments()]
-            removed_attachments = [
-                attachment.to_dict() for attachment in card.attachments if attachment.removed
-            ]
-            viewer_username = normalize_actor_name(payload.get("actor_name"), default="") or None
-            has_repair_order = self._card_has_repair_order(card)
-            linked_client = self._find_client_or_none(bundle["clients"], card.client_id)
-            matches = read_context.ranked_context_clients(self, card, bundle["clients"])
-            related_by_client = {}
-            if snapshot_read:
-                related_by_client = read_context.validate_context_relations(
-                    self,
-                    bundle,
-                    card_events,
-                    event_limit,
-                    linked_client,
-                    matches,
-                    read_warnings,
-                    strict_links,
-                )
-            return deepcopy(
-                {
-                    **({"read_warnings": read_warnings} if read_warnings else {}),
-                    "card": self._serialize_card(
-                        card,
-                        bundle["events"],
-                        column_labels=column_labels,
-                        event_counts={card.id: len(card_events)},
-                        include_removed_attachments=True,
-                        viewer_username=viewer_username,
-                    ),
-                    "events": events,
-                    "attachments": active_attachments,
-                    "removed_attachments": removed_attachments,
-                    "client": read_context.serialize_context_client(
-                        self, linked_client, bundle, related_by_client
-                    ),
-                    "client_suggestions": [
-                        read_context.serialize_context_client(
-                            self, client, bundle, related_by_client, compact=True
-                        )
-                        for _, client in matches
-                    ],
-                    "repair_order_text": (
-                        self._repair_order_text_payload(
-                            card, operator_payload=payload, read_only=snapshot_read
-                        )
-                        if include_repair_order_text and has_repair_order
-                        else None
-                    ),
-                    "board_context": {
-                        "context": board_context_payload["context"],
-                        "text": board_context_payload["text"],
-                    },
-                    "meta": {
-                        "event_limit": event_limit,
-                        "events_total": len(card_events),
-                        "events_returned": len(events),
-                        "has_more_events": len(card_events) > len(events),
-                        "attachments_total": len(active_attachments),
-                        "removed_attachments_total": len(removed_attachments),
-                        "has_repair_order": has_repair_order,
-                    },
-                }
-            )
+        return read_context.get_card_context(self, payload)
 
     def get_ai_chat_knowledge(self, payload: dict | None = None) -> dict:
         payload = payload or {}

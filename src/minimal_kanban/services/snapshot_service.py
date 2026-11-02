@@ -32,7 +32,7 @@ from .operator_visibility import (
     public_snapshot_settings,
     visible_audit_events,
 )
-from .readonly_context_helpers import card_sample, checked_card_warnings, detached_card_response
+from .readonly_context_helpers import card_sample, detached_card_response
 from .snapshot_cache import (
     COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
     PreparedSnapshotData,
@@ -1040,23 +1040,23 @@ class SnapshotService:
             }
 
     def get_card(self, payload: dict) -> dict:
-        with self._lock:
-            bundle = self._store._read_single_card_snapshot(payload.get("card_id"))
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            read_warnings = checked_card_warnings(bundle, card)
-            events = visible_audit_events(payload, bundle["events"])
-            column_labels = self._column_labels(bundle["columns"])
-            card_data = self._serialize_card(
-                card,
-                events,
-                column_labels=column_labels,
-                include_removed_attachments=True,
-                include_attachment_status=self._validated_optional_bool(
-                    payload, "include_attachment_status", default=True
-                ),
-                viewer_username=self._viewer_username(payload),
-            )
-            return detached_card_response(card_data, read_warnings)
+        bundle = self._store._read_single_card_snapshot(payload.get("card_id"))
+        card = self._find_card(bundle["cards"], payload.get("card_id"))
+        bundle.require_card(card, include_attachments=True)
+        read_warnings = bundle.card_warnings(card) + bundle.card_link_warnings(card)
+        events = visible_audit_events(payload, bundle["events"])
+        column_labels = self._column_labels(bundle["columns"])
+        card_data = self._serialize_card(
+            card,
+            events,
+            column_labels=column_labels,
+            include_removed_attachments=True,
+            include_attachment_status=self._validated_optional_bool(
+                payload, "include_attachment_status", default=True
+            ),
+            viewer_username=self._viewer_username(payload),
+        )
+        return detached_card_response(card_data, read_warnings)
 
     def get_card_log(self, payload: dict) -> dict:
         with self._lock:

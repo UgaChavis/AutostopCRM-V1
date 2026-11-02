@@ -105,27 +105,59 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
         self.assertEqual(fast, slow)
         self.assertEqual(before, self.files())
 
-    def test_exact_id_and_client_links_are_checked_after_write(self):
+    def test_exact_id_and_missing_client_links_are_checked_after_write(self):
         with self.assertRaises(ServiceError) as missing:
             self.service.get_card({"card_id": self.card_id[:8]})
         self.assertEqual(missing.exception.code, "not_found")
 
-        for client_id, vehicle_id in (
-            (self.client_a["id"], self.client_b["vehicles"][0]["id"]),
-            ("SYNTHETIC_MISSING_CLIENT", ""),
+        bundle = self.store.read_bundle()
+        cards = list(bundle["cards"])
+        index = next(i for i, card in enumerate(cards) if card.id == self.card_id)
+        cards[index] = deepcopy(cards[index])
+        cards[index].client_id = "SYNTHETIC_MISSING_CLIENT"
+        cards[index].client_vehicle_id = ""
+        self.store.write_cached_bundle(bundle, **{**bundle, "cards": cards})
+        before = self.files()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.get_card({"card_id": self.card_id})
+        self.assertEqual(before, self.files())
+
+    def test_stale_vehicle_link_is_visible_without_rebinding_or_file_changes(self):
+        bundle = self.store.read_bundle()
+        clients = deepcopy(bundle["clients"])
+        client = next(client for client in clients if client.id == self.client_a["id"])
+        original_vehicle_id = client.vehicles[0].id
+        client.vehicles[0].id = "SYNTHETIC_REPLACEMENT_VEHICLE"
+        self.store.write_cached_bundle(bundle, **{**bundle, "clients": clients})
+        before = self.files()
+        fast = self.service.get_card({"card_id": self.card_id})
+        with patch.object(self.store, "_committed_card_source", None):
+            slow = self.service.get_card({"card_id": self.card_id})
+        self.assertEqual(fast, slow)
+        self.assertEqual(fast["read_warnings"], ["client_vehicle_link_unavailable"])
+        self.assertEqual(fast["card"]["client_vehicle_id"], original_vehicle_id)
+        self.assertEqual(fast["card"]["title"], "SYNTHETIC_TITLE_ONE")
+        for read in (
+            lambda: self.service.get_card_context({"card_id": self.card_id, "read_only": True}),
+            lambda: self.service.get_repair_order(
+                {"card_id": self.card_id, "create_if_missing": False}
+            ),
         ):
-            with self.subTest(client_id=client_id):
-                bundle = self.store.read_bundle()
-                cards = list(bundle["cards"])
-                index = next(i for i, card in enumerate(cards) if card.id == self.card_id)
-                cards[index] = deepcopy(cards[index])
-                cards[index].client_id = client_id
-                cards[index].client_vehicle_id = vehicle_id
-                self.store.write_cached_bundle(bundle, **{**bundle, "cards": cards})
-                before = self.files()
-                with self.assertRaises(StateFileCorruptedError):
-                    self.service.get_card({"card_id": self.card_id})
-                self.assertEqual(before, self.files())
+            with self.assertRaises(StateFileCorruptedError):
+                read()
+        self.assertEqual(before, self.files())
+
+    def test_ambiguous_vehicle_identity_is_never_a_display_warning(self):
+        state = json.loads(self.state_file.read_text())
+        client = next(item for item in state["clients"] if item["id"] == self.client_a["id"])
+        duplicate = deepcopy(client["vehicles"][0])
+        duplicate["vehicle"] = "SYNTHETIC_AMBIGUOUS_VEHICLE"
+        client["vehicles"].append(duplicate)
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.files()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.get_card({"card_id": self.card_id})
+        self.assertEqual(before, self.files())
 
     def test_cache_preparation_failure_does_not_reclassify_a_committed_write(self):
         with patch.object(self.store, "_prime_committed_card_source", side_effect=OSError):

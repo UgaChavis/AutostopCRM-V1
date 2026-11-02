@@ -89,6 +89,7 @@ from .manager_structure_routes import build_manager_structure_routes
 from .request_admission import ApiRequestAdmission
 from .request_admission import admitted as _admitted
 from .request_query import BOOLEAN_QUERY_KEYS
+from .request_timing import success_log_level as _success_log_level
 from .route_registry import (
     EMPLOYEES_READ_PERMISSION_ROUTES,
     build_operator_routes,
@@ -101,17 +102,6 @@ from .salary_reconciliation_html import _employee_salary_reconciliation_print_ht
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 MODULE_MAP_INFRASTRUCTURE_ROUTE = "/api/get_module_map_infrastructure"
 
-
-QUIET_SUCCESS_ROUTES = frozenset(
-    {
-        "/api/health",
-        "/api/get_board_revision",
-        "/api/get_board_snapshot",
-        "/api/get_display_dashboard",
-        "/api/mark_card_seen",
-        "/api/mark_cashbox_notifications_seen",
-    }
-)
 
 JSON_GZIP_MIN_BYTES = 1024
 MAX_JSON_BODY_BYTES = 25 * 1024 * 1024
@@ -187,10 +177,6 @@ def _json_response_from_preencoded_data(*, data: bytes, request_id: str) -> byte
         allow_nan=False,
     ).encode("utf-8")
     return b'{"ok": true, "data": ' + data + b', "error": null, "meta": ' + response_meta + b"}"
-
-
-def _success_log_level(route: str) -> int:
-    return logging.DEBUG if route in QUIET_SUCCESS_ROUTES else logging.INFO
 
 
 def _safe_request_target(value: object) -> str:
@@ -1661,30 +1647,44 @@ class JsonRouteDispatcher:
                     content_type="application/json",
                     server_timing=server_timing,
                 )
-                handler.send_response(HTTPStatus.OK)
-                handler._send_headers(
-                    "application/json",
-                    len(response_body),
-                    extra_headers=extra_headers,
-                )
-                if handler._write_body(
-                    response_body,
-                    route=route,
-                    request_id=request_id,
-                    status_code=HTTPStatus.OK,
-                ):
-                    self._logger.log(
-                        _success_log_level(route),
-                        "api_request route=%s request_id=%s status=ok duration_ms=%.1f "
-                        "body_bytes=%s encoded_bytes=%s gzip=%s %s",
+                try:
+                    handler.send_response(HTTPStatus.OK)
+                    handler._send_headers(
+                        "application/json",
+                        len(response_body),
+                        extra_headers=extra_headers,
+                    )
+                    delivered = handler._write_body(
+                        response_body,
+                        route=route,
+                        request_id=request_id,
+                        status_code=HTTPStatus.OK,
+                    )
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as exc:
+                    app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
+                    self._logger.warning(
+                        "api_request route=%s request_id=%s status=client_disconnected "
+                        "duration_ms=%.1f error_type=%s %s",
                         route,
                         request_id,
                         app_duration_ms,
-                        len(body),
-                        len(response_body),
-                        bool(extra_headers.get("Content-Encoding") == "gzip"),
+                        type(exc).__name__,
                         performance_trace.log_fields(app_duration_ms=app_duration_ms),
                     )
+                    return
+                self._logger.log(
+                    _success_log_level(route, app_duration_ms) if delivered else logging.WARNING,
+                    "api_request route=%s request_id=%s status=%s duration_ms=%.1f "
+                    "body_bytes=%s encoded_bytes=%s gzip=%s %s",
+                    route,
+                    request_id,
+                    "ok" if delivered else "client_disconnected",
+                    app_duration_ms,
+                    len(body),
+                    len(response_body),
+                    bool(extra_headers.get("Content-Encoding") == "gzip"),
+                    performance_trace.log_fields(app_duration_ms=app_duration_ms),
+                )
             except ServiceError as exc:
                 app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
                 self._logger.warning(

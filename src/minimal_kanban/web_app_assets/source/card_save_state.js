@@ -115,7 +115,8 @@
       }
       let data = checkpoint.data;
       const cardId = checkpoint.cardId;
-      if (cardId && clientId && data.card.client_id !== clientId) {
+      const persistedClientId = data.card.client_id ?? state.activeCard?.client_id ?? '';
+      if (cardId && clientId && persistedClientId !== clientId) {
         checkpoint.linkBody = {
           card_id: cardId, client_id: clientId, client_vehicle_id: clientVehicleId,
           create_vehicle_from_card: createVehicle, sync_vehicle_fields: true,

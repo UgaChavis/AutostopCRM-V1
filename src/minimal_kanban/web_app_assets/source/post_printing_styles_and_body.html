@@ -1,4 +1,12 @@
 
+    .card-link-warning {
+      border: 1px solid #bb9a55;
+      background: rgba(187, 154, 85, 0.12);
+      color: #f0d599;
+      padding: 12px;
+      margin-bottom: 14px;
+      line-height: 1.5;
+    }
     #cashboxesModal .dialog { width: min(1060px, 100%); }
     #cashboxJournalModal .dialog {
       width: min(1040px, 100%);
@@ -4058,6 +4066,7 @@
         <button class="btn" id="cardModalCloseButtonTop" data-close="card" onclick="window.__closeCardModal && window.__closeCardModal(); return false;">ЗАКРЫТЬ</button>
       </div>
       <section class="dialog__body-scroll" data-panel="overview">
+        <div class="card-link-warning hidden" id="cardLinkWarning" role="status"></div>
         <div class="overview-layout">
           <div class="overview-main">
             <div class="grid grid--overview">

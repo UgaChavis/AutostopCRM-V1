@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 _COPY_CHUNK_BYTES = 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
 
 
 def is_regular_file(path: Path) -> bool:
@@ -41,11 +42,20 @@ def read_bytes_limited(path: Path, *, max_bytes: int, label: str) -> bytes:
     max_bytes = _normalize_max_bytes(max_bytes, label=label)
     if path.stat().st_size > max_bytes:
         raise ValueError(f"{label} is too large")
+    chunks = []
+    bytes_read = 0
     with path.open("rb") as handle:
-        payload = handle.read(max_bytes + 1)
-    if len(payload) > max_bytes:
-        raise ValueError(f"{label} is too large")
-    return payload
+        while True:
+            # A safety ceiling must not become an equally large allocation for
+            # every small file. Keep the extra byte that detects post-stat growth.
+            chunk = handle.read(min(_READ_CHUNK_BYTES, max_bytes - bytes_read + 1))
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > max_bytes:
+                raise ValueError(f"{label} is too large")
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def copy_file_limited(source_path: Path, target_path: Path, *, max_bytes: int, label: str) -> int:

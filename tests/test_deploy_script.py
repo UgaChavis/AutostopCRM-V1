@@ -247,6 +247,17 @@ class DeployScriptTests(unittest.TestCase):
                 text=True,
                 timeout=20,
             )
+            overridden = subprocess.run(
+                completed.args,
+                env={
+                    **environment,
+                    "AUTOSTOP_CRM_MEMORY_LIMIT": "2g",
+                    "AUTOSTOP_CRM_MEMORY_SWAP_LIMIT": "3g",
+                },
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         services = json.loads(completed.stdout)["services"]
         self.assertEqual(set(services), {"autostopcrm", "searxng"})
@@ -255,6 +266,12 @@ class DeployScriptTests(unittest.TestCase):
             {"searxng": {"condition": "service_healthy", "required": True}},
         )
         self.assertFalse(any("CRAWL4AI" in key for key in services["autostopcrm"]["environment"]))
+        self.assertEqual(int(services["autostopcrm"]["mem_limit"]), 1536 * 1024 * 1024)
+        self.assertEqual(int(services["autostopcrm"]["memswap_limit"]), 2560 * 1024 * 1024)
+        self.assertEqual(overridden.returncode, 0, overridden.stderr)
+        overridden_crm = json.loads(overridden.stdout)["services"]["autostopcrm"]
+        self.assertEqual(int(overridden_crm["mem_limit"]), 2 * 1024 * 1024 * 1024)
+        self.assertEqual(int(overridden_crm["memswap_limit"]), 3 * 1024 * 1024 * 1024)
 
     def test_production_compose_is_fail_closed_and_exposes_kill_switches(self) -> None:
         compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")

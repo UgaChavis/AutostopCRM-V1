@@ -174,6 +174,32 @@ class ReadonlyContextSnapshot(dict):
         if not any(vehicle.id == card.client_vehicle_id for vehicle in client.vehicles):
             raise StateFileCorruptedError("Связь автомобиля не подтверждена клиентом.")
 
+    def card_link_warnings(self, card):
+        """Allow viewing saved card fields when its former vehicle link is absent.
+
+        The saved IDs remain untouched. A missing target conveys no linked vehicle
+        data; ambiguous or normalized identities still fail the strict checks.
+        Context and transaction reads continue to use require_card_client_links.
+        """
+        if card.client_id and card.client_vehicle_id:
+            source = self._source(self._clients, card.client_id)
+            raw = source.get("vehicles", [])
+            vehicles = _index(raw if isinstance(raw, list) else [raw], alias="client_vehicle_id")
+            if card.client_vehicle_id not in vehicles:
+                for rows in self._clients.values():
+                    for other in rows:
+                        raw = other.get("vehicles", [])
+                        candidates = _index(
+                            raw if isinstance(raw, list) else [raw], alias="client_vehicle_id"
+                        )
+                        if card.client_vehicle_id in candidates:
+                            raise StateFileCorruptedError(
+                                "Связь автомобиля принадлежит другому клиенту."
+                            )
+                return ["client_vehicle_link_unavailable"]
+        self.require_card_client_links(card)
+        return []
+
     def require_event(self, event):
         source = self._source(self._events, event.id)
         if not parse_datetime(source.get("timestamp")):
@@ -326,7 +352,7 @@ def build_context_snapshot(store, state, domains):
     clients = []
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
-        clients = _search_clients(raw_clients)
+        clients = _search_clients(deepcopy(raw_clients))
     if "client_search_cards" in domains:
         _require_raw_search_identities(raw_cards, unique=False)
         # Capture collisions from the unnormalized source, including entries that
@@ -337,16 +363,20 @@ def build_context_snapshot(store, state, domains):
         if cards_index is not None and any(len(rows) > 1 for rows in cards_index.values()):
             # Check candidate relations against the complete source before retention
             # can remove one side of a collision.
-            cards = _search_cards_before_retention(raw_cards, columns)
+            cards = _search_cards_before_retention(deepcopy(raw_cards), columns)
             search_cards_need_retention = True
         else:
-            cards, _ = store._normalize_cards(state, columns)
+            cards, _ = store._normalize_cards({"cards": deepcopy(raw_cards)}, columns)
     else:
         columns, cards = [], []
     if "clients" in domains and "client_search" not in domains:
-        clients = store._normalize_clients(state)[0]
+        clients = store._normalize_clients({"clients": deepcopy(raw_clients)})[0]
     stickies = store._normalize_stickies(state)[0] if "stickies" in domains else []
-    events = store._normalize_events(state)[0] if "events" in domains else []
+    events = (
+        store._normalize_events({"events": deepcopy(state.get("events", []))})[0]
+        if "events" in domains
+        else []
+    )
     settings = store._normalize_settings(state)[0] if "settings" in domains else {}
     return ReadonlyContextSnapshot(
         {

@@ -228,6 +228,29 @@ class ContextLinkAndTextSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
                         before == self.snapshot(), "Gateway read changed synthetic files"
                     )
 
+    async def test_retired_vehicle_is_display_only_and_gateway_context_is_blocked(self):
+        state = json.loads(self.state_file.read_text())
+        card = next(item for item in state["cards"] if item["id"] == self.cards[0])
+        card["client_vehicle_id"] = "SYNTHETIC_RETIRED_VEHICLE"
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.snapshot()
+        display = await self.call("get_card", {"card_id": self.cards[0]}, raw=True)
+        self.assertTrue(display["ok"])
+        self.assertEqual(display["data"]["read_warnings"], ["client_vehicle_link_unavailable"])
+        for detail in ("summary", "full", "full_with_vin_photo"):
+            with self.subTest(detail=detail):
+                context = await self.call(
+                    "agent_entity_context",
+                    {"entity": "card", "entity_id": self.cards[0], "detail": detail},
+                )
+                self.assertFalse(context["ok"])
+                self.assertTrue(
+                    {"client_vehicle_link_unavailable", "state_file_corrupted"}
+                    & set(context["warnings"])
+                )
+                self.assertNotIn("SYNTHETIC_BOUND_A", json.dumps(context["data"]))
+        self.assertEqual(before, self.snapshot())
+
     async def test_strict_client_limit_counts_only_exact_links_before_pagination(self):
         card = self.service.create_card(
             {
