@@ -3595,6 +3595,10 @@
         },
         'repair-orders': () => {
           invalidateRepairOrdersRequests();
+          if (state.repairOrdersLoadTimer) {
+            window.clearTimeout(state.repairOrdersLoadTimer);
+            state.repairOrdersLoadTimer = null;
+          }
           popModal('repair-orders');
         },
         clients: () => {
@@ -13676,18 +13680,6 @@
       renderRepairOrdersView();
     }
 
-    function repairOrdersHasReusableOpenList() {
-      const meta = state.repairOrdersMetaState || {};
-      return Boolean(
-        Array.isArray(state.repairOrdersItems)
-        && state.repairOrdersItems.length
-        && normalizeRepairOrderStatus(meta.status || state.repairOrdersFilter) === 'open'
-        && normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy) === 'opened_at'
-        && normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir) === 'desc'
-        && !String(state.repairOrdersRemoteQuery || '').trim()
-      );
-    }
-
     loadRepairOrders = async function(openModal = false) {
       state.repairOrdersRemoteQuery = String(state.repairOrdersQuery || '').trim();
       const requestSeq = (state.repairOrdersRequestSeq || 0) + 1;
@@ -15021,7 +15013,7 @@
     }
 
     function openRepairOrdersModal() {
-      const canReuseOpenList = repairOrdersHasReusableOpenList();
+      if (repairOrdersModalIsOpen()) return;
       state.repairOrdersFilter = 'open';
       state.repairOrdersQuery = '';
       state.repairOrdersRemoteQuery = '';
@@ -15032,17 +15024,13 @@
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
       }
-      setRepairOrdersSearchLoading(false);
-      updateRepairOrdersTabs();
-      syncRepairOrdersControls();
-      if (canReuseOpenList) {
-        renderRepairOrdersView();
-        maybeOpenModal(els.repairOrdersModal, true);
-        return;
-      }
       state.repairOrdersItems = [];
       state.repairOrdersMetaState = null;
-      loadRepairOrders(true);
+      setRepairOrdersSearchLoading(true);
+      updateRepairOrdersTabs();
+      renderRepairOrdersView();
+      maybeOpenModal(els.repairOrdersModal, true);
+      loadRepairOrders(false);
     }
 
     // @include inventory_edit_state.js

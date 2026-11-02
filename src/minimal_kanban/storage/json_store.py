@@ -6,6 +6,7 @@ import math
 import shutil
 import sys
 import time
+from collections.abc import Callable
 from contextlib import nullcontext
 from copy import copy, deepcopy
 from dataclasses import fields
@@ -448,10 +449,14 @@ class JsonStore:
         self._committed_card_source = (signature, payload, source)
 
     def read_repair_order_cards_snapshot(self) -> list[Card]:
-        """Read detached orders without holding the shared store lock during parsing.
+        """Return detached order models; callers may safely change them."""
+        return self._project_repair_order_cards_snapshot(deepcopy)
 
-        POSIX reads an atomic file version and caches it only while its signature
-        remains current. Windows retains the existing writer/file-lock boundary.
+    def _project_repair_order_cards_snapshot(self, projector: Callable[[list[Card]], Any]) -> Any:
+        """Project a snapshot without exposing or changing its cached models.
+
+        POSIX caches an atomic file version while its signature remains current.
+        Windows retains the existing writer/file-lock boundary.
         """
         guard = (
             self._process_lock.acquire(existing_only=True)
@@ -463,20 +468,19 @@ class JsonStore:
                 signature = (
                     None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
                 )
-                cached = (
+                cards = (
                     self._repair_order_snapshot_cards
                     if signature is not None and signature == self._repair_order_snapshot_signature
                     else None
                 )
-            if cached is not None:
-                return deepcopy(cached)
-            with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
-                cards = self._build_repair_order_cards_snapshot()
-            with self._lock:
-                if signature is not None and signature == self._repair_order_file_signature():
-                    self._repair_order_snapshot_signature = signature
-                    self._repair_order_snapshot_cards = cards
-            return deepcopy(cards)
+            if cards is None:
+                with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
+                    cards = self._build_repair_order_cards_snapshot()
+                with self._lock:
+                    if signature is not None and signature == self._repair_order_file_signature():
+                        self._repair_order_snapshot_signature = signature
+                        self._repair_order_snapshot_cards = cards
+        return projector(cards)
 
     def _build_repair_order_cards_snapshot(self) -> list[Card]:
         state = self._read_state(preserve_corrupted=False)
@@ -1175,10 +1179,11 @@ class JsonStore:
                 self._read_state_text(),
                 parse_constant=_reject_json_constant,
             )
-            reject_deeply_nested_json(
-                payload,
-                message="state file JSON is too deeply nested",
-            )
+            # json.loads returns only native containers; avoid traversing every
+            # scalar while keeping the same depth limit for untrusted state.
+            from .readonly_context_snapshot import reject_deeply_nested_native_json
+
+            reject_deeply_nested_native_json(payload)
             if not isinstance(payload, dict):
                 raise ValueError("state file must contain an object")
             if preserve_corrupted:
