@@ -36,7 +36,7 @@ Replacing CRM changes only `autostopcrm`; the maintenance window also stops
 Manager and Store as described below. SearXNG and unrelated services do not
 need replacement merely because CRM is updated.
 
-CRM defaults to 1536 MiB RAM and 2560 MiB combined RAM plus swap. Override
+CRM defaults to 2 GiB RAM and 3 GiB combined RAM plus swap. Override
 `AUTOSTOP_CRM_MEMORY_LIMIT` and `AUTOSTOP_CRM_MEMORY_SWAP_LIMIT` together when
 the host budget requires different limits; the combined limit must cover RAM.
 These Compose settings take effect when the container is recreated. Check
