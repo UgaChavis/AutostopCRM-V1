@@ -1672,6 +1672,7 @@ class JsonRouteDispatcher:
                         performance_trace.log_fields(app_duration_ms=app_duration_ms),
                     )
                     return
+                app_duration_ms = max(perf_counter() - started_at, 0.0) * 1000
                 self._logger.log(
                     _success_log_level(route, app_duration_ms) if delivered else logging.WARNING,
                     "api_request route=%s request_id=%s status=%s duration_ms=%.1f "

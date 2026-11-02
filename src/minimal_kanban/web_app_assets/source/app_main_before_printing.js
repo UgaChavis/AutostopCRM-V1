@@ -575,6 +575,7 @@
       mobileCardBackButton: document.getElementById('mobileCardBackButton'),
       mobileCardSaveButton: document.getElementById('mobileCardSaveButton'),
       mobileCardTitleLine: document.getElementById('mobileCardTitleLine'),
+      mobileCardLinkWarning: document.getElementById('mobileCardLinkWarning'),
       mobileCardTitleInput: document.getElementById('mobileCardTitleInput'),
       mobileCardColumnSelect: document.getElementById('mobileCardColumnSelect'),
       mobileCardDeadlineDays: document.getElementById('mobileCardDeadlineDays'),
@@ -5336,6 +5337,7 @@
       }
       renderMobileCardTabs();
       const card = currentMobileCard() || {};
+      renderCardLinkWarning(card, els.mobileCardLinkWarning);
       const titleText = mobileCardTitle(card);
       if (els.mobileCardTitleLine) {
         els.mobileCardTitleLine.textContent = state.mobileCardLoading
@@ -5921,7 +5923,7 @@
       state.mobileCardOpenRequest = openRequest;
       const isCurrent = () => state.mobileCardOpenRequest === openRequest && context.isCurrent();
       try {
-        const fullCard = await fetchFullCard(normalizedCardId, snapshotCard?.updated_at || '');
+        const fullCard = await fetchFullCard(normalizedCardId);
         if (!isCurrent()) return null;
         state.mobileCardOpenRequest = null;
         state.mobileCard = fullCard || snapshotCard || state.mobileCard;
@@ -5983,7 +5985,7 @@
           })
           : await api('/api/update_card', { method: 'POST', body: { card_id: cardId, ...payload } });
         if (!isCurrent()) return null;
-        const updatedCard = data?.card || { ...currentMobileCard(), ...payload, id: cardId };
+        const updatedCard = cacheFullCard(data?.card || { ...currentMobileCard(), ...payload, id: cardId });
         state.mobileCardSaveRequest = null;
         state.mobileCardSaving = false;
         state.mobileCard = updatedCard;
@@ -13168,56 +13170,21 @@
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
         const viewerStateGeneration = state.viewerStateGeneration;
-        const cachedCard = snapshotCardById(normalizedCardId);
-        const cachedFullCard = cachedCard
-          ? cachedFullCardForSnapshot(cachedCard)
-          : null;
-        let openedFromCache = false;
         const hydrationSeq = state.cardHydrationSeq + 1;
         state.cardHydrationSeq = hydrationSeq;
-        if (openCardModalEl && cachedFullCard) {
-          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
-          openCardModal(cachedFullCard, { cardIsFull: true });
-          openedFromCache = true;
-        } else if (openCardModalEl && cachedCard) {
-          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
-          openCardModal(cachedCard, { descriptionLoading: true, cardIsFull: false });
-          openedFromCache = true;
-        }
         const editingGeneration = state.cardEditingGeneration;
         const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
           && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration;
-        let fullCard;
-        try {
-          fullCard = cachedFullCard || await fetchFullCard(normalizedCardId, cachedCard?.updated_at || '');
-        } catch (error) {
-          if (!isCurrent()) return null;
-          if (
-            openCardModalEl
-            && openedFromCache
-            && els.cardModal?.classList.contains('is-open')
-            && state.editingId === normalizedCardId
-          ) {
-            setCardDescriptionLoading(true, 'Не удалось загрузить описание.');
-          }
-          throw error;
-        }
+        // Vehicle links can change without changing the card's own revision.
+        // Open the editable form only after checking the current saved card.
+        const fullCard = await fetchFullCard(normalizedCardId).catch((error) => {
+          if (isCurrent()) throw error;
+          return null;
+        });
         if (!fullCard || !isCurrent()) return null;
         if (openCardModalEl) {
-          if (!openedFromCache && closeModalEl) popModal(modalKeyForElement(closeModalEl));
-          const shouldHydrateOpenModal = !openedFromCache
-            || (
-              !cachedFullCard
-              && els.cardModal?.classList.contains('is-open')
-              && state.editingId === normalizedCardId
-            );
-          if (shouldHydrateOpenModal) {
-            openCardModal(fullCard, {
-              cardIsFull: true,
-              preserveTab: openedFromCache,
-              hydrateExisting: openedFromCache,
-            });
-          }
+          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
+          openCardModal(fullCard, { cardIsFull: true });
         } else {
           applyCardModalState(fullCard, { cardIsFull: true });
         }
@@ -14076,8 +14043,7 @@
       return card;
     }
 
-    function renderCardLinkWarning(card) {
-      const warning = els.cardLinkWarning;
+    function renderCardLinkWarning(card, warning = els.cardLinkWarning) {
       if (!warning) return;
       const unavailable = Array.isArray(card?.read_warnings)
         && card.read_warnings.includes('client_vehicle_link_unavailable');

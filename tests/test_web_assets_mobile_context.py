@@ -147,7 +147,7 @@ function resetMobileCardJournal(){}
 function syncMobileCardEditorBusyState(){}
 function renderMobileShell(){}
 function renderMobileCardDetail(){}
-function cacheFullCard(){}
+function cacheFullCard(card){return card;}
 function applySavedCardLocalPatch(){}
 function refreshRepairOrderEntry(){}
 function setStatus(message,isError){statuses.push({message,isError});}

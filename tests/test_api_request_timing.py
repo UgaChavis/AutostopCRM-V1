@@ -51,7 +51,7 @@ class ApiRequestTimingTests(unittest.TestCase):
         self.assertEqual(_success_log_level(self.route, 1000.0), logging.INFO)
         self.assertEqual(_success_log_level("/api/create_card", 1.0), logging.INFO)
         with (
-            patch("minimal_kanban.api.server.perf_counter", side_effect=[0.0, 1.25]),
+            patch("minimal_kanban.api.server.perf_counter", side_effect=[0.0, 1.25, 1.25]),
             patch(
                 "minimal_kanban.performance.perf_counter",
                 side_effect=[0.0, 0.2, 0.2, 1.0],
@@ -67,7 +67,7 @@ class ApiRequestTimingTests(unittest.TestCase):
     def test_disconnected_body_keeps_delayed_lock_holder_timings(self) -> None:
         self.handler._write_body.return_value = False
         with (
-            patch("minimal_kanban.api.server.perf_counter", side_effect=[0.0, 1.25]),
+            patch("minimal_kanban.api.server.perf_counter", side_effect=[0.0, 1.25, 1.25]),
             patch(
                 "minimal_kanban.performance.perf_counter",
                 side_effect=[0.0, 0.2, 0.2, 1.0],
@@ -79,6 +79,37 @@ class ApiRequestTimingTests(unittest.TestCase):
         self.assertIn("status=client_disconnected", logs.output[0])
         self.assert_timings(logs.output[0])
         self.handler._send_error_response.assert_not_called()
+
+    def test_slow_sends_log_elapsed_time_and_preserve_application_server_timing(self) -> None:
+        for delivered in (False, True):
+            with self.subTest(delivered=delivered):
+                clock = [0.0]
+
+                def finish_send(*_args, **_kwargs):
+                    clock[0] = 5.0
+                    return delivered
+
+                self.handler._write_body.side_effect = finish_send
+                with (
+                    patch("minimal_kanban.api.server.perf_counter", side_effect=lambda: clock[0]),
+                    self.assertLogs(self.logger, level=logging.INFO) as logs,
+                ):
+                    self.dispatch()
+                self.assertEqual(len(logs.records), 1)
+                self.assertEqual(
+                    logs.records[0].levelno, logging.INFO if delivered else logging.WARNING
+                )
+                self.assertIn(
+                    "status=" + ("ok" if delivered else "client_disconnected"), logs.output[0]
+                )
+                self.assertIn("duration_ms=5000.0", logs.output[0])
+                self.assertIn("total_ms=5000.0", logs.output[0])
+                server_timing = self.handler._prepare_response_body.call_args.kwargs[
+                    "server_timing"
+                ]
+                self.assertIn("app;dur=0.0", server_timing)
+                self.assertIn("total;dur=0.0", server_timing)
+                self.handler._send_error_response.assert_not_called()
 
     def test_disconnection_during_headers_or_body_keeps_timings_without_second_response(
         self,
