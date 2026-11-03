@@ -1764,9 +1764,14 @@ class CardServiceClientsMixin:
             card.repair_order.phone,
         ]
         normalized_values: set[str] = set()
+        seen_strings: set[str] = set()
         for value in values:
             if not value:
                 continue
+            if type(value) is str:
+                if value in seen_strings:
+                    continue
+                seen_strings.add(value)
             normalized = self._normalize_search_text(value)
             if normalized:
                 normalized_values.add(normalized)
