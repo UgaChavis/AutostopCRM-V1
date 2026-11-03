@@ -105,6 +105,87 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         )
         self.assertIsNone(self.page.evaluate("state.activeCard"))
 
+    def test_reopen_after_cancel_reads_fresh_and_rejects_old_cache_reply(self) -> None:
+        card_id = self.create_card("Synthetic before")
+        self.load_board()
+        held = []
+
+        def hold_response(route):
+            held.append((route, route.fetch()))
+
+        self.page.route("**/api/get_card?**", hold_response)
+        tile = self.page.locator(f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])')
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.keyboard.press("Escape")
+        self.runtime.service.update_card(
+            {"card_id": card_id, "title": "Synthetic after", "actor_name": "other"}
+        )
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2, "Reopening after cancellation must issue a new GET")
+        route, response = held.pop()
+        route.fulfill(response=response)
+        self.page.wait_for_function("state.activeCardIsFull")
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic after")
+        route, response = held.pop()
+        with self.page.expect_response("**/api/get_card?**") as old_response:
+            route.fulfill(response=response)
+        old_response.value.body()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic after")
+        self.assertEqual(
+            self.page.evaluate("id => state.fullCardCache.get(id)?.title", card_id),
+            "Synthetic after",
+        )
+
+    def test_repeated_open_without_cancel_deduplicates_the_same_read(self) -> None:
+        card_id = self.create_card("Synthetic shared request")
+        self.load_board()
+        held = self.start_open(card_id)
+        self.page.evaluate("id => { void openCardById(id); }", card_id)
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "id => state.activeCardIsFull && state.editingId === id", arg=card_id
+        )
+
+    def test_cancel_does_not_discard_a_newer_independent_verification_read(self) -> None:
+        card_id = self.create_card("Synthetic verification read")
+        self.load_board()
+        held = self.start_open(card_id)
+        self.page.evaluate(
+            """id => {
+          state.repairOrderPaymentVerificationPending = id;
+          window.independentCardRead = 'pending';
+          fetchFullCard(id).then(card => { window.independentCardRead = card?.title || 'missing'; });
+        }""",
+            card_id,
+        )
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2)
+        self.page.keyboard.press("Escape")
+        self.assertTrue(self.page.evaluate("id => state.cardFetchInFlight.has(id)", card_id))
+        held.pop().continue_()
+        self.page.wait_for_function("window.independentCardRead !== 'pending'")
+        self.assertEqual(
+            self.page.evaluate("window.independentCardRead"), "Synthetic verification read"
+        )
+        self.assertEqual(self.page.evaluate("state.repairOrderPaymentVerificationPending"), card_id)
+        held.pop().fulfill(
+            status=200,
+            json={"ok": True, "data": {"card": {"id": card_id, "title": "Stale synthetic reply"}}},
+        )
+        self.page.wait_for_timeout(100)
+        self.assertEqual(
+            self.page.evaluate("id => state.fullCardCache.get(id)?.title", card_id),
+            "Synthetic verification read",
+        )
+
     def test_newer_card_owns_loading_and_old_reply_is_ignored(self) -> None:
         first = self.create_card("Synthetic first card")
         second = self.create_card("Synthetic second card")

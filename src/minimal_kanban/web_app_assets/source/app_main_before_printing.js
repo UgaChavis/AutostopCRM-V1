@@ -12309,6 +12309,8 @@
     }
 
     function resetCardModalState() {
+      const shell = state.cardOpeningShell;
+      if (shell && state.cardFetchInFlight.get(shell.cardId) === shell.request) state.cardFetchInFlight.delete(shell.cardId);
       state.cardOpeningShell = null;
       if (els.cardModal?.dataset) delete els.cardModal.dataset.cardLoading;
       els.cardModal?.classList?.remove('card-parent-employees');
@@ -13334,7 +13336,7 @@
       return perfMeasureAsync('openCardWorkspace', async () => {
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
-        const openingShell = openCardModalEl && !closeModalEl && !openRepairOrder ? beginCardOpeningShell() : null;
+        const openingShell = openCardModalEl && !closeModalEl && !openRepairOrder ? beginCardOpeningShell(normalizedCardId) : null;
         if (state.cardOpeningShell && state.cardOpeningShell !== openingShell) closeCardModal();
         const viewerStateGeneration = state.viewerStateGeneration;
         const operatorSessionToken = state.operatorSessionToken;
@@ -13348,12 +13350,15 @@
         // Vehicle links can change without changing the card's own revision.
         // Open the editable form only after checking the current saved card.
         try {
-          const fullCard = await fetchFullCard(normalizedCardId).catch((error) => {
+          const request = fetchFullCard(normalizedCardId);
+          if (openingShell) openingShell.request = state.cardFetchInFlight.get(normalizedCardId);
+          const fullCard = await request.catch((error) => {
             if (isCurrent()) throw error;
             return null;
           });
-          if (!fullCard || !isCurrent()) {
-            if (!fullCard && isCurrent()) setStatus('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.', true);
+          if (!isCurrent()) return null;
+          if (!fullCard) {
+            setStatus('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.', true);
             return null;
           }
           if (openCardModalEl) {
@@ -13374,12 +13379,11 @@
       });
     }
 
-    function beginCardOpeningShell() {
+    function beginCardOpeningShell(cardId) {
       const modal = els.cardModal;
       if (!modal?.dataset || (modal.classList.contains('is-open') && !state.cardOpeningShell)) return null;
-      const alreadyOpen = Boolean(state.cardOpeningShell);
-      const opening = {};
-      state.cardOpeningShell = opening;
+      const alreadyOpen = state.cardOpeningShell;
+      const opening = state.cardOpeningShell = { cardId };
       modal.dataset.cardLoading = 'true';
       if (!alreadyOpen) pushModal('card', modal);
       els.cardModalCloseButtonTop?.focus({ preventScroll: true });
@@ -14254,7 +14258,7 @@
       let request = null;
       request = api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => {
-          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
+          if (viewerStateGeneration !== state.viewerStateGeneration || state.cardFetchInFlight.get(normalizedCardId) !== request) return null;
           if (!data?.card) return null;
           return cacheFullCard(applyCardSeenSuppression({
             ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [],
