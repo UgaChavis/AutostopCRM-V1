@@ -42,6 +42,7 @@ class EmployeeSalaryLoadingBrowserTests(UiBrowserTestCase):
         self.held.pop().continue_()
         self.page.locator("#employeeSalaryModal.is-open").wait_for()
         self.assertEqual(self.page.evaluate("state.employeeSalarySheet.employee_id"), self.employee)
+        self.assertEqual(self.page.evaluate("state.activeEmployeeSalaryId"), self.employee)
 
     def test_employee_roundtrip_allows_retry_and_late_response_is_ignored(self):
         self.page.evaluate(
@@ -63,8 +64,35 @@ class EmployeeSalaryLoadingBrowserTests(UiBrowserTestCase):
         self.page.wait_for_timeout(100)
         self.assertFalse(self.page.locator("#employeeSalaryModal").is_visible())
         self.assertTrue(self.page.locator('#employeesList [role="status"]').is_visible())
+        self.assertEqual(self.page.evaluate("state.activeEmployeeSalaryId"), self.employee)
+        self.assertTrue(self.page.evaluate("Boolean(state.employeeSalarySheetRequest)"))
         self.held.pop().continue_()
         self.page.locator("#employeeSalaryModal.is-open").wait_for()
+
+    def test_cancelled_salary_does_not_reopen_on_profile_save(self):
+        self.page.locator(f'[data-employee-id="{self.employee}"]').click()
+        self.hold_one()
+        self.page.locator(f'[data-employee-report="{self.employee}"]').click()
+        self.page.locator("#employeeSalaryReconciliationPeriodModal.is-open").wait_for()
+        self.held.pop().continue_()
+        self.page.wait_for_function("!document.querySelector('#employeesList [role=status]')")
+        self.assertEqual(self.page.evaluate("state.activeEmployeeSalaryId"), "")
+        self.page.locator("#employeeSalaryReconciliationCancelButton").click()
+        self.page.locator("#employeePositionInput").fill("Synthetic saved profile")
+        self.page.locator("#employeeSaveButton").click()
+        self.page.wait_for_function("!state.employeeEditOperation")
+        self.assertEqual(len(self.held), 0)
+        self.assertFalse(self.page.locator("#employeeSalaryModal").is_visible())
+
+    def test_salary_response_after_child_roundtrip_does_not_open(self):
+        self.hold_one()
+        self.page.locator(f'[data-employee-report="{self.employee}"]').click()
+        self.page.locator("#employeeSalaryReconciliationPeriodModal.is-open").wait_for()
+        self.page.locator("#employeeSalaryReconciliationCancelButton").click()
+        self.held.pop().continue_()
+        self.page.wait_for_function("!document.querySelector('#employeesList [role=status]')")
+        self.assertFalse(self.page.locator("#employeeSalaryModal").is_visible())
+        self.assertEqual(self.page.evaluate("state.activeEmployeeSalaryId"), "")
 
     def test_month_roundtrip_and_closed_parent_ignore_old_results(self):
         self.hold_one()

@@ -1013,6 +1013,7 @@
       state.activeEmployeeSalaryReconciliationReportId = requestedId;
       renderEmployeeSalaryReconciliationPeriodDialog();
       pushModal('employee-salary-reconciliation-period', els.employeeSalaryReconciliationPeriodModal);
+      els.employeesList?.salaryOpening?.isCurrent();
       const focusTarget = state.employeeSalaryReconciliationPeriodMode === 'dates'
         ? els.employeeSalaryReconciliationDateFromInput
         : els.employeeSalaryReconciliationDaysInput;
@@ -1254,6 +1255,13 @@
         setStatus(error.message, true);
       } finally {
         if (list.salaryOpening === opening) list.salaryOpening = null;
+        if (state.employeeSalarySheetRequest === request && state.viewerStateGeneration === viewer
+          && state.operatorSessionToken === session && state.employeeSalaryViewGeneration === salaryView
+          && state.activeEmployeeSalaryId === requestedId && !els.employeeSalaryModal?.classList.contains('is-open')) {
+          state.employeeSalarySheetRequest = null;
+          state.activeEmployeeSalaryId = '';
+          state.employeeSalarySheet = null;
+        }
         indicator.remove();
       }
     }
