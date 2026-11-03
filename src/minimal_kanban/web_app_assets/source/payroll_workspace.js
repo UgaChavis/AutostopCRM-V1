@@ -1557,6 +1557,7 @@
       ensureEmployeesUi();
       hydrateEmployeesUiRefs();
       bindEmployeesUiEvents();
+      els.employeesDetailTable?.querySelector('[data-employee-order-status]')?.remove();
       state.employeesReportDetailsOpen = false;
       if (els.employeesMonthInput && !els.employeesMonthInput.value) {
         els.employeesMonthInput.value = state.payrollMonth || currentPayrollMonthValue();
@@ -1940,9 +1941,32 @@
       if (!(row instanceof HTMLElement)) return;
       const cardId = String(row.dataset.cardId || '').trim();
       if (!cardId) return;
+      const shouldOpenRepairOrder = String(row.dataset.openRepairOrder || '') === '1';
+      const parent = (state.modalStack || []).find((entry) => entry?.key === 'employees');
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const pending = els.employeesDetailTable?.querySelector('[data-employee-order-pending]');
+      if (shouldOpenRepairOrder && pending?.closest('[data-card-id]')?.dataset.cardId === cardId) {
+        (row.querySelector('td') || row).appendChild(pending);
+        return;
+      }
       if (!confirmDiscardEmployeeChanges()) return;
+      let opening = null;
+      if (shouldOpenRepairOrder) {
+        els.employeesDetailTable?.querySelector('[data-employee-order-status]')?.remove();
+        opening = document.createElement('span');
+        opening.dataset.employeeOrderStatus = '';
+        opening.dataset.employeeOrderPending = '';
+        opening.setAttribute('role', 'status');
+        opening.textContent = ' · Открываем заказ-наряд…';
+        (row.querySelector('td') || row).appendChild(opening);
+      }
+      const employee = state.activeEmployeeId;
+      const access = state.employeesCashboxesAccessRevision;
+      const hydration = state.cardHydrationSeq;
+      const editing = state.cardEditingGeneration;
+      const repairOrder = state.repairOrderContextGeneration;
       try {
-        const shouldOpenRepairOrder = String(row.dataset.openRepairOrder || '') === '1';
         if (shouldOpenRepairOrder) {
           await openRepairOrderCard(cardId, { parentLayer: 'employees' });
         } else {
@@ -1950,5 +1974,19 @@
         }
       } catch (error) {
         setStatus(error.message, true);
+      } finally {
+        if (opening?.isConnected) {
+          const failed = parent && (state.modalStack || []).includes(parent) && row.isConnected
+            && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
+            && state.activeEmployeeId === employee && state.employeesCashboxesAccessRevision === access
+            && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
+            && state.repairOrderContextGeneration === repairOrder;
+          if (failed) {
+            delete opening.dataset.employeeOrderPending;
+            opening.textContent = ' · Не удалось открыть заказ-наряд.';
+          } else {
+            opening.remove();
+          }
+        }
       }
     }
