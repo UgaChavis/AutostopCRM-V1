@@ -1,6 +1,5 @@
 
   <script>
-    // Legacy actor localStorage flow removed in favor of operator sessions.
     const OPERATOR_SESSION_STORAGE_KEY = 'kanban-operator-session';
     const API_TOKEN_STORAGE_KEY = 'kanban-api-token';
     const BOARD_SCALE_STORAGE_KEY_PREFIX = 'kanban-board-scale:';
@@ -6102,7 +6101,7 @@
         state.editingId = state.mobileCardId;
         state.pendingCardClientId = state.mobileCard?.client_id || '';
         state.mobileCardLoading = false;
-        if (state.mobileCard) cacheFullCard(state.mobileCard);
+        if (!fullCard && state.mobileCard) cacheFullCard(state.mobileCard);
         recordCardOpenSideEffects(state.mobileCardId);
         renderMobileShell();
         loadMobileCardJournal({ force: true });
@@ -13347,8 +13346,7 @@
           && state.operatorSessionToken === operatorSessionToken
           && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration
           && (!openingShell || (state.cardOpeningShell === openingShell && els.cardModal?.classList.contains('is-open')));
-        // Vehicle links can change without changing the card's own revision.
-        // Open the editable form only after checking the current saved card.
+        // Vehicle links can change without a card revision.
         try {
           const request = fetchFullCard(normalizedCardId);
           if (openingShell) openingShell.request = state.cardFetchInFlight.get(normalizedCardId);
@@ -14258,11 +14256,14 @@
       let request = null;
       request = api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => {
-          if (viewerStateGeneration !== state.viewerStateGeneration || state.cardFetchInFlight.get(normalizedCardId) !== request) return null;
+          if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           if (!data?.card) return null;
-          return cacheFullCard(applyCardSeenSuppression({
+          const card = applyCardSeenSuppression({
             ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [],
-          }));
+          });
+          if (state.cardFetchInFlight.get(normalizedCardId) === request) return cacheFullCard(card);
+          const current = state.fullCardCache.get(normalizedCardId);
+          return current && current !== cachedCard ? current : card;
         })
         .finally(() => {
           if (state.cardFetchInFlight.get(normalizedCardId) === request) {

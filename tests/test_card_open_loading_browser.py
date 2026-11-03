@@ -92,6 +92,13 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         card_id = self.create_card("Synthetic cancelled card")
         self.load_board()
         held = self.start_open(card_id)
+        self.page.evaluate(
+            """id => {
+          window.independentCardRead = 'pending';
+          fetchFullCard(id).then(card => { window.independentCardRead = card?.title || 'missing'; });
+        }""",
+            card_id,
+        )
         self.page.keyboard.press("Escape")
         self.assertFalse(
             self.page.locator("#cardModal").evaluate("e => e.classList.contains('is-open')")
@@ -99,7 +106,10 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         with self.page.expect_response("**/api/get_card?**") as response:
             held.pop().continue_()
         response.value.body()
-        self.page.wait_for_timeout(100)
+        self.page.wait_for_function("window.independentCardRead !== 'pending'")
+        self.assertEqual(
+            self.page.evaluate("window.independentCardRead"), "Synthetic cancelled card"
+        )
         self.assertFalse(
             self.page.locator("#cardModal").evaluate("e => e.classList.contains('is-open')")
         )
@@ -119,6 +129,17 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
         self.page.wait_for_timeout(100)
         self.assertEqual(len(held), 1)
+        self.page.evaluate(
+            """id => {
+          window.independentCardRead = 'pending';
+          fetchFullCard(id).then(card => { window.independentCardRead = card?.title || 'missing'; });
+          window.mobileCardRead = 'pending';
+          openMobileCardDetail(id).then(card => { window.mobileCardRead = card?.title || 'missing'; });
+        }""",
+            card_id,
+        )
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1, "Independent consumer must share the pending GET")
         self.page.keyboard.press("Escape")
         self.runtime.service.update_card(
             {"card_id": card_id, "title": "Synthetic after", "actor_name": "other"}
@@ -135,7 +156,11 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         with self.page.expect_response("**/api/get_card?**") as old_response:
             route.fulfill(response=response)
         old_response.value.body()
-        self.page.wait_for_timeout(100)
+        self.page.wait_for_function("window.independentCardRead !== 'pending'")
+        self.page.wait_for_function("window.mobileCardRead !== 'pending'")
+        self.assertEqual(self.page.evaluate("window.independentCardRead"), "Synthetic after")
+        self.assertEqual(self.page.evaluate("window.mobileCardRead"), "Synthetic after")
+        self.assertEqual(self.page.evaluate("state.mobileCard.title"), "Synthetic after")
         self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic after")
         self.assertEqual(
             self.page.evaluate("id => state.fullCardCache.get(id)?.title", card_id),
