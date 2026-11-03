@@ -14,6 +14,12 @@
       return sharedFileById(state.sharedFilesActiveId);
     }
 
+    function sharedFilesAwaitingMutation() {
+      return Boolean(state.sharedFilesMutationRequest
+        && els.sharedFilesModal?.classList?.contains('is-open')
+        && els.sharedFilesModal.dataset.sharedFilesReady !== 'true');
+    }
+
     function beginSharedFilesMutation({ fileId = '', clipboardId = '' } = {}) {
       if (els.sharedFilesModal?.classList?.contains('is-open')
           && els.sharedFilesModal.dataset.sharedFilesReady !== 'true') return null;
@@ -120,7 +126,7 @@
         }).join('');
       }
       const storage = state.sharedFilesStorage || {};
-      if (els.sharedFilesMeta) {
+      if (els.sharedFilesMeta && !sharedFilesAwaitingMutation()) {
         els.sharedFilesMeta.textContent = formatBytes(storage.used_bytes ?? 0) + ' / ' + formatBytes(storage.limit_bytes ?? 0) + ' · ' + files.length + ' ФАЙЛ.';
       }
       updateSharedFilesActions();
@@ -160,7 +166,7 @@
         return data;
       } catch (error) {
         if (!isCurrent()) return null;
-        if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = error.message;
+        if (els.sharedFilesMeta && !sharedFilesAwaitingMutation()) els.sharedFilesMeta.textContent = error.message;
         maybeOpenModal(els.sharedFilesModal, openModal);
         setStatus(error.message, true);
         return null;
@@ -182,6 +188,7 @@
       hideSharedFilesContextMenu();
       if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = 'ЗАГРУЗКА...';
       maybeOpenModal(modal, true);
+      modal.querySelector('[data-close="shared-files"]')?.focus({ preventScroll: true });
       const entry = (state.modalStack || []).find((item) => item?.key === 'shared-files');
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
@@ -203,7 +210,6 @@
       desktop.inert = false;
       desktop.style.visibility = '';
       if (menu) menu.inert = false;
-      desktop.focus?.({ preventScroll: true });
     }
 
     function selectSharedFile(fileId) {

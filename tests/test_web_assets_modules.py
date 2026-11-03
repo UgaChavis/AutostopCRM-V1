@@ -455,7 +455,8 @@ assert.equal(typeof auxiliaryFactory, 'function');
 const calls = [];
 const modalCalls = [];
 let dashboardFocused = false;
-let sharedFilesFocused = false;
+let sharedFilesCloseFocused = false;
+let sharedFilesOpen = false;
 let deferredDashboardResolve = null;
 let deferDashboard = false;
 const state = {{
@@ -479,11 +480,16 @@ const els = {{
   displayDashboardImageInput: {{value: ''}},
   displayDashboardMessageMeta: {{textContent: ''}},
   sharedFilesDesktop: {{
-    innerHTML: '', querySelectorAll() {{ return []; }},
-    focus() {{ sharedFilesFocused = true; }},
+    innerHTML: '', style: {{}}, querySelectorAll() {{ return []; }},
   }},
   sharedFilesMeta: {{textContent: ''}},
-  sharedFilesModal: {{}},
+  sharedFilesModal: {{
+    dataset: {{}}, classList: {{contains() {{ return sharedFilesOpen; }}}},
+    querySelector(selector) {{
+      return selector === '[data-close="shared-files"]'
+        ? {{focus() {{ sharedFilesCloseFocused = true; }}}} : null;
+    }},
+  }},
 }};
 async function api(path) {{
   calls.push(path);
@@ -518,7 +524,13 @@ const shared = {{
   finiteNumber(value, fallback = 0) {{ const result = Number(value); return Number.isFinite(result) ? result : fallback; }},
   formatBytes(value) {{ return String(value) + ' B'; }}, formatDate() {{ return 'DATE'; }},
   isModalOpen() {{ return true; }}, loadArchive() {{}},
-  maybeOpenModal(_modal, openModal) {{ if (openModal) modalCalls.push('shared-files'); }},
+  maybeOpenModal(_modal, openModal) {{
+    if (openModal) {{
+      sharedFilesOpen = true;
+      state.modalStack.push({{key: 'shared-files'}});
+      modalCalls.push('shared-files');
+    }}
+  }},
   normalizeAttachmentMimeType(value) {{ return String(value || ''); }},
   openMobileCardDetail() {{}}, popModal() {{}},
   pushModal(name) {{ modalCalls.push(name); }}, refreshSnapshot() {{}},
@@ -548,8 +560,11 @@ const exported = auxiliaryFactory({{state, els, api, setStatus() {{}}, shared}})
   await exported.loadSharedFiles({{openModal: true}});
   assert.deepEqual(state.sharedFiles, []);
   assert.equal(els.sharedFilesMeta.textContent.startsWith('0 B / 1024 B'), true);
+  sharedFilesOpen = false;
+  state.modalStack = [{{key: 'settings'}}];
   await exported.openSharedFilesModal();
-  assert.equal(sharedFilesFocused, true);
+  assert.equal(sharedFilesCloseFocused, true);
+  assert.equal(els.sharedFilesModal.dataset.sharedFilesReady, 'true');
   assert.equal(modalCalls.includes('shared-files'), true);
       assert.deepEqual(calls, [
         '/api/get_display_dashboard',

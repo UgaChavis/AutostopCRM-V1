@@ -4,6 +4,102 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class SharedFilesLoadingBrowserTests(UiBrowserTestCase):
+    def test_reopen_during_rename_keeps_reopen_guidance_without_repeating_write(self):
+        self.load_board()
+        file = {"id": "synthetic-file", "original_name": "before.txt", "size_bytes": 10}
+        reads = []
+
+        def list_files(route):
+            reads.append(route.request.url)
+            route.fulfill(
+                status=200,
+                json={
+                    "ok": True,
+                    "data": {"files": [file], "storage": {"used_bytes": 10, "limit_bytes": 100}},
+                },
+            )
+
+        self.page.route("**/api/list_shared_files", list_files)
+        self.page.locator("#sharedFilesButton").click()
+        self.page.wait_for_function("els.sharedFilesModal.dataset.sharedFilesReady === 'true'")
+        self.page.locator('[data-shared-file-id="synthetic-file"]').click()
+        held = []
+        self.page.route("**/api/rename_shared_file", lambda route: held.append(route))
+        self.page.on("dialog", lambda dialog: dialog.accept("after.txt"))
+        self.page.locator("#sharedFilesRenameButton").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.locator('#sharedFilesModal [data-close="shared-files"]').click()
+        self.page.locator("#sharedFilesButton").click()
+        self.assertIn("ОТКРОЙТЕ ФАЙЛЫ СНОВА", self.page.locator("#sharedFilesMeta").inner_text())
+        file["original_name"] = "after.txt"
+        held.pop().fulfill(status=200, json={"ok": True, "data": {"file": file}})
+        self.page.wait_for_function("!state.sharedFilesMutationRequest")
+        self.assertIn("ОТКРОЙТЕ ФАЙЛЫ СНОВА", self.page.locator("#sharedFilesMeta").inner_text())
+        self.assertFalse(self.page.locator("#sharedFilesDesktop").is_visible())
+        self.assertTrue(self.page.locator(".shared-files-toolbar").evaluate("e => e.inert"))
+        self.page.locator('#sharedFilesModal [data-close="shared-files"]').click()
+        before_reopen = len(reads)
+        self.page.locator("#sharedFilesButton").click()
+        self.page.get_by_text("after.txt").wait_for()
+        self.assertEqual(len(reads), before_reopen + 1)
+        self.assertEqual(self.writes.count("rename_shared_file"), 1)
+
+    def test_loading_and_error_keep_keyboard_focus_on_close(self):
+        self.load_board()
+        held = []
+        self.page.route("**/api/list_shared_files", lambda route: held.append(route))
+        close = self.page.locator('#sharedFilesModal [data-close="shared-files"]')
+        self.page.locator("#sharedFilesButton").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.assertTrue(close.evaluate("e => document.activeElement === e"))
+        close.focus()
+        held.pop().fulfill(status=200, json={"ok": True, "data": {"files": [], "storage": {}}})
+        self.page.wait_for_function("els.sharedFilesModal.dataset.sharedFilesReady === 'true'")
+        self.assertTrue(close.evaluate("e => document.activeElement === e"))
+        close.click()
+        self.page.locator("#sharedFilesButton").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        held.pop().fulfill(status=403, json={"ok": False, "error": {"message": "Denied"}})
+        self.page.wait_for_function("els.sharedFilesMeta.textContent.includes('Denied')")
+        self.assertTrue(close.evaluate("e => document.activeElement === e"))
+
+    def test_failed_refresh_keeps_reopen_guidance_during_rename(self):
+        self.load_board()
+        file = {"id": "synthetic-file", "original_name": "before.txt", "size_bytes": 10}
+        fail_refresh = []
+
+        def list_files(route):
+            if fail_refresh:
+                route.fulfill(
+                    status=503, json={"ok": False, "error": {"message": "Refresh failed"}}
+                )
+            else:
+                route.fulfill(
+                    status=200, json={"ok": True, "data": {"files": [file], "storage": {}}}
+                )
+
+        self.page.route("**/api/list_shared_files", list_files)
+        self.page.locator("#sharedFilesButton").click()
+        self.page.wait_for_function("els.sharedFilesModal.dataset.sharedFilesReady === 'true'")
+        self.page.locator('[data-shared-file-id="synthetic-file"]').click()
+        held = []
+        self.page.route("**/api/rename_shared_file", lambda route: held.append(route))
+        self.page.on("dialog", lambda dialog: dialog.accept("after.txt"))
+        self.page.locator("#sharedFilesRenameButton").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.locator('#sharedFilesModal [data-close="shared-files"]').click()
+        self.page.locator("#sharedFilesButton").click()
+        fail_refresh.append(True)
+        held.pop().fulfill(status=200, json={"ok": True, "data": {"file": file}})
+        self.page.wait_for_function("!state.sharedFilesMutationRequest")
+        self.assertIn("ОТКРОЙТЕ ФАЙЛЫ СНОВА", self.page.locator("#sharedFilesMeta").inner_text())
+        self.assertIn("Refresh failed", self.page.locator("#statusLine").inner_text())
+        self.assertEqual(self.writes.count("rename_shared_file"), 1)
+
     def test_loading_late_responses_access_failure_and_file_actions(self):
         self.load_board()
         held = []
