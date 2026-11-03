@@ -43,7 +43,7 @@ class CardEmployeeLayersBrowserTests(UiBrowserTestCase):
         self.load_board()
         self.open_card_from_employees(card_id)
         self.assertEqual(self.top_modal_at("#cardModalCloseButtonTop"), "cardModal")
-        self.page.wait_for_function("document.activeElement.id === 'cardVehicle'")
+        self.page.wait_for_function("document.activeElement.id === 'cardModalCloseButtonTop'")
         self.page.locator("#repairOrderButton").click()
         self.page.locator("#repairOrderModal.is-open").wait_for()
         self.assertEqual(

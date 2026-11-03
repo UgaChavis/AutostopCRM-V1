@@ -1231,6 +1231,12 @@
       box-shadow: 0 24px 80px rgba(0, 0, 0, 0.54);
     }
     .modal.is-open { display: flex; }
+    #cardModal .card-loading-status { display: none; }
+    #cardModal[data-card-loading] .card-loading-status { display: inline; }
+    #cardModal[data-card-loading] .dialog--card { width: min(520px, calc(100% - 28px)); height: auto; grid-template-rows: auto; }
+    #cardModal[data-card-loading] .dialog__title-prefix { color: var(--text); font-size: 12px; }
+    #cardModal[data-card-loading] .dialog--card > :not(.dialog__head--card),
+    #cardModal[data-card-loading] .dialog__title-row--card { display: none; }
     #cardModal.is-open.card-parent-employees ~ #employeesModal { z-index: 9; }
     .dialog {
       width: min(980px, 100%);

@@ -179,6 +179,7 @@
       cardTimerTickHandle: null,
       cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
+      cardOpeningShell: null,
       cardHydrationSeq: 0,
       fullCardCache: new Map(),
       cardFetchInFlight: new Map(),
@@ -3520,6 +3521,7 @@
       });
       modalElementForKey(normalizedKey)?.classList.remove('is-open');
       if (closingKeys.has('card')) els.cardModal?.classList?.remove('card-parent-employees');
+      if (closingKeys.has('card') && state.cardOpeningShell) resetCardModalState();
       return true;
     }
 
@@ -12307,6 +12309,8 @@
     }
 
     function resetCardModalState() {
+      state.cardOpeningShell = null;
+      if (els.cardModal?.dataset) delete els.cardModal.dataset.cardLoading;
       els.cardModal?.classList?.remove('card-parent-employees');
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       state.cardSaveRequest = null;
@@ -13330,35 +13334,60 @@
       return perfMeasureAsync('openCardWorkspace', async () => {
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
+        const openingShell = openCardModalEl && !closeModalEl && !openRepairOrder ? beginCardOpeningShell() : null;
+        if (state.cardOpeningShell && state.cardOpeningShell !== openingShell) closeCardModal();
         const viewerStateGeneration = state.viewerStateGeneration;
+        const operatorSessionToken = state.operatorSessionToken;
         const hydrationSeq = state.cardHydrationSeq + 1;
         state.cardHydrationSeq = hydrationSeq;
         const editingGeneration = state.cardEditingGeneration;
         const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
-          && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration;
+          && state.operatorSessionToken === operatorSessionToken
+          && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration
+          && (!openingShell || (state.cardOpeningShell === openingShell && els.cardModal?.classList.contains('is-open')));
         // Vehicle links can change without changing the card's own revision.
         // Open the editable form only after checking the current saved card.
-        const fullCard = await fetchFullCard(normalizedCardId).catch((error) => {
-          if (isCurrent()) throw error;
-          return null;
-        });
-        if (!fullCard || !isCurrent()) return null;
-        if (openCardModalEl) {
-          if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
-          openCardModal(fullCard, { cardIsFull: true });
-        } else {
-          applyCardModalState(fullCard, { cardIsFull: true });
+        try {
+          const fullCard = await fetchFullCard(normalizedCardId).catch((error) => {
+            if (isCurrent()) throw error;
+            return null;
+          });
+          if (!fullCard || !isCurrent()) {
+            if (!fullCard && isCurrent()) setStatus('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.', true);
+            return null;
+          }
+          if (openCardModalEl) {
+            if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
+            openCardModal(fullCard, { cardIsFull: true });
+          } else {
+            applyCardModalState(fullCard, { cardIsFull: true });
+          }
+          recordCardOpenSideEffects(normalizedCardId);
+          if (openRepairOrder) {
+            state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
+            await openRepairOrderModal();
+          }
+          return fullCard;
+        } finally {
+          if (openingShell && state.cardOpeningShell === openingShell) closeCardModal();
         }
-        recordCardOpenSideEffects(normalizedCardId);
-        if (openRepairOrder) {
-          state.repairOrderParentLayer = String(repairOrderParentLayer || (openCardModalEl ? 'card' : '')).trim();
-          await openRepairOrderModal();
-        }
-        return fullCard;
       });
     }
 
+    function beginCardOpeningShell() {
+      const modal = els.cardModal;
+      if (!modal?.dataset || (modal.classList.contains('is-open') && !state.cardOpeningShell)) return null;
+      const alreadyOpen = Boolean(state.cardOpeningShell);
+      const opening = {};
+      state.cardOpeningShell = opening;
+      modal.dataset.cardLoading = 'true';
+      if (!alreadyOpen) pushModal('card', modal);
+      els.cardModalCloseButtonTop?.focus({ preventScroll: true });
+      return opening;
+    }
+
     async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {}) {
+      if (state.cardOpeningShell) closeCardModal();
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       state.cardHydrationSeq += 1;
@@ -13982,10 +14011,15 @@
     }
 
     function openCardModal(card, { cardIsFull = true } = {}) {
+      const openingShell = state.cardOpeningShell;
+      if (openingShell) {
+        state.cardOpeningShell = null;
+        delete els.cardModal.dataset.cardLoading;
+      }
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       applyCardModalState(card, { cardIsFull });
       setTab('overview');
-      pushModal('card', els.cardModal);
+      if (!openingShell) pushModal('card', els.cardModal);
       requestAnimationFrame(() => {
         syncCardSaveDirtyState();
         syncCardDescriptionHeight();
@@ -14794,6 +14828,7 @@
     }
 
     function openNewCardInColumn(columnId) {
+      if (state.cardOpeningShell) closeCardModal();
       openCardModal({ column: columnId, tags: [], attachments: [], remaining_seconds: 86400 });
     }
 
