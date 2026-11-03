@@ -4999,7 +4999,7 @@
         return { cards: state.archiveCards };
       }
       if (openModal) maybeOpenModal(els.archiveModal, true);
-      if (els.archiveList && (!state.archiveLoaded || force)) {
+      if (els.archiveList) {
         els.archiveList.innerHTML = '<div class="log-row__meta">ЗАГРУЗКА АРХИВА...</div>';
       }
       let archivePromise = null;
@@ -5009,6 +5009,7 @@
           if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           state.archiveCards = Array.isArray(data?.cards) ? data.cards : [];
           state.archiveLoaded = true;
+          state.archiveLoading = null;
           renderArchive();
           return data;
         } catch (error) {
