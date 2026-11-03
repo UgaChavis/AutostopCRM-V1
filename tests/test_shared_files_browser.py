@@ -147,21 +147,38 @@ class SharedFilesBrowserTests(UiBrowserTestCase):
     def test_late_workspace_read_cannot_steal_a_newer_card_dialog(self) -> None:
         card_id = self.create_card("Card after shared-file intent")
         self.open_shared()
+        self.page.wait_for_function("els.sharedFilesModal.dataset.sharedFilesReady === 'true'")
         self.page.locator('#sharedFilesModal [data-close="shared-files"]').first.click()
+        self.page.evaluate(
+            """() => {
+          const module = boardModuleRecords.get('auxiliary');
+          const open = module.exports.openSharedFilesModal;
+          module.exports.openSharedFilesModal = (...args) => {
+            window.sharedFilesOpeningPromise = open(...args);
+            return window.sharedFilesOpeningPromise;
+          };
+        }"""
+        )
         held = []
         self.page.route(
             "**/api/list_shared_files", lambda route: held.append((route, route.fetch()))
         )
-        self.page.locator("#sharedFilesButton").click()
-        self.page.wait_for_timeout(100)
+        with self.page.expect_request("**/api/list_shared_files"):
+            self.page.locator("#sharedFilesButton").click()
+        self.page.locator('#sharedFilesModal.is-open[data-shared-files-ready="false"]').wait_for()
+        self.page.locator('#sharedFilesModal [data-close="shared-files"]').first.click()
+        self.page.locator("#sharedFilesModal.is-open").wait_for(state="hidden")
         self.assertEqual(len(held), 1)
         self.open_card(card_id)
         route, response = held.pop()
         route.fulfill(response=response)
-        self.page.wait_for_timeout(100)
+        self.page.evaluate("() => window.sharedFilesOpeningPromise")
         self.assertFalse(
             self.page.locator("#sharedFilesModal").evaluate("e=>e.classList.contains('is-open')")
         )
+        self.assertTrue(self.page.locator("#cardModal.is-open").is_visible())
+        self.assertEqual(self.page.evaluate("state.editingId"), card_id)
+        self.assertEqual(self.page.evaluate("state.modalStack.at(-1).key"), "card")
 
     def test_rename_copy_paste_and_delete_roundtrip_keeps_the_original_file(self) -> None:
         data = self.context.request.post(
