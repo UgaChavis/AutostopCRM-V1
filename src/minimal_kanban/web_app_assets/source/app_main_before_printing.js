@@ -3453,7 +3453,9 @@
       if (!normalizedKey || !modalEl) return;
       const existing = Array.isArray(state.modalStack) ? state.modalStack : [];
       const parentKey = String(options.parentKey || existing[existing.length - 1]?.key || '').trim();
-      const openerSelector = String(options.openerSelector || modalOpenerSelector()).trim();
+      if (normalizedKey === 'card') modalEl.classList.toggle('card-parent-employees', parentKey === 'employees');
+      const openerSelector = String(options.openerSelector || modalOpenerSelector()
+        || (normalizedKey === 'card' && parentKey === 'employees' ? '#employeesModal [data-close="employees"]' : '')).trim();
       state.modalStack = existing.filter((entry) => entry?.key !== normalizedKey);
       state.modalStack.push({
         key: normalizedKey,
@@ -3483,6 +3485,7 @@
       }
       const modalEl = modalElementForKey(normalizedKey);
       if (!options.keepOpen) modalEl?.classList.remove('is-open');
+      if (normalizedKey === 'card') modalEl?.classList.remove('card-parent-employees');
       if (!options.skipFocus) restoreModalFocus(entry);
     }
 
@@ -3516,6 +3519,7 @@
         return false;
       });
       modalElementForKey(normalizedKey)?.classList.remove('is-open');
+      if (closingKeys.has('card')) els.cardModal?.classList?.remove('card-parent-employees');
       return true;
     }
 
@@ -12303,6 +12307,7 @@
     }
 
     function resetCardModalState() {
+      els.cardModal?.classList?.remove('card-parent-employees');
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       state.cardSaveRequest = null;
       state.cardFilesMutationRequest = null;
