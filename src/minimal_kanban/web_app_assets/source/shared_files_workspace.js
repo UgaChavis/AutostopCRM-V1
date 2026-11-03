@@ -15,6 +15,8 @@
     }
 
     function beginSharedFilesMutation({ fileId = '', clipboardId = '' } = {}) {
+      if (els.sharedFilesModal?.classList?.contains('is-open')
+          && els.sharedFilesModal.dataset.sharedFilesReady !== 'true') return null;
       if (state.sharedFilesMutationRequest) return null;
       const request = {};
       state.sharedFilesMutationRequest = request;
@@ -166,8 +168,42 @@
     }
 
     async function openSharedFilesModal() {
-      await loadSharedFiles({ openModal: true });
-      els.sharedFilesDesktop?.focus?.({ preventScroll: true });
+      if (els.sharedFilesModal?.classList.contains('is-open')) return;
+      const modal = els.sharedFilesModal;
+      const toolbar = modal?.querySelector('.shared-files-toolbar');
+      const desktop = els.sharedFilesDesktop;
+      const menu = els.sharedFilesContextMenu;
+      if (!modal || !desktop) return;
+      modal.dataset.sharedFilesReady = 'false';
+      if (toolbar) toolbar.inert = true;
+      desktop.inert = true;
+      desktop.style.visibility = 'hidden';
+      if (menu) menu.inert = true;
+      hideSharedFilesContextMenu();
+      if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = 'ЗАГРУЗКА...';
+      maybeOpenModal(modal, true);
+      const entry = (state.modalStack || []).find((item) => item?.key === 'shared-files');
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      if (state.sharedFilesMutationRequest) {
+        if (els.sharedFilesMeta) els.sharedFilesMeta.textContent = 'ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ И ОТКРОЙТЕ ФАЙЛЫ СНОВА.';
+        return;
+      }
+      const data = await loadSharedFiles();
+      if (!(state.modalStack || []).includes(entry)
+          || state.viewerStateGeneration !== viewer || state.operatorSessionToken !== session) return;
+      if (!data) {
+        if (els.sharedFilesMeta && els.sharedFilesMeta.textContent === 'ЗАГРУЗКА...') {
+          els.sharedFilesMeta.textContent = 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ФАЙЛЫ. ОТКРОЙТЕ ОКНО СНОВА.';
+        }
+        return;
+      }
+      modal.dataset.sharedFilesReady = 'true';
+      if (toolbar) toolbar.inert = false;
+      desktop.inert = false;
+      desktop.style.visibility = '';
+      if (menu) menu.inert = false;
+      desktop.focus?.({ preventScroll: true });
     }
 
     function selectSharedFile(fileId) {
