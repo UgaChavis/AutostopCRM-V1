@@ -5,6 +5,7 @@ import logging
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from minimal_kanban.logging_setup import close_logger
+from minimal_kanban.models import business_timezone
 from minimal_kanban.operator_permissions import SALARY_BALANCE_RESET_PERMISSION
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.storage.json_store import JsonStore
@@ -39,6 +41,192 @@ class SalaryBalanceResetTests(unittest.TestCase):
             attachments_dir=Path(self.temp_dir.name) / "attachments",
             repair_orders_dir=Path(self.temp_dir.name) / "repair-orders",
         )
+
+    def _make_legacy_employee(self, employee_id: str, **changes) -> None:
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        employee = next(
+            item for item in state["settings"]["employees"] if item["id"] == employee_id
+        )
+        employee.pop("payroll_terms", None)
+        employee.pop("updated_at", None)
+        employee.update(changes)
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    def test_legacy_revision_is_stable_and_reset_replays(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Синтетический legacy", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 12345}
+        )
+        self._make_legacy_employee(employee["id"])
+        first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        second = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(first["balance_revision"], second["balance_revision"])
+        self.assertEqual(
+            first["balance_revision"],
+            self._build_service().get_employee_salary_ledger({"employee_id": employee["id"]})[
+                "balance_revision"
+            ],
+        )
+        payload = {
+            "employee_id": employee["id"],
+            "expected_balance_minor": first["balance_minor"],
+            "expected_balance_revision": first["balance_revision"],
+            "idempotency_key": "synthetic-legacy-reset",
+            "_operator_session": {
+                "username": "TEST",
+                "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            },
+        }
+        applied = self.service.reset_employee_salary_balance(payload)
+        self.assertTrue(applied["meta"]["applied"])
+        self.assertEqual(applied["ledger"]["balance_minor"], 0)
+        self.assertEqual(
+            applied["ledger"]["balance_revision"],
+            self.service.get_employee_salary_ledger({"employee_id": employee["id"]})[
+                "balance_revision"
+            ],
+        )
+        self.assertTrue(self.service.reset_employee_salary_balance(payload)["meta"]["replayed"])
+
+    def test_each_missing_legacy_field_has_a_stable_revision(self) -> None:
+        for field in ("payroll_terms", "updated_at"):
+            with self.subTest(field=field):
+                employee = self.service.save_employee({"name": "Synthetic " + field})["employee"]
+                state = json.loads(self.state_file.read_text(encoding="utf-8"))
+                row = next(
+                    item for item in state["settings"]["employees"] if item["id"] == employee["id"]
+                )
+                row.pop(field)
+                self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+                first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+                second = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+                self.assertEqual(first["balance_revision"], second["balance_revision"])
+
+    def test_legacy_revision_rejects_changed_conditions_and_same_balance_operations(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Синтетический legacy conflict", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 2000}
+        )
+        cashbox = self.service.create_cashbox({"name": "Синтетическая касса"})["cashbox"]
+        self._make_legacy_employee(employee["id"])
+        old = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self._make_legacy_employee(employee["id"], work_percent="17")
+        changed = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(old["balance_minor"], changed["balance_minor"])
+        self.assertNotEqual(old["balance_revision"], changed["balance_revision"])
+        session = {"username": "TEST", "permissions": [SALARY_BALANCE_RESET_PERMISSION]}
+        payload = {
+            "employee_id": employee["id"],
+            "expected_balance_minor": old["balance_minor"],
+            "expected_balance_revision": old["balance_revision"],
+            "idempotency_key": "synthetic-legacy-conflict",
+            "_operator_session": session,
+        }
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.reset_employee_salary_balance(payload)
+        self.assertEqual(conflict.exception.code, "salary_balance_reset_conflict")
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 500}
+        )
+        self.service.create_employee_salary_transaction(
+            {
+                "employee_id": employee["id"],
+                "transaction_kind": "salary_payout",
+                "amount_minor": 500,
+                "cashbox_id": cashbox["id"],
+            }
+        )
+        current = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(changed["balance_minor"], current["balance_minor"])
+        self.assertNotEqual(changed["balance_revision"], current["balance_revision"])
+        payload["expected_balance_revision"] = changed["balance_revision"]
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.reset_employee_salary_balance(payload)
+        self.assertEqual(conflict.exception.code, "salary_balance_reset_conflict")
+
+    def test_inactive_legacy_revision_tracks_a_new_weekly_accrual(self) -> None:
+        employee = self.service.save_employee(
+            {
+                "name": "Синтетический inactive",
+                "salary_mode": "salary_only",
+                "base_salary": "1000",
+            }
+        )["employee"]
+        self._make_legacy_employee(
+            employee["id"],
+            is_active=False,
+            active_periods=[],
+            created_at="2026-10-26T00:00:00+07:00",
+        )
+        before = datetime(2026, 10, 30, 19, 59, tzinfo=business_timezone())
+        with (
+            patch("minimal_kanban.models.utc_now", return_value=before),
+            patch("minimal_kanban.models.utc_now_iso", return_value=before.isoformat()),
+        ):
+            first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+            bundle = self.store.read_bundle()
+            normalized = next(
+                item
+                for item in self.service._employees_from_settings(bundle["settings"])
+                if item["id"] == employee["id"]
+            )
+            reference = self.service._build_employee_salary_ledger(
+                bundle["cards"], bundle["cashboxes"], bundle["cash_transactions"], normalized
+            )
+            self.assertEqual(
+                {key: value for key, value in first.items() if key != "balance_revision"},
+                {key: value for key, value in reference.items() if key != "balance_revision"},
+            )
+        after = before + timedelta(minutes=2)
+        with (
+            patch("minimal_kanban.models.utc_now", return_value=after),
+            patch("minimal_kanban.models.utc_now_iso", return_value=after.isoformat()),
+        ):
+            second = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertGreater(second["balance_minor"], first["balance_minor"])
+        self.assertNotEqual(first["balance_revision"], second["balance_revision"])
+
+        self._make_legacy_employee(
+            employee["id"],
+            active_periods=[{"start_at": "2026-10-26T00:00:00+07:00", "end_at": after.isoformat()}],
+        )
+        with (
+            patch("minimal_kanban.models.utc_now", return_value=after),
+            patch("minimal_kanban.models.utc_now_iso", return_value=after.isoformat()),
+        ):
+            explicit = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+            self._make_legacy_employee(
+                employee["id"],
+                active_periods=[
+                    {
+                        "start_at": "2026-10-26T00:00:00+07:00",
+                        "end_at": (after + timedelta(minutes=1)).isoformat(),
+                    }
+                ],
+            )
+            changed_end = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(explicit["balance_minor"], changed_end["balance_minor"])
+        self.assertNotEqual(explicit["balance_revision"], changed_end["balance_revision"])
+
+    def test_legacy_revision_rejects_ambiguous_or_undated_employee(self) -> None:
+        employee = self.service.save_employee({"name": "Синтетический ambiguous"})["employee"]
+        self._make_legacy_employee(employee["id"])
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        state["settings"]["employees"].append(dict(state["settings"]["employees"][0]))
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(ServiceError) as error:
+            self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(error.exception.code, "salary_balance_revision_unavailable")
+        state["settings"]["employees"].pop()
+        state["settings"]["employees"][0].pop("created_at", None)
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaises(ServiceError) as error:
+            self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(error.exception.code, "salary_balance_revision_unavailable")
 
     def test_employee_salary_balance_reset_is_immutable_idempotent_and_persistent(self) -> None:
         employee = self.service.save_employee(

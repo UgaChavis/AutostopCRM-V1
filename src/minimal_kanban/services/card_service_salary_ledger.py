@@ -38,6 +38,48 @@ EMPLOYEE_SALARY_BALANCE_RESETS_SETTING_KEY = "employee_salary_balance_resets"
 
 
 class CardServiceSalaryLedgerMixin:
+    def _legacy_salary_revision_employee(
+        self, settings: dict[str, Any], employee: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        raw_employees = settings.get("employees")
+        matches = [
+            item
+            for item in (raw_employees if isinstance(raw_employees, list) else [])
+            if isinstance(item, dict)
+            and normalize_text(item.get("id") or item.get("employee_id"), limit=64)
+            == employee["id"]
+        ]
+        if len(matches) != 1:
+            self._fail(
+                "salary_balance_revision_unavailable",
+                "Невозможно однозначно проверить данные сотрудника.",
+                status_code=409,
+            )
+        raw = matches[0]
+        if not parse_datetime(raw.get("created_at")):
+            self._fail(
+                "salary_balance_revision_unavailable",
+                "Невозможно проверить период работы сотрудника.",
+                status_code=409,
+            )
+        terms = raw.get("payroll_terms")
+        legacy = (
+            not isinstance(terms, list)
+            or not terms
+            or any(
+                not isinstance(term, dict)
+                or not normalize_text(term.get("id"))
+                or not parse_datetime(term.get("effective_from") or raw.get("created_at"))
+                for term in terms
+            )
+            or not normalize_text(raw.get("updated_at"))
+        )
+        if legacy:
+            # The normalizer invents transient IDs/timestamps for legacy rows.
+            # Hash the complete stored record without changing payroll calculations.
+            return raw
+        return None
+
     def _employee_salary_ledger_revision(
         self,
         cards: list[Card],
@@ -49,6 +91,7 @@ class CardServiceSalaryLedgerMixin:
         salary_balance_resets: list[dict[str, Any]],
         as_of: datetime,
         period_start: datetime,
+        revision_employee: dict[str, Any] | None = None,
     ) -> str:
         employee_id = employee["id"]
         weekly_base_start = parse_datetime(employee.get("created_at")) or period_start
@@ -108,7 +151,7 @@ class CardServiceSalaryLedgerMixin:
                     }
                 )
         payload = {
-            "employee": employee,
+            "employee": employee if revision_employee is None else revision_employee,
             "weekly": weekly_sources,
             "shift_accruals": [
                 item for item in shift_accruals if item.get("employee_id") == employee_id
@@ -166,6 +209,7 @@ class CardServiceSalaryLedgerMixin:
         period_only_totals: bool = False,
         as_of: datetime | None = None,
         _balance_summary_only: bool = False,
+        revision_employee: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         repair_order_accruals = self._legacy_overall_accruals_without_postings(
             cards, repair_order_accruals or []
@@ -578,6 +622,7 @@ class CardServiceSalaryLedgerMixin:
             advance_total=advance_total,
             balance_reset_total=balance_reset_total,
             balance_summary_only=_balance_summary_only,
+            revision_employee=revision_employee,
         )
 
     def _finalize_employee_salary_ledger(
@@ -598,6 +643,7 @@ class CardServiceSalaryLedgerMixin:
         advance_total: Decimal,
         balance_reset_total: Decimal,
         balance_summary_only: bool,
+        revision_employee: dict[str, Any] | None,
     ) -> dict[str, Any]:
         if not balance_summary_only:
             journal_rows.sort(
@@ -627,6 +673,7 @@ class CardServiceSalaryLedgerMixin:
             salary_balance_resets=salary_balance_resets,
             as_of=now,
             period_start=period_start,
+            revision_employee=revision_employee,
         )
         return {
             "employee_id": employee["id"],
@@ -716,6 +763,9 @@ class CardServiceSalaryLedgerMixin:
                 repair_order_accruals=repair_order_accruals,
                 salary_balance_resets=salary_balance_resets,
                 months=months,
+                revision_employee=self._legacy_salary_revision_employee(
+                    bundle["settings"], employee
+                ),
             )
             return ledger
 
@@ -825,6 +875,7 @@ class CardServiceSalaryLedgerMixin:
                 salary_balance_resets=salary_balance_resets,
                 months=6,
                 as_of=operation_at,
+                revision_employee=self._legacy_salary_revision_employee(settings, employee),
             )
 
             existing_reset = next(
@@ -910,6 +961,7 @@ class CardServiceSalaryLedgerMixin:
                 salary_balance_resets=next_resets,
                 months=6,
                 as_of=operation_at,
+                revision_employee=self._legacy_salary_revision_employee(settings, employee),
             )
             if int(next_ledger["balance_minor"]) != 0:
                 raise RuntimeError("Salary balance reset did not produce an exact zero balance.")
