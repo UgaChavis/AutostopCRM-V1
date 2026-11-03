@@ -12,5 +12,7 @@ docs/OPERATIONS_RUNBOOK.md. Read AGENTS.md and docs/agent/modules/M2.md from
 the selected Manager root, together with its current journal context. A GitHub
 branch link or an installed skill copy does not select the Manager version.
 
-Checks, release, rollback and versioned installation are defined in the same
-runbook. Publishing source changes does not install this skill or start duties.
+CRM-specific checks and versioned installation are in the runbook. For shared
+server update and rollback, follow its Deploy locator to the selected Manager
+root's M2 procedure. Publishing source changes does not install this skill or
+start duties.

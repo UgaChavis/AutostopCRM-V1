@@ -10,12 +10,10 @@ synthetic/build output, **T** = technical state/config, **W** = business write,
 **X** = destructive/production effect. A read-only report can still contain
 private business data; keep it out of Git and shared output.
 
-The active update policy is [full application downtime](../../OPERATIONS_RUNBOOK.md#deploy):
-stop Manager, CRM and Store while preserving SSH and the controlling session;
-make one consistent necessary-data/config backup and one local isolated restore
-check; install exact checked versions and verify the applications. The old
-J1/cold/warm and CRM-only controllers below are retained references for deferred
-cleanup, not commands to run for that procedure.
+For shared server and GitHub update instructions, follow [Deploy](../../OPERATIONS_RUNBOOK.md#deploy)
+to the selected Manager root's M2 instruction. The old J1/cold/warm and CRM-only
+controllers below are retained references for deferred cleanup, not current
+release commands.
 
 ## Daily checks and release gates
 
@@ -63,11 +61,11 @@ needed. The code and runbook, not this summary, define exact thresholds.
 | Entrypoint and mode | Role and boundary |
 | --- | --- |
 | `scripts/release_git_preflight.sh` | R/T: exact Git/ref and dirty-tree preflight; may update remote-tracking refs. |
-| `scripts/agent_release_backup.py` subcommands: `create`, `verify`, `compare-current`, `restore-changed`, `restore-crm-changed`, `restore-manager-changed` | X for create/restore; durable release checkpoint and rollback component. `verify`/`compare-current` are R. Called by deploy, not an ad hoc backup substitute. |
+| `scripts/agent_release_backup.py` subcommands: `create`, `verify`, `compare-current`, `restore-changed`, `restore-crm-changed`, `restore-manager-changed` | X for create/restore; durable release checkpoint and rollback component. `verify`/`compare-current` are R. Historical controller component; not the current release procedure. |
 | `scripts/agent_release_retention.py` subcommands: `prune`, `cleanup-attempt` | X: validated old release/backup or failed-attempt artifact pruning only after its specified checkpoint. |
 | `scripts/configure_mcp_oauth.py` subcommands: `ensure`, `check`; `--env-file .env` | T for `ensure`, R for `check`; protected OAuth config. |
 | `scripts/configure_codex_mcp_auth.py` subcommands: `rotate`, `check`, `snapshot`, `restore` | T for rotate/snapshot/restore, R for check; local Codex MCP auth setup. Inspect connector setup before use. |
-| `scripts/configure_manager_crm_mcp.py` subcommands: `snapshot`, `restore`, `sync`, `check` | T for snapshot/restore/sync, R for check; Manager CRM URL/token pairing. Deploy atomically coordinates it. |
+| `scripts/configure_manager_crm_mcp.py` subcommands: `snapshot`, `restore`, `sync`, `check` | T for snapshot/restore/sync, R for check; Manager CRM URL/token pairing; inspect the selected procedure before changes. |
 | `scripts/install_codex_skill.py` | T: install versioned CRM skill into user runtime. |
 | `scripts/install_production_watchdog.sh` and `scripts/production_watchdog.py` | X: optional watchdog installation/execution; current production baseline does not install its timer. Never use as first recovery step. |
 | `scripts/cleanup_audit_probe_consumer.py [--apply]` | R preview / W apply: remove one technical feed probe consumer with backup/readback. |
@@ -82,11 +80,9 @@ legacy `deploy.sh` sequence is not the current update procedure.
 
 ## Offline application updates
 
-Follow [the current maintenance procedure](../../OPERATIONS_RUNBOOK.md#deploy):
-stop intake and applications, preserve one consistent data/config backup, check
-one isolated local restore, install checked artifacts and verify before reopening.
-The retired `deploy.sh` entrypoint only prints this instruction and exits with
-status 2. It does not read credentials, install files or control services.
+Follow [Deploy](../../OPERATIONS_RUNBOOK.md#deploy) to the selected Manager root's
+shared M2 procedure. The retired `deploy.sh` entrypoint only prints this locator
+and exits with status 2; it does not read credentials or control services.
 
 ## Reports, benchmarks and local tooling
 
