@@ -179,6 +179,7 @@
       cardTimerTickHandle: null,
       cardInitialPayloadKey: '',
       cardDescriptionLoading: false,
+      cardOpeningShell: null,
       cardHydrationSeq: 0,
       fullCardCache: new Map(),
       cardFetchInFlight: new Map(),
@@ -3541,6 +3542,7 @@
         return false;
       });
       modalElementForKey(normalizedKey)?.classList.remove('is-open');
+      if (closingKeys.has('card') && state.cardOpeningShell) resetCardModalState();
       return true;
     }
 
@@ -12335,6 +12337,11 @@
     }
 
     function resetCardModalState() {
+      state.cardOpeningShell = null;
+      if (els.cardModal) {
+        delete els.cardModal.dataset.cardLoading;
+        els.cardModal.removeAttribute('aria-busy');
+      }
       state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
       state.cardSaveRequest = null;
       state.cardFilesMutationRequest = null;
@@ -13353,16 +13360,20 @@
       }, CARD_OPEN_SIDE_EFFECT_DELAY_MS);
     }
 
-    async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '' } = {}) {
+    async function openCardWorkspace(cardId, { closeModalEl = null, openCardModalEl = true, openRepairOrder = false, repairOrderParentLayer = '', openingShell = null } = {}) {
       return perfMeasureAsync('openCardWorkspace', async () => {
+        if (state.cardOpeningShell && state.cardOpeningShell !== openingShell) closeCardModal();
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
         const viewerStateGeneration = state.viewerStateGeneration;
+        const operatorSessionToken = state.operatorSessionToken;
         const hydrationSeq = state.cardHydrationSeq + 1;
         state.cardHydrationSeq = hydrationSeq;
         const editingGeneration = state.cardEditingGeneration;
         const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
-          && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration;
+          && state.operatorSessionToken === operatorSessionToken
+          && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration
+          && (!openingShell || (state.cardOpeningShell === openingShell && els.cardModal?.classList.contains('is-open')));
         // Vehicle links can change without changing the card's own revision.
         // Open the editable form only after checking the current saved card.
         const fullCard = await fetchFullCard(normalizedCardId).catch((error) => {
@@ -13372,7 +13383,22 @@
         if (!fullCard || !isCurrent()) return null;
         if (openCardModalEl) {
           if (closeModalEl) popModal(modalKeyForElement(closeModalEl));
-          openCardModal(fullCard, { cardIsFull: true });
+          if (openingShell && state.cardOpeningShell === openingShell) {
+            const close = document.getElementById('cardOpeningCloseButton');
+            const restoreInitialFocus = document.activeElement === close;
+            state.cardOpeningShell = null;
+            delete els.cardModal.dataset.cardLoading;
+            els.cardModal.removeAttribute('aria-busy');
+            state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
+            openCardModal(fullCard, { cardIsFull: true, hydrateExisting: true });
+            const openedGeneration = state.cardEditingGeneration;
+            if (restoreInitialFocus) requestAnimationFrame(() => {
+              if (state.cardEditingGeneration === openedGeneration && els.cardModal?.classList.contains('is-open')
+                && (document.activeElement === close || document.activeElement === document.body)) els.cardVehicle?.focus({ preventScroll: true });
+            });
+          } else {
+            openCardModal(fullCard, { cardIsFull: true });
+          }
         } else {
           applyCardModalState(fullCard, { cardIsFull: true });
         }
@@ -13386,6 +13412,7 @@
     }
 
     async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {}) {
+      if (state.cardOpeningShell) closeCardModal();
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       state.cardHydrationSeq += 1;
@@ -14009,6 +14036,7 @@
     }
 
     function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false, hydrateExisting = false } = {}) {
+      if (!hydrateExisting && state.cardOpeningShell) closeCardModal();
       // Full data for the same opening must not invalidate a print workspace
       // already loading above this card in the modal stack.
       if (!hydrateExisting) state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
@@ -14676,11 +14704,33 @@
     }
 
     async function openCardById(cardId) {
+      const openingShell = beginCardOpeningShell();
       try {
-        await openCardWorkspace(cardId);
+        const card = await openCardWorkspace(cardId, { openingShell });
+        if (!card && openingShell && state.cardOpeningShell === openingShell) {
+          closeCardModal();
+          setStatus('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.', true);
+        }
       } catch (error) {
+        if (openingShell && state.cardOpeningShell !== openingShell) return;
+        if (openingShell && state.cardOpeningShell === openingShell) closeCardModal();
         setStatus(error.message, true);
       }
+    }
+
+    function beginCardOpeningShell() {
+      const modal = els.cardModal;
+      if (!modal?.dataset) return null;
+      const close = document.getElementById('cardOpeningCloseButton');
+      if (!close || (modal.classList.contains('is-open') && !state.cardOpeningShell)) return null;
+      const alreadyOpen = Boolean(state.cardOpeningShell);
+      const opening = {};
+      state.cardOpeningShell = opening;
+      modal.dataset.cardLoading = 'true';
+      modal.setAttribute('aria-busy', 'true');
+      if (!alreadyOpen) pushModal('card', modal);
+      close.focus({ preventScroll: true });
+      return opening;
     }
 
     function clearCardDropState() {
