@@ -155,9 +155,9 @@ Committed state may remain in the WAL while the keeper is alive. Follow the
 [SQLite WAL backup rules](https://sqlite.org/wal.html): copying only the main
 database can omit committed changes. The independent backup helper uses
 `sqlite3.Connection.backup()` for an online snapshot and restores with CRM
-stopped, removing stale WAL/SHM files before replacement. The current procedure
-still requires one consistent backup and one isolated local restore check;
-do not replace a live store's database file in place or overlay newer data.
+stopped, removing stale WAL/SHM files before replacement. Do not replace a live
+store's database file in place or overlay newer data. For the shared backup and
+restore procedure, use the selected Manager root's M2 instruction; see [Deploy](#deploy).
 
 Desktop integration settings live in the compatibility data directory's
 `settings.json`. Initial creation and load-time normalization hold the same
@@ -267,20 +267,21 @@ and bounded local performance gates. It uses an isolated Python cache so
 coverage and compile cannot race on Windows. It never runs live probes, edits
 `.env`, or accesses production.
 
-Ordinary preparation uses affected tests and the changed-file profile. Do not
-repeat the full local profile merely because the same candidate will be merged.
-The required final attestation is one manual `quality.yml` run on the exact
-final `autostopcrm-v1` commit, with `export_tested_image=true`. It includes the
-Ubuntu/Python 3.12 harness, production Compose configuration and
-`docker-runtime-assets` container contract.
+Ordinary preparation uses affected tests and the changed-file profile. The
+selected Manager root's M2 instruction defines when to qualify a release; see
+[Deploy](#deploy). To dispatch the CRM quality workflow on its main ref:
+
+```bash
+gh workflow run quality.yml --ref autostopcrm-v1 -f export_tested_image=true
+```
+
+The workflow includes the Ubuntu/Python 3.12 harness, production Compose
+configuration and `docker-runtime-assets` container contract.
 
 Pull requests run fast source contracts and changed non-browser regression
 modules. Browser changes receive focused local verification and the final
-browser suite. Neither a successful PR `quality` check nor an older branch
-SHA qualifies a final merged commit for deployment. Pushes do not launch a
-second full suite. After merge, dispatch once, compare the run's `headSha`
-with the final remote SHA, then use only its matching image artifact. A source
-change or concrete failed gate justifies a new final run.
+browser suite. The exported artifact is named `autostopcrm-image-<final-sha>`;
+its workflow run reports the tested source as `headSha`.
 
 Hosted static, unit/coverage, browser/performance and Docker gates run in
 parallel in the manual final run. Its `quality` job requires every full gate to succeed, including
@@ -659,10 +660,9 @@ a stable protected Fernet key; encrypted client/token state is stored in the
 mounted CRM data directory and survives container replacement. Never rotate
 the state key as part of a routine deploy.
 
-The normal deploy may still rotate `MINIMAL_KANBAN_MCP_BEARER_TOKEN` for
-internal smoke and Responses API compatibility. Codex/ChatGPT OAuth sessions
-must not depend on that bearer. Provision/check OAuth settings without printing
-the key:
+`MINIMAL_KANBAN_MCP_BEARER_TOKEN` is used for internal smoke and Responses API
+compatibility; Codex/ChatGPT OAuth sessions must not depend on that bearer.
+Provision/check OAuth settings without printing the key:
 
 ```bash
 cd /opt/autostopcrm
@@ -767,11 +767,9 @@ it. Source publication and CI do not by themselves update the server.
 ### CRM release candidate after merge
 
 For the CRM-specific exact lowercase ref and case-insensitive Windows collision,
-use [Git Parity](#git-parity). Qualify the exact final `autostopcrm-v1` SHA once
-with `gh workflow run quality.yml --ref autostopcrm-v1 -f export_tested_image=true`;
-verify successful `headSha` and the corresponding `autostopcrm-image-<final-sha>`
-artifact. [Release Checklist](#release-checklist) gives the CRM gate details and
-limits for optional Windows/native rehearsal.
+use [Git Parity](#git-parity). [Release Checklist](#release-checklist) describes
+the CRM workflow and optional Windows/native rehearsal; the selected Manager
+root's M2 instruction defines the shared release process.
 
 ## Deploy
 
@@ -905,11 +903,9 @@ requires a separate check of its actual callers and an authorized maintenance
 change. The optional `scripts/production_watchdog.py` still reads
 `AUTOSTOP_DEPLOY_LOCK_PATH` (default: `.autostop-deploy.lock` under its configured
 root). It skips a cycle only while another process holds the POSIX file lock;
-the file's presence alone does not suppress recovery. During authorized downtime,
-stop the actual application watchdog timer and any running recovery service,
-verify both inactive before backup, and restore only the previously active
-watchdog after acceptance. Preserve SSH and unrelated timers. The retired
-deployment controller no longer manages this lock.
+the file's presence alone does not suppress recovery. The retired deployment
+controller no longer manages this lock. For downtime handling, follow the
+selected Manager root's M2 instruction; see [Deploy](#deploy).
 
 Read-only inspection, when relevant:
 

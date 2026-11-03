@@ -40,11 +40,7 @@ approval already given for an implementation-and-rollout package remains valid.
 - Compatibility names `minimal_kanban`, `%APPDATA%\Minimal Kanban`, and
   `Start Kanban.exe` still serve deployed clients and data. Retire them only
   with migration and rollback evidence.
-- Match local verification to the changed behavior. PR checks stay fast; run
-  `quality.yml` once by dispatch on the final `autostopcrm-v1` SHA before release.
-  Its full checks and tested image belong to that exact SHA. Do not repeat the
-  full local CI profile or Windows rehearsal without a concrete need. Report
-  measured effects and verification gaps.
-- When deployment is in the user's scope, finish the runbook release and
-  prove target Git revision, live endpoint behavior, health, and logs.
-  Repository publication alone does not imply a production rollout.
+- Match local verification to the changed behavior and report measured effects
+  and verification gaps. For publication and server updates, use the selected
+  Manager root's M2 server-update instruction; the
+  [operations runbook](docs/OPERATIONS_RUNBOOK.md) describes CRM-specific checks.
