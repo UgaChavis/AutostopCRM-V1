@@ -627,6 +627,7 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
       setCompletionActMobileView('data');
       printEls.completionActModal?.classList.add('is-open');
       if (printEls.completionActMeta) printEls.completionActMeta.textContent = 'Загрузка данных из заказ-наряда...';
+      const focusAtOpen = document.activeElement;
       try {
         const data = await operation.request('/api/get_completion_act_form', {
           method: 'POST',
@@ -636,7 +637,9 @@ PRINTING_COMPLETION_ACT_SCRIPT = r"""    function blankCompletionActParty() {
         if (!applyCompletionActResponse(data, { session })) return;
         await operation.wait(refreshCompletionActPreview({ session }));
         if (!completionActEditorSessionIsCurrent(session)) return;
-        printEls.completionActForm?.querySelector('[data-completion-act-field]')?.focus();
+        if (document.activeElement === focusAtOpen) {
+          printEls.completionActForm?.querySelector('[data-completion-act-field]')?.focus();
+        }
       } catch (error) {
         if (!operation.current() || error?.code === 'stale_print_operation') return;
         if (!completionActEditorSessionIsCurrent(session)) return;
