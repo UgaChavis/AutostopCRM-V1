@@ -2376,7 +2376,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_card_modal_resets_state_and_creates_in_selected_column(self) -> None:
         self.assertIn(
-            "function applyCardModalState(card, { cardIsFull = true, preserveLazyPanels = false } = {})",
+            "function applyCardModalState(card, { cardIsFull = true } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function resetCardModalState()", BOARD_WEB_APP_HTML)

@@ -12243,9 +12243,8 @@
       }
     }
 
-    function applyCardModalState(card, { cardIsFull = true, preserveLazyPanels = false } = {}) {
+    function applyCardModalState(card, { cardIsFull = true } = {}) {
       const perfToken = perfStart('hydrateCard');
-      const previousCardId = String(state.activeCard?.id || '').trim();
       const currentCard = card || null;
       const nextCardId = String(currentCard?.id || '').trim();
       state.activeCard = currentCard;
@@ -12254,11 +12253,9 @@
       state.cardTimerState = cardTimerState(currentCard, { isNew: !currentCard?.id });
       state.cardTimerSaving = false;
       state.cardCreateColumnId = currentCard?.id ? '' : String(currentCard?.column || state.snapshot?.columns?.[0]?.id || 'inbox').trim();
-      if (!preserveLazyPanels || previousCardId !== nextCardId) {
-        state.cardJournalLoadedFor = '';
-        state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
-        state.cardFilesRenderedFor = '';
-      }
+      state.cardJournalLoadedFor = '';
+      state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
+      state.cardFilesRenderedFor = '';
       state.pendingCardClientId = currentCard?.client_id || '';
       state.pendingCardClientVehicleId = currentCard?.client_vehicle_id || '';
       state.pendingCreateClientVehicleFromCard = false;
@@ -12281,7 +12278,7 @@
       if (currentCard?.id && !currentCard?.client_id) scheduleClientSuggestionsForCard();
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
-      if (!preserveLazyPanels || previousCardId !== nextCardId) renderLogs([]);
+      renderLogs([]);
       setCardDescriptionValue(currentCard?.description || '');
       if (!currentCard?.id) {
         renderFiles(currentCard);
@@ -13979,18 +13976,15 @@
       els.cardVehicle?.focus({ preventScroll: true });
     }
 
-    function openCardModal(card, { cardIsFull = true, preserveTab = false, hydrateExisting = false } = {}) {
-      // Full data for the same opening must not invalidate a print workspace
-      // already loading above this card in the modal stack.
-      if (!hydrateExisting) state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
-      applyCardModalState(card, { cardIsFull, preserveLazyPanels: preserveTab });
-      if (!preserveTab) setTab('overview');
-      else loadActiveCardTab(state.currentTab);
-      if (!hydrateExisting) pushModal('card', els.cardModal);
+    function openCardModal(card, { cardIsFull = true } = {}) {
+      state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
+      applyCardModalState(card, { cardIsFull });
+      setTab('overview');
+      pushModal('card', els.cardModal);
       requestAnimationFrame(() => {
         syncCardSaveDirtyState();
         syncCardDescriptionHeight();
-        if (!hydrateExisting) focusCardModalInitialControl();
+        focusCardModalInitialControl();
       });
     }
 

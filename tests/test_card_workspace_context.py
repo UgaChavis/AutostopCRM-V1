@@ -495,7 +495,7 @@ function applyCardModalState(card, options = {}) {
   rendered.push({id: card.id, ...options});
 }
 function openCardModal(card, options) {
-  if (!options?.hydrateExisting) state.cardEditingGeneration += 1;
+  state.cardEditingGeneration += 1;
   applyCardModalState(card, options);
   modalOpen = true;
 }
