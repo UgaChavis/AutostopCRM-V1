@@ -52,6 +52,115 @@ class SalaryBalanceResetTests(unittest.TestCase):
         employee.update(changes)
         self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
 
+    def test_dated_shift_without_id_has_stable_revision_and_reset_replays(self) -> None:
+        employee = self.service.save_employee({"name": "Synthetic shift", "salary_mode": "none"})[
+            "employee"
+        ]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 1200}
+        )
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        shift = state["settings"]["employee_shift_accruals"][0]
+        shift.pop("id")
+        state["settings"]["employee_shift_accruals"].append(dict(shift))
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        second = self._build_service().get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(first["balance_minor"], 2400)
+        self.assertEqual(first["balance_revision"], second["balance_revision"])
+        payload = {
+            "employee_id": employee["id"],
+            "expected_balance_minor": first["balance_minor"],
+            "expected_balance_revision": first["balance_revision"],
+            "idempotency_key": "synthetic-shift-reset",
+            "_operator_session": {
+                "username": "TEST",
+                "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+            },
+        }
+        applied = self.service.reset_employee_salary_balance(payload)
+        self.assertTrue(applied["meta"]["applied"])
+        self.assertEqual(applied["ledger"]["balance_minor"], 0)
+        self.assertEqual(
+            applied["ledger"]["balance_revision"],
+            self.service.get_employee_salary_ledger({"employee_id": employee["id"]})[
+                "balance_revision"
+            ],
+        )
+        self.assertTrue(self.service.reset_employee_salary_balance(payload)["meta"]["replayed"])
+
+    def test_dated_shift_revision_preserves_all_sources_and_timezone(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Synthetic shift changes", "salary_mode": "none"}
+        )["employee"]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 1200}
+        )
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        shift = state["settings"]["employee_shift_accruals"][0]
+        shift.pop("id")
+        shift["created_at"] = "01.01.2024 10:00"
+        state["settings"]["employee_shift_accruals"].append(dict(shift))
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        with patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "UTC"}):
+            first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+            state["settings"]["employee_shift_accruals"][0]["amount_minor"] += 100
+            state["settings"]["employee_shift_accruals"][1]["amount_minor"] -= 100
+            self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+            changed = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+            self.assertEqual(first["balance_minor"], changed["balance_minor"])
+            self.assertNotEqual(first["balance_revision"], changed["balance_revision"])
+            with self.assertRaises(ServiceError) as conflict:
+                self.service.reset_employee_salary_balance(
+                    {
+                        "employee_id": employee["id"],
+                        "expected_balance_minor": first["balance_minor"],
+                        "expected_balance_revision": first["balance_revision"],
+                        "idempotency_key": "synthetic-shift-stale",
+                        "_operator_session": {
+                            "username": "TEST",
+                            "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                        },
+                    }
+                )
+            self.assertEqual(conflict.exception.code, "salary_balance_reset_conflict")
+        with patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk"}):
+            other_zone = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertEqual(changed["balance_minor"], other_zone["balance_minor"])
+        self.assertNotEqual(changed["balance_revision"], other_zone["balance_revision"])
+
+    def test_undated_shift_is_not_given_a_stable_revision(self) -> None:
+        employee = self.service.save_employee({"name": "Synthetic undated", "salary_mode": "none"})[
+            "employee"
+        ]
+        self.service.create_employee_shift_accrual(
+            {"employee_id": employee["id"], "amount_minor": 1200}
+        )
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        shift = state["settings"]["employee_shift_accruals"][0]
+        dated_without_id = dict(shift)
+        dated_without_id.pop("id")
+        shift.pop("created_at")
+        state["settings"]["employee_shift_accruals"].append(dated_without_id)
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        first = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        second = self.service.get_employee_salary_ledger({"employee_id": employee["id"]})
+        self.assertNotEqual(first["balance_revision"], second["balance_revision"])
+        with self.assertRaises(ServiceError) as conflict:
+            self.service.reset_employee_salary_balance(
+                {
+                    "employee_id": employee["id"],
+                    "expected_balance_minor": first["balance_minor"],
+                    "expected_balance_revision": first["balance_revision"],
+                    "idempotency_key": "synthetic-undated",
+                    "_operator_session": {
+                        "username": "TEST",
+                        "permissions": [SALARY_BALANCE_RESET_PERMISSION],
+                    },
+                }
+            )
+        self.assertEqual(conflict.exception.code, "salary_balance_reset_conflict")
+
     def test_legacy_revision_is_stable_and_reset_replays(self) -> None:
         employee = self.service.save_employee(
             {"name": "Синтетический legacy", "salary_mode": "none"}
