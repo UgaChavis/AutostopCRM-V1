@@ -327,13 +327,13 @@ function repairOrderNeedsVerification() {return false;}
             + """
 (async () => {
   cacheFullCard({id:'archive',updated_at:'old'});
-  assert.equal(cachedFullCardForSnapshot({id:'archive'}),null);
   assert.equal((await fetchFullCard('archive')).updated_at,'new');
   assert.equal(fetches,1);
   assert.equal((await fetchFullCard('archive','new')).updated_at,'new');
   assert.equal(fetches,1);
   cacheFullCard({id:'b',updated_at:'1'}); cacheFullCard({id:'c',updated_at:'1'});
-  cachedFullCardForSnapshot({id:'archive',updated_at:'new'});
+  assert.equal((await fetchFullCard('archive','new')).updated_at,'new');
+  assert.equal(fetches,1);
   cacheFullCard({id:'d',updated_at:'1'});
   assert.equal(state.fullCardCache.size,3);
   assert.equal(state.fullCardCache.has('archive'),true);

@@ -14194,17 +14194,6 @@
         : '';
     }
 
-    function cachedFullCardForSnapshot(card) {
-      const cardId = String(card?.id || '').trim();
-      if (!cardId) return null;
-      if (repairOrderNeedsVerification(cardId)) return null;
-      const cachedCard = state.fullCardCache.get(cardId);
-      if (!cachedCard) return null;
-      const expectedUpdatedAt = String(card?.updated_at || '').trim();
-      if (!expectedUpdatedAt || String(cachedCard.updated_at || '').trim() !== expectedUpdatedAt) return null;
-      return cacheFullCard(cachedCard);
-    }
-
     async function fetchFullCard(cardId, expectedUpdatedAt = '') {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return null;

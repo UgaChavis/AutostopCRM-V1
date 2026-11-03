@@ -579,7 +579,6 @@ assert.ok(statuses.at(-1).message.includes('ПОДТВЕРЖДЕНА ПОВТО�
             "repairOrderPaymentNeedsVerification",
             "clearRepairOrderPaymentVerificationPending",
             "cacheFullCard",
-            "cachedFullCardForSnapshot",
             "fetchFullCard",
             "captureCardEditingContext",
             "repairOrderResponseCard",
@@ -602,7 +601,6 @@ api=async(path,options)=>{
   throw new Error('unexpected request '+path);
 };
 
-assert.equal(cachedFullCardForSnapshot(state.snapshot.cards[0]),null);
 const hydrated=await fetchFullCard('A','r0');
 assert.equal(hydrated.description,'fresh card shell');
 assert.equal(calls.filter(call=>call.path.startsWith('/api/get_card?')).length,1,'pending used stale full-card cache');

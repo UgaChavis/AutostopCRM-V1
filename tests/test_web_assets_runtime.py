@@ -66,7 +66,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_cached_and_uncached_card_openings_recheck_saved_links(self) -> None:
+    def test_card_openings_recheck_saved_links(self) -> None:
         opener = _source_section(
             self.source, "async function openCardWorkspace(", "async function openRepairOrderCard("
         )
@@ -75,13 +75,11 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const card = {{ id: 'card', updated_at: 'revision', description: 'full description' }};
             const state = {{ viewerStateGeneration: 1, cardHydrationSeq: 0, fullCardCache: new Map() }};
             const els = {{ cardModal: {{ classList: {{ contains() {{ return true; }} }} }} }};
-            let useCache = true;
             let fetches = 0;
             const rendered = [];
             const sideEffects = [];
             function perfMeasureAsync(_name, callback) {{ return callback(); }}
             function snapshotCardById() {{ return card; }}
-            function cachedFullCardForSnapshot() {{ return useCache ? card : null; }}
             function openCardModal(value, options) {{ state.editingId = value.id; rendered.push(options); }}
             async function fetchFullCard() {{ fetches++; return card; }}
             function recordCardOpenSideEffects(id) {{ sideEffects.push(id); }}
@@ -91,7 +89,6 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               assert.equal(rendered.length, 1);
               assert.equal(rendered[0].cardIsFull, true);
               assert.equal(fetches, 1);
-              useCache = false;
               rendered.length = 0;
               assert.equal(await openCardWorkspace('card'), card);
               assert.equal(rendered.length, 1);

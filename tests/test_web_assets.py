@@ -2507,7 +2507,6 @@ class WebAssetsTests(unittest.TestCase):
     def test_card_open_rechecks_saved_links_and_delays_side_effects(self) -> None:
         self.assertIn("fullCardCache: new Map()", BOARD_WEB_APP_HTML)
         self.assertIn("cardFetchInFlight: new Map()", BOARD_WEB_APP_HTML)
-        self.assertIn("function cachedFullCardForSnapshot(card)", BOARD_WEB_APP_HTML)
         self.assertIn(
             "async function fetchFullCard(cardId, expectedUpdatedAt = '')", BOARD_WEB_APP_HTML
         )
