@@ -958,6 +958,20 @@ async def wait_for_modal_ready(page: Any, modal: str, ready_selector: str) -> No
     )
 
 
+async def wait_for_card_ready(page: Any, card_id: str) -> None:
+    await page.wait_for_function(
+        """id => {
+          const modal = document.querySelector('#cardModal');
+          return modal?.classList.contains('is-open')
+            && !modal.dataset.cardLoading
+            && state.activeCardIsFull === true
+            && state.editingId === id;
+        }""",
+        arg=card_id,
+        timeout=8000,
+    )
+
+
 async def force_close_open_modals(page: Any) -> None:
     await page.evaluate(
         """() => {
@@ -1126,9 +1140,7 @@ async def measure_representative_browser(
         async def prepare_save(index: int) -> None:
             await page.click(card_selector)
             await _wait_modal_open(page, "#cardModal")
-            await page.wait_for_function(
-                "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')"
-            )
+            await wait_for_card_ready(page, runtime.card_id)
             await page.fill("#cardTitle", f"Perf two-view readback {index}")
 
         async def save_and_observe(index: int) -> None:
@@ -1258,10 +1270,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                 async def open_card_action(_: int) -> None:
                     await page.click(card_selector)
                     await _wait_modal_open(page, "#cardModal")
-                    await page.wait_for_function(
-                        "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')",
-                        timeout=8000,
-                    )
+                    await wait_for_card_ready(page, runtime.card_id)
 
                 rows.append(
                     await measure_browser_action(
@@ -1303,10 +1312,7 @@ async def run_browser_workflows(args: argparse.Namespace) -> dict[str, Any]:
                         await close_card_if_open()
                         await page.click(card_selector)
                         await _wait_modal_open(page, "#cardModal")
-                        await page.wait_for_function(
-                            "() => !document.querySelector('#cardDescriptionEditor')?.classList.contains('is-loading')",
-                            timeout=8000,
-                        )
+                        await wait_for_card_ready(page, runtime.card_id)
                         await page.fill(
                             "#cardDescriptionEditor", f"Perf workflow description save {index}"
                         )
