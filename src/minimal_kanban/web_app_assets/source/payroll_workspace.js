@@ -1946,7 +1946,8 @@
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
       const pending = els.employeesDetailTable?.querySelector('[data-employee-order-pending]');
-      if (shouldOpenRepairOrder && pending?.closest('[data-card-id]')?.dataset.cardId === cardId) {
+      if (shouldOpenRepairOrder && pending?.closest('[data-card-id]')?.dataset.cardId === cardId
+        && pending.employeeOrderIsCurrent?.()) {
         (row.querySelector('td') || row).appendChild(pending);
         return;
       }
@@ -1966,6 +1967,12 @@
       const hydration = state.cardHydrationSeq;
       const editing = state.cardEditingGeneration;
       const repairOrder = state.repairOrderContextGeneration;
+      const isCurrent = () => parent && (state.modalStack || []).includes(parent) && row.isConnected
+        && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
+        && state.activeEmployeeId === employee && state.employeesCashboxesAccessRevision === access
+        && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
+        && state.repairOrderContextGeneration === repairOrder;
+      if (opening) opening.employeeOrderIsCurrent = isCurrent;
       try {
         if (shouldOpenRepairOrder) {
           await openRepairOrderCard(cardId, { parentLayer: 'employees' });
@@ -1976,12 +1983,7 @@
         setStatus(error.message, true);
       } finally {
         if (opening?.isConnected) {
-          const failed = parent && (state.modalStack || []).includes(parent) && row.isConnected
-            && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
-            && state.activeEmployeeId === employee && state.employeesCashboxesAccessRevision === access
-            && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
-            && state.repairOrderContextGeneration === repairOrder;
-          if (failed) {
+          if (isCurrent()) {
             delete opening.dataset.employeeOrderPending;
             opening.textContent = ' · Не удалось открыть заказ-наряд.';
           } else {

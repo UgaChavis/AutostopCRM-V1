@@ -4,6 +4,60 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class EmployeeOrderLoadingBrowserTests(UiBrowserTestCase):
+    def test_invalidated_order_can_be_reopened_and_old_reply_keeps_new_indicator(self):
+        self.load_board()
+        self.page.locator("#employeesButton").click()
+        self.page.locator("#employeesModal.is-open").wait_for()
+        self.page.wait_for_function("state.employeesWorkspaceLoading === false")
+        order_id, card_id = self.runtime.payroll_card_id, self.runtime.card_id
+        self.page.evaluate(
+            """ids => {
+          document.querySelector('#employeesReportShell').dataset.detailsOpen = 'true';
+          const table = document.querySelector('#employeesDetailTable');
+          table.replaceChildren();
+          ids.forEach((id, index) => {
+            const row = document.createElement('tr');
+            row.dataset.cardId = id;
+            row.dataset.openRepairOrder = index ? '0' : '1';
+            const cell = document.createElement('td');
+            cell.textContent = index ? 'Synthetic card B' : 'Synthetic order A';
+            row.appendChild(cell); table.appendChild(row);
+          });
+        }""",
+            [order_id, card_id],
+        )
+        orders, cards = [], []
+        self.page.route("**/api/get_repair_order", lambda route: orders.append(route))
+        self.page.route("**/api/get_card?**", lambda route: cards.append(route))
+        self.page.get_by_text("Synthetic order A").click()
+        self.page.get_by_text("Открываем заказ-наряд").wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(orders), 1)
+        self.page.get_by_text("Synthetic card B").click()
+        self.page.locator("#cardModal[data-card-loading].is-open").wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(cards), 1)
+        self.page.keyboard.press("Escape")
+        cards.pop().fulfill(
+            status=200, json={"ok": True, "data": {"card": {"id": card_id, "title": "old"}}}
+        )
+        self.page.get_by_text("Synthetic order A").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(orders), 2, "An invalidated request must not block a new click")
+        orders.pop(0).fulfill(
+            status=200,
+            json={"ok": True, "data": {"card": {"id": order_id}, "repair_order": {}}},
+        )
+        self.page.wait_for_timeout(100)
+        self.assertIn(
+            "Открываем заказ-наряд", self.page.get_by_text("Synthetic order A").inner_text()
+        )
+        self.assertEqual(self.page.locator("[data-employee-order-pending]").count(), 1)
+        self.assertFalse(self.page.locator("#repairOrderModal").is_visible())
+        orders.pop().continue_()
+        self.page.locator("#repairOrderModal.is-open").wait_for()
+        self.page.wait_for_function("!document.querySelector('[data-employee-order-pending]')")
+
     def test_loading_failure_duplicate_and_stale_responses(self):
         self.load_board()
         self.page.locator("#employeesButton").click()
