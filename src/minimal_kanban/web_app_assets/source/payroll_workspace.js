@@ -1971,6 +1971,7 @@
       }
       const employee = state.activeEmployeeId;
       const month = state.payrollMonth;
+      const loadGeneration = state.employeesWorkspaceLoadGeneration;
       const access = state.employeesCashboxesAccessRevision;
       const hydration = state.cardHydrationSeq;
       const editing = state.cardEditingGeneration;
@@ -1981,6 +1982,7 @@
           invalidated = !(parent && (state.modalStack || []).includes(parent)
             && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
             && state.activeEmployeeId === employee && state.payrollMonth === month && state.employeesCashboxesAccessRevision === access
+            && state.employeesWorkspaceLoadGeneration === loadGeneration
             && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
             && state.repairOrderContextGeneration === repairOrder);
         }
@@ -1993,7 +1995,7 @@
       }
       try {
         if (shouldOpenRepairOrder) {
-          await openRepairOrderCard(cardId, { parentLayer: 'employees' });
+          await openRepairOrderCard(cardId, { parentLayer: 'employees', isOwner: isCurrent });
         } else {
           await openCardWorkspace(cardId, { openCardModalEl: true });
         }

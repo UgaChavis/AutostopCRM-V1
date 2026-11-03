@@ -13386,7 +13386,7 @@
       return opening;
     }
 
-    async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {}) {
+    async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders', isOwner } = {}) {
       if (state.cardOpeningShell) closeCardModal();
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
@@ -13394,7 +13394,7 @@
       let editingContext = captureCardEditingContext();
       const parentEntry = (state.modalStack || []).find((entry) => entry?.key === String(parentLayer || 'repair-orders').trim());
       const isCurrent = () => editingContext()
-        && (!parentEntry || (state.modalStack || []).includes(parentEntry));
+        && (!parentEntry || (state.modalStack || []).includes(parentEntry)) && (!isOwner || isOwner());
       try {
         const data = await api('/api/get_repair_order', {
           method: 'POST',
@@ -13406,6 +13406,7 @@
           },
         });
         if (!isCurrent()) return;
+        isOwner = null;
         const updatedCard = repairOrderResponseCard(data, data?.repair_order || {});
         state.activeCard = updatedCard;
         state.editingId = updatedCard?.id || normalizedCardId;
