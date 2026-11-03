@@ -92,6 +92,93 @@ class PrintingMoneyBrowserTests(UiBrowserTestCase):
         self.assertFalse(result["data"]["draft"]["is_stale"])
         self.assertEqual(result["data"]["form"]["basis"], "Synthetic free-text edit")
 
+    def test_initial_preview_preserves_user_focus_without_losing_default_autofocus(self):
+        card_id = self.make_order("Synthetic focus race")
+        loaded = self.runtime.service.get_completion_act_form({"card_id": card_id})
+        form = loaded["form"]
+        form["calculation_mode"] = "manual_net"
+        form["items"] = [
+            {"name": "Synthetic manual", "unit": "шт", "quantity": "1", "price": "100"}
+        ]
+        self.runtime.service.save_completion_act_form(
+            {
+                "card_id": card_id,
+                "form": form,
+                "expected_version": 0,
+                "expected_source_fingerprint": loaded["draft"]["current_source_fingerprint"],
+                "idempotency_key": "focus-initial",
+            }
+        )
+        self.load_board()
+        self.open_card(card_id)
+        self.page.locator("#repairOrderButton").click()
+        self.page.locator("#repairOrderModal.is-open").wait_for()
+        self.page.locator("#repairOrderPrintButton").click()
+        self.page.locator("#repairOrderPrintModal.is-open").wait_for()
+        self.page.wait_for_function(
+            "document.querySelector('#repairOrderPrintModal')?.dataset.printLoadState === 'ready'"
+        )
+        self.page.evaluate(
+            """() => {
+              const button = document.createElement('button');
+              button.id = 'syntheticOutsideFocus';
+              document.body.append(button);
+              window.__heldCompletionActPreviews = 0;
+            }"""
+        )
+        held = []
+
+        def hold_editor_preview(route):
+            overrides = (route.request.post_data_json or {}).get("document_overrides", {})
+            if "completion_act_recalculate" not in overrides:
+                route.continue_()
+                return
+            held.append(route)
+            self.page.evaluate("window.__heldCompletionActPreviews += 1")
+
+        self.page.route("**/api/preview_repair_order_print_documents", hold_editor_preview)
+
+        def open_with_held_preview(number):
+            self.page.locator("[data-completion-act-editor-open]").click()
+            self.page.locator("#completionActEditorModal.is-open").wait_for()
+            self.page.wait_for_function(
+                "document.querySelector('#completionActGrossTotal')?.textContent === '105,00'"
+            )
+            self.page.wait_for_function(
+                "number => window.__heldCompletionActPreviews === number", arg=number
+            )
+            self.assertEqual(len(held), 1)
+
+        open_with_held_preview(1)
+        held.pop().continue_()
+        self.page.wait_for_function("document.activeElement?.id === 'completionActDocumentNumber'")
+        self.page.locator("#completionActEditorCloseX").click()
+        self.page.locator("#completionActEditorModal.is-open").wait_for(state="hidden")
+
+        open_with_held_preview(2)
+        self.page.locator("#completionActBasis").focus()
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "document.querySelector('#completionActPreviewFrame')?.srcdoc.includes('Synthetic manual')"
+        )
+        self.assertEqual(self.page.evaluate("document.activeElement.id"), "completionActBasis")
+        self.page.keyboard.insert_text("Local unsaved basis")
+        self.assertEqual(
+            self.page.locator("#completionActBasis").input_value(), "Local unsaved basis"
+        )
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator("#completionActEditorCloseX").click()
+        self.page.locator("#completionActEditorModal.is-open").wait_for(state="hidden")
+
+        open_with_held_preview(3)
+        self.page.locator("#syntheticOutsideFocus").focus()
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "document.querySelector('#completionActPreviewFrame')?.srcdoc.includes('Synthetic manual')"
+        )
+        self.assertEqual(self.page.evaluate("document.activeElement.id"), "syntheticOutsideFocus")
+        self.page.unroute("**/api/preview_repair_order_print_documents")
+
     def test_calculation_refresh_preserves_a_concurrently_saved_draft(self):
         card_id = self.make_order("Synthetic concurrent draft")
         loaded = self.runtime.service.get_completion_act_form({"card_id": card_id})
