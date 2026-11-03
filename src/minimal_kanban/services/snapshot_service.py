@@ -897,9 +897,12 @@ class SnapshotService:
             )
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
-            events = visible_audit_events(payload, bundle["events"])
             archived_total = sum(1 for card in bundle["cards"] if card.archived)
             archived = self._archived_cards(bundle["cards"], limit=limit)
+            archived_ids = {card.id for card in archived}
+            events = visible_audit_events(
+                payload, (event for event in bundle["events"] if event.card_id in archived_ids)
+            )
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 archived,
