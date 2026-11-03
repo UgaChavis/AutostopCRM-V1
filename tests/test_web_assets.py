@@ -2376,7 +2376,7 @@ class WebAssetsTests(unittest.TestCase):
 
     def test_card_modal_resets_state_and_creates_in_selected_column(self) -> None:
         self.assertIn(
-            "function applyCardModalState(card, { descriptionLoading = false, cardIsFull = true, preserveLazyPanels = false } = {})",
+            "function applyCardModalState(card, { cardIsFull = true, preserveLazyPanels = false } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("function resetCardModalState()", BOARD_WEB_APP_HTML)
@@ -2392,7 +2392,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("function openDefaultNewCard()", BOARD_WEB_APP_HTML)
         self.assertIn("function focusCardModalInitialControl()", BOARD_WEB_APP_HTML)
         self.assertIn("focusCardModalInitialControl();", BOARD_WEB_APP_HTML)
-        self.assertIn("applyCardModalState(card, { descriptionLoading", BOARD_WEB_APP_HTML)
+        self.assertIn("applyCardModalState(card, { cardIsFull", BOARD_WEB_APP_HTML)
         self.assertIn("resetCardModalState();", BOARD_WEB_APP_HTML)
         self.assertIn("await openCardWorkspace(cardId);", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -2522,7 +2522,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "const fullCard = await fetchFullCard(normalizedCardId).catch", BOARD_WEB_APP_HTML
         )
-        self.assertIn("function setCardDescriptionLoading(isLoading", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "setCardDescriptionValue(currentCard?.description || '');", BOARD_WEB_APP_HTML
+        )
         self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
         self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)

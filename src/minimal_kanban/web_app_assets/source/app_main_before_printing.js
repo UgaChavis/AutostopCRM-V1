@@ -1366,31 +1366,6 @@
       return String(els.cardDescription?.value || '');
     }
 
-    function setCardDescriptionLoading(isLoading, message = 'Загрузка описания...') {
-      state.cardDescriptionLoading = Boolean(isLoading);
-      if (!els.cardDescriptionEditor) return;
-      if (isLoading) {
-        if (els.cardDescription) els.cardDescription.value = '';
-        els.cardDescriptionEditor.textContent = message;
-        els.cardDescriptionEditor.contentEditable = 'false';
-        els.cardDescriptionEditor.classList.add('is-loading');
-        els.cardDescriptionEditor.setAttribute('aria-busy', 'true');
-        els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
-          button.disabled = true;
-        });
-        if (els.saveCardButton) els.saveCardButton.disabled = true;
-      } else {
-        els.cardDescriptionEditor.contentEditable = 'true';
-        els.cardDescriptionEditor.classList.remove('is-loading');
-        els.cardDescriptionEditor.removeAttribute('aria-busy');
-        els.cardDescriptionToolbar?.querySelectorAll('[data-description-format]').forEach((button) => {
-          button.disabled = false;
-        });
-        if (els.saveCardButton && !state.cardSaveInFlight && !state.cardFilesMutationRequest) els.saveCardButton.disabled = false;
-      }
-      syncCardDescriptionHeight();
-    }
-
     function handleCardDescriptionInput() {
       if (state.cardDescriptionLoading) return;
       syncDescriptionLinkTargets();
@@ -12268,7 +12243,7 @@
       }
     }
 
-    function applyCardModalState(card, { descriptionLoading = false, cardIsFull = true, preserveLazyPanels = false } = {}) {
+    function applyCardModalState(card, { cardIsFull = true, preserveLazyPanels = false } = {}) {
       const perfToken = perfStart('hydrateCard');
       const previousCardId = String(state.activeCard?.id || '').trim();
       const currentCard = card || null;
@@ -12307,11 +12282,7 @@
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
       if (!preserveLazyPanels || previousCardId !== nextCardId) renderLogs([]);
-      if (descriptionLoading) {
-        setCardDescriptionLoading(true);
-      } else {
-        setCardDescriptionValue(currentCard?.description || '');
-      }
+      setCardDescriptionValue(currentCard?.description || '');
       if (!currentCard?.id) {
         renderFiles(currentCard);
       } else if (state.currentTab === 'files') {
@@ -12331,7 +12302,7 @@
       }
       rememberCardModalCleanState();
       syncCardSaveDirtyState();
-      perfEnd(perfToken, { card_id: nextCardId, full: state.activeCardIsFull, description_loading: Boolean(descriptionLoading) });
+      perfEnd(perfToken, { card_id: nextCardId, full: state.activeCardIsFull, description_loading: false });
     }
 
     function resetCardModalState() {
@@ -14008,11 +13979,11 @@
       els.cardVehicle?.focus({ preventScroll: true });
     }
 
-    function openCardModal(card, { descriptionLoading = false, cardIsFull = true, preserveTab = false, hydrateExisting = false } = {}) {
+    function openCardModal(card, { cardIsFull = true, preserveTab = false, hydrateExisting = false } = {}) {
       // Full data for the same opening must not invalidate a print workspace
       // already loading above this card in the modal stack.
       if (!hydrateExisting) state.cardEditingGeneration = (state.cardEditingGeneration || 0) + 1;
-      applyCardModalState(card, { descriptionLoading, cardIsFull, preserveLazyPanels: preserveTab });
+      applyCardModalState(card, { cardIsFull, preserveLazyPanels: preserveTab });
       if (!preserveTab) setTab('overview');
       else loadActiveCardTab(state.currentTab);
       if (!hydrateExisting) pushModal('card', els.cardModal);

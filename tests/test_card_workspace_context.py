@@ -452,10 +452,6 @@ class CardWorkspaceContextTests(unittest.TestCase):
                     "    async function ensureRepairOrderCard(",
                 ),
                 ("    function cacheFullCard(", "    function boardCardElementsById("),
-                (
-                    "    function setCardDescriptionLoading(",
-                    "    function handleCardDescriptionInput(",
-                ),
                 ("    async function openCardById(", "    function clearCardDropState("),
             )
         )
@@ -494,11 +490,8 @@ function syncCardDescriptionHeight() {}
 function applyCardModalState(card, options = {}) {
   state.activeCard = card;
   state.editingId = card.id;
-  setCardDescriptionLoading(Boolean(options.descriptionLoading));
-  if (!options.descriptionLoading) {
-    els.cardDescription.value = card.description || '';
-    els.cardDescriptionEditor.textContent = card.description || '';
-  }
+  els.cardDescription.value = card.description || '';
+  els.cardDescriptionEditor.textContent = card.description || '';
   rendered.push({id: card.id, ...options});
 }
 function openCardModal(card, options) {
