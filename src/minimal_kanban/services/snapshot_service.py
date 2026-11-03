@@ -30,6 +30,7 @@ from .operator_visibility import (
     operator_can_access_employees_cashboxes,
     project_operator_result,
     public_snapshot_settings,
+    restricted_operator_event_visible,
     visible_audit_events,
 )
 from .readonly_context_helpers import card_sample, detached_card_response
@@ -1080,14 +1081,17 @@ class SnapshotService:
             )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
-            card_events = visible_audit_events(
-                payload,
-                self._events_for_card(bundle["events"], card.id),
-            )
+            card_events = self._events_for_card(bundle["events"], card.id)
+            if not operator_can_access_employees_cashboxes(payload):
+                card_events = [
+                    event for event in card_events if restricted_operator_event_visible(event)
+                ]
             full_details_included = bool(
                 include_full_details and operator_can_access_employees_cashboxes(payload)
             )
-            page_events = card_events[:limit] if limit is not None else card_events
+            page_events = visible_audit_events(
+                payload, card_events[:limit] if limit is not None else card_events
+            )
             if full_details_included and self._hydrate_event_details is not None:
                 page_events = [self._hydrate_event_details(event) for event in page_events]
             events = [event.to_dict() for event in page_events]

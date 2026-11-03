@@ -125,6 +125,11 @@ def is_private_employee_cashbox_event(event: AuditEvent) -> bool:
     return any(key in details for key in EMPLOYEES_CASHBOXES_PRIVATE_EVENT_DETAIL_KEYS)
 
 
+def restricted_operator_event_visible(event: AuditEvent) -> bool:
+    action = str(event.action or "").casefold()
+    return action == "repair_order_updated" or not is_private_employee_cashbox_event(event)
+
+
 def visible_audit_events(
     payload: dict[str, Any] | None,
     events: Iterable[AuditEvent],
@@ -134,6 +139,8 @@ def visible_audit_events(
         return source_events
     visible: list[AuditEvent] = []
     for event in source_events:
+        if not restricted_operator_event_visible(event):
+            continue
         if str(event.action or "").casefold() == "repair_order_updated":
             safe_event = deepcopy(event)
             details = event.details if isinstance(event.details, dict) else {}
@@ -143,8 +150,6 @@ def visible_audit_events(
                 if key in details
             }
             visible.append(safe_event)
-            continue
-        if is_private_employee_cashbox_event(event):
             continue
         visible.append(event)
     return visible
