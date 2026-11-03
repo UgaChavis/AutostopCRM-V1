@@ -1,12 +1,9 @@
 # AutoStop CRM Operations Runbook
 
-This is the operational source of truth for workstation checks, production
-parity, deployment, rollback, live verification, performance gates, and
-maintenance safety.
-
-The owner's current update policy is **full application downtime**. The
-[current maintenance procedure](#deploy) replaces the retired guarded J1,
-warm-transition and CRM-only deployment controllers.
+This runbook covers CRM-specific workstation checks, runtime contracts, live
+verification, performance gates, and maintenance safety. The shared server,
+GitHub publication, update and rollback procedure belongs to the selected
+Manager root's M2 server-update instruction; see [Deploy](#deploy).
 Unresolved historical evidence is in the [maintenance backlog](maintenance-backlog.md).
 
 ## Production Runtime
@@ -763,115 +760,38 @@ Manager root; E7 was the older Store module label.
 
 ## GitHub-Only Publication
 
-### Source-only pull requests
+Use the selected Manager root's M2 server-update instruction for the shared
+GitHub publication and review process; [Deploy](#deploy) explains how to locate
+it. Source publication and CI do not by themselves update the server.
 
-When the approved endpoint is source publication for later review, prepare a
-clean feature worktree from the current `autostopcrm-v1` branch. Preserve other
-checkouts and their uncommitted changes. Run checks for the changed behavior
-and documentation, push the feature branch without force, and open a PR against
-`autostopcrm-v1`. Record the remote branch SHA after an independent
-`git ls-remote --heads` readback, confirm the PR head through GitHub, and wait for
-the required fast PR checks. If the base moved, integrate it and recheck the
-affected behavior before publishing the updated candidate.
+### CRM release candidate after merge
 
-An instruction-only PR uses the targeted documentation checks above. It does
-not install the global skill, update a running application, dispatch full
-quality/image workflows, or authorize merge. Describe the remaining exact-SHA
-release qualification in the PR; source checks do not establish runtime or
-instruction-delivery acceptance.
-
-### Release candidate after merge
-
-When the approved endpoint includes a main-branch release candidate, start from
-the reviewed candidate and fetch the exact lowercase ref:
-
-```powershell
-$candidateSha = (git rev-parse HEAD).Trim()
-git fetch --no-tags --refmap= origin refs/heads/autostopcrm-v1:refs/remotes/origin/crm-production-baseline
-$remoteSha = (git rev-parse refs/remotes/origin/crm-production-baseline).Trim()
-git merge-base --is-ancestor $remoteSha $candidateSha
-if ($LASTEXITCODE -ne 0) { throw "Candidate is not a fast-forward of autostopcrm-v1" }
-git push origin HEAD:autostopcrm-v1
-```
-
-Never force-push the production branch. Confirm the final exact remote ref and
-record its SHA after the merge or fast-forward. Dispatch
-`gh workflow run quality.yml --ref autostopcrm-v1 -f export_tested_image=true`,
-then find that manual run with
-`gh run list --workflow quality.yml --branch autostopcrm-v1 --event workflow_dispatch --commit <final-sha>`.
-Wait with `gh run watch --exit-status` and verify its completed successful
-`headSha`, source tree and `autostopcrm-image-<final-sha>` artifact against the
-selected final commit. If the branch moved before dispatch, reassess and test
-the new final candidate. A run for a PR merge ref or an older commit is not
-release evidence.
-
-Neither publication path authorizes SSH, `deploy.sh`, a server fast-forward, or
-live smoke. A successful GitHub push and CI run are not a production rollout.
+For the CRM-specific exact lowercase ref and case-insensitive Windows collision,
+use [Git Parity](#git-parity). Qualify the exact final `autostopcrm-v1` SHA once
+with `gh workflow run quality.yml --ref autostopcrm-v1 -f export_tested_image=true`;
+verify successful `headSha` and the corresponding `autostopcrm-image-<final-sha>`
+artifact. [Release Checklist](#release-checklist) gives the CRM gate details and
+limits for optional Windows/native rehearsal.
 
 ## Deploy
 
 ### Current maintenance procedure
 
-Deploy only with explicit owner intent for the maintenance window. The owner
-accepts stopping Manager, CRM and Store together; preserving an intermediate
-old/new application combination is unnecessary.
-
-1. Record exact target Git SHAs, qualified package/image hashes and existing
-   successful checks. Review the small delta and run only affected short tests
-   during preparation. Keep required final/post-merge CI; do not repeat a full
-   run without a changed candidate or a concrete failure. Preserve unique work.
-2. Inventory the actual unit/container identities, data/config paths, active
-   credentials and current versions. Calculate this window's peak disk, memory
-   and time, including at least 2 GB free disk reserve. No fixed 30/34 GB budget
-   from the old combined scenario applies. Before stopping, compare the running
-   CRM container's OCI revision label with `AUTOSTOP_AUTOMATION_CRM_REVISION` in
-   `/etc/autostop-manager/crm-backup-identity.env` and in the actual scheduler
-   and Manager process environments. Check the effective unit drop-in and
-   `EnvironmentFile` order: a later file can override the shared identity. Fix
-   a mismatch before relying on the backup; inspect only this field, never dump
-   process environments or credentials.
-3. Preserve SSH and the controlling session. Close task intake, stop application
-   consumers and Manager, CRM and Store, and verify they stopped before copying
-   data or replacing files. Record any application watchdog state, stop its timer
-   and any already running recovery service, then verify both inactive before
-   backup. Stopping only the timer does not stop an active recovery process.
-   Keep unrelated timers, services and normal backups intact. Record uncertain unfinished
-   operations for separate reconciliation.
-4. Make **one consistent backup of necessary data and settings** for the
-   changed components. Validate completeness and perform **one local isolated
-   restore check**, then remove its disposable directory. Do not duplicate
-   backups, images, caches or worktrees. An independent PC is outside this policy.
-5. Install the exact checked artifacts and necessary configuration while the
-   applications remain stopped. Keep working credentials, durable queues and
-   idempotency history. Set `AUTOSTOP_AUTOMATION_CRM_REVISION` to the selected
-   CRM image revision in the shared backup identity file and every effective
-   Manager process environment file before startup; check unit file ordering so
-   no later file overrides it. Store stays at its qualified version unless an explicit
-   Store update is needed; pushing Store `main` can trigger `Deploy VPS` and
-   belongs only in the maintenance window. Do not invoke the historical J1,
-   cold/warm transition or CRM-only release controllers.
-6. Launch the applications using their reviewed existing service definitions.
-   Independently check physical source/image revisions, processes, authorization,
-   health and Manager → CRM → Store connectivity. Repeat the CRM backup identity
-   comparison against the newly running container and the actual new process
-   PIDs; update the effective identity files and restart the affected processes
-   within the authorized window if needed, then verify again. Technical acceptance creates
-   no customer messages, orders or payments. After acceptance, restore only a
-   watchdog that was previously active, then reopen task intake.
-7. After overall successful acceptance, remove this window's temporary files,
-   test restore directory and release backup. Preserve ordinary scheduled
-   backups, required runtimes, access files, unique work and a compact receipt.
-
-If stop/readback fails, ownership is unclear, resources are insufficient or an
-operation's result is unknown, stop the affected step and preserve its data.
-Never automatically replay uncertain operations, return an old writer, or
-restore an old database over newer working data. Repair requires a concrete
-assessment of the current state.
+The canonical server update, backup and rollback procedure is the selected
+Manager instruction root's `docs/agent/references/m2-server-update.md`. Select
+the root and revision using [Manager instruction roots](#manager-instruction-roots)
+before taking action. The [Manager deployment entry point](https://github.com/UgaChavis/AutostopManager/blob/AutostopManager/docs/agent/references/deployment.md)
+is source navigation and does not replace the selected live or development root.
+If an older installed root predates `m2-server-update.md`, follow that same root's
+own `docs/agent/references/deployment.md` until the version with the new canonical
+instruction is installed. Never substitute another root's instructions; if the
+selected root has neither a usable previous procedure nor the new one, stop and
+resolve the missing procedure before acting.
 
 The former automatic `deploy.sh` controller is retired. Its retained entrypoint
-prints the procedure link and exits before reading configuration or changing services.
-Do not restore old controller bindings or replay unfinished operations. Historical
-source and evidence remain in Git and the separately preserved private receipts.
+links here and exits before reading configuration or changing services. Do not
+restore historical controller bindings or replay unfinished operations; preserve
+historical source and evidence.
 
 ## Production Verification
 

@@ -37,12 +37,9 @@ handoff. The Store API and its deployment belong to the Store repository.
    target, authorization, native revision/idempotency guard and independent
    readback. No synthetic customer, quote, order or payment is created live.
 
-Stop a release at a failed gate. The owner's current procedure stops Manager,
-CRM and Store together, preserves SSH, uses one necessary-data/config backup
-and one local isolated restore check, then verifies the installed applications.
-Old J1/guarded release controllers have been removed from the source candidate;
-`deploy.sh` only reports the current procedure and exits without effects.
-See the [current procedure](../../OPERATIONS_RUNBOOK.md#deploy) and
+For shared server and GitHub update instructions, use the selected Manager
+root's M2 procedure via [Deploy](../../OPERATIONS_RUNBOOK.md#deploy). The retired
+`deploy.sh` only reports that locator and exits without effects. See also the
 [remaining maintenance evidence](../../maintenance-backlog.md).
 
 ## Verification record
