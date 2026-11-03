@@ -3494,6 +3494,8 @@
       const normalizedKey = String(key || '').trim();
       if (!normalizedKey) return;
       if (normalizedKey === 'clients' && !options.keepOpen) {
+        window.clearTimeout(state.clientsSearchTimer);
+        state.clientsSearchTimer = null;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
@@ -3513,6 +3515,8 @@
       const normalizedKey = String(closeKey || '').trim();
       if (!normalizedKey) return false;
       if (normalizedKey === 'clients') {
+        window.clearTimeout(state.clientsSearchTimer);
+        state.clientsSearchTimer = null;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
@@ -4191,6 +4195,11 @@
           state.clientsLoaded = true;
           renderClientsList();
         },
+        onError: (error) => {
+          if (els.clientsModal?.classList.contains('is-open')) {
+            setModalListError(els.clientsMeta, els.clientsList, 'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', error.message);
+          }
+        },
       });
       if (!isCurrentRequest()) return data;
       if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
@@ -4291,14 +4300,17 @@
     async function openClientsModal() {
       if (!requireOperatorSession()) return;
       bindClientsUiEvents();
+      if (els.clientsModal?.classList.contains('is-open')) return;
       if (state.clientsLoaded && !String(state.clientsQuery || '').trim()) {
         maybeOpenModal(els.clientsModal, true);
         renderClientsList();
         if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
         return;
       }
-      await loadClients({ openModal: true });
       if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
+      if (els.clientsList) els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
+      maybeOpenModal(els.clientsModal, true);
+      await loadClients({ openModal: false });
     }
 
     // @include client_profile_save.js
@@ -4382,6 +4394,8 @@
       els.clientsSearchInput?.addEventListener('input', () => {
         const query = String(els.clientsSearchInput?.value || '').trim();
         state.clientsQuery = query;
+        state.clientsLoaded = false;
+        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
         window.clearTimeout(state.clientsSearchTimer);
         state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 160);
