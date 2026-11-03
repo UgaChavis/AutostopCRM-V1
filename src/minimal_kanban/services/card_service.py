@@ -5107,18 +5107,14 @@ class CardService(
             and not compact
             and isinstance(payload.get("attachments"), list)
         ):
+            attachments_by_id = {}
+            for item in card.attachments:
+                attachments_by_id.setdefault(str(item.id or "").strip(), item)
             for attachment_payload in payload["attachments"]:
                 if not isinstance(attachment_payload, dict):
                     continue
                 attachment_id = str(attachment_payload.get("id", "") or "").strip()
-                attachment = next(
-                    (
-                        item
-                        for item in card.attachments
-                        if str(item.id or "").strip() == attachment_id
-                    ),
-                    None,
-                )
+                attachment = attachments_by_id.get(attachment_id)
                 attachment_payload["exists_on_disk"] = (
                     self._attachment_exists_on_disk(card.id, attachment) if attachment else False
                 )
