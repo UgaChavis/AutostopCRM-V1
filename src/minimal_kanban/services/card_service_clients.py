@@ -1563,17 +1563,24 @@ class CardServiceClientsMixin:
         include_vehicle_preview: bool = True,
         query: str = "",
         related_cards: list[Card] | None = None,
+        precomputed_vehicles: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         payload = client.to_dict()
         payload["short_id"] = short_entity_id(client.id, prefix="CL")
         preview_vehicles = (
-            self._client_vehicles(client, cards, query=query, related_cards=related_cards)
+            (
+                precomputed_vehicles
+                if precomputed_vehicles is not None and not query
+                else self._client_vehicles(client, cards, query=query, related_cards=related_cards)
+            )
             if include_vehicle_preview
             else [vehicle.to_dict() for vehicle in client.vehicles[:2]]
         )
         payload["vehicles_preview"] = (
             preview_vehicles[:2] if include_vehicle_preview else preview_vehicles
         )
+        if preview_vehicles is precomputed_vehicles:
+            payload["vehicles_preview"] = deepcopy(payload["vehicles_preview"])
         if include_stats:
             resolved_related_cards = (
                 related_cards
@@ -1639,6 +1646,7 @@ class CardServiceClientsMixin:
                 cards,
                 include_stats=True,
                 related_cards=related_cards,
+                precomputed_vehicles=vehicles,
             ),
             "vehicles": vehicles,
             "repair_orders": orders,
