@@ -642,6 +642,8 @@
       const visibleEmployees = filteredEmployeesList();
       const summaryMap = payrollSummaryMap();
       if (!els.employeesList) return;
+      const opening = els.employeesList.salaryOpening;
+      const openingCurrent = opening?.isCurrent();
       if (!employees.length) {
         els.employeesList.innerHTML = '<div class="cashboxes-empty">Нет сотрудников.</div>';
         return;
@@ -671,6 +673,11 @@
           + actions
           + '</div>';
       }).join('');
+      if (openingCurrent) {
+        const button = Array.from(els.employeesList.querySelectorAll('[data-employee-salary]'))
+          .find((item) => item.dataset.employeeSalary === opening.employeeId);
+        button?.appendChild(opening.indicator);
+      }
     }
 
     function renderEmployeesDetails() {
@@ -873,7 +880,7 @@
       syncEmployeeMoneyMutationControls();
     }
 
-    async function loadEmployeeSalarySheet(employeeId, { openModal = false } = {}) {
+    async function loadEmployeeSalarySheet(employeeId, { openModal = false, isOwner = null } = {}) {
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return null;
       if (String(state.activeEmployeeSalaryId || '').trim() !== requestedId) {
@@ -885,13 +892,13 @@
       const isCurrent = employeeAsyncContext('employeeSalarySheetRequest', 'activeEmployeeSalaryId');
       try {
         const data = await api('/api/get_employee_salary_ledger?employee_id=' + encodeURIComponent(requestedId) + '&months=6');
-        if (!isCurrent()) return null;
+        if (!isCurrent() || (isOwner && !isOwner())) return null;
         state.employeeSalarySheet = data || null;
         renderEmployeeSalaryModal();
         maybeOpenModal(els.employeeSalaryModal, openModal);
         return data;
       } catch (error) {
-        if (isCurrent()) throw error;
+        if (isCurrent() && (!isOwner || isOwner())) throw error;
         return null;
       }
     }
@@ -1203,11 +1210,51 @@
       if (!requireEmployeesViewAccess()) return;
       const requestedId = String(employeeId || '').trim();
       if (!requestedId) return;
+      const list = els.employeesList;
+      const previous = list?.salaryOpening;
+      if (previous?.employeeId === requestedId && previous.isCurrent()) return;
       if (!confirmDiscardEmployeeChanges()) return;
+      const parent = (state.modalStack || []).find((entry) => entry?.key === 'employees');
+      const viewer = state.viewerStateGeneration;
+      const session = state.operatorSessionToken;
+      const access = state.employeesCashboxesAccessRevision;
+      const employee = state.activeEmployeeId;
+      const creating = state.employeeCreateMode;
+      const month = state.payrollMonth;
+      const generation = state.employeesWorkspaceLoadGeneration;
+      let request, salaryView, invalidated = false;
+      const indicator = document.createElement('span');
+      indicator.setAttribute('role', 'status');
+      indicator.textContent = ' · Загрузка…';
+      const opening = {
+        employeeId: requestedId, indicator,
+        isCurrent: () => {
+          if (!invalidated) {
+            invalidated = !(list?.salaryOpening === opening && parent && (state.modalStack || []).at(-1) === parent
+              && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
+              && state.employeesCashboxesAccessRevision === access && state.activeEmployeeId === employee
+              && state.employeeCreateMode === creating && state.payrollMonth === month
+              && state.employeesWorkspaceLoadGeneration === generation && state.employeeSalarySheetRequest === request
+              && state.activeEmployeeSalaryId === requestedId && state.employeeSalaryViewGeneration === salaryView);
+          }
+          return !invalidated;
+        },
+      };
+      previous?.indicator.remove();
+      list.salaryOpening = opening;
       try {
-        await loadEmployeeSalarySheet(requestedId, { openModal: true });
+        const loading = loadEmployeeSalarySheet(requestedId, { openModal: true, isOwner: opening.isCurrent });
+        request = state.employeeSalarySheetRequest;
+        salaryView = state.employeeSalaryViewGeneration;
+        const button = Array.from(list.querySelectorAll('[data-employee-salary]'))
+          .find((item) => item.dataset.employeeSalary === requestedId);
+        button?.appendChild(indicator);
+        await loading;
       } catch (error) {
         setStatus(error.message, true);
+      } finally {
+        if (list.salaryOpening === opening) list.salaryOpening = null;
+        indicator.remove();
       }
     }
 
