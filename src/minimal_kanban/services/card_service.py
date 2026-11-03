@@ -9292,6 +9292,8 @@ class CardService(
         )
         order = card.repair_order
         paid_total = order.prepayment_amount()
+        amounts = order.payment_summary_amounts()
+        is_paid = Decimal(amounts["cash_due"]) <= 0
         item: dict[str, object] = {
             "card_id": card.id,
             "number": order.number,
@@ -9309,23 +9311,23 @@ class CardService(
             "mileage": order.mileage,
             "payment_method": order.payment_method,
             "payment_method_label": repair_order_payment_method_label(order.payment_method),
-            "prepayment": order.prepayment_amount() if order.payments else order.prepayment,
-            "prepayment_display": order.prepayment_amount(),
+            "prepayment": paid_total if order.payments else order.prepayment,
+            "prepayment_display": paid_total,
             "paid_total": paid_total,
             "paid_total_display": paid_total,
-            "is_paid": order.is_paid(),
-            "payment_status": order.payment_status(),
-            "payment_status_label": order.payment_status_label(),
+            "is_paid": is_paid,
+            "payment_status": "paid" if is_paid else "unpaid",
+            "payment_status_label": "Оплачен" if is_paid else "Не оплачен",
             "payments": [payment.to_dict() for payment in order.payments],
             "reason": order.reason,
             "heading": card.heading(),
             "summary": self._repair_order_list_summary(card),
             "tags": [tag.to_dict() for tag in order.tags],
-            "subtotal_total": order.subtotal_amount(),
-            "taxes_total": order.taxes_amount(),
+            "subtotal_total": amounts["base_total"],
+            "taxes_total": amounts["taxes_and_fees"],
             "works_total": order.works_total_amount(),
-            "grand_total": order.grand_total_amount(),
-            "due_total": order.due_total_amount(),
+            "grand_total": amounts["grand_total"],
+            "due_total": amounts["cash_due"],
             "updated_at": card.updated_at,
             "file_name": path.name,
             "file_path": str(path),
