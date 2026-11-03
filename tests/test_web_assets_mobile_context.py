@@ -139,6 +139,12 @@ function emptyMobileCardDraft() {return {id:''};}
   assert.equal(state.mobileCardId,'G');
   assert.equal(state.mobileCard.title,'current-same-id');
   assert.equal(opened.filter(id=>id==='G').length,1);
+
+  const missing=openMobileCardDetail('H');
+  pending.get('H').resolve(null); await missing;
+  assert.equal(state.mobileCardId,'');
+  assert.equal(state.mobileCard,null);
+  assert.equal(statuses.at(-1).isError,true);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

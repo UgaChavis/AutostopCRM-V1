@@ -6093,15 +6093,15 @@
       try {
         const fullCard = await fetchFullCard(normalizedCardId);
         if (!isCurrent()) return null;
+        if (!fullCard) throw new Error('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.');
         state.mobileCardOpenRequest = null;
-        state.mobileCard = fullCard || snapshotCard || state.mobileCard;
+        state.mobileCard = fullCard;
         state.mobileCardId = state.mobileCard?.id || normalizedCardId;
         state.activeCard = state.mobileCard;
-        state.activeCardIsFull = Boolean(fullCard);
+        state.activeCardIsFull = true;
         state.editingId = state.mobileCardId;
         state.pendingCardClientId = state.mobileCard?.client_id || '';
         state.mobileCardLoading = false;
-        if (!fullCard && state.mobileCard) cacheFullCard(state.mobileCard);
         recordCardOpenSideEffects(state.mobileCardId);
         renderMobileShell();
         loadMobileCardJournal({ force: true });
@@ -6109,9 +6109,7 @@
         return state.mobileCard;
       } catch (error) {
         if (!isCurrent()) return null;
-        state.mobileCardOpenRequest = null;
-        state.mobileCardLoading = false;
-        renderMobileCardDetail();
+        closeMobileCardDetail();
         setStatus(error.message, true);
         return null;
       }
@@ -14261,7 +14259,9 @@
           const card = applyCardSeenSuppression({
             ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [],
           });
-          if (state.cardFetchInFlight.get(normalizedCardId) === request) return cacheFullCard(card);
+          const newer = state.cardFetchInFlight.get(normalizedCardId);
+          if (newer === request) return cacheFullCard(card);
+          if (newer) return newer;
           const current = state.fullCardCache.get(normalizedCardId);
           return current && current !== cachedCard ? current : card;
         })

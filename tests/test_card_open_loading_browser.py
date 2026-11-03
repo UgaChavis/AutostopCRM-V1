@@ -179,6 +179,104 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
             "id => state.activeCardIsFull && state.editingId === id", arg=card_id
         )
 
+    def check_mobile_waits_for_reopened_card(self, *, fail_new: bool) -> None:
+        card_id = self.create_card("Synthetic old mobile")
+        self.page.set_viewport_size({"width": 700, "height": 900})
+        self.load_board()
+        held = []
+        self.page.route("**/api/get_card?**", lambda route: held.append((route, route.fetch())))
+        self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.set_viewport_size({"width": 1440, "height": 960})
+        self.page.wait_for_function("!state.mobileLite")
+        tile = self.page.locator(f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])')
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.locator("#cardModalCloseButtonTop").click()
+        self.runtime.service.update_card(
+            {"card_id": card_id, "title": "Synthetic new mobile", "actor_name": "other"}
+        )
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2)
+        route, response = held.pop(0)
+        with self.page.expect_response("**/api/get_card?**") as old_response:
+            route.fulfill(response=response)
+        old_response.value.body()
+        self.page.wait_for_timeout(100)
+        self.assertTrue(self.page.evaluate("state.mobileCardLoading"))
+        route, response = held.pop(0)
+        if fail_new:
+            route.fulfill(status=503, json={"ok": False, "error": {"message": "Synthetic failure"}})
+            self.page.wait_for_function("!state.mobileCardLoading && !state.mobileCardId")
+        else:
+            route.fulfill(response=response)
+            self.page.wait_for_function(
+                "state.activeCardIsFull && state.activeCard.title === 'Synthetic new mobile'"
+            )
+            self.page.locator("#cardModalCloseButtonTop").click()
+        self.page.set_viewport_size({"width": 700, "height": 900})
+        self.page.wait_for_function("state.mobileLite")
+        if fail_new:
+            self.assertTrue(self.page.locator("#mobileCardDetail").is_hidden())
+        else:
+            self.assertEqual(
+                self.page.locator("#mobileCardTitleInput").input_value(), "Synthetic new mobile"
+            )
+
+    def test_mobile_waits_for_fresh_card_after_resize_and_cancel(self) -> None:
+        self.check_mobile_waits_for_reopened_card(fail_new=False)
+
+    def test_mobile_closes_if_fresh_card_after_resize_fails(self) -> None:
+        self.check_mobile_waits_for_reopened_card(fail_new=True)
+
+    def test_logout_while_old_card_read_waits_for_new_read(self) -> None:
+        card_id = self.create_card("Synthetic logout while waiting")
+        self.load_board()
+        held = []
+        self.page.route("**/api/get_card?**", lambda route: held.append((route, route.fetch())))
+        tile = self.page.locator(f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])')
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.evaluate(
+            """id => {
+          window.independentCardRead = 'pending';
+          fetchFullCard(id).then(card => { window.independentCardRead = card; });
+          void openMobileCardDetail(id);
+        }""",
+            card_id,
+        )
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.keyboard.press("Escape")
+        tile.click()
+        self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2)
+        route, response = held.pop(0)
+        with self.page.expect_response("**/api/get_card?**") as old_response:
+            route.fulfill(response=response)
+        old_response.value.body()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(self.page.evaluate("window.independentCardRead"), "pending")
+        self.assertTrue(self.page.evaluate("state.mobileCardLoading"))
+        self.page.evaluate("clearOperatorSession()")
+        route, response = held.pop(0)
+        route.fulfill(response=response)
+        self.page.wait_for_function("window.independentCardRead !== 'pending'")
+        self.assertIsNone(self.page.evaluate("window.independentCardRead"))
+        self.assertIsNone(self.page.evaluate("state.activeCard"))
+        self.assertIsNone(self.page.evaluate("state.mobileCard"))
+        self.assertEqual(self.page.evaluate("state.fullCardCache.size"), 0)
+        self.assertEqual(self.page.evaluate("state.cardFetchInFlight.size"), 0)
+        self.assertFalse(
+            self.page.locator("#cardModal").evaluate("e => e.classList.contains('is-open')")
+        )
+
     def test_cancel_does_not_discard_a_newer_independent_verification_read(self) -> None:
         card_id = self.create_card("Synthetic verification read")
         self.load_board()
@@ -209,6 +307,33 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         self.assertEqual(
             self.page.evaluate("id => state.fullCardCache.get(id)?.title", card_id),
             "Synthetic verification read",
+        )
+
+    def test_unknown_payment_keeps_verification_read_after_cancel(self) -> None:
+        card_id = self.create_card("Synthetic unknown payment")
+        self.load_board()
+        held = self.start_open(card_id)
+        self.page.evaluate(
+            """id => {
+          state.repairOrderPaymentVerificationPending = 'unknown';
+          window.independentCardRead = 'pending';
+          fetchFullCard(id).then(card => { window.independentCardRead = card?.title || 'missing'; });
+        }""",
+            card_id,
+        )
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2)
+        self.page.keyboard.press("Escape")
+        held.pop(0).continue_()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(self.page.evaluate("window.independentCardRead"), "pending")
+        held.pop().continue_()
+        self.page.wait_for_function("window.independentCardRead !== 'pending'")
+        self.assertEqual(
+            self.page.evaluate("window.independentCardRead"), "Synthetic unknown payment"
+        )
+        self.assertEqual(
+            self.page.evaluate("state.repairOrderPaymentVerificationPending"), "unknown"
         )
 
     def test_newer_card_owns_loading_and_old_reply_is_ignored(self) -> None:
