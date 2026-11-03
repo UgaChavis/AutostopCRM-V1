@@ -4,6 +4,50 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class EmployeeOrderLoadingBrowserTests(UiBrowserTestCase):
+    def test_rerender_keeps_pending_request_and_invalidated_request_cannot_clear_new_one(self):
+        self.load_board()
+        self.page.locator("#employeesButton").click()
+        self.page.locator("#employeesModal.is-open").wait_for()
+        self.page.wait_for_function("state.employeesWorkspaceLoading === false")
+        employee = self.page.evaluate("state.activeEmployeeId")
+        order_id = self.runtime.payroll_card_id
+        self.page.evaluate(
+            """([employee, order]) => {
+          state.employees.push({...state.employees.find(item => item.id === employee), id: 'synthetic-employee-b'});
+          state.payrollReport = {summary: [], detail_rows: [
+            {employee_id: employee, card_id: order, repair_order_number: 'SYNTH-ORDER'},
+            {employee_id: 'synthetic-employee-b', card_id: order, repair_order_number: 'SYNTH-ORDER'}
+          ]};
+        }""",
+            [employee, order_id],
+        )
+        employee_a = self.page.locator(f'[data-employee-id="{employee}"]')
+        employee_a.click()
+        held = []
+        self.page.route("**/api/get_repair_order", lambda route: held.append(route))
+        self.page.get_by_text("SYNTH-ORDER").click()
+        self.page.get_by_text("Открываем заказ-наряд").wait_for()
+        self.page.wait_for_timeout(100)
+        employee_a.click()
+        self.assertTrue(self.page.get_by_text("Открываем заказ-наряд").is_visible())
+        self.page.get_by_text("SYNTH-ORDER").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1, "Rerender must not cause a duplicate POST")
+
+        self.page.locator('[data-employee-id="synthetic-employee-b"]').click()
+        employee_a.click()
+        self.page.get_by_text("SYNTH-ORDER").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 2, "Changing employees must invalidate the old request")
+        held.pop(0).fulfill(
+            status=200, json={"ok": True, "data": {"card": {"id": order_id}, "repair_order": {}}}
+        )
+        self.page.wait_for_timeout(100)
+        self.assertTrue(self.page.get_by_text("Открываем заказ-наряд").is_visible())
+        self.assertFalse(self.page.locator("#repairOrderModal").is_visible())
+        held.pop().fulfill(status=503, json={"ok": False, "error": {"message": "New failure"}})
+        self.page.get_by_text("Не удалось открыть заказ-наряд").wait_for()
+
     def test_invalidated_order_can_be_reopened_and_old_reply_keeps_new_indicator(self):
         self.load_board()
         self.page.locator("#employeesButton").click()

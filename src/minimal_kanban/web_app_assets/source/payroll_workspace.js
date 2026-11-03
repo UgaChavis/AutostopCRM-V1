@@ -674,6 +674,8 @@
     }
 
     function renderEmployeesDetails() {
+      const pending = els.employeesDetailTable.employeeOrderOpening;
+      const pendingCurrent = pending?.employeeOrderIsCurrent?.();
       const selectedId = state.employeesReportDetailsOpen ? String(state.activeEmployeeId || '').trim() : '';
       const selectedEmployee = selectedId ? selectedEmployeeRecord() : null;
       const visibleRows = selectedId ? payrollDetailRowsForEmployee(selectedId) : [];
@@ -717,6 +719,11 @@
           '<td class="is-num">' + escapeHtml(row.salary_amount || '0') + '</td>' +
         '</tr>';
       }).join('');
+      if (pendingCurrent) {
+        const row = Array.from(els.employeesDetailTable.querySelectorAll('[data-card-id]'))
+          .find((item) => item.dataset.cardId === pending.employeeOrderCardId);
+        if (row) (row.querySelector('td') || row).appendChild(pending);
+      }
     }
 
     function selectedEmployeeSalaryRecord() {
@@ -1945,8 +1952,8 @@
       const parent = (state.modalStack || []).find((entry) => entry?.key === 'employees');
       const viewer = state.viewerStateGeneration;
       const session = state.operatorSessionToken;
-      const pending = els.employeesDetailTable?.querySelector('[data-employee-order-pending]');
-      if (shouldOpenRepairOrder && pending?.closest('[data-card-id]')?.dataset.cardId === cardId
+      const pending = els.employeesDetailTable?.employeeOrderOpening;
+      if (shouldOpenRepairOrder && pending?.employeeOrderCardId === cardId
         && pending.employeeOrderIsCurrent?.()) {
         (row.querySelector('td') || row).appendChild(pending);
         return;
@@ -1963,16 +1970,27 @@
         (row.querySelector('td') || row).appendChild(opening);
       }
       const employee = state.activeEmployeeId;
+      const month = state.payrollMonth;
       const access = state.employeesCashboxesAccessRevision;
       const hydration = state.cardHydrationSeq;
       const editing = state.cardEditingGeneration;
       const repairOrder = state.repairOrderContextGeneration;
-      const isCurrent = () => parent && (state.modalStack || []).includes(parent) && row.isConnected
-        && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
-        && state.activeEmployeeId === employee && state.employeesCashboxesAccessRevision === access
-        && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
-        && state.repairOrderContextGeneration === repairOrder;
-      if (opening) opening.employeeOrderIsCurrent = isCurrent;
+      let invalidated = false;
+      const isCurrent = () => {
+        if (!invalidated) {
+          invalidated = !(parent && (state.modalStack || []).includes(parent)
+            && state.viewerStateGeneration === viewer && state.operatorSessionToken === session
+            && state.activeEmployeeId === employee && state.payrollMonth === month && state.employeesCashboxesAccessRevision === access
+            && state.cardHydrationSeq === hydration + 1 && state.cardEditingGeneration === editing
+            && state.repairOrderContextGeneration === repairOrder);
+        }
+        return !invalidated;
+      };
+      if (opening) {
+        opening.employeeOrderIsCurrent = isCurrent;
+        opening.employeeOrderCardId = cardId;
+        els.employeesDetailTable.employeeOrderOpening = opening;
+      }
       try {
         if (shouldOpenRepairOrder) {
           await openRepairOrderCard(cardId, { parentLayer: 'employees' });
@@ -1982,6 +2000,9 @@
       } catch (error) {
         setStatus(error.message, true);
       } finally {
+        if (els.employeesDetailTable?.employeeOrderOpening === opening) {
+          els.employeesDetailTable.employeeOrderOpening = null;
+        }
         if (opening?.isConnected) {
           if (isCurrent()) {
             delete opening.dataset.employeeOrderPending;
