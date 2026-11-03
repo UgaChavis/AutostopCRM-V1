@@ -67,12 +67,13 @@ const paymentAmount={value:'100',disabled:false,focus(){this.focused=(this.focus
 const paymentCashbox={value:'cashbox-A',disabled:false,focus(){},innerHTML:''};
 const paymentNote={value:'note',disabled:false};
 const paymentsClassList={contains(value){return value==='is-open'&&openModalKeys.has('repair-order-payments');}};
+const cardClasses=new Set(['is-open']);
 const els={
   repairOrderModal:emptyControls,
   repairOrderPaymentsModal:{...emptyControls,classList:paymentsClassList},
   repairOrderPaymentAmount:paymentAmount,repairOrderPaymentCashbox:paymentCashbox,
   repairOrderPaymentNote:paymentNote,repairOrderSaveButton:{disabled:false},repairOrderCloseButton:{disabled:false},
-  cardModal:{classList:{contains(){return true;}}},fileInput:{value:''},
+  cardModal:{classList:{contains(value){return cardClasses.has(value);},remove(...values){values.forEach(value=>cardClasses.delete(value));}}},fileInput:{value:''},
 };
 global.window={
   setTimeout(callback){queueMicrotask(callback);return 1;},clearTimeout(){},confirm(){return true;},prompt(){return 'reason';},

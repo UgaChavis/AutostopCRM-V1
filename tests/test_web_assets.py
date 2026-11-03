@@ -2044,7 +2044,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("els.employeesModal.classList.remove('is-open');", detail_fragment)
         self.assertNotIn("await openCardById(cardId);", detail_fragment)
         self.assertIn(
-            "await openRepairOrderCard(cardId, { parentLayer: 'employees' });",
+            "await openRepairOrderCard(cardId, { parentLayer: 'employees', isOwner: isCurrent });",
             detail_fragment,
         )
         self.assertIn(

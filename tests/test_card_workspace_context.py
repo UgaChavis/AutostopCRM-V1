@@ -50,10 +50,13 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn("async function handleRepairOrdersListKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("loadRepairOrders = async function(openModal = false)", BOARD_WEB_APP_HTML)
         self.assertIn("maybeOpenModal(els.repairOrdersModal, true);", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})",
-            BOARD_WEB_APP_HTML,
+        open_order = section(
+            SOURCE.read_text(encoding="utf-8"),
+            "async function openRepairOrderCard(",
+            "function updateRepairOrdersTabs()",
         )
+        self.assertIn("parentLayer = 'repair-orders', isOwner", open_order)
+        self.assertIn("!isOwner || isOwner()", open_order)
         self.assertIn("repairOrderParentLayer: ''", BOARD_WEB_APP_HTML)
         self.assertIn("state.repairOrderParentLayer = 'card';", BOARD_WEB_APP_HTML)
         self.assertIn("if (parentLayer === 'repair-orders') {", BOARD_WEB_APP_HTML)
@@ -115,11 +118,7 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn('<option value="number" selected>Номер</option>', BOARD_WEB_APP_HTML)
         self.assertIn("'/api/open_card'", BOARD_WEB_APP_HTML)
         self.assertIn("data-open-repair-order-card", BOARD_WEB_APP_HTML)
-        repair_order_card_fragment = BOARD_WEB_APP_HTML[
-            BOARD_WEB_APP_HTML.index(
-                "async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders' } = {})"
-            ) : BOARD_WEB_APP_HTML.index("function updateRepairOrdersTabs()")
-        ]
+        repair_order_card_fragment = open_order
         self.assertIn("'/api/get_repair_order'", repair_order_card_fragment)
         self.assertIn("preloadedRepairOrderData", repair_order_card_fragment)
         self.assertNotIn("openCardWorkspace", repair_order_card_fragment)
