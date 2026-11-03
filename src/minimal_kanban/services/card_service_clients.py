@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections import Counter
 from copy import deepcopy
 from functools import lru_cache
 from typing import Any
@@ -1791,9 +1792,7 @@ class CardServiceClientsMixin:
             keys.add(digits)
             if len(digits) >= 10:
                 last_ten = digits[-10:]
-                keys.add(last_ten)
-                keys.add("7" + last_ten)
-                keys.add("8" + last_ten)
+                keys.update((last_ten, "7" + last_ten, "8" + last_ten))
         return keys
 
     def _phone_search_variants(self, value: Any) -> set[str]:
@@ -1917,10 +1916,7 @@ class CardServiceClientsMixin:
         return index
 
     def _search_value_counts(self, values: list[str]) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for value in values:
-            counts[value] = counts.get(value, 0) + 1
-        return counts
+        return dict(Counter(values))
 
     def _client_vehicle_search_vin(self, value: Any) -> str:
         raw = normalize_text(value, default="", limit=160).upper()
@@ -2190,13 +2186,10 @@ class CardServiceClientsMixin:
         client_name = client.name()
         client_phone = client.phone
         client_phones = list(client.phones or ([client_phone] if client_phone else []))
-        if client_name and (overwrite or not card.vehicle_profile.customer_name):
-            if card.vehicle_profile.customer_name != client_name:
-                card.vehicle_profile.customer_name = client_name
-                changed = True
-        if client_phone and (overwrite or not card.vehicle_profile.customer_phone):
-            if card.vehicle_profile.customer_phone != client_phone:
-                card.vehicle_profile.customer_phone = client_phone
+        for field, value in (("customer_name", client_name), ("customer_phone", client_phone)):
+            current = getattr(card.vehicle_profile, field)
+            if value and (overwrite or not current) and current != value:
+                setattr(card.vehicle_profile, field, value)
                 changed = True
         if client_phones and (
             overwrite or not getattr(card.vehicle_profile, "customer_phones", [])
@@ -2223,13 +2216,10 @@ class CardServiceClientsMixin:
         if not self._card_has_repair_order(card):
             return False
         changed = False
-        if client_name and (overwrite or not card.repair_order.client):
-            if card.repair_order.client != client_name:
-                card.repair_order.client = client_name
-                changed = True
-        if client_phone and (overwrite or not card.repair_order.phone):
-            if card.repair_order.phone != client_phone:
-                card.repair_order.phone = client_phone
+        for field, value in (("client", client_name), ("phone", client_phone)):
+            current = getattr(card.repair_order, field)
+            if value and (overwrite or not current) and current != value:
+                setattr(card.repair_order, field, value)
                 changed = True
         return changed
 
@@ -2417,22 +2407,19 @@ class CardServiceClientsMixin:
             "gearbox_model": vehicle.gearbox_model,
             "drivetrain": vehicle.drivetrain,
         }
-        raw_year = str(vehicle.year or "").strip()
-        if raw_year.isdigit() and len(raw_year) <= 4:
+        for value, field, max_length, maximum in (
+            (vehicle.year, "production_year", 4, 9999),
+            (vehicle.mileage, "mileage", 7, 9_999_999),
+        ):
+            raw = str(value or "").strip()
+            if not raw.isdigit() or len(raw) > max_length:
+                continue
             try:
-                production_year = int(raw_year)
+                number = int(raw)
             except (OverflowError, ValueError):
-                production_year = 0
-            if 0 < production_year <= 9999:
-                patch["production_year"] = production_year
-        raw_mileage = str(vehicle.mileage or "").strip()
-        if raw_mileage.isdigit() and len(raw_mileage) <= 7:
-            try:
-                mileage = int(raw_mileage)
-            except (OverflowError, ValueError):
-                mileage = 0
-            if 0 < mileage <= 9_999_999:
-                patch["mileage"] = mileage
+                continue
+            if 0 < number <= maximum:
+                patch[field] = number
         patch = {key: value for key, value in patch.items() if value not in ("", None)}
         patch.update(vehicle.source_metadata())
         return patch

@@ -1243,14 +1243,11 @@ class SnapshotService:
         stale_hours: int,
         status: str,
     ) -> str:
-        if overdue and stale:
-            return f"Просрочена и без движения {stale_hours} ч"
-        if overdue:
-            return "Просрочена"
-        if critical and stale:
-            return f"Критичная и без движения {stale_hours} ч"
-        if critical:
-            return "Критичный сигнал"
+        if overdue or critical:
+            if stale:
+                label = "Просрочена" if overdue else "Критичная"
+                return f"{label} и без движения {stale_hours} ч"
+            return "Просрочена" if overdue else "Критичный сигнал"
         if stale:
             return f"Без движения {stale_hours} ч"
         if status == "warning":
@@ -1294,10 +1291,6 @@ class SnapshotService:
             "card_moved",
             "card_archived",
             "card_restored",
-            "repair_order_updated",
-            "repair_order_open",
-            "repair_order_closed",
-            "repair_order_autofilled",
             "description_changed",
             "title_changed",
             "vehicle_changed",
