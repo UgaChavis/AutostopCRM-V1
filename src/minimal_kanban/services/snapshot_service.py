@@ -1047,7 +1047,9 @@ class SnapshotService:
         card = self._find_card(bundle["cards"], payload.get("card_id"))
         bundle.require_card(card, include_attachments=True)
         read_warnings = bundle.card_warnings(card) + bundle.card_link_warnings(card)
-        events = visible_audit_events(payload, bundle["events"])
+        events = visible_audit_events(
+            payload, (event for event in bundle["events"] if event.card_id == card.id)
+        )
         column_labels = self._column_labels(bundle["columns"])
         card_data = self._serialize_card(
             card,
