@@ -100,6 +100,10 @@ class ClientProfileTruncationBrowserTests(UiBrowserTestCase):
                 "ПОКАЗАНО 5 ИЗ 31 В ПРОФИЛЕ · СВЯЗИ НЕ ПОДТВЕРЖДЕНЫ",
                 page.locator("#mobileClientDetail").inner_text(),
             )
+            self.assertNotIn(
+                "ЧАСТЬ СВЯЗЕЙ НЕ ПОДТВЕРЖДЕНА",
+                page.locator("#mobileClientDetail").inner_text(),
+            )
             page.click("#mobileClientsBackButton")
             page.set_viewport_size({"width": 1440, "height": 960})
             page.locator("#clientsButton").click()
@@ -108,4 +112,8 @@ class ClientProfileTruncationBrowserTests(UiBrowserTestCase):
             self.assertIn(
                 "ПОКАЗАНО 30 ИЗ 31 В ПРОФИЛЕ · СВЯЗИ НЕ ПОДТВЕРЖДЕНЫ",
                 page.locator("#clientOrdersList").inner_text(),
+            )
+            self.assertNotIn(
+                "ЧАСТЬ СВЯЗЕЙ НЕ ПОДТВЕРЖДЕНА",
+                page.locator(".clients-profile-pane").inner_text(),
             )

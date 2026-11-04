@@ -4189,6 +4189,11 @@
       return '<div class="' + className + '">ПОКАЗАНО ' + shown + ' ИЗ ' + total + ' В ПРОФИЛЕ' + warning + '</div>';
     }
 
+    function clientProfileUnverifiedNote(meta, alreadyShown) {
+      return !alreadyShown && meta?.read_warnings?.includes('related_card_client_match_unverified')
+        ? ' · ЧАСТЬ СВЯЗЕЙ НЕ ПОДТВЕРЖДЕНА' : '';
+    }
+
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
@@ -4196,10 +4201,11 @@
       state.clientsDraftRevision = { version: client.updated_at || '', conflict: false };
       setClientProfileEmptyState(false);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
-      if (els.clientProfilePhone) {
-        els.clientProfilePhone.textContent = compactPhoneLine(client, 'ТЕЛЕФОН НЕ УКАЗАН');
-      }
       const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
+      if (els.clientProfilePhone) {
+        els.clientProfilePhone.textContent = compactPhoneLine(client, 'ТЕЛЕФОН НЕ УКАЗАН')
+          + clientProfileUnverifiedNote(data?.meta, orders.length > 0 && orders.length < data?.meta?.repair_orders_total);
+      }
       if (els.clientDebtValue) {
         els.clientDebtValue.textContent = clientDebtAmountText(data);
       }
@@ -7842,6 +7848,8 @@
       }
       const vehicles = Array.isArray(profile?.vehicles) ? profile.vehicles : [];
       const orders = Array.isArray(profile?.repair_orders) ? profile.repair_orders : [];
+      const warning = clientProfileUnverifiedNote(profile?.meta,
+        vehicles.length > 4 || (orders.length > 0 && Math.min(orders.length, 5) < profile.meta.repair_orders_total));
       const vehiclesHtml = vehicles.length
         ? vehicles.slice(0, 4).map((vehicle) => {
           return '<div class="mobile-client-mini">'
@@ -7866,7 +7874,7 @@
       els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__head">'
           + '<div>'
             + '<div class="mobile-client-detail__name">' + escapeHtml(clientDisplayName(client)) + '</div>'
-            + '<div class="mobile-client-detail__meta">' + escapeHtml(mobileClientPhoneLine(client)) + '</div>'
+            + '<div class="mobile-client-detail__meta">' + escapeHtml(mobileClientPhoneLine(client) + warning) + '</div>'
           + '</div>'
           + '<div class="mobile-client-detail__debt">' + escapeHtml(clientDebtAmountText(profile)) + '</div>'
         + '</div>'
