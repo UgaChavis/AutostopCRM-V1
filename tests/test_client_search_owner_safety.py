@@ -206,3 +206,79 @@ class ClientSearchOwnerSafetyTests(CardServiceCase):
         self.install(state)
         third = self.service.search_clients({"query": "RAREVEHICLE"})
         self.assertEqual([item["id"] for item in third["clients"]], ["synthetic-a"])
+
+    def test_suggest_reuses_checked_search_and_preserves_legacy(self):
+        vin = "JF1SJ5LC5DG012345"
+        source = self.service.create_card(
+            {"title": "SYNTHETIC SOURCE", "vehicle_profile": {"vin": vin}}
+        )["card"]["id"]
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        foreign = next(card for card in state["cards"] if card["id"] == self.card_id)
+        foreign["vehicle_profile"]["vin"] = vin
+        self.install(state)
+        before = self.state_file.read_bytes()
+        with patch.object(
+            self.service,
+            "_client_checked_search_cards",
+            wraps=self.service._client_checked_search_cards,
+        ) as build:
+            self.service.search_clients({"query": "RAREVEHICLE"})
+            for payload in ({"query": "RAREVEHICLE"}, {}):
+                result = self.service.suggest_clients_for_card({"card_id": source, **payload})
+                self.assertEqual([item["id"] for item in result["clients"]], ["synthetic-b"])
+                self.assertEqual(result["card"]["id"], source)
+                self.assertGreater(result["card"]["events_count"], 0)
+            self.assertEqual(build.call_count, 1)
+        self.assertEqual(before, self.state_file.read_bytes())
+        foreign["client_id"] = ""
+        self.install(state)
+        result = self.service.suggest_clients_for_card({"card_id": source})
+        candidate = next(row for row in result["clients"] if row["id"] == "synthetic-a")
+        self.assertIn("related_card_client_match_unverified", candidate["read_warnings"])
+        self.assertEqual(candidate["vehicles_preview"][0]["vehicle"], "RAREVEHICLE SYNTHETIC")
+
+    def test_suggest_empty_query_and_invalid_events(self):
+        source = self.service.create_card({"title": "SYNTHETIC EMPTY"})["card"]["id"]
+        before = self.state_file.read_bytes()
+        result = self.service.suggest_clients_for_card({"card_id": source})
+        self.assertEqual(result["clients"], [])
+        self.assertEqual(result["meta"], {"query": "", "total": 0, "returned": 0})
+        self.assertGreater(result["card"]["events_count"], 0)
+        self.assertEqual(before, self.state_file.read_bytes())
+        state = json.loads(before)
+        state["events"] = "SYNTHETIC INVALID"
+        self.install(state)
+        before = self.state_file.read_bytes()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.suggest_clients_for_card({"card_id": source})
+        self.assertEqual(before, self.state_file.read_bytes())
+
+    def test_suggest_does_not_truncate_long_derived_query(self):
+        source = self.service.create_card({"title": "SYNTHETIC LONG QUERY"})["card"]["id"]
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        card = next(card for card in state["cards"] if card["id"] == source)
+        card["vehicle_profile"]["customer_name"] = "A" * 180
+        card["repair_order"]["client"] = "B" * 180
+        self.install(state)
+        before = self.state_file.read_bytes()
+        with patch.object(
+            self.service, "_rank_client_matches", wraps=self.service._rank_client_matches
+        ) as rank:
+            result = self.service.suggest_clients_for_card({"card_id": source})
+        self.assertGreater(len(result["meta"]["query"]), 240)
+        self.assertEqual(rank.call_args.args[1], result["meta"]["query"])
+        self.assertEqual(before, self.state_file.read_bytes())
+
+    def test_suggest_rejects_ambiguous_source_before_archive_retention(self):
+        state = deepcopy(self.original)
+        source = deepcopy(state["cards"][0])
+        source["id"] = "synthetic-source"
+        duplicate = deepcopy(source)
+        duplicate["archived"] = True
+        duplicate["updated_at"] = "2020-01-01T12:00:00+00:00"
+        state["cards"].extend([source, duplicate])
+        self.install(state)
+        before = self.state_file.read_bytes()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.suggest_clients_for_card({"card_id": source["id"]})
+        self.assertEqual(before, self.state_file.read_bytes())

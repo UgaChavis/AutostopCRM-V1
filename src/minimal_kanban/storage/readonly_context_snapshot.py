@@ -81,6 +81,7 @@ class ReadonlyContextSnapshot(dict):
     ):
         super().__init__(bundle)
         self.search_cards_need_retention = search_cards_need_retention
+        self._raw_events = state.get("events", [])
         if source_indexes is None:
             self._cards = cards_index if cards_index is not None else _index(state.get("cards"))
             self._clients = _index(state.get("clients"))
@@ -91,6 +92,11 @@ class ReadonlyContextSnapshot(dict):
             self._cards, self._clients, self._events = source_indexes
         self._link_clients = {client.id: client for client in bundle["clients"]}
         self._profile_clients = profile_clients
+
+    def normalized_events(self, store):
+        if not isinstance(self._raw_events, list):
+            raise StateFileCorruptedError("Список событий отсутствует или поврежден.")
+        return store._normalize_events({"events": deepcopy(self._raw_events)})[0]
 
     def profile_client_candidates(self, store, requested_id):
         if self._profile_clients is None:

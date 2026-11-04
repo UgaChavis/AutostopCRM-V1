@@ -501,6 +501,11 @@ validated client by exact stored ID from results, vehicle previews, statistics
 and search ranking, while retaining and warning about unverified text matches.
 The snapshots check considered card identities and links but do not guarantee
 validation of every unrelated source record or domain.
+`suggest_clients_for_card` uses the same checked search index and snapshot as
+the ordinary client search. Its compact card, event count and suggestions come
+from one state version; event normalization and retention run in memory only.
+Ambiguous source cards or archive retention fail closed. An omitted query is
+still formed from the card's customer and vehicle details.
 
 The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then
