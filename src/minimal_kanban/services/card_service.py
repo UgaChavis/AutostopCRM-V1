@@ -173,6 +173,7 @@ from .repair_order_input import (
     validate_order_input,
     validate_order_payments,
     validate_order_rows,
+    validate_payment_identifiers,
 )
 from .repair_order_number_audit import build_repair_order_number_audit
 from .repair_order_text_renderer import render_bounded_repair_order_text
@@ -2609,9 +2610,7 @@ class CardService(
                     details={"fields": [key for key in ("status", "closed_at") if key in patch]},
                 )
             self._ensure_card_expected_updated_at(card, payload)
-            expected_cashbox_id = normalize_text(
-                payload.get("expected_cashbox_id"), default="", limit=128
-            )
+            expected_cashbox_id = normalize_text(payload.get("expected_cashbox_id"), default="")
             expected_cashbox_updated_at = normalize_text(
                 payload.get("expected_cashbox_updated_at"), default="", limit=80
             )
@@ -6176,13 +6175,34 @@ class CardService(
                 "validation_error", "Нужно передать cashbox_id.", details={"field": "cashbox_id"}
             )
         requested_id = str(cashbox_id).strip()
-        requested_short_id = requested_id.upper()
-        for cashbox in cashboxes:
-            if (
-                cashbox.id == requested_id
-                or short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id
-            ):
-                return cashbox
+        if len(requested_id) > 128:
+            self._fail(
+                "validation_error", "Некорректный ID кассы.", details={"field": "cashbox_id"}
+            )
+        matches = [cashbox for cashbox in cashboxes if cashbox.id == requested_id]
+        if not matches:
+            requested_short_id = requested_id.upper()
+            matches = [
+                cashbox
+                for cashbox in cashboxes
+                if short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id
+            ]
+            if matches:
+                matches = [
+                    cashbox
+                    for cashbox in cashboxes
+                    if cashbox.id.upper() == requested_short_id
+                    or short_entity_id(cashbox.id, prefix="CB").upper() == requested_short_id
+                ]
+        if len(matches) > 1:
+            self._fail(
+                "cashbox_ambiguous",
+                "Найдено несколько касс. Укажите полный ID кассы.",
+                status_code=409,
+                details={"cashbox_id": requested_id},
+            )
+        if matches:
+            return matches[0]
         self._fail(
             "not_found", "Касса не найдена.", status_code=404, details={"cashbox_id": cashbox_id}
         )
@@ -7105,6 +7125,23 @@ class CardService(
         attestation_run_id: str = "",
         digest_correlation_id: str,
     ) -> RepairOrder:
+        resolved_transaction_ids = {}
+        for transaction_id in dict.fromkeys(
+            payment.cash_transaction_id
+            for payment in (*previous_order.payments, *next_order.payments)
+            if payment.cash_transaction_id
+        ):
+            transaction = self._find_cash_transaction(cash_transactions, transaction_id)
+            resolved_transaction_ids[transaction_id] = transaction.id if transaction else None
+            if transaction:
+                resolved_transaction_ids.setdefault(transaction.id, transaction.id)
+
+        def original_transaction(transaction_id):
+            resolved_id = resolved_transaction_ids.get(transaction_id)
+            if resolved_id is None:
+                return None
+            return next((item for item in cash_transactions if item.id == resolved_id), None)
+
         attestation_mode = bool(
             _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
             and source == "mcp"
@@ -7115,6 +7152,7 @@ class CardService(
             RepairOrderPayment.from_dict(payment.to_storage_dict())
             for payment in next_order.payments
         ]
+
         correction_existing_ids = (
             {payment.id for payment in previous_order.payments}
             if previous_order.active_correction
@@ -7188,9 +7226,7 @@ class CardService(
         retained_links: set[tuple[str, str]] = set()
 
         for previous_payment in previous_order.payments:
-            existing_transaction = self._find_cash_transaction(
-                cash_transactions, previous_payment.cash_transaction_id
-            )
+            existing_transaction = original_transaction(previous_payment.cash_transaction_id)
             next_payment = next_by_id.get(previous_payment.id)
             keep_transaction = (
                 existing_transaction is not None
@@ -7258,7 +7294,7 @@ class CardService(
             for payment in next_payments
             if payment.id not in correction_existing_ids
             and payment.cashbox_id
-            and self._find_cash_transaction(cash_transactions, payment.cash_transaction_id) is None
+            and original_transaction(payment.cash_transaction_id) is None
         }
         for payment in next_payments:
             if payment.id in correction_existing_ids:
@@ -7276,9 +7312,7 @@ class CardService(
             payment.payment_method = normalize_repair_order_payment_method(
                 payment.payment_method or next_order.payment_method
             )
-            existing_transaction = self._find_cash_transaction(
-                cash_transactions, payment.cash_transaction_id
-            )
+            existing_transaction = original_transaction(payment.cash_transaction_id)
             if existing_transaction is not None:
                 # Keep untouched historical links available for audit, without repairing them.
                 if (payment.id, existing_transaction.id) not in retained_links:
@@ -7781,6 +7815,9 @@ class CardService(
                 "Поле repair_order должно быть объектом.",
                 details={"field": "repair_order"},
             )
+        validate_payment_identifiers(
+            value.get("payments", value.get("payment_history")), field="repair_order.payments"
+        )
         try:
             order = RepairOrder.from_dict(value)
             # All derived totals must be representable before the durable save,

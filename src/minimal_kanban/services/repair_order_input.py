@@ -109,10 +109,29 @@ def validate_order_rows(value: Any, *, field: str) -> None:
                     raise invalid_order_input(f"{prefix}.{name}") from None
 
 
+def validate_payment_identifiers(value: Any, *, field: str) -> None:
+    if not isinstance(value, list):
+        return
+    for index, payment in enumerate(value):
+        if not isinstance(payment, dict):
+            continue
+        for name, alias in (
+            ("cashbox_id", "cashboxId"),
+            ("cash_transaction_id", "cashTransactionId"),
+        ):
+            text = " ".join(str(_selected(payment, name, alias) or "").strip().split())
+            if len(text) > 128:
+                raise ServiceError(
+                    "validation_error",
+                    "Некорректный ID кассы или кассового движения.",
+                    details={"field": f"{field}[{index}].{name}"},
+                )
+
+
 def validate_order_payments(value: Any, *, field: str) -> None:
-    for index, payment in enumerate(
-        _collection(value, field=field, limit=REPAIR_ORDER_PAYMENTS_LIMIT)
-    ):
+    payments = _collection(value, field=field, limit=REPAIR_ORDER_PAYMENTS_LIMIT)
+    validate_payment_identifiers(payments, field=field)
+    for index, payment in enumerate(payments):
         _number(_selected(payment, "amount", "value"), field=f"{field}[{index}].amount")
 
 

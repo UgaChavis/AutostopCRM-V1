@@ -753,6 +753,14 @@ write. Reopen the affected workspace to load the latest values before retrying.
 
 ## Finance And Payroll
 
+Cashbox and cash-transaction lookups prefer an exact ID. Within the normalized
+records, a short ID is accepted only when it identifies one object; collisions
+return `cashbox_ambiguous` or `cash_transaction_ambiguous` (409) before a
+business mutation. Repair-order payment references are resolved against the
+original transaction list; ambiguous legacy links can block an order update.
+The legacy storage read may normalize malformed records
+before lookup; this is not a validation guarantee for a corrupted state file.
+
 The browser checks the current operator profile on visible board polls,
 at most once per 30 seconds, and immediately when the page becomes visible.
 With a responsive server, new rights appear within 45 seconds on a visible

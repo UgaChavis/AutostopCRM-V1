@@ -72,7 +72,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             bundle = self._read_bundle_for_update()
             transactions = bundle["cash_transactions"]
             requested_transaction_id = normalize_text(
-                payload.get("through_transaction_id"), default="", limit=128
+                payload.get("through_transaction_id"), default=""
             )
             through_transaction = (
                 self._find_cash_transaction(transactions, requested_transaction_id)
@@ -1044,7 +1044,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             requested_cashbox_id = normalize_text(
                 payload.get("cashbox_id") or payload.get("cashboxId"),
                 default="",
-                limit=128,
             )
             cashbox = (
                 self._find_cashbox(cashboxes, requested_cashbox_id)
@@ -1242,9 +1241,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     details={"field": "cashbox_id"},
                 )
             latest_transaction = related_transactions[0]
-            requested_transaction_id = normalize_text(
-                payload.get("transaction_id"), default="", limit=128
-            )
+            requested_transaction_id = normalize_text(payload.get("transaction_id"), default="")
             requested_transaction = (
                 self._find_cash_transaction(transactions, requested_transaction_id)
                 if requested_transaction_id
@@ -2248,17 +2245,36 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         transactions: list[CashTransaction],
         transaction_id: str | None,
     ) -> CashTransaction | None:
-        requested_id = normalize_text(transaction_id, default="", limit=128)
+        requested_id = normalize_text(transaction_id, default="")
         if not requested_id:
             return None
-        requested_short_id = requested_id.upper()
-        for transaction in transactions:
-            if (
-                transaction.id == requested_id
-                or short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id
-            ):
-                return transaction
-        return None
+        if len(requested_id) > 128:
+            self._fail(
+                "validation_error", "Некорректный ID движения.", details={"field": "transaction_id"}
+            )
+        matches = [transaction for transaction in transactions if transaction.id == requested_id]
+        if not matches:
+            requested_short_id = requested_id.upper()
+            matches = [
+                transaction
+                for transaction in transactions
+                if short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id
+            ]
+            if matches:
+                matches = [
+                    transaction
+                    for transaction in transactions
+                    if transaction.id.upper() == requested_short_id
+                    or short_entity_id(transaction.id, prefix="CT").upper() == requested_short_id
+                ]
+        if len(matches) > 1:
+            self._fail(
+                "cash_transaction_ambiguous",
+                "Найдено несколько кассовых движений. Укажите полный ID движения.",
+                status_code=409,
+                details={"transaction_id": requested_id},
+            )
+        return matches[0] if matches else None
 
     def _cashbox_transactions(
         self,
@@ -2934,6 +2950,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         before_cashbox_id: str | None = None,
     ) -> tuple[list[CashBox], bool]:
         original_ids = [item.id for item in self._ordered_cashboxes(cashboxes)]
+        if before_cashbox_id:
+            self._find_cashbox(cashboxes, before_cashbox_id)
         ordered = self._ordered_cashboxes(cashboxes, exclude_cashbox_id=cashbox.id)
         insert_index = len(ordered)
         if before_cashbox_id:

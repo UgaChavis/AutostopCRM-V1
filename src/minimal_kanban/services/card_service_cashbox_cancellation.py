@@ -41,7 +41,7 @@ class CardServiceCashboxCancellationMixin:
                     status_code=404,
                     details={"transaction_id": payload.get("transaction_id")},
                 )
-            requested_cashbox_id = normalize_text(payload.get("cashbox_id"), default="", limit=128)
+            requested_cashbox_id = normalize_text(payload.get("cashbox_id"), default="")
             if requested_cashbox_id and requested_cashbox_id != transaction.cashbox_id:
                 self._fail(
                     "validation_error",
