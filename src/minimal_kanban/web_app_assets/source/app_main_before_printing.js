@@ -11089,6 +11089,9 @@
 
     function repairOrderExecutorOptionsHtml(selectedId, selectedName = '') {
       const options = ['<option value="">—</option>'];
+      if (!selectedId && selectedName) {
+        options.push('<option value="" data-legacy selected>' + escapeHtml(selectedName) + ' (без привязки)</option>');
+      }
       const employees = (Array.isArray(state.employeeNames) ? state.employeeNames : (state.employees || [])).filter((item) => item && item.is_active);
       const rendered = new Set();
       employees.forEach((employee) => {
@@ -11100,7 +11103,7 @@
         );
       });
       if (selectedId && !rendered.has(selectedId)) {
-        options.push('<option value="' + escapeHtml(selectedId) + '" selected>' + escapeHtml(selectedName || 'Сотрудник') + '</option>');
+        options.push('<option value="' + escapeHtml(selectedId) + '" data-fallback-name="' + escapeHtml(selectedName) + '" selected>' + escapeHtml(selectedName || 'Сотрудник') + '</option>');
       }
       return options.join('');
     }
@@ -11110,9 +11113,14 @@
         ? '<button class="repair-order-work-salary-gear' + (normalized.work_salary_override_enabled === 'true' ? ' is-active' : '') + '" type="button" title="НАСТРОИТЬ НАЧИСЛЕНИЕ" aria-label="НАСТРОИТЬ НАЧИСЛЕНИЕ" data-repair-order-work-salary-gear>⚙</button>'
         : '';
       return '<div class="repair-order-executor-cell">'
-        + '<select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select>'
+        + repairOrderExecutorSelectHtml(normalized)
         + salaryGearHtml
         + '</div>';
+    }
+
+    function repairOrderExecutorSelectHtml(row) {
+      return '<select class="repair-order-table__select" data-repair-order-cell="executor_id" data-original-id="' + escapeHtml(row.executor_id) + '" data-original-name="' + escapeHtml(row.executor_name) + '">'
+        + repairOrderExecutorOptionsHtml(row.executor_id, row.executor_name) + '</select>';
     }
 
     function repairOrderRowHtml(section, row, index) {
@@ -11129,7 +11137,7 @@
         ? '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('cost_price', normalized.cost_price) + '</td>'
         : '';
       const materialExecutorCell = section === 'materials'
-        ? '<td><select class="repair-order-table__select" data-repair-order-cell="executor_id">' + repairOrderExecutorOptionsHtml(normalized.executor_id, normalized.executor_name) + '</select></td>'
+        ? '<td>' + repairOrderExecutorSelectHtml(normalized) + '</td>'
         : '';
       const inventoryHiddenFields = section === 'materials'
         ? '<input type="hidden" data-repair-order-row-field="inventory_item_id" value="' + escapeHtml(normalized.inventory_item_id) + '">'
@@ -11152,6 +11160,8 @@
     function readRepairOrderRowElement(row) {
       const executorSelect = row.querySelector('[data-repair-order-cell="executor_id"]');
       const selectedOption = executorSelect instanceof HTMLSelectElement ? executorSelect.options[executorSelect.selectedIndex] : null;
+      const originalExecutor = executorSelect instanceof HTMLSelectElement && !executorSelect.dataset.changed
+        && executorSelect.value === executorSelect.dataset.originalId;
       const quantityValue = row.querySelector('[data-repair-order-cell="quantity"]')?.value;
       const priceValue = row.querySelector('[data-repair-order-cell="price"]')?.value;
       const quantityParsed = repairOrderParseNumber(quantityValue);
@@ -11174,7 +11184,7 @@
         price: priceValue,
         total: liveTotalValue,
         executor_id: executorSelect instanceof HTMLSelectElement ? executorSelect.value : '',
-        executor_name: selectedOption ? selectedOption.textContent : '',
+        executor_name: originalExecutor || selectedOption?.hasAttribute('data-legacy') ? executorSelect.dataset.originalName : (executorSelect?.value ? (selectedOption?.dataset.fallbackName ?? selectedOption?.textContent) : ''),
         work_executor_id_snapshot: row.dataset.repairOrderWorkExecutorId || '',
         work_executor_name_snapshot: row.dataset.repairOrderWorkExecutorName || '',
         work_quantity_snapshot: row.dataset.repairOrderWorkQuantity || '',
@@ -16217,6 +16227,7 @@
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       if (target.matches('[data-repair-order-cell="executor_id"]')) {
+        target.dataset.changed = 'true';
         const row = target.closest('tr[data-repair-order-row]');
         if (row instanceof HTMLElement) {
           row.dataset.repairOrderSalaryMode = '';
