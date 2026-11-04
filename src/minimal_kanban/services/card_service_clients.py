@@ -973,17 +973,38 @@ class CardServiceClientsMixin:
     def _find_client_or_none(
         self, clients: list[ClientProfile], client_id: str | None
     ) -> ClientProfile | None:
-        requested_id = normalize_text(client_id, default="", limit=128)
+        requested_id = normalize_text(client_id, default="")
         if not requested_id:
             return None
-        requested_short_id = requested_id.upper()
-        for client in clients:
-            if (
-                client.id == requested_id
-                or short_entity_id(client.id, prefix="CL").upper() == requested_short_id
-            ):
-                return client
-        return None
+        if len(requested_id) > 128:
+            self._fail(
+                "validation_error",
+                "ID клиента не должен превышать 128 символов.",
+                details={"field": "client_id"},
+            )
+        matches = [client for client in clients if client.id == requested_id]
+        if not matches:
+            requested_short_id = requested_id.upper()
+            matches = [
+                client
+                for client in clients
+                if short_entity_id(client.id, prefix="CL").upper() == requested_short_id
+            ]
+            if matches:
+                matches = [
+                    client
+                    for client in clients
+                    if client.id.upper() == requested_short_id
+                    or short_entity_id(client.id, prefix="CL").upper() == requested_short_id
+                ]
+        if len(matches) > 1:
+            self._fail(
+                "client_ambiguous",
+                "Найдено несколько клиентов. Укажите полный ID клиента.",
+                status_code=409,
+                details={"client_id": requested_id},
+            )
+        return matches[0] if matches else None
 
     def _canonical_client_phone_keys(self, client: ClientProfile) -> set[str]:
         keys: set[str] = set()

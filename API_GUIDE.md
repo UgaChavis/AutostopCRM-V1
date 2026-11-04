@@ -510,6 +510,14 @@ that can be normalized, even when no vehicle ID is present. A stored
 otherwise the read fails with `state_file_corrupted`. An empty client ID is
 allowed when the vehicle ID is also empty.
 
+Client lookup prefers an exact, case-sensitive full ID. A case-insensitive
+`CL-*` short ID is accepted only when it does not conflict with another short
+ID or a full ID differing only by case; ambiguous requests fail with
+`client_ambiguous` (409). Lookup IDs longer than 128 characters are rejected
+instead of truncated. Write callers may normalize legacy state before lookup, including
+discarding duplicate stored full IDs; this check does not guarantee a no-write
+failure for malformed legacy state.
+
 Client vehicle mutations resolve full IDs first. A `CV-*` short alias is accepted
 only when it identifies one vehicle within the selected client; a collision
 returns `client_vehicle_ambiguous` (409) before mutation. Card links always store

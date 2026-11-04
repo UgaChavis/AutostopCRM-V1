@@ -633,7 +633,7 @@ class CardService(
 
     def create_card(self, payload: dict) -> dict:
         with self._lock:
-            client_id = normalize_text(payload.get("client_id"), default="", limit=128)
+            client_id = normalize_text(payload.get("client_id"), default="")
             bundle = self._read_bundle_for_update(
                 "columns", "cashboxes", "cash_transactions", client_id=client_id or None
             )
