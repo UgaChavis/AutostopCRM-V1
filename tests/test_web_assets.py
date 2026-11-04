@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # The safety budget covers ISO dates, executor names and client read errors.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 920_500)
+        # The safety budget covers dates, executor names and list error handling.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 921_000)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"

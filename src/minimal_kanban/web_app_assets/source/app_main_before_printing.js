@@ -218,6 +218,7 @@
       repairOrdersRequestSeq: 0,
       repairOrdersItems: [],
       repairOrdersMetaState: null,
+      repairOrdersLoadError: false,
       repairOrderParentLayer: '',
       repairOrderSaveInFlight: false,
       repairOrderSavePromise: null,
@@ -2670,7 +2671,7 @@
         repairOrdersFilter: 'open', repairOrdersQuery: '', repairOrdersRemoteQuery: '',
         repairOrdersSearchField: 'summary',
         repairOrdersSortBy: 'number', repairOrdersSortDir: 'desc',
-        repairOrdersItems: [], repairOrdersMetaState: null, repairOrdersSearchLoading: false,
+        repairOrdersItems: [], repairOrdersMetaState: null, repairOrdersLoadError: false, repairOrdersSearchLoading: false,
         sharedFiles: [], sharedFilesActiveId: '', sharedFilesStorage: null,
         sharedFilesClipboardId: '', sharedFilesContextPoint: null, sharedFilesDrag: null,
         sharedFilesMutationRequest: null,
@@ -6501,6 +6502,10 @@
       if (!els.mobileRepairOrdersList) return;
       renderMobileRepairOrderDetail();
       if (state.mobileRepairOrderCardId) return;
+      if (state.repairOrdersLoadError) {
+        els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЗАКАЗ-НАРЯДЫ. НАЖМИТЕ «ОБНОВИТЬ».</div>';
+        return;
+      }
       const items = filterRepairOrdersItems(state.repairOrdersItems).slice(0, 40);
       if (!items.length && !state.repairOrdersMetaState) {
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">ЗАКАЗ-НАРЯДЫ ЗАГРУЖАЮТСЯ...</div>';
@@ -13804,7 +13809,7 @@
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
-      renderMobileShell();
+      if (state.mobileView !== 'repair-orders' || !state.mobileRepairOrderCardId) renderMobileShell();
     }
 
     renderRepairOrderListRows = function(items) {
@@ -13849,6 +13854,7 @@
     function renderRepairOrders(data) {
       const items = data?.repair_orders || [];
       const meta = data?.meta || {};
+      state.repairOrdersLoadError = false;
       if (meta.status === 'open' || meta.status === 'ready' || meta.status === 'closed') state.repairOrdersFilter = meta.status;
       state.repairOrdersSortBy = normalizeRepairOrdersSortBy(meta.sort_by || state.repairOrdersSortBy);
       state.repairOrdersSortDir = normalizeRepairOrdersSortDir(meta.sort_dir || state.repairOrdersSortDir);
@@ -13875,6 +13881,7 @@
         isCurrent,
         onSuccess: renderRepairOrders,
         onError: (error) => {
+          state.repairOrdersLoadError = true;
           setRepairOrdersSearchLoading(false);
           setModalListError(
             els.repairOrdersMeta,
@@ -13882,6 +13889,7 @@
             'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
             error.message,
           );
+          if (state.mobileLite && state.mobileView === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileRepairOrders();
         },
       });
     };

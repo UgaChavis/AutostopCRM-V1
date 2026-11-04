@@ -135,3 +135,162 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
             ),
             console_errors,
         )
+
+    def test_mobile_list_error_retry_background_and_stale_results(self):
+        self.load_board()
+        held = []
+        self.page.route("**/api/list_repair_orders?**", lambda route: held.append(route))
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.locator('[data-mobile-view="repair-orders"]').click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+
+        def error(route):
+            route.fulfill(status=503, json={"ok": False, "error": {"message": "SYNTHETIC"}})
+
+        def success(route, card_id):
+            route.fulfill(
+                json={
+                    "ok": True,
+                    "data": {
+                        "repair_orders": [
+                            {"card_id": card_id, "number": "321", "summary": "SYNTHETIC ORDER"}
+                        ],
+                        "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                    },
+                }
+            )
+
+        error(held.pop())
+        self.page.wait_for_function("state.repairOrdersLoadError")
+        self.assertIn(
+            "НЕ УДАЛОСЬ ЗАГРУЗИТЬ", self.page.locator("#mobileRepairOrdersList").inner_text()
+        )
+        self.page.locator("#mobileRepairOrdersRefreshButton").click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        success(held.pop(), "old")
+        self.page.wait_for_function("!state.repairOrdersLoadError && state.repairOrdersMetaState")
+        self.assertEqual(
+            self.page.locator(
+                '#mobileRepairOrdersList [data-open-repair-order-card="old"]'
+            ).count(),
+            1,
+        )
+
+        self.page.evaluate("() => { loadRepairOrders(false); }")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        error(held.pop())
+        self.page.wait_for_function("state.repairOrdersLoadError")
+        self.assertEqual(
+            self.page.locator("#mobileRepairOrdersList [data-open-repair-order-card]").count(), 0
+        )
+        self.assertEqual(self.page.evaluate("state.repairOrdersItems[0].card_id"), "old")
+
+        self.page.locator("#mobileRepairOrdersRefreshButton").click()
+        self.page.wait_for_timeout(150)
+        self.page.locator("#mobileRepairOrdersRefreshButton").click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 2)
+        success(held.pop(), "new")
+        self.page.wait_for_function("state.repairOrdersItems[0]?.card_id === 'new'")
+        error(held.pop())
+        self.page.wait_for_timeout(150)
+        self.assertFalse(self.page.evaluate("state.repairOrdersLoadError"))
+        self.assertEqual(
+            self.page.locator(
+                '#mobileRepairOrdersList [data-open-repair-order-card="new"]'
+            ).count(),
+            1,
+        )
+
+        self.page.locator("#mobileRepairOrdersRefreshButton").click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        self.page.evaluate("() => resetViewerScopedState()")
+        error(held.pop())
+        self.page.wait_for_timeout(150)
+        self.assertFalse(self.page.evaluate("state.repairOrdersLoadError"))
+        self.assertEqual(self.page.evaluate("state.repairOrdersItems.length"), 0)
+
+    def test_mobile_detail_draft_survives_background_list_failure(self):
+        self.load_board()
+        held = []
+        self.page.route("**/api/list_repair_orders?**", lambda route: held.append(route))
+        self.page.route(
+            "**/api/get_repair_order",
+            lambda route: route.fulfill(
+                json={
+                    "ok": True,
+                    "data": {
+                        "card": {"id": "synthetic", "repair_order": {"client": "SYNTHETIC CLIENT"}}
+                    },
+                }
+            ),
+        )
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.locator('[data-mobile-view="repair-orders"]').click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        held.pop().fulfill(
+            json={
+                "ok": True,
+                "data": {
+                    "repair_orders": [
+                        {"card_id": "synthetic", "number": "123", "client": "SYNTHETIC CLIENT"}
+                    ],
+                    "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                },
+            }
+        )
+        self.page.locator(
+            '#mobileRepairOrdersList [data-open-repair-order-card="synthetic"]'
+        ).click()
+        self.page.wait_for_function(
+            "state.mobileRepairOrderCardId === 'synthetic' && !state.mobileRepairOrderLoading"
+        )
+        self.page.locator("#mobileRepairOrderClient").fill("SYNTHETIC UNSAVED DRAFT")
+        self.page.evaluate("() => { loadRepairOrders(false); }")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        held.pop().fulfill(status=503, json={"ok": False, "error": {"message": "SYNTHETIC"}})
+        self.page.wait_for_function("state.repairOrdersLoadError")
+        self.assertEqual(
+            self.page.locator("#mobileRepairOrderClient").input_value(), "SYNTHETIC UNSAVED DRAFT"
+        )
+        self.assertEqual(self.page.evaluate("state.mobileRepairOrderCardId"), "synthetic")
+        self.page.evaluate("() => { loadRepairOrders(false); }")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        held.pop().fulfill(
+            json={
+                "ok": True,
+                "data": {
+                    "repair_orders": [{"card_id": "synthetic", "number": "789"}],
+                    "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                },
+            }
+        )
+        self.page.wait_for_function("!state.repairOrdersLoadError")
+        self.assertEqual(
+            self.page.locator("#mobileRepairOrderClient").input_value(), "SYNTHETIC UNSAVED DRAFT"
+        )
+        self.page.locator("#mobileRepairOrderBackButton").click()
+        self.assertIn("789", self.page.locator("#mobileRepairOrdersList").inner_text())
+        self.page.locator(
+            '#mobileRepairOrdersList [data-open-repair-order-card="synthetic"]'
+        ).click()
+        self.page.wait_for_function(
+            "state.mobileRepairOrderCardId === 'synthetic' && !state.mobileRepairOrderLoading"
+        )
+        self.page.locator("#mobileRepairOrderClient").fill("SYNTHETIC UNSAVED DRAFT")
+        self.page.evaluate("() => { loadRepairOrders(false); }")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        held.pop().fulfill(status=503, json={"ok": False, "error": {"message": "SYNTHETIC"}})
+        self.page.wait_for_function("state.repairOrdersLoadError")
+        self.page.locator("#mobileRepairOrderBackButton").click()
+        self.assertIn(
+            "НЕ УДАЛОСЬ ЗАГРУЗИТЬ", self.page.locator("#mobileRepairOrdersList").inner_text()
+        )
