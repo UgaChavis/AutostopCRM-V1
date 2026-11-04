@@ -253,6 +253,7 @@ function renderClientProfile(data) { state.clientsActiveProfile = data; }
 function renderClientsList() {}
 function renderMobileClientsPanel() {}
 function setStatus(message) { errors.push(message); }
+function clientProfileReadValid(data,id) { return data?.client?.id === id; }
 """
             + desktop
             + mobile

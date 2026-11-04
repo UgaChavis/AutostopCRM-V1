@@ -692,6 +692,7 @@ function renderClientProfileEmptyState(){}
 function renderClientProfile(data){profiles.push({id:data.client.id,revision:data.client.revision});}
 function renderClientsList(){}
 function setStatus(message,isError){statuses.push({message,isError});}
+function clientProfileReadValid(data,id){return data?.client?.id===id;}
 """
             + select_client
             + """
@@ -735,6 +736,7 @@ const window={setTimeout,clearTimeout};
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',apiToken:'api-A',actor:'actor-A',
   clientsActiveId:'A',clientsDesktopProfile:{client:{id:'A'}},clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__'},
+  clientCandidateVehicleEffects:new Map(),
 };
 state.clientsActiveProfile=state.clientsDesktopProfile;
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
@@ -743,6 +745,8 @@ function readClientVehicleEditorPayload(){return {vehicle:'Vehicle A',vin:'VIN-A
 function updateClientSaveButtonState(){}
 async function selectClient(id){selected.push(id);}
 function setStatus(message,isError){statuses.push({message,isError});}
+function beginCandidateVehicleCreation(id){const effect={key:id};state.clientCandidateVehicleEffects.set(id,effect);return effect;}
+function finishCandidateVehicleCreation(effect){if(effect)state.clientCandidateVehicleEffects.delete(effect.key);}
 """
             + viewer_context
             + functions("app_main_before_printing.js", "clientDesktopSelectionMatches")
@@ -758,16 +762,18 @@ function setStatus(message,isError){statuses.push({message,isError});}
   const staleA=saveClientVehicleFromEditor('__new__');
   assert.equal(calls[0].options.body.client_id,'A');
   state.clientsActiveId='B';state.clientsProfileRequestSeq++;
-  calls[0].resolve({vehicle:{id:'vehicle-A'}});await staleA;
+  calls[0].resolve({client:{id:'A'},vehicle:{id:'vehicle-A'}});await staleA;
   assert.deepEqual(selected,[]);assert.deepEqual(statuses,[]);
   assert.deepEqual(state.clientVehicleEditor,{key:'__new__'});
 
+  // Start a separate scenario after the first result has been handled by the operator.
+  state.clientVehicleMutationCheckpoint=null;
   state.clientsActiveId='same';state.clientsDesktopProfile={client:{id:'same'}};state.clientsActiveProfile=state.clientsDesktopProfile;state.clientsProfileRequestSeq=10;state.clientMutationRequest=null;
   state.clientVehicleEditor={key:'__new__'};
   const oldSame=saveClientVehicleFromEditor('__new__');
   state.clientsActiveId='away';state.clientsProfileRequestSeq=11;
   state.clientsActiveId='same';state.clientsProfileRequestSeq=12;
-  calls[1].resolve({vehicle:{id:'same-old'}});await oldSame;
+  calls[1].resolve({client:{id:'same'},vehicle:{id:'same-old'}});await oldSame;
   assert.deepEqual(selected,[]);assert.deepEqual(statuses,[]);
   assert.deepEqual(state.clientVehicleEditor,{key:'__new__'});
   assert.equal(state.clientMutationRequest,null);
