@@ -8196,8 +8196,9 @@
       const requested = String(view || '').trim();
       if (requested === 'cashboxes' && !requireEmployeesCashboxesAccess()) return false;
       claimMobileMorePanelIntent();
+      const previousView = state.mobileView;
       state.mobileView = normalizeMobileView(view);
-      renderMobileShell();
+      renderMobileShell({ skipRepairOrderList: previousView === state.mobileView });
       if (requested === 'more' && state.mobileMorePanel === 'employees') openMobileEmployeesPanel();
       if (state.mobileView === 'cashboxes') {
         loadCashboxes(false, { deferDetail: true, consumeNotifications: true });
