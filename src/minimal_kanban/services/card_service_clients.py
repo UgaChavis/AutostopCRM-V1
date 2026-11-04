@@ -475,10 +475,8 @@ class CardServiceClientsMixin:
             create_vehicle_from_card = self._validated_optional_bool(
                 payload, "create_vehicle_from_card", default=False
             )
-            client_vehicle_id = normalize_text(
-                payload.get("client_vehicle_id") or payload.get("vehicle_id"),
-                default="",
-                limit=128,
+            client_vehicle_id = self._validated_client_vehicle_id(
+                payload.get("client_vehicle_id") or payload.get("vehicle_id")
             )
             vehicle: ClientVehicle | None = None
             clients_changed = False
@@ -566,10 +564,8 @@ class CardServiceClientsMixin:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             client = self._find_client(clients, payload.get("client_id"))
-            vehicle_id = normalize_text(
-                payload.get("client_vehicle_id") or payload.get("vehicle_id"),
-                default="",
-                limit=128,
+            vehicle_id = self._validated_client_vehicle_id(
+                payload.get("client_vehicle_id") or payload.get("vehicle_id")
             )
             card = (
                 self._find_card(cards, payload.get("card_id")) if payload.get("card_id") else None
@@ -1104,7 +1100,14 @@ class CardServiceClientsMixin:
             "contact_position",
             "vehicles",
         }
-        return {key: value for key, value in source_payload.items() if key in allowed}
+        result = {key: value for key, value in source_payload.items() if key in allowed}
+        vehicles = result.get("vehicles")
+        for vehicle in vehicles if isinstance(vehicles, list) else [vehicles]:
+            if isinstance(vehicle, dict):
+                self._validated_client_vehicle_id(
+                    vehicle.get("id") or vehicle.get("client_vehicle_id")
+                )
+        return result
 
     def _validated_client_profile(self, payload: dict[str, Any]) -> ClientProfile:
         now_iso = utc_now_iso()
@@ -2269,10 +2272,20 @@ class CardServiceClientsMixin:
                 changed = True
         return changed
 
+    def _validated_client_vehicle_id(self, value: Any) -> str:
+        requested_id = normalize_text(value, default="")
+        if len(requested_id) > 128:
+            self._fail(
+                "validation_error",
+                "ID автомобиля клиента не должен превышать 128 символов.",
+                details={"field": "client_vehicle_id"},
+            )
+        return requested_id
+
     def _find_client_vehicle_or_none(
         self, client: ClientProfile, vehicle_id: str | None
     ) -> ClientVehicle | None:
-        requested_id = normalize_text(vehicle_id, default="", limit=128)
+        requested_id = self._validated_client_vehicle_id(vehicle_id)
         if not requested_id:
             return None
         matches = [vehicle for vehicle in client.vehicles if vehicle.id == requested_id]
@@ -2283,6 +2296,13 @@ class CardServiceClientsMixin:
                 for vehicle in client.vehicles
                 if short_entity_id(vehicle.id, prefix="CV").upper() == requested_short_id
             ]
+            if matches:
+                matches = [
+                    vehicle
+                    for vehicle in client.vehicles
+                    if vehicle.id.upper() == requested_short_id
+                    or short_entity_id(vehicle.id, prefix="CV").upper() == requested_short_id
+                ]
         if len(matches) > 1:
             self._fail(
                 "client_vehicle_ambiguous",
@@ -2357,6 +2377,9 @@ class CardServiceClientsMixin:
                     *CLIENT_VEHICLE_METADATA_FIELDS,
                 }
             }
+        )
+        self._validated_client_vehicle_id(
+            source_payload.get("id") or source_payload.get("client_vehicle_id")
         )
         vehicle = ClientVehicle.from_value(source_payload)
         if vehicle is None:

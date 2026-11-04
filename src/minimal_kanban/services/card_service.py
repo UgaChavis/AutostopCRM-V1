@@ -683,10 +683,8 @@ class CardService(
             if client_id:
                 client = self._find_client(clients, client_id)
                 card.client_id = client.id
-                client_vehicle_id = normalize_text(
-                    payload.get("client_vehicle_id") or payload.get("vehicle_id"),
-                    default="",
-                    limit=128,
+                client_vehicle_id = self._validated_client_vehicle_id(
+                    payload.get("client_vehicle_id") or payload.get("vehicle_id")
                 )
                 create_vehicle_from_card = self._validated_optional_bool(
                     payload, "create_vehicle_from_card", default=False

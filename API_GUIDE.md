@@ -518,11 +518,16 @@ instead of truncated. Write callers may normalize legacy state before lookup, in
 discarding duplicate stored full IDs; this check does not guarantee a no-write
 failure for malformed legacy state.
 
-Client vehicle mutations resolve full IDs first. A `CV-*` short alias is accepted
-only when it identifies one vehicle within the selected client; a collision
+Client vehicle mutations resolve exact, case-sensitive full IDs first. A `CV-*`
+short alias is accepted only when it identifies one vehicle within the selected
+client and does not conflict with a full ID differing only by case; a collision
 returns `client_vehicle_ambiguous` (409) before mutation. Card links always store
 the canonical full vehicle ID, including when a unique short alias was supplied.
 The same resolver is shared by card creation, linking and vehicle update/delete.
+Vehicle lookup IDs longer than 128 characters are rejected instead of truncated;
+the same limit applies to IDs supplied inside a vehicle mutation payload or a
+client create/update vehicles list. Legacy state remains readable without
+applying this input validation retroactively.
 
 The MCP `get_card_context` requests a read-only snapshot for both values of
 `include_repair_order_text`. When text is requested, it is rendered in memory
