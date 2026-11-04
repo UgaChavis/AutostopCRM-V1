@@ -55,6 +55,50 @@ class MobileOrdersActiveTabBrowserTests(UiBrowserTestCase):
             self.page.evaluate("state.repairOrdersMetaState.returned"),
         )
 
+    def test_loading_tab_reuses_first_request_and_return_from_board(self):
+        self.load_board()
+        held = []
+        self.page.route("**/api/list_repair_orders?**", lambda route: held.append(route))
+        tab = self.page.locator('[data-mobile-view="repair-orders"]')
+        tab.click()
+        self.page.wait_for_function("state.repairOrdersSearchLoading")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        tab.click()
+        tab.click()
+        self.page.locator('[data-mobile-view="board"]').click()
+        tab.click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "!!state.repairOrdersMetaState && !state.repairOrdersSearchLoading"
+        )
+        self.assertEqual(
+            self.page.locator("#mobileRepairOrdersList [data-open-repair-order-card]").count(),
+            self.page.evaluate("state.repairOrdersMetaState.returned"),
+        )
+
+    def test_filter_change_during_first_load_still_requests_latest_status(self):
+        self.load_board()
+        held = []
+        self.page.route("**/api/list_repair_orders?**", lambda route: held.append(route))
+        self.page.locator('[data-mobile-view="repair-orders"]').click()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 1)
+        self.page.evaluate("() => { setRepairOrdersFilter('ready'); }")
+        self.page.wait_for_timeout(150)
+        self.assertEqual(len(held), 2)
+        self.assertIn("status=ready", held[1].request.url)
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "state.repairOrdersMetaState?.status === 'ready' && !state.repairOrdersSearchLoading"
+        )
+        held.pop().continue_()
+        self.page.wait_for_timeout(150)
+        self.assertEqual(self.page.evaluate("state.repairOrdersMetaState.status"), "ready")
+        self.assertFalse(self.page.evaluate("state.repairOrdersSearchLoading"))
+
     def test_same_tab_preserves_open_detail_draft(self):
         card = self.create_card("SYNTHETIC MOBILE ORDER")
         self.runtime.service.get_repair_order({"card_id": card, "create_if_missing": True})
