@@ -6767,7 +6767,7 @@
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЗАКАЗ-НАРЯДЫ. НАЖМИТЕ «ОБНОВИТЬ».</div>';
         return;
       }
-      const items = filterRepairOrdersItems(state.repairOrdersItems).slice(0, 40);
+      const items = filterRepairOrdersItems(state.repairOrdersItems);
       if (!items.length && !state.repairOrdersMetaState) {
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">ЗАКАЗ-НАРЯДЫ ЗАГРУЖАЮТСЯ...</div>';
         return;
@@ -6776,7 +6776,9 @@
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">' + repairOrdersEmptyStateText() + '</div>';
         return;
       }
-      els.mobileRepairOrdersList.innerHTML = items.map((item) => {
+      const meta = state.repairOrdersMetaState;
+      const limitNotice = meta?.has_more ? '<div class="mobile-empty">ЗАГРУЖЕНО ' + meta.returned + ' ИЗ ' + meta.total + ' ЗАКАЗ-НАРЯДОВ.</div>' : '';
+      els.mobileRepairOrdersList.innerHTML = limitNotice + items.map((item) => {
         const status = normalizeRepairOrderStatus(item.status || state.repairOrdersFilter);
         const number = String(item.number || '').replace(/\D+/g, '') || '-';
         const vehicle = String(item.vehicle || '').trim() || 'Автомобиль не указан';
