@@ -44,6 +44,11 @@ def functions(file_name: str, *names: str) -> str:
         if file_name != "app_main_before_printing.js":
             source += read_board_source("card_save_controls.js")
     chunks: list[str] = []
+    if {"repairOrderCanonicalDateValue", "repairOrderIsoFieldsValid"}.intersection(dependencies):
+        pattern = re.search(r"^    const REPAIR_ORDER_DOTTED_DATE_PATTERN = .*;$", source, re.M)
+        if pattern is None:
+            raise AssertionError("Missing repair-order date pattern")
+        chunks.append(pattern.group())
     for name in dict.fromkeys(dependencies):
         match = re.search(rf"^    (?:async )?function {name}\(.*?^    }}", source, re.M | re.S)
         if match is None:

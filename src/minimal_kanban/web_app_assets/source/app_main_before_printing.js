@@ -3744,6 +3744,7 @@
     }
 
     function clientLastVisit(value) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return repairOrderListDateDisplayValue(value);
       return /^\d{1,2}\.\d{1,2}\.\d{2}(?:\d{2})?(?:[,\s]|$)/.test(value) ? value : formatDate(value);
     }
 
@@ -10754,10 +10755,12 @@
       return String(value).padStart(2, '0');
     }
 
+    const REPAIR_ORDER_DOTTED_DATE_PATTERN = /^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?:[,\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+
     function repairOrderCanonicalDateValue(value) {
       const normalized = String(value ?? '').trim();
       if (!normalized) return '';
-      const inlineMatch = normalized.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?:[,\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+      const inlineMatch = normalized.match(REPAIR_ORDER_DOTTED_DATE_PATTERN);
       if (inlineMatch) {
         const [, day, month, year, hour = '0', minute = '0', second] = inlineMatch;
         const yearValue = Number(year);
@@ -10784,10 +10787,55 @@
       return year >= 1969 && year <= 2068 ? canonical.replace(/^(\d{2}\.\d{2}\.)\d{2}(\d{2}\s+\d{2}:\d{2}(?::\d{2})?)$/, '$1$2') : canonical;
     }
 
+    function repairOrderInputDateDisplayValue(value) {
+      const text = String(value ?? '').trim();
+      return /^\d{4}-/.test(text) ? text : repairOrderFormDateDisplayValue(text);
+    }
+
     function repairOrderFormDateValue(input) {
-      const source = input.dataset.sourceDate;
-      return source && /^\d{4}-\d{2}-\d{2}(?:[Tt ]|$)/.test(source) && input.value === input.dataset.displayDate
-        ? source : repairOrderCanonicalDateValue(input.value);
+      const text = String(input.value ?? '').trim();
+      return /^\d{4}-/.test(text) ? text : repairOrderCanonicalDateValue(text);
+    }
+
+    function repairOrderIsoValid(value) {
+      const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?)?$/);
+      if (!match) return false;
+      const [, y, m, d, h, minute, second, offsetHour, offsetMinute] = match;
+      const year = Number(y), month = Number(m), day = Number(d);
+      const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+      const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      return year > 1 && year < 9999 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]
+        && (h === undefined || (Number(h) <= 23 && Number(minute) <= 59))
+        && (second === undefined || Number(second) <= 59)
+        && (offsetHour === undefined || (Number(offsetHour) <= 23 && (offsetMinute === undefined || Number(offsetMinute) <= 59)));
+    }
+
+    function repairOrderIsoFieldsValid() {
+      for (const input of [els.repairOrderDate, els.repairOrderOpenedAt]) {
+        if (!input) continue;
+        const value = String(input.value || '').trim();
+        const initial = input.dataset.initialDate || '';
+        if (!value || value === initial) continue;
+        if (!/^\d{4}-/.test(initial) && !/^\d{1,4}(?:-|$)/.test(value)) continue;
+        const hadZone = /[Tt ].*(?:[Zz]|[+-]\d{2}(?::?\d{2})?(?::\d{2}(?:\.\d+)?)?)$/.test(initial);
+        const hasZone = /[Tt ].*(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(value);
+        if (!hadZone && REPAIR_ORDER_DOTTED_DATE_PATTERN.test(value)) {
+          const dotted = repairOrderCanonicalDateValue(value).replace(/^(\d{2})\.(\d{2})\.(\d{4}) /, '$3-$2-$1T');
+          if (repairOrderIsoValid(dotted)) continue;
+        }
+        if (repairOrderIsoValid(value) && (!hadZone || hasZone)) continue;
+        const message = 'ПРОВЕРЬТЕ ДАТУ И ВРЕМЯ.' + (hadZone ? ' СОХРАНИТЕ ЧАСОВОЙ ПОЯС.' : '');
+        setStatus(message, true);
+        input.setCustomValidity?.(message);
+        if (els.repairOrderPaymentsModal?.classList?.contains('is-open') && els.repairOrderPaymentsMeta) {
+          els.repairOrderPaymentsMeta.textContent = message + ' ВЕРНИТЕСЬ К ЗАКАЗ-НАРЯДУ.';
+        } else {
+          input.focus();
+          input.reportValidity?.();
+        }
+        return false;
+      }
+      return true;
     }
 
     function currentRepairOrderDateTime() {
@@ -10800,6 +10848,8 @@
     }
 
     function repairOrderListDateDisplayValue(value) {
+      const dateOnly = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (dateOnly) value = [dateOnly[3], dateOnly[2], dateOnly[1]].join('.');
       const display = repairOrderFormDateDisplayValue(value);
       return display.split(' ')[0] || display;
     }
@@ -10992,7 +11042,7 @@
       };
     }
 
-    function beginRepairOrderMutation(cardId = '') {
+    function beginRepairOrderMutation(cardId = '', { validateDates = true } = {}) {
       if (state.inventoryMaterialSaving) return null;
       if (state.repairOrderLoading || state.repairOrderWriteReady === false) {
         setStatus('ДОЖДИТЕСЬ АКТУАЛЬНОЙ ВЕРСИИ ЗАКАЗ-НАРЯДА.', true);
@@ -11003,6 +11053,7 @@
         return null;
       }
       if (state.repairOrderMutationRequest) return null;
+      if (validateDates && !repairOrderIsoFieldsValid()) return null;
       state.repairOrderOpenRequest = null;
       const request = {};
       state.repairOrderMutationRequest = request;
@@ -11058,6 +11109,7 @@
     }
 
     async function requireRepairOrderCardId() {
+      if (els.repairOrderModal?.classList?.contains('is-open') && !repairOrderIsoFieldsValid()) return '';
       if (state.editingId) return state.editingId;
       const preparedCard = await ensureRepairOrderCard();
       return preparedCard?.id || '';
@@ -11844,12 +11896,12 @@
       const normalized = repairOrderCardDraft(state.activeCard, order);
       els.repairOrderNumber.textContent = normalized.number || '-';
       els.repairOrderNumber.dataset.value = normalized.number;
-      els.repairOrderDate.value = repairOrderFormDateDisplayValue(normalized.date || currentRepairOrderDateTime());
-      els.repairOrderOpenedAt.value = repairOrderFormDateDisplayValue(normalized.opened_at || normalized.date || currentRepairOrderDateTime());
-      els.repairOrderClosedAt.value = repairOrderFormDateDisplayValue(normalized.closed_at);
-      for (const [input, source] of [[els.repairOrderDate, normalized.date], [els.repairOrderOpenedAt, normalized.opened_at || normalized.date], [els.repairOrderClosedAt, normalized.closed_at]]) {
-        input.dataset.sourceDate = source;
-        input.dataset.displayDate = input.value;
+      els.repairOrderDate.value = repairOrderInputDateDisplayValue(normalized.date || currentRepairOrderDateTime());
+      els.repairOrderOpenedAt.value = repairOrderInputDateDisplayValue(normalized.opened_at || normalized.date || currentRepairOrderDateTime());
+      els.repairOrderClosedAt.value = repairOrderInputDateDisplayValue(normalized.closed_at);
+      for (const input of [els.repairOrderDate, els.repairOrderOpenedAt]) {
+        input.dataset.initialDate = input.value;
+        input.setCustomValidity('');
       }
       els.repairOrderClient.value = normalized.client;
       els.repairOrderPhone.value = normalized.phone;
@@ -12118,7 +12170,7 @@
       const currentOrder = readRepairOrderFromForm();
       const currentStatus = currentOrder.status;
       const cardId = String(state.activeCard?.id || state.editingId || '').trim();
-      const mutation = beginRepairOrderMutation(cardId);
+      const mutation = beginRepairOrderMutation(cardId, { validateDates: currentStatus !== 'closed' });
       if (!mutation) return;
       const { request, context } = mutation;
       try {
@@ -16226,6 +16278,7 @@
     function handleRepairOrderModalInput(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (target === els.repairOrderDate || target === els.repairOrderOpenedAt) target.setCustomValidity('');
       if (target.matches('[data-repair-order-cell="executor_id"]')) {
         target.dataset.changed = 'true';
         const row = target.closest('tr[data-repair-order-row]');

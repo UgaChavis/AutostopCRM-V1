@@ -2970,7 +2970,7 @@
     }
     .repair-order-groups {
       display: grid;
-      grid-template-columns: minmax(168px, 0.56fr) minmax(324px, 1.08fr) minmax(520px, 1.78fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
       gap: 6px;
       align-items: stretch;
     }
@@ -2983,6 +2983,9 @@
       background:
         linear-gradient(180deg, rgba(255,255,255,0.02), transparent 24%),
         rgba(0, 0, 0, 0.08);
+    }
+    .repair-order-groups [data-repair-order-section="document"] {
+      grid-column: 1 / -1;
     }
     .repair-order-card__grid {
       display: grid;

@@ -209,6 +209,7 @@
       const mobilePanelIntent = mobilePanelOpen ? claimMobileMorePanelIntent() : null;
       const record = boardModuleRecords.get(name);
       const printingOpen = name === 'printing' && method === 'printRepairOrderDraft';
+      if (printingOpen && els.repairOrderModal?.classList?.contains('is-open') && !repairOrderIsoFieldsValid()) return false;
       if (record?.exports && !printingOpen && (!record.invocations.size || passive)) return record.exports[method](...args);
       if (passive) return true;
       const generation = state.viewerStateGeneration;

@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # The safety budget covers original order dates and executor names.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 915_200)
+        # The safety budget covers executor names and ISO date validation.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 918_500)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -3708,8 +3708,11 @@ class WebAssetsTests(unittest.TestCase):
             "repair-order-card__grid repair-order-card__grid--vehicle", BOARD_WEB_APP_HTML
         )
         self.assertIn(
-            "grid-template-columns: minmax(168px, 0.56fr) minmax(324px, 1.08fr) minmax(520px, 1.78fr);",
+            "grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);",
             BOARD_WEB_APP_HTML,
+        )
+        self.assertIn(
+            '.repair-order-groups [data-repair-order-section="document"] {', BOARD_WEB_APP_HTML
         )
         self.assertIn("padding: 11px 13px 8px;", BOARD_WEB_APP_HTML)
         self.assertIn("padding: 7px 9px 9px;", BOARD_WEB_APP_HTML)

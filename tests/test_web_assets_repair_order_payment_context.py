@@ -84,6 +84,7 @@ let api=async()=>{throw new Error('api stub not configured');};
 let employeesLoader=()=>Promise.resolve({employees:[]});
 function loadEmployeesReference(){return employeesLoader();}
 function setStatus(message,isError){statuses.push({message:String(message),isError:Boolean(isError)});}
+function repairOrderIsoFieldsValid(){return true;}
 function repairOrderCardDraft(_card,order){return {...(order||{}),payments:[...((order||{}).payments||[])]};}
 function applyRepairOrderToForm(order={}){
   state.currentOrder={...order};

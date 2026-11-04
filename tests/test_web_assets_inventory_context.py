@@ -27,6 +27,7 @@ function renderInventoryItems() {} function renderInventory() {} function render
 function renderInventoryMovements() {} function renderMobileInventoryMovements() {}
 function renderRepairOrderInventoryPanel() {}
 function inventoryStatus(...args) {statuses.push(args);} function setStatus(...args) {statuses.push(args);}
+function repairOrderIsoFieldsValid() {return true;}
 function maybeOpenModal(...args) {modalCalls.push(args);}
 function inventoryItemById(id) {return state.inventoryItems.find(item=>item.id===id);}
 function inventoryItemId(item) {return item?.id || '';}
@@ -76,6 +77,24 @@ global.window={setTimeout,clearTimeout};
                 "scheduleInventorySearch",
                 *names,
             )
+        )
+
+    def test_material_rehydration_restores_date_value_and_its_initial_baseline(self) -> None:
+        self.run_node(
+            self.inventory_functions(),
+            """
+const field={value:'2026-11-04T05:31:00+07:00',checked:false,dataset:{initialDate:'2026-11-04T05:30:00+07:00'}};
+els.repairOrderModal={querySelectorAll(){return [field];}};
+els.repairOrderInventoryPanel={contains(){return false;}};
+els.repairOrderWorksBody={children:[],replaceChildren(){}};
+els.repairOrderMaterialsBody={children:[],replaceChildren(){}};
+state.activeCard={id:'card-A',repair_order:{materials:[]}};
+const draft=captureInventoryMaterialDraft();
+applyRepairOrderCardUpdate=()=>{field.value='server-value';field.dataset.initialDate='server-value';};
+applyInventoryMaterialCard({card:{id:'card-A',repair_order:{materials:[]}}},draft,{});
+assert.equal(field.value,'2026-11-04T05:31:00+07:00');
+assert.equal(field.dataset.initialDate,'2026-11-04T05:30:00+07:00');
+""",
         )
 
     def test_inventory_read_latest_request_and_viewer_own_success_and_error(self) -> None:
@@ -450,7 +469,7 @@ function clearBoardSearchState(){}function clearDisplayDashboardImageDrafts(){}
 function resetCardModalState(){}
 function resetOperatorAdminViewerState(){}
 const CARD_JOURNAL_INITIAL_LIMIT=50;
-for(const key of ['fullCardCache','cardFetchInFlight','cardSeenSuppressions','unreadHoverTimers','unreadSeenDeferredTimers','unreadSeenInFlight'])state[key]=new Map();
+for(const key of ['clientProfileUncertainEffects','fullCardCache','cardFetchInFlight','cardSeenSuppressions','unreadHoverTimers','unreadSeenDeferredTimers','unreadSeenInFlight'])state[key]=new Map();
 state.inventorySearchTimer=10;state.mobileInventorySearchTimer=11;
 state.inventoryItems=[{id:'old'}];state.inventoryMovements=[{id:'old'}];
 state.inventoryRequests={save:{}};state.inventorySaving=true;state.inventoryMaterialSaving=true;

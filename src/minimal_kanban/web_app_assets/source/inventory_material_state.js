@@ -32,7 +32,7 @@
       const fields = [...(els.repairOrderModal?.querySelectorAll?.('input[id], textarea[id], select[id]') || [])]
         .filter((field) => !els.repairOrderInventoryPanel?.contains(field));
       return {
-        fields: fields.map((field) => [field, field.value, field.checked]),
+        fields: fields.map((field) => [field, field.value, field.checked, field.dataset?.initialDate]),
         works: [...(els.repairOrderWorksBody?.children || [])],
         materials: [...(els.repairOrderMaterialsBody?.children || [])],
         before: state.activeCard?.repair_order?.materials || [],
@@ -45,7 +45,11 @@
       if (!data?.card && !data?.repair_order) return;
       const updatedCard = repairOrderResponseCard(data, data?.repair_order || readRepairOrderFromForm());
       applyRepairOrderCardUpdate(updatedCard, data?.repair_order || {});
-      draft.fields.forEach(([field, value, checked]) => { field.value = value; field.checked = checked; });
+      draft.fields.forEach(([field, value, checked, initialDate]) => {
+        field.value = value;
+        field.checked = checked;
+        if (initialDate !== undefined) field.dataset.initialDate = initialDate;
+      });
       state.repairOrderTags = draft.tags;
       state.repairOrderTagColor = draft.tagColor;
       renderRepairOrderTags();
@@ -164,6 +168,7 @@
     async function runInventoryMaterialMutation(path, payload, message) {
       if (state.inventoryMaterialSaving || state.repairOrderMutationRequest
         || state.cardSaveInFlight || state.repairOrderLoading) return;
+      if (!repairOrderIsoFieldsValid()) return;
       const cardContext = captureCardEditingContext();
       let cardId = String(state.editingId || '');
       let expected = state.activeCard?.id === cardId ? state.activeCard.updated_at : undefined;

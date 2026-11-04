@@ -1,5 +1,6 @@
 """Client search dates keep repair-order day/month and ISO local time."""
 
+import os
 import shutil
 import subprocess
 import unittest
@@ -13,6 +14,10 @@ class ClientLastVisitTests(unittest.TestCase):
         source = functions(
             "app_main_before_printing.js",
             "formatDate",
+            "repairOrderPadDatePart",
+            "repairOrderCanonicalDateValue",
+            "repairOrderFormDateDisplayValue",
+            "repairOrderListDateDisplayValue",
             "clientLastVisit",
             "clientMetaLine",
             "clientRowAriaLabel",
@@ -41,11 +46,21 @@ const expected = formatDate(iso);
 assert.ok(clientMetaLine({stats: {last_visit: iso}}).includes(expected));
 assert.equal(mobileClientOrderMeta({opened_at: iso}), expected);
 assert.equal(mobileClientOrderMeta({opened_at: '', date: iso}), expected);
+assert.equal(mobileClientOrderMeta({opened_at: '2026-11-04'}), '04.11.26');
+assert.ok(clientMetaLine({stats: {last_visit: '2026-11-04'}}).includes('04.11.26'));
 assert.equal(clientMetaLine({stats: {last_visit: ''}}), 'нет данных');
 assert.ok(clientMetaLine({stats: {last_visit: 'invalid'}}).includes('invalid'));
 """
         )
-        result = subprocess.run(
-            ["node"], input=script, text=True, capture_output=True, timeout=15, check=False
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for timezone in ("America/New_York", "Asia/Krasnoyarsk"):
+            with self.subTest(timezone=timezone):
+                result = subprocess.run(
+                    ["node"],
+                    input=script,
+                    text=True,
+                    capture_output=True,
+                    timeout=15,
+                    env={**os.environ, "TZ": timezone},
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
