@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # The budget includes client and mobile order draft, payment and row handling protections.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 931_700)
+        # The budget includes mobile card draft, uncertain writes and cross-view protections.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 945_750)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -3527,10 +3527,10 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("localStorage.removeItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
         self.assertNotIn("Legacy pre-session operator", BOARD_WEB_APP_HTML)
         self.assertNotIn("legacy-operator-unused", BOARD_WEB_APP_HTML)
-        # Session storage contains only markers for uncertain vehicle creation, never session data.
+        # Session storage contains only markers for uncertain creates, never session data.
         self.assertEqual(
             re.findall(r"\bsessionStorage\.setItem\(([^)]*)\)", BOARD_WEB_APP_HTML),
-            ["key, '1'", "effect.key, '1'"],
+            ["key, '1'", "effect.key, '1'", "MOBILE_CARD_CREATE_PENDING_KEY, '1'"],
         )
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)

@@ -105,11 +105,13 @@
       mobileCardJournalRequest: null,
       mobileCardId: '',
       mobileCard: null,
+      mobileCardDraftBaseline: '',
       mobileCardTab: 'overview',
       mobileCardCreating: false,
       mobileCardLoading: false,
       mobileCardSaving: false,
       mobileCardFilesBusy: false,
+      mobileCardWriteVerificationPending: new Set(),
       mobileCardJournalPayload: null,
       mobileCardJournalLoadedFor: '',
       mobileCardJournalLimit: CARD_JOURNAL_INITIAL_LIMIT,
@@ -2654,7 +2656,7 @@
         operatorPermissionRefreshPromise: null,
         mobileCardOpenRequest: null, mobileCardSaveRequest: null, mobileCardFilesRequest: null,
         mobileCardJournalRequest: null, mobileCardCreating: false, mobileCardLoading: false,
-        mobileCardSaving: false, mobileCardFilesBusy: false,
+        mobileCardSaving: false, mobileCardFilesBusy: false, mobileCardDraftBaseline: '', mobileCardWriteVerificationPending: new Set(),
         mobileView: 'board', mobileMorePanel: '', mobileMorePanelIntent: null,
         mobileMoreLoaded: false, mobileMoreLoading: false,
         mobileMoreRequest: null, mobileMoreError: '',
@@ -5817,14 +5819,34 @@
       return card;
     }
 
+    function mobileCardEditableFieldsMatch(before, after) {
+      if (!mobileCardHasRequiredFields(before) || !mobileCardHasRequiredFields(after)) return false;
+      return ['id', 'title', 'description', 'vehicle', 'vehicle_raw', 'column', 'tags', 'tag_items',
+        'vehicle_profile', 'deadline_timestamp', 'deadline_total_seconds', 'timer_state', 'client_id', 'client_vehicle_id', 'archived']
+        .every((key) => Object.prototype.hasOwnProperty.call(before, key)
+          && Object.prototype.hasOwnProperty.call(after, key)
+          && JSON.stringify(before[key]) === JSON.stringify(after[key]));
+    }
+
     async function refreshMobileCardFiles(context = captureMobileCardContext()) {
       const cardId = String(context?.cardId || '').trim();
       if (!cardId) return null;
       state.fullCardCache.delete(cardId);
       const data = await api('/api/get_card?card_id=' + encodeURIComponent(cardId));
       if (!context.isCurrent()) return null;
-      const card = data?.card || currentMobileCard();
-      const updatedCard = applyMobileCardFromFullCard(card, cardId);
+      const card = data?.card ? { ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [] } : null;
+      if (!mobileCardHasRequiredFields(card) || card.id !== cardId || !Array.isArray(card.attachments)) throw new Error('НЕ ПОДТВЕРЖДЕНО СОСТОЯНИЕ КАРТОЧКИ.');
+      const previous = currentMobileCard();
+      let updatedCard;
+      if (!mobileCardEditableFieldsMatch(previous, card)) {
+        state.mobileCardWriteVerificationPending.add(cardId);
+        updatedCard = { ...previous, attachments: card.attachments,
+          read_warnings: Array.from(new Set([...(previous.read_warnings || []), ...card.read_warnings])) };
+        state.mobileCard = updatedCard;
+      } else {
+        updatedCard = applyMobileCardFromFullCard(card, cardId);
+      }
+      renderCardLinkWarning(updatedCard, els.mobileCardLinkWarning);
       renderMobileCardFiles(updatedCard || currentMobileCard() || {});
       return updatedCard;
     }
@@ -5908,6 +5930,10 @@
           state.mobileCardFilesBusy = false;
           if (els.mobileCardFileInput) els.mobileCardFileInput.value = '';
           renderMobileCardFiles(currentMobileCard() || {});
+          if (state.mobileCardWriteVerificationPending.has(cardId)) {
+            if (els.mobileCardSaveButton) els.mobileCardSaveButton.disabled = true;
+            setStatus('КАРТОЧКА ИЗМЕНИЛАСЬ. ПРОВЕРЬТЕ ЧЕРНОВИК И ОТКРОЙТЕ ЕЁ ЗАНОВО.', true);
+          }
         }
       }
     }
@@ -5959,6 +5985,10 @@
           state.mobileCardFilesRequest = null;
           state.mobileCardFilesBusy = false;
           renderMobileCardFiles(currentMobileCard() || {});
+          if (state.mobileCardWriteVerificationPending.has(cardId)) {
+            if (els.mobileCardSaveButton) els.mobileCardSaveButton.disabled = true;
+            setStatus('КАРТОЧКА ИЗМЕНИЛАСЬ. ПРОВЕРЬТЕ ЧЕРНОВИК И ОТКРОЙТЕ ЕЁ ЗАНОВО.', true);
+          }
         }
       }
     }
@@ -6105,13 +6135,108 @@
       };
     }
 
-    function closeMobileCardDetail() {
+    function mobileCardDraftSnapshot() {
+      const fields = els.mobileCardDetail?.querySelectorAll('[data-mobile-card-field], [data-mobile-vehicle-field]') || [];
+      return JSON.stringify([Array.from(fields, (field) => field.value), els.mobileCardColumnSelect?.value || '',
+        els.mobileCardDeadlineDays?.value || '', els.mobileCardDeadlineHours?.value || '', readMobileCardTags()]);
+    }
+
+    function confirmMobileCardDiscard() {
+      return !state.mobileCardDraftBaseline || state.mobileCardDraftBaseline === mobileCardDraftSnapshot()
+        || window.confirm('Отменить несохранённые изменения карточки?');
+    }
+
+    function mobileCardDesktopWorkspaceBlocked() {
+      if (!(state.cardSaveInFlight || state.cardFilesMutationRequest || state.cardClientMutationRequest
+          || state.cardOpeningShell || state.repairOrderMutationRequest || state.inventoryMaterialSaving
+          || els.cardModal?.classList.contains('is-open') || els.repairOrderModal?.classList.contains('is-open'))) return false;
+      setStatus('СНАЧАЛА ЗАВЕРШИТЕ РАБОТУ С КАРТОЧКОЙ НА ДРУГОМ ЭКРАНЕ.', true);
+      return true;
+    }
+
+    function prepareDesktopCardWorkspace() {
+      if (state.mobileCardSaving || state.mobileCardFilesBusy || state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+        return false;
+      }
+      const cardOpen = Boolean(state.mobileCardId || state.mobileCardCreating);
+      const orderOpen = Boolean(state.mobileRepairOrderCardId);
+      if (cardOpen && !confirmMobileCardDiscard()) return false;
+      if (orderOpen && !confirmMobileRepairOrderDiscard()) return false;
+      if (cardOpen) closeMobileCardDetail({ discardConfirmed: true });
+      if (orderOpen) closeMobileRepairOrderDetail({ discardConfirmed: true });
+      return true;
+    }
+
+    const MOBILE_CARD_CREATE_PENDING_KEY = 'autostop:mobile-card-create-pending';
+
+    function beginMobileCardCreate() {
+      try {
+        if (window.sessionStorage.getItem(MOBILE_CARD_CREATE_PENDING_KEY) !== null) {
+          return 'РЕЗУЛЬТАТ СОЗДАНИЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ДОСКУ; ПОСЛЕ ПРОВЕРКИ ОТКРОЙТЕ НОВУЮ ВКЛАДКУ ДЛЯ СОЗДАНИЯ.';
+        }
+        window.sessionStorage.setItem(MOBILE_CARD_CREATE_PENDING_KEY, '1');
+        if (window.sessionStorage.getItem(MOBILE_CARD_CREATE_PENDING_KEY) !== '1') throw new Error('storage');
+        return '';
+      } catch (_) {
+        return 'НЕВОЗМОЖНО СОХРАНИТЬ ЗАЩИТУ ОТ ПОВТОРА СОЗДАНИЯ КАРТОЧКИ.';
+      }
+    }
+
+    function finishMobileCardCreate() {
+      try {
+        window.sessionStorage.removeItem(MOBILE_CARD_CREATE_PENDING_KEY);
+        return window.sessionStorage.getItem(MOBILE_CARD_CREATE_PENDING_KEY) === null;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function mobileCardWrite(path, body) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+      try {
+        return await api(path, { method: 'POST', body, signal: controller.signal });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
+
+    function mobileCardHasRequiredFields(card) {
+      const profile = card?.vehicle_profile;
+      const textFields = 'make_display model_display generation_or_platform customer_phone customer_name vin registration_plate pts_series pts_number sts_series sts_number body_number chassis_number engine_code engine_model gearbox_type gearbox_model drivetrain fuel_type steering_system_type brake_front_type brake_rear_type wheel_bolt_pattern oem_notes source_summary data_completion_state raw_input_text raw_image_text image_parse_status display_name'.split(' ');
+      const numberFields = 'production_year mileage engine_displacement_l engine_power_hp oil_engine_capacity_l oil_gearbox_capacity_l coolant_capacity_l'.split(' ');
+      const listFields = 'customer_phones source_links_or_refs manual_fields autofilled_fields tentative_fields warnings'.split(' ');
+      return Boolean(card && typeof card === 'object' && !Array.isArray(card)
+        && typeof card.id === 'string' && card.id && card.id === card.id.trim()
+        && typeof card.updated_at === 'string' && card.updated_at.trim()
+        && ['title', 'vehicle', 'vehicle_raw', 'description', 'column', 'client_id', 'client_vehicle_id', 'created_at', 'deadline_timestamp', 'timer_state'].every((key) => typeof card[key] === 'string')
+        && card.title.trim() && card.column.trim()
+        && typeof card.archived === 'boolean' && Number.isFinite(card.deadline_total_seconds)
+        && Array.isArray(card.attachments) && card.attachments.every((item) => item && typeof item === 'object' && !Array.isArray(item))
+        && card.repair_order && typeof card.repair_order === 'object' && !Array.isArray(card.repair_order)
+        && typeof card.repair_order.status === 'string'
+        && ['works', 'materials', 'payments'].every((key) => Array.isArray(card.repair_order[key]))
+        && (Array.isArray(card.tags) || Array.isArray(card.tag_items))
+        && profile && typeof profile === 'object' && !Array.isArray(profile)
+        && textFields.every((key) => typeof profile[key] === 'string')
+        && numberFields.every((key) => profile[key] === null || (typeof profile[key] === 'number' && Number.isFinite(profile[key])))
+        && listFields.every((key) => Array.isArray(profile[key]) && profile[key].every((item) => typeof item === 'string'))
+        && profile.field_sources && typeof profile.field_sources === 'object' && !Array.isArray(profile.field_sources)
+        && Object.values(profile.field_sources).every((value) => typeof value === 'string')
+        && typeof profile.source_confidence === 'number' && Number.isFinite(profile.source_confidence)
+        && typeof profile.vin_is_suspect === 'boolean' && typeof profile.has_any_data === 'boolean');
+    }
+
+    function closeMobileCardDetail({ discardConfirmed = false } = {}) {
       if (state.mobileCardSaving || state.mobileCardFilesBusy) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
         return false;
       }
+      if (!discardConfirmed && !confirmMobileCardDiscard()) return false;
       invalidateMobileCardContext();
       state.mobileCardId = '';
+      state.mobileCardDraftBaseline = '';
       state.mobileCard = null;
       state.mobileCardTab = 'overview';
       state.mobileCardCreating = false;
@@ -6153,6 +6278,12 @@
     }
 
     function openMobileNewCardInColumn(columnId) {
+      if (state.mobileCardSaving || state.mobileCardFilesBusy || state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+        return;
+      }
+      if (mobileCardDesktopWorkspaceBlocked()) return;
+      if (!confirmMobileCardDiscard()) return;
       invalidateMobileCardContext();
       state.mobileCardId = '';
       state.mobileCard = emptyMobileCardDraft();
@@ -6167,15 +6298,25 @@
       state.editingId = '';
       state.pendingCardClientId = '';
       resetMobileCardJournal();
+      renderMobileCardDetail();
+      state.mobileCardDraftBaseline = mobileCardDraftSnapshot();
       renderMobileShell();
       requestAnimationFrame(() => els.mobileCardTitleInput?.focus({ preventScroll: true }));
       setStatus('НОВАЯ КАРТОЧКА ГОТОВА К ЗАПОЛНЕНИЮ.', false);
     }
 
     async function openMobileCardDetail(cardId) {
+      if (state.mobileCardSaving || state.mobileCardFilesBusy || state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+        return null;
+      }
+      if (mobileCardDesktopWorkspaceBlocked()) return null;
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      if (normalizedCardId === state.mobileCardId && !state.mobileCardWriteVerificationPending.has(normalizedCardId)) return state.mobileCard;
+      if (!confirmMobileCardDiscard()) return null;
       invalidateMobileCardContext();
+      state.mobileCardDraftBaseline = '';
       const snapshotCard = snapshotCardById(normalizedCardId);
       state.mobileCardId = normalizedCardId;
       state.mobileCard = snapshotCard || null;
@@ -6185,15 +6326,28 @@
       state.mobileCardSaving = false;
       state.mobileCardFilesBusy = false;
       resetMobileCardJournal();
+      renderMobileCardDetail();
       renderMobileShell();
       const context = captureMobileCardContext();
       const openRequest = {};
       state.mobileCardOpenRequest = openRequest;
       const isCurrent = () => state.mobileCardOpenRequest === openRequest && context.isCurrent();
       try {
-        const fullCard = await fetchFullCard(normalizedCardId);
+        const requiresFresh = state.mobileCardWriteVerificationPending.has(normalizedCardId);
+        let fullCard;
+        if (requiresFresh) {
+          const data = await api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId));
+          fullCard = data?.card ? applyCardSeenSuppression({
+            ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [],
+          }) : null;
+        } else {
+          fullCard = await fetchFullCard(normalizedCardId);
+        }
         if (!isCurrent()) return null;
         if (!fullCard) throw new Error('НЕ УДАЛОСЬ ЗАГРУЗИТЬ КАРТОЧКУ.');
+        if (requiresFresh && (!mobileCardHasRequiredFields(fullCard) || fullCard.id !== normalizedCardId)) throw new Error('НЕ ПОДТВЕРЖДЕНА ВЕРСИЯ КАРТОЧКИ.');
+        if (requiresFresh) cacheFullCard(fullCard);
+        state.mobileCardWriteVerificationPending.delete(normalizedCardId);
         state.mobileCardOpenRequest = null;
         state.mobileCard = fullCard;
         state.mobileCardId = state.mobileCard?.id || normalizedCardId;
@@ -6203,6 +6357,8 @@
         state.pendingCardClientId = state.mobileCard?.client_id || '';
         state.mobileCardLoading = false;
         recordCardOpenSideEffects(state.mobileCardId);
+        renderMobileCardDetail();
+        state.mobileCardDraftBaseline = mobileCardDraftSnapshot();
         renderMobileShell();
         loadMobileCardJournal({ force: true });
         setStatus('КАРТОЧКА ЗАГРУЖЕНА.', false);
@@ -6221,8 +6377,16 @@
       if (state.mobileCardSaving || (!isNewCard && !cardId)) return;
       if (state.mobileCardLoading) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       if (state.mobileCardFilesBusy) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
+      if (state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', true);
+      if (mobileCardDesktopWorkspaceBlocked()) return;
+      if (!isNewCard && state.mobileCardWriteVerificationPending.has(cardId)) return setStatus('РЕЗУЛЬТАТ СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ ЗАНОВО.', true);
       const payload = readMobileCardDraft();
       if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
+      if (!isNewCard && !payload.expected_updated_at) return setStatus('НЕ ПОДТВЕРЖДЕНА ВЕРСИЯ КАРТОЧКИ. ОТКРОЙТЕ ЕЁ ЗАНОВО.', true);
+      if (isNewCard) {
+        const error = beginMobileCardCreate();
+        if (error) return setStatus(error, true);
+      }
       const context = captureMobileCardContext();
       payload.actor_name = context.actorName;
       const saveRequest = {};
@@ -6236,9 +6400,7 @@
       }
       try {
         const data = isNewCard
-          ? await api('/api/create_card', {
-            method: 'POST',
-            body: {
+          ? await mobileCardWrite('/api/create_card', {
               actor_name: payload.actor_name,
               source: payload.source,
               vehicle: payload.vehicle,
@@ -6247,11 +6409,15 @@
               column: payload.column,
               tags: payload.tags,
               vehicle_profile: payload.vehicle_profile,
-            },
           })
-          : await api('/api/update_card', { method: 'POST', body: { card_id: cardId, ...payload } });
+          : await mobileCardWrite('/api/update_card', { card_id: cardId, ...payload });
         if (!isCurrent()) return null;
-        const updatedCard = cacheFullCard(data?.card || { ...currentMobileCard(), ...payload, id: cardId });
+        const responseCard = data?.card;
+        if (!mobileCardHasRequiredFields(responseCard) || (!isNewCard && responseCard.id !== cardId)
+            || (isNewCard && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(responseCard.id))
+        ) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ КАРТОЧКУ И ЕЁ ВЕРСИЮ.');
+        const markerCleared = !isNewCard || finishMobileCardCreate();
+        const updatedCard = cacheFullCard(responseCard);
         state.mobileCardSaveRequest = null;
         state.mobileCardSaving = false;
         state.mobileCard = updatedCard;
@@ -6267,16 +6433,30 @@
           refreshRepairOrderEntry(updatedCard);
         }
         renderMobileCardDetail();
-        setStatus(isNewCard ? 'КАРТОЧКА СОЗДАНА.' : 'КАРТОЧКА СОХРАНЕНА.', false);
+        state.mobileCardDraftBaseline = mobileCardDraftSnapshot();
+        setStatus(!markerCleared ? 'КАРТОЧКА СОЗДАНА. НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ ПОВТОРНОГО СОЗДАНИЯ.' : (isNewCard ? 'КАРТОЧКА СОЗДАНА.' : 'КАРТОЧКА СОХРАНЕНА.'), !markerCleared);
         return updatedCard;
       } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
+        if (isCurrent()) {
+          const definite = error?.status === 400 && error?.code === 'validation_error';
+          if (isNewCard && definite && !finishMobileCardCreate()) setStatus('СОЗДАНИЕ ОТКЛОНЕНО, НО ЗАЩИТА ПОВТОРА НЕ СНЯТА.', true);
+          else if (!definite) {
+            if (!isNewCard) state.mobileCardWriteVerificationPending.add(cardId);
+            setStatus(isNewCard
+              ? 'РЕЗУЛЬТАТ СОЗДАНИЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ДОСКУ; ПОВТОР ОСТАНОВЛЕН.'
+              : 'РЕЗУЛЬТАТ СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ ЗАНОВО.', true);
+          } else setStatus(error.message, true);
+        }
         return null;
       } finally {
         if (state.mobileCardSaveRequest === saveRequest && context.isCurrent()) {
           state.mobileCardSaveRequest = null;
           state.mobileCardSaving = false;
-          renderMobileCardDetail();
+          syncMobileCardEditorBusyState();
+          if (els.mobileCardSaveButton) {
+            els.mobileCardSaveButton.disabled = !isNewCard && state.mobileCardWriteVerificationPending.has(cardId);
+            els.mobileCardSaveButton.textContent = 'СОХР.';
+          }
         }
       }
     }
@@ -6367,8 +6547,8 @@
 
     function renderMobileBoard() {
       if (!els.mobileBoardColumns) return;
-      renderMobileCardDetail();
-      if (state.mobileCardId) return;
+      if (!state.mobileCardCreating && !state.mobileCardId) renderMobileCardDetail();
+      if (state.mobileCardCreating || state.mobileCardId) return;
       const snapshot = state.snapshot || {};
       const columns = Array.isArray(snapshot.columns) ? snapshot.columns : [];
       const cards = Array.isArray(snapshot.cards) ? snapshot.cards : [];
@@ -7019,12 +7199,12 @@
         || window.confirm('Отменить несохранённые изменения заказ-наряда?');
     }
 
-    function closeMobileRepairOrderDetail() {
+    function closeMobileRepairOrderDetail({ discardConfirmed = false } = {}) {
       if (state.mobileRepairOrderSaving) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
       }
-      if (!confirmMobileRepairOrderDiscard()) return false;
+      if (!discardConfirmed && !confirmMobileRepairOrderDiscard()) return false;
       invalidateMobileRepairOrderContext();
       state.mobileRepairOrderCardId = '';
       state.mobileRepairOrderDraftBaseline = '';
@@ -7143,6 +7323,8 @@
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', true);
         return null;
       }
+      if (state.mobileCardSaving || state.mobileCardFilesBusy) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С КАРТОЧКОЙ.', true);
+      if (mobileCardDesktopWorkspaceBlocked()) return null;
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       if (normalizedCardId === state.mobileRepairOrderCardId) {
@@ -7203,6 +7385,8 @@
     async function saveMobileRepairOrder() {
       const cardId = String(state.mobileRepairOrderCardId || '').trim();
       if (!cardId || state.mobileRepairOrderSaving) return;
+      if (state.mobileCardSaving || state.mobileCardFilesBusy) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С КАРТОЧКОЙ.', true);
+      if (mobileCardDesktopWorkspaceBlocked()) return null;
       if (state.mobileRepairOrderLoading || state.mobileRepairOrderOpenRequest) {
         return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ ЗАКАЗ-НАРЯДА.', true);
       }
@@ -13660,6 +13844,7 @@
       return perfMeasureAsync('openCardWorkspace', async () => {
         const normalizedCardId = String(cardId || '').trim();
         if (!normalizedCardId) return null;
+        if (!prepareDesktopCardWorkspace()) return null;
         const openingShell = openCardModalEl && !closeModalEl && !openRepairOrder ? beginCardOpeningShell(normalizedCardId) : null;
         if (state.cardOpeningShell && state.cardOpeningShell !== openingShell) closeCardModal();
         const viewerStateGeneration = state.viewerStateGeneration;
@@ -13670,6 +13855,8 @@
         const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
           && state.operatorSessionToken === operatorSessionToken
           && state.cardHydrationSeq === hydrationSeq && state.cardEditingGeneration === editingGeneration
+          && !state.mobileCardId && !state.mobileCardCreating && !state.mobileCardSaving && !state.mobileCardFilesBusy
+          && !state.mobileRepairOrderCardId && !state.mobileRepairOrderLoading && !state.mobileRepairOrderSaving
           && (!openingShell || (state.cardOpeningShell === openingShell && els.cardModal?.classList.contains('is-open')));
         // Vehicle links can change without a card revision.
         try {
@@ -13714,13 +13901,16 @@
     }
 
     async function openRepairOrderCard(cardId, { parentLayer = 'repair-orders', isOwner } = {}) {
+      if (!prepareDesktopCardWorkspace()) return;
       if (state.cardOpeningShell) closeCardModal();
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       state.cardHydrationSeq += 1;
       let editingContext = captureCardEditingContext();
       const parentEntry = (state.modalStack || []).find((entry) => entry?.key === String(parentLayer || 'repair-orders').trim());
-      const isCurrent = () => editingContext()
+      const isCurrent = () => editingContext() && !state.mobileCardId && !state.mobileCardCreating
+        && !state.mobileCardSaving && !state.mobileCardFilesBusy
+        && !state.mobileRepairOrderCardId && !state.mobileRepairOrderLoading && !state.mobileRepairOrderSaving
         && (!parentEntry || (state.modalStack || []).includes(parentEntry)) && (!isOwner || isOwner());
       try {
         const data = await api('/api/get_repair_order', {
@@ -14342,6 +14532,7 @@
     }
 
     function openCardModal(card, { cardIsFull = true } = {}) {
+      if (!prepareDesktopCardWorkspace()) return false;
       const openingShell = state.cardOpeningShell;
       if (openingShell) {
         state.cardOpeningShell = null;

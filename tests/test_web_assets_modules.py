@@ -194,8 +194,8 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # The budget includes client and mobile order draft, payment and row handling protections.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 931_700)
+        # The budget includes mobile card draft, uncertain writes and cross-view protections.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 945_750)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]
