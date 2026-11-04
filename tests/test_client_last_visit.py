@@ -17,6 +17,7 @@ class ClientLastVisitTests(unittest.TestCase):
             "clientMetaLine",
             "clientRowAriaLabel",
             "clientRowChipsHtml",
+            "mobileClientOrderMeta",
         )
         script = (
             source
@@ -32,10 +33,14 @@ for (const date of ['04.11.2026 19:30', '13.11.2026 19:30', '4.11.2026 19:30', '
   assert.ok(clientMetaLine(client).includes(date));
   assert.ok(clientRowAriaLabel(client).includes(date));
   assert.ok(clientRowChipsHtml(client).includes(date));
+  assert.equal(mobileClientOrderMeta({opened_at: date}), date);
+  assert.equal(mobileClientOrderMeta({date}), date);
 }
 const iso = '2026-11-04T19:30:00Z';
 const expected = formatDate(iso);
 assert.ok(clientMetaLine({stats: {last_visit: iso}}).includes(expected));
+assert.equal(mobileClientOrderMeta({opened_at: iso}), expected);
+assert.equal(mobileClientOrderMeta({opened_at: '', date: iso}), expected);
 assert.equal(clientMetaLine({stats: {last_visit: ''}}), 'нет данных');
 assert.ok(clientMetaLine({stats: {last_visit: 'invalid'}}).includes('invalid'));
 """

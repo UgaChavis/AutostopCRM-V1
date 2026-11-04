@@ -45,6 +45,18 @@ class ClientSearchWarningsBrowserTests(UiBrowserTestCase):
         self.assertIn("СТАТИСТИКА НЕ ПОДТВЕРЖДЕНА", legacy.inner_text())
         self.assertIn("статистика не подтверждена", legacy.get_attribute("aria-label"))
         self.assertNotIn("НЕ ПОДТВЕРЖДЕНА", certain.inner_text())
+        legacy.click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=self.client_id
+        )
+        orders = self.page.locator("#clientOrdersList")
+        self.assertIn("04.11.2026 19:30", orders.inner_text())
+        self.page.evaluate("""() => {
+          state.clientsActiveProfile.repair_orders[0].opened_at = '04.11.2026 <img src=x onerror=alert(1)>';
+          renderClientProfile(state.clientsActiveProfile);
+        }""")
+        self.assertIn("<img src=x onerror=alert(1)>", orders.inner_text())
+        self.assertEqual(orders.locator("img").count(), 0)
         self.page.locator('#clientsModal [data-close="clients"]').click()
         self.open_card(self.card_id)
         self.page.evaluate(
@@ -82,3 +94,11 @@ class ClientSearchWarningsBrowserTests(UiBrowserTestCase):
         self.assertEqual(
             self.page.locator(".mobile-client-detail__debt").inner_text(), "НЕТ ДАННЫХ"
         )
+        detail = self.page.locator("#mobileClientDetail")
+        self.assertIn("04.11.2026 19:30", detail.inner_text())
+        self.page.evaluate("""() => {
+          state.clientsActiveProfile.repair_orders[0].opened_at = '04.11.2026 <img src=x onerror=alert(1)>';
+          renderMobileClientDetail();
+        }""")
+        self.assertIn("<img src=x onerror=alert(1)>", detail.inner_text())
+        self.assertEqual(detail.locator("img").count(), 0)

@@ -4164,7 +4164,7 @@
           const statusKey = normalizeRepairOrderStatus(order?.status);
           const statusLabel = repairOrderStatusLabel(statusKey);
           const totalLabel = repairOrderFormatRubles(order?.grand_total ?? 0);
-          const orderMeta = [formatDate(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
+          const orderMeta = [clientLastVisit(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
           return '<button class="client-mini client-mini--order" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '">' +
             '<div class="client-mini__order-head"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><span class="client-mini__order-status" data-status="' + escapeHtml(statusKey) + '">' + escapeHtml(statusLabel.toUpperCase()) + '</span></div>' +
             '<div class="client-mini__order-meta">' + escapeHtml(orderMeta) + '</div>' +
@@ -7356,7 +7356,7 @@
     }
 
     function mobileClientOrderMeta(order) {
-      return [formatDate(order?.opened_at || order?.date), order?.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
+      return [clientLastVisit(order?.opened_at || order?.date), order?.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
     }
 
     function renderMobileClientsList() {
