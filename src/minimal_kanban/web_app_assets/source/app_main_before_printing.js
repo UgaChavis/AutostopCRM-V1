@@ -4151,7 +4151,7 @@
       const source = isStored ? 'профиль клиента' : 'из связанной карточки';
       const deleteButton = isStored
         ? '<button class="btn btn--ghost" type="button" data-client-vehicle-delete="' + escapeHtml(key) + '">УДАЛИТЬ</button>'
-        : '<button class="btn btn--ghost" type="button" disabled title="Сначала сохраните машину в профиль клиента">УДАЛИТЬ</button>';
+        : '<button class="btn btn--ghost" type="button" disabled title="Измените данные в связанной карточке">УДАЛИТЬ</button>';
       return '<div class="client-mini client-mini--vehicle" data-client-vehicle-key="' + escapeHtml(key) + '">'
         + '<div class="client-mini__vehicle-head">'
         + '<div><div class="client-mini__vehicle-title">' + escapeHtml(title) + '</div><div class="client-mini__meta">' + escapeHtml(meta) + '</div><div class="client-mini__vehicle-source">' + escapeHtml(source) + '</div>'

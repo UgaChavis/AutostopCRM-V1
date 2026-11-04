@@ -123,6 +123,10 @@
       const payload = readClientVehicleEditorPayload(normalizedKey);
       const checkpoint = state.clientVehicleMutationCheckpoint;
       const pending = Boolean(checkpoint?.uncertain || checkpoint?.confirmedResult);
+      if (currentVehicle?.card_id && !pending) {
+        setStatus('ИЗМЕНИТЕ АВТОМОБИЛЬ В СВЯЗАННОЙ КАРТОЧКЕ. ЧЕРНОВИК СОХРАНЁН.', true);
+        return;
+      }
       if (currentVehicle && !currentVehicle.card_id && !pending
           && ['vehicle', 'vin', 'license_plate'].some((field) => String(currentVehicle[field] || '').trim() && !payload[field])) {
         setStatus('ОЧИСТКА ПОЛЕЙ АВТОМОБИЛЯ ПОКА НЕДОСТУПНА. ИЗМЕНЕНИЯ НЕ СОХРАНЕНЫ.', true);
@@ -146,6 +150,10 @@
         const ownerKey = prepareClientVehicleMutation('/api/upsert_client_vehicle', body, context);
         if (!currentVehicle || currentVehicle.card_id) {
           const checkpoint = state.clientVehicleMutationCheckpoint;
+          if (checkpoint?.ownerKey === ownerKey && (checkpoint.uncertain || checkpoint.confirmedResult)
+              && checkpoint.effect?.key !== 'autostop:client-vehicle:' + JSON.stringify([context.clientId, String(currentVehicle?.card_id || '').trim()])) {
+            throw new Error('ПРЕДЫДУЩАЯ ОПЕРАЦИЯ ОТНОСИТСЯ К ДРУГОМУ АВТОМОБИЛЮ. СНАЧАЛА ПРОВЕРЬТЕ ЕЁ.');
+          }
           effect = checkpoint?.ownerKey === ownerKey && checkpoint.effect && state.clientCandidateVehicleEffects.get(checkpoint.effect.key) === checkpoint.effect
             ? checkpoint.effect : beginCandidateVehicleCreation(context.clientId, currentVehicle);
         }
@@ -174,7 +182,7 @@
       if (!state.clientsActiveId) return;
       const vehicle = findActiveClientVehicle(key);
       if (!vehicle?.id || vehicle?.card_id) {
-        setStatus('ЭТА ЗАПИСЬ ПРИШЛА ИЗ СВЯЗАННОЙ КАРТОЧКИ. СНАЧАЛА ОТКРОЙТЕ РЕДАКТИРОВАНИЕ И СОХРАНИТЕ ЕЁ В ПРОФИЛЬ КЛИЕНТА.', true);
+        setStatus('ЭТА ЗАПИСЬ ПРИШЛА ИЗ СВЯЗАННОЙ КАРТОЧКИ. ИЗМЕНИТЕ ДАННЫЕ В КАРТОЧКЕ.', true);
         return;
       }
       const title = String(vehicle.vehicle || vehicle.vin || vehicle.license_plate || 'автомобиль').trim();
