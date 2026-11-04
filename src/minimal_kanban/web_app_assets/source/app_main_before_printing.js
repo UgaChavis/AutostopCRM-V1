@@ -13826,7 +13826,7 @@
       els.repairOrdersList.innerHTML = items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
-      if (state.mobileView !== 'repair-orders' || !state.mobileRepairOrderCardId) renderMobileShell();
+      if (state.mobileView === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileShell();
     }
 
     renderRepairOrderListRows = function(items) {
