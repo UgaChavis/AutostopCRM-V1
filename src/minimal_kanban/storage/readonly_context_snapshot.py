@@ -370,7 +370,9 @@ def build_context_snapshot(store, state, domains):
     else:
         columns, cards = [], []
     if "clients" in domains and "client_search" not in domains:
-        clients = store._normalize_clients({"clients": deepcopy(raw_clients)})[0]
+        clients = store._normalize_clients(
+            {"clients": deepcopy(raw_clients)}, compare_storage=False
+        )[0]
     stickies = store._normalize_stickies(state)[0] if "stickies" in domains else []
     events = (
         store._normalize_events({"events": deepcopy(state.get("events", []))})[0]

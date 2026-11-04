@@ -1668,7 +1668,10 @@ class JsonStore:
         )
         return retained_cards, len(retained_cards) != len(cards)
 
-    def _normalize_clients(self, state: dict) -> tuple[list[ClientProfile], bool]:
+    def _normalize_clients(
+        self, state: dict, *, compare_storage: bool = True
+    ) -> tuple[list[ClientProfile], bool]:
+        """Skip storage comparisons only when the caller ignores the repair flag."""
         raw_clients = state.get("clients", [])
         repaired = False
         if not isinstance(raw_clients, list):
@@ -1693,7 +1696,7 @@ class JsonStore:
                 continue
             seen_ids.add(client.id)
             clients.append(client)
-            if item != client.to_storage_dict():
+            if compare_storage and item != client.to_storage_dict():
                 repaired = True
         clients.sort(key=lambda item: (item.name().casefold(), item.created_at, item.id))
         return clients, repaired

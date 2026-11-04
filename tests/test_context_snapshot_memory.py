@@ -79,6 +79,15 @@ class ContextSnapshotMemoryTests(CardServiceCase):
         self.assertEqual(search["clients"][0].vehicles[0].vehicle, "SYNTHETIC_VEHICLE")
         self.assertEqual(self.store._context_snapshot_state, raw)
 
+    def test_readonly_snapshot_preserves_normalized_clients(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        clients, _ = self.store._normalize_clients(deepcopy(state))
+        snapshot = self.store._read_context_bundle_snapshot(domains=("clients",))
+        self.assertEqual(
+            [client.to_storage_dict() for client in snapshot["clients"]],
+            [client.to_storage_dict() for client in clients],
+        )
+
     def test_normalized_event_details_are_detached_from_other_variants_and_raw_records(self):
         events, _, full, _ = self.snapshots()
         raw = deepcopy(self.store._context_snapshot_state)
