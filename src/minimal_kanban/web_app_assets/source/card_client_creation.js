@@ -1,19 +1,38 @@
     // @include card_client_controls.js
 
+    async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false, context = null } = {}) {
+      if (!context?.isCurrent() || !context.cardId || !clientId) return null;
+      try {
+        const version = context.expectedUpdatedAt;
+        if (!version || version !== version.trim() || version.length > 80) throw Object.assign(new Error('НЕТ ВЕРСИИ КАРТОЧКИ.'), { localValidation: true });
+        const body = {
+          card_id: context.cardId, expected_card_updated_at: version,
+          client_id: clientId, client_vehicle_id: clientVehicleId || '',
+          create_vehicle_from_card: Boolean(createVehicleFromCard),
+          sync_vehicle_fields: true, sync_fields: true, overwrite_card_fields: false,
+        };
+        const data = await cardLinkWrite(body, state.activeCard?.client_vehicle_id || '', context.isCurrent);
+        if (!context.isCurrent()) return null;
+        if (!data?.card) throw Object.assign(new Error('ПРИВЯЗКА НЕ ПОДТВЕРЖДЕНА. ПРОВЕРЬТЕ КАРТОЧКУ; ПОВТОР ОСТАНОВЛЕН.'), { linkUncertain: true });
+        applyCardClientLinkResult(data.card);
+        hideClientSuggestions();
+        setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
+        await refreshSnapshot(true);
+        return context.isCurrent() ? data : null;
+      } catch (error) {
+        if (!context.isCurrent()) return null;
+        setStatus(error.message, true);
+        throw error;
+      }
+    }
+
     async function reconcileCreatedClient(checkpoint, context) {
       if (!checkpoint.clientId) {
         await clientMutationRead('/api/search_clients?query=' + encodeURIComponent(checkpoint.payload.display_name || checkpoint.payload.phone || '') + '&limit=6');
         throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ КЛИЕНТА НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ СПИСОК КЛИЕНТОВ; ПОВТОРНОЕ СОЗДАНИЕ ОСТАНОВЛЕНО, ЧЕРНОВИК ОСТАЛСЯ В ОКНЕ.');
       }
       if (checkpoint.uncertain === 'link') {
-        const data = await clientMutationRead('/api/get_card?card_id=' + encodeURIComponent(context.cardId));
-        if (!context.isCurrent()) return null;
-        if (data?.card?.client_id !== checkpoint.clientId || (checkpoint.createVehicle && !data.card.client_vehicle_id)) {
-          throw new Error('КЛИЕНТ СОЗДАН, НО ПРИВЯЗКА НЕ ПОДТВЕРЖДЕНА ПРИ ЧТЕНИИ. ПОВТОР ЗАПИСИ ОСТАНОВЛЕН.');
-        }
-        applyCardClientLinkResult(data.card);
-        checkpoint.vehicleId = data.card.client_vehicle_id || '';
-        checkpoint.linked = true;
+        throw new Error('КЛИЕНТ СОЗДАН, НО ПРИВЯЗКА НЕ ПОДТВЕРЖДЕНА. ПРОВЕРЬТЕ КАРТОЧКУ; ПОВТОР ОСТАНОВЛЕН.');
       } else {
         const data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
         if (!context.isCurrent()) return null;
@@ -53,6 +72,7 @@
         state.cardClientCreateCheckpoint = checkpoint;
       }
       try {
+        if (context.cardId) requireCardLinkSettled(context.cardId);
         if (checkpoint.uncertain) await reconcileCreatedClient(checkpoint, context);
         if (!context.isCurrent()) return null;
         const key = JSON.stringify(request);
@@ -92,7 +112,7 @@
             if (!context.isCurrent()) return null;
             if (error?.localValidation || cardPersistErrorIsDefinite(error)) throw new Error('КЛИЕНТ СОЗДАН, НО ПРИВЯЗКА НЕ ЗАВЕРШЕНА. ' + error.message);
             checkpoint.uncertain = 'link';
-            await reconcileCreatedClient(checkpoint, context);
+            throw error;
           }
         } else if (!context.cardId && shouldCreateVehicle && !checkpoint.vehicleId) {
           try {

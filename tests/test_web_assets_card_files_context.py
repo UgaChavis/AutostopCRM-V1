@@ -265,6 +265,8 @@ assert.equal(state.cardSaveInFlight,false);
             """
 state.pendingCardClientId='';state.pendingCardClientVehicleId='';
 state.pendingCreateClientVehicleFromCard=false;
+state.activeCard.client_id='';state.activeCard.client_vehicle_id='';
+function requireCardLinkSettled(id){assert.equal(id,'A');}
 api=async(path,options)=>{calls.push({path,options});return {card:{id:'A'},meta:{response_mode:'compact'}};};
 const result=await persistCardPayload({title:'Changed title',description:'Changed description'});
 assert.equal(result.meta.response_mode,'compact');

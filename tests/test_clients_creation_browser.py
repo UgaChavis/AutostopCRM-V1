@@ -9,7 +9,21 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class ClientsCreationBrowserTests(UiBrowserTestCase):
-    def test_lost_link_reply_is_read_back_without_second_link_or_vehicle(self) -> None:
+    def test_empty_link_success_keeps_created_client_and_draft(self) -> None:
+        card_id = self.open_creation("SYNTHETIC CLIENT WITH EMPTY LINK")
+        self.page.route(
+            "**/api/link_card_to_client",
+            lambda route: route.fulfill(status=200, json={"ok": True, "data": {}}),
+        )
+        self.save_client()
+        self.assertTrue(self.page.locator("#cardClientCreateModal.is-open").is_visible())
+        self.assertEqual(self.page.evaluate("state.cardClientCreateCheckpoint.uncertain"), "link")
+        self.save_client()
+        self.assertEqual(self.writes.count("create_client"), 1)
+        self.assertEqual(self.writes.count("link_card_to_client"), 1)
+        self.assertFalse(self.stored_card(card_id)["client_id"])
+
+    def test_lost_link_reply_preserves_draft_without_second_link_or_vehicle(self) -> None:
         card_id = self.open_creation("Client lost link once")
 
         def lose_reply(route):
@@ -18,7 +32,9 @@ class ClientsCreationBrowserTests(UiBrowserTestCase):
 
         self.page.route("**/api/link_card_to_client", lose_reply)
         self.save_client()
-        self.assertFalse(self.page.locator("#cardClientCreateModal.is-open").count())
+        self.assertTrue(self.page.locator("#cardClientCreateModal.is-open").is_visible())
+        self.assertIn("НЕ ПОДТВЕРЖДЁН", self.page.locator("#statusLine").inner_text())
+        self.save_client()
         self.assertEqual(self.writes.count("create_client"), 1)
         self.assertEqual(self.writes.count("link_card_to_client"), 1)
         self.assertTrue(self.stored_card(card_id)["client_vehicle_id"])

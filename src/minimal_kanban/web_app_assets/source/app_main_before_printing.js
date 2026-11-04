@@ -5052,6 +5052,9 @@
       const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
       if (!context) return;
       try {
+        const module = context.cardId ? await ensureBoardModule('card_save') : null;
+        if (!context.isCurrent()) return;
+        if (module) module.requireCardLinkSettled(context.cardId);
         if (vehicleKey && !state.clientSuggestionProfiles?.[clientId]) {
           if (!await loadClientSuggestionVehicles(clientId, context) || !context.isCurrent()) return;
         }
@@ -5067,13 +5070,16 @@
         applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
         hideClientSuggestions();
         if (context.cardId) {
-          await linkActiveCardToClient(clientId, {
+          const linked = await module.linkActiveCardToClient(clientId, {
             clientVehicleId: selectedVehicle?.id || '',
             createVehicleFromCard: createNewVehicle,
             context,
           });
           if (!context.isCurrent()) return;
           applyClientSuggestionToVehicleProfile(client, selectedVehicle, { createNewVehicle });
+          state.pendingCardClientId = linked.card.client_id;
+          state.pendingCardClientVehicleId = linked.card.client_vehicle_id;
+          state.pendingCreateClientVehicleFromCard = false;
         } else {
           setStatus(createNewVehicle ? 'КЛИЕНТ ВЫБРАН, АВТОМОБИЛЬ БУДЕТ ДОБАВЛЕН.' : 'КЛИЕНТ И АВТОМОБИЛЬ ВЫБРАНЫ ДЛЯ НОВОЙ КАРТОЧКИ.', false);
         }
@@ -5112,33 +5118,6 @@
         event.preventDefault();
         const client = state.clientSuggestions[state.clientSuggestionFocusIndex];
         if (client?.id) await chooseClientSuggestion(client.id);
-      }
-    }
-
-    async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false, context = null } = {}) {
-      if (!context?.isCurrent() || !context.cardId || !clientId) return null;
-      try {
-        const version = context.expectedUpdatedAt;
-        if (!version || version !== version.trim() || version.length > 80) throw Object.assign(new Error('НЕТ ВЕРСИИ КАРТОЧКИ.'), { localValidation: true });
-        const body = {
-          card_id: context.cardId, expected_card_updated_at: version,
-          client_id: clientId, client_vehicle_id: clientVehicleId || '',
-          create_vehicle_from_card: Boolean(createVehicleFromCard),
-          sync_vehicle_fields: true, sync_fields: true, overwrite_card_fields: false,
-        };
-        const data = context.writeRequest
-          ? await context.writeRequest('/api/link_card_to_client', body)
-          : await api('/api/link_card_to_client', { method: 'POST', body });
-        if (!context.isCurrent()) return null;
-        if (String(data?.card?.id || '').trim() === context.cardId) applyCardClientLinkResult(data.card);
-        hideClientSuggestions();
-        setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
-        await refreshSnapshot(true);
-        return context.isCurrent() ? data : null;
-      } catch (error) {
-        if (!context.isCurrent()) return null;
-        setStatus(error.message, true);
-        throw error;
       }
     }
 
@@ -10293,9 +10272,11 @@
       syncVehicleCopyButtons();
       refreshVehiclePanel();
       if (['customer_name', 'customer_phone', 'vin', 'registration_plate', 'body_number'].includes(fieldName)) {
-        state.pendingCardClientId = '';
-        state.pendingCardClientVehicleId = '';
-        state.pendingCreateClientVehicleFromCard = false;
+        if (!state.editingId) {
+          state.pendingCardClientId = '';
+          state.pendingCardClientVehicleId = '';
+          state.pendingCreateClientVehicleFromCard = false;
+        }
         scheduleClientSuggestionsForCard();
       }
     }

@@ -93,7 +93,7 @@ class CardSaveBrowserTests(UiBrowserTestCase):
             1,
         )
 
-    def test_lost_link_reply_is_read_back_and_does_not_repeat_create_or_link(self) -> None:
+    def test_lost_link_reply_keeps_draft_and_does_not_repeat_create_or_link(self) -> None:
         self.load_board()
         self.page.locator("[data-create-in]").first.click()
         self.page.locator("#cardTitle").fill("Lost link confirmed")
@@ -109,7 +109,10 @@ class CardSaveBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/link_card_to_client", lose_reply)
         self.page.locator("#saveCardButton").click()
         self.finish_save()
-        self.assert_card_closed()
+        self.assert_card_open()
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "Lost link confirmed")
+        self.page.locator("#saveCardButton").click()
+        self.finish_save()
         self.assertEqual(self.writes.count("create_card"), 1)
         self.assertEqual(self.writes.count("link_card_to_client"), 1)
         card = next(
@@ -203,6 +206,23 @@ class CardSaveBrowserTests(UiBrowserTestCase):
         self.assertFalse(self.page.locator("#saveCardButton").is_disabled())
         self.assertFalse(self.stored_card(saved_id).get("client_id"))
         self.page.unroute("**/api/link_card_to_client", fail_link)
+        self.page.locator("#cardTitle").fill("Changed after partial create")
+        self.page.locator("#saveCardButton").click()
+        self.finish_save()
+        self.assert_card_open()
+        self.assertEqual(
+            self.page.locator("#cardTitle").input_value(), "Changed after partial create"
+        )
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertEqual(self.writes.count("link_card_to_client"), 1)
+        self.page.locator("#cardTitle").fill("Partial create one ID")
+        self.page.evaluate("state.pendingCardClientVehicleId = 'SYNTHETIC OTHER VEHICLE'")
+        self.page.locator("#saveCardButton").click()
+        self.finish_save()
+        self.assert_card_open()
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertEqual(self.writes.count("link_card_to_client"), 1)
+        self.page.evaluate("state.pendingCardClientVehicleId = ''")
         self.page.locator("#saveCardButton").click()
         self.finish_save()
         self.assert_card_closed()

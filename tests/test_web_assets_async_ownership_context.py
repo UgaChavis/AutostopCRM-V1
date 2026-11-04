@@ -262,11 +262,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
             "    function captureRepairOrderMutationContext(",
         )
         create_client = functions("app_main_before_printing.js", "createClientForCard")
-        link_client = section(
-            source,
-            "    async function linkActiveCardToClient(",
-            "    function archivedCardsTotal(",
-        )
+        link_client = functions("app_main_before_printing.js", "linkActiveCardToClient")
         self.run_node(
             """
 const assert=require('node:assert/strict');
@@ -279,6 +275,8 @@ const state={
   pendingCreateClientVehicleFromCard:true,
 };
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
+function requireCardLinkSettled(){}
+function cardLinkWrite(body){return api('/api/link_card_to_client',{method:'POST',body});}
 function cloneVehicleProfile(profile){return {...profile};}
 function readVehicleProfileForm(){return {};}
 function normalizedCardClientCreatePayload(payload){return {...payload};}
