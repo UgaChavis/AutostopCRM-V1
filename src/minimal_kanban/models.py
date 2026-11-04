@@ -2207,11 +2207,9 @@ class Card:
         if not vehicle and profile_display:
             vehicle = normalize_text(profile_display, default="", limit=CARD_VEHICLE_LIMIT)
 
-        card = cls(
+        return cls(
             id=normalize_entity_id(payload.get("id")),
-            title=normalize_text(
-                payload.get("title"), default="Без названия", limit=CARD_TITLE_LIMIT
-            ),
+            title=title,
             description=_normalize_card_description(payload.get("description")),
             board_summary=normalize_text(
                 payload.get("board_summary"), default="", limit=CARD_BOARD_SUMMARY_LIMIT
@@ -2272,5 +2270,3 @@ class Card:
             ),
             ai_autofill_log=normalize_ai_autofill_log(payload.get("ai_autofill_log")),
         )
-        card.title = title
-        return card
