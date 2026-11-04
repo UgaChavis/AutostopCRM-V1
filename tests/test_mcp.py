@@ -1948,6 +1948,31 @@ class McpServerBackendTests(_McpServerFixtureMixin, unittest.IsolatedAsyncioTest
         called_tools = set(re.findall(r'call_tool\(\s*"([^"]+)"', test_source))
         self.assertEqual(EXPECTED_MCP_TOOLS - called_tools, set())
 
+    async def test_client_stats_preserves_unverified_match_warning(self) -> None:
+        client_id = self.service.create_client({"display_name": "SYNTHETIC MCP CLIENT"})["client"][
+            "id"
+        ]
+        card_id = self.service.create_card({"title": "SYNTHETIC MCP ORDER"})["card"]["id"]
+        self.service.update_card(
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": "SYNTHETIC MCP CLIENT",
+                    "works": [{"name": "SYNTHETIC WORK", "quantity": "1", "price": "10"}],
+                },
+            }
+        )
+        async with create_test_mcp_http_client(
+            headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}
+        ) as http_client:
+            async with open_mcp_session(self.runtime.base_url, http_client=http_client) as session:
+                result = await session.call_tool("get_client_stats", {"client_id": client_id})
+        self.assertFalse(result.isError)
+        data = result.structuredContent["data"]
+        self.assertEqual(data["stats"]["cards_total"], 1)
+        self.assertEqual(data["meta"]["response_mode"], "client_stats")
+        self.assertIn("related_card_client_match_unverified", data["meta"]["read_warnings"])
+
     async def test_mcp_client_tools_reach_backend(self) -> None:
         async with create_test_mcp_http_client(
             headers={"Authorization": f"Bearer {MCP_TEST_TOKEN}"}

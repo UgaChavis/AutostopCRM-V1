@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
+from minimal_kanban.models import short_entity_id
 from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.storage.json_store import StateFileCorruptedError
 
@@ -271,3 +272,90 @@ class ClientContextReadSafetyTests(CardServiceCase):
                     "related_card_client_match_unverified", result["meta"]["read_warnings"]
                 )
                 self.assertEqual(before, self.snapshot())
+
+    def test_client_stats_preserves_legacy_shape_and_short_id_without_writes(self):
+        bundle = self.store.read_bundle()
+        client = self.service._find_client(bundle["clients"], self.client_id)
+        expected = {
+            "client": self.service._serialize_client(
+                client, bundle["cards"], include_stats=True, compact=True
+            ),
+            "stats": self.service._client_stats(client, bundle["cards"]),
+        }
+        before = self.snapshot()
+        result = self.service.get_client_stats(
+            {"client_id": short_entity_id(self.client_id, prefix="CL")}
+        )
+        self.assertEqual(result, expected)
+        result["stats"]["cards_total"] = -1
+        self.assertEqual(result["client"]["stats"], expected["stats"])
+        result["client"]["vehicles_preview"][0]["vehicle"] = "SYNTHETIC_MUTATION"
+        self.assertEqual(
+            self.service.get_client_stats({"client_id": self.client_id})["client"][
+                "vehicles_preview"
+            ][0]["vehicle"],
+            "SYNTHETIC_VEHICLE",
+        )
+        self.assertEqual(before, self.snapshot())
+
+    def test_client_stats_does_not_repair_legacy_or_unrelated_corruption(self):
+        self.edit_state(
+            lambda state: (
+                state["cards"][0].update({"position": -123}),
+                state.update({"settings": "SYNTHETIC_LEGACY"}),
+            )
+        )
+        before = self.snapshot()
+        result = self.service.get_client_stats({"client_id": self.client_id})
+        self.assertEqual(result["stats"]["repair_orders_total"], 3)
+        self.assertEqual(before, self.snapshot())
+
+    def test_client_stats_related_validation_and_warnings(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for scenario in (
+            "duplicate_client",
+            "duplicate_card",
+            "missing_client_version",
+            "missing_card_version",
+            "invalid_amount",
+        ):
+            with self.subTest(scenario=scenario):
+                state = deepcopy(original)
+                client = self.selected_client(state)
+                card = next(item for item in state["cards"] if item["id"] == self.card_ids[0])
+                if scenario == "duplicate_client":
+                    state["clients"].append(deepcopy(client))
+                elif scenario == "duplicate_card":
+                    state["cards"].append(deepcopy(card))
+                elif scenario == "missing_client_version":
+                    client["updated_at"] = ""
+                elif scenario == "missing_card_version":
+                    card["updated_at"] = ""
+                else:
+                    card["repair_order"]["works"][0]["price"] = {"synthetic": "invalid"}
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                with self.assertRaises((StateFileCorruptedError, ServiceError)):
+                    self.service.get_client_stats({"client_id": self.client_id})
+                self.assertEqual(before, self.snapshot())
+
+        state = deepcopy(original)
+        card = next(item for item in state["cards"] if item["id"] == self.card_ids[0])
+        card["client_id"] = ""
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.snapshot()
+        result = self.service.get_client_stats({"client_id": self.client_id})
+        self.assertEqual(result["stats"]["cards_total"], 3)
+        self.assertIn("related_card_client_match_unverified", result["meta"]["read_warnings"])
+        self.assertEqual(before, self.snapshot())
+
+    def test_client_stats_preserves_legacy_vehicle_id_alias(self):
+        def use_alias(state):
+            vehicle = self.selected_client(state)["vehicles"][0]
+            vehicle["client_vehicle_id"] = vehicle.pop("id")
+
+        self.edit_state(use_alias)
+        before = self.snapshot()
+        result = self.service.get_client_stats({"client_id": self.client_id})
+        self.assertEqual(result["client"]["vehicles"][0]["id"], self.vehicle_id)
+        self.assertEqual(before, self.snapshot())

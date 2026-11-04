@@ -284,22 +284,9 @@ class CardServiceClientsMixin:
             strict_links = self._validated_optional_bool(
                 payload, "strict_client_links", default=False
             )
-            bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
-            client = self._find_client(bundle["clients"], payload.get("client_id"))
-            bundle.require_client(client)
-            related_cards = self._client_related_cards(client, bundle["cards"])
-            read_warnings = set()
-            if strict_links:
-                if any(card.client_id != client.id for card in related_cards):
-                    read_warnings.add("related_card_client_match_unverified")
-                related_cards = [card for card in related_cards if card.client_id == client.id]
-            for card in related_cards:
-                bundle.require_card(card)
-                if strict_links:
-                    bundle.require_card_client_links(card)
-                read_warnings.update(bundle.card_warnings(card))
-                if card.client_id != client.id:
-                    read_warnings.add("related_card_client_match_unverified")
+            bundle, client, related_cards, read_warnings = self._read_client_profile_context(
+                payload, strict_links=strict_links
+            )
             result = self._client_profile_payload(
                 client, bundle["cards"], order_limit=order_limit, related_cards=related_cards
             )
@@ -310,14 +297,41 @@ class CardServiceClientsMixin:
     def get_client_stats(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._store.read_bundle()
-            client = self._find_client(bundle["clients"], payload.get("client_id"))
-            return {
+            bundle, client, related_cards, read_warnings = self._read_client_profile_context(
+                payload, strict_links=False
+            )
+            result = {
                 "client": self._serialize_client(
-                    client, bundle["cards"], include_stats=True, compact=True
+                    client,
+                    bundle["cards"],
+                    include_stats=True,
+                    compact=True,
+                    related_cards=related_cards,
                 ),
-                "stats": self._client_stats(client, bundle["cards"]),
+                "stats": self._client_stats_from_related(client, bundle["cards"], related_cards),
             }
+            if read_warnings:
+                result["meta"] = {"read_warnings": sorted(read_warnings)}
+            return deepcopy(result)
+
+    def _read_client_profile_context(self, payload: dict, *, strict_links: bool):
+        bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
+        client = self._find_client(bundle["clients"], payload.get("client_id"))
+        bundle.require_client(client)
+        related_cards = self._client_related_cards(client, bundle["cards"])
+        read_warnings = set()
+        if strict_links:
+            if any(card.client_id != client.id for card in related_cards):
+                read_warnings.add("related_card_client_match_unverified")
+            related_cards = [card for card in related_cards if card.client_id == client.id]
+        for card in related_cards:
+            bundle.require_card(card)
+            if strict_links:
+                bundle.require_card_client_links(card)
+            read_warnings.update(bundle.card_warnings(card))
+            if card.client_id != client.id:
+                read_warnings.add("related_card_client_match_unverified")
+        return bundle, client, related_cards, read_warnings
 
     def create_client(self, payload: dict | None = None) -> dict:
         with self._lock:

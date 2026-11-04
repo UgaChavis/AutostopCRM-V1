@@ -443,10 +443,13 @@ using the state file's device, inode, size, modification and change times;
 each caller receives a separate copy. This is a filesystem signature, not a
 content hash. Windows reads are uncached.
 
-`get_client`, `get_card`, `get_card_context` with
+`get_client`, `get_client_stats`, `get_card`, `get_card_context` with
 `include_repair_order_text=false`, and `get_repair_order` with
 `create_if_missing=false` also use read-only context snapshots. They do not
-repair the stored state or change generated order files. A returned order file
+repair the stored state or change generated order files. `get_client_stats`
+validates the selected client and related cards and reports legacy match or
+order-identity warnings in `meta.read_warnings`. Like `get_client`, it does not
+fully normalize or validate unrelated records and domains. A returned order file
 path is an expected path and does not promise the file exists. Explicit
 `get_repair_order(create_if_missing=true)` and repair-order text operations without
 `read_only=true` retain their separate write/materialization behavior. The MCP
