@@ -14,7 +14,7 @@
     }
 
     function cardPersistErrorIsDefinite(error) {
-      return error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json';
+      return error?.status >= 400 && error.status < 500 && ![408, 429].includes(error.status) && error.code !== 'invalid_json';
     }
 
     async function cardPersistWrite(path, body) {
