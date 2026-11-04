@@ -191,6 +191,16 @@ def parse_business_datetime(value: str | None) -> datetime | None:
     return _parse_business_datetime_cached(raw, timezone_name)
 
 
+def _parse_repair_order_seconds(value: str) -> datetime | None:
+    for date_format in ("%d.%m.%Y %H:%M:%S", "%d.%m.%y %H:%M:%S"):
+        try:
+            local = datetime.strptime(value.strip().replace(",", " "), date_format)
+        except ValueError:
+            continue
+        return parse_business_datetime(local.isoformat())
+    return None
+
+
 def parse_datetime(value: str | None) -> datetime | None:
     if not value:
         return None

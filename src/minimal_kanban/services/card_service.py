@@ -45,6 +45,7 @@ from ..models import (
     InventoryItem,
     InventoryMovement,
     StickyNote,
+    _parse_repair_order_seconds,
     business_timezone,
     format_money_minor,
     normalize_actor_name,
@@ -8612,9 +8613,21 @@ class CardService(
     def _repair_order_number_sort_value(self, card: Card) -> int:
         return self._repair_order_numeric_number(card.repair_order.number)
 
+    def _repair_order_list_date_sort_value(self, value: str | None) -> str:
+        sort_value = self._repair_order_sortable_datetime(value)
+        if "." in sort_value[:10] and sort_value.count(":") == 2:
+            parsed = _parse_repair_order_seconds(sort_value)
+            if parsed is not None:
+                local = parsed.astimezone(business_timezone())
+                return f"{local.year:04d}{local:%m%d%H%M%S}"
+        return sort_value
+
     def _repair_order_list_sort_key(self, card: Card, *, sort_by: str) -> tuple[object, ...]:
-        opened_value = self._repair_order_opened_sort_value(card)
-        closed_value = self._repair_order_closed_sort_value(card)
+        order = card.repair_order
+        opened_value = self._repair_order_list_date_sort_value(
+            order.opened_at or card.created_at or order.date
+        )
+        closed_value = self._repair_order_list_date_sort_value(order.closed_at)
         number_value = self._repair_order_number_sort_value(card)
         if sort_by == "number":
             return (number_value, opened_value, str(card.id or ""))

@@ -14,6 +14,7 @@ from ..models import (
     Card,
     ClientProfile,
     ClientVehicle,
+    _parse_repair_order_seconds,
     normalize_text,
     parse_business_datetime,
     short_entity_id,
@@ -1313,15 +1314,7 @@ class CardServiceClientsMixin:
                 if instant is None:
                     parsed = parse_business_datetime(value)
                     if parsed is None and cacheable:
-                        for date_format in ("%d.%m.%Y %H:%M:%S", "%d.%m.%y %H:%M:%S"):
-                            try:
-                                local = datetime.strptime(
-                                    value.strip().replace(",", " "), date_format
-                                )
-                            except ValueError:
-                                continue
-                            parsed = parse_business_datetime(local.isoformat())
-                            break
+                        parsed = _parse_repair_order_seconds(value)
                     if parsed is None:
                         last_visit = ""
                         break
