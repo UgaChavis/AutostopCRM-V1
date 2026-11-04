@@ -7460,7 +7460,8 @@
       const profile = state.clientsActiveProfile || null;
       const client = profile?.client || null;
       if (!client) {
-        els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ МАШИНЫ И ЗАКАЗ-НАРЯДЫ.</div>';
+        const message = state.clientsActiveId ? 'ПРОФИЛЬ НЕ ЗАГРУЖЕН. ВЫБЕРИТЕ КЛИЕНТА ПОВТОРНО.' : 'ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ МАШИНЫ И ЗАКАЗ-НАРЯДЫ.';
+        els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">' + message + '</div>';
         return;
       }
       const vehicles = Array.isArray(profile?.vehicles) ? profile.vehicles : [];
