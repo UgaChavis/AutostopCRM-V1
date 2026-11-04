@@ -6642,13 +6642,34 @@
     function readMobileRepairOrderRows(section) {
       const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
       if (!root) return [];
+      const savedRows = state.mobileRepairOrderCard?.repair_order?.[section] || [];
       return Array.from(root.querySelectorAll('[data-mobile-repair-order-row]')).map((rowElement) => {
         const row = { id: rowElement.dataset.mobileRepairOrderRowId || '' };
         rowElement.querySelectorAll('[data-mobile-repair-row-field]').forEach((field) => {
           row[field.getAttribute('data-mobile-repair-row-field')] = field.value;
         });
-        return normalizeRepairOrderRow(row);
+        const normalized = normalizeRepairOrderRow(row);
+        const saved = row.id && Array.isArray(savedRows) ? savedRows.find((item) => item?.id === row.id) : null;
+        if (!saved) return normalized;
+        return { ...saved, ...Object.fromEntries(Object.keys(row).map((key) => [key, normalized[key]])) };
       }).filter(repairOrderRowHasAnyData);
+    }
+
+    function mobileRepairOrderRowsHaveSafeIds() {
+      const canonicalId = (id) => typeof id === 'string' && Boolean(id) && Array.from(id).length <= 80
+        && id === id.replace(/[\s\u001c-\u001f\u0085]+/gu, ' ').trim();
+      return ['works', 'materials'].every((section) => {
+        const saved = state.mobileRepairOrderCard?.repair_order?.[section];
+        if (!Array.isArray(saved)) return false;
+        if (saved.some((row) => !canonicalId(row?.id))) return false;
+        const ids = saved.map((row) => row.id);
+        if (ids.some((id) => !id) || new Set(ids).size !== ids.length) return false;
+        const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
+        const displayed = Array.from(root?.querySelectorAll('[data-mobile-repair-order-row]') || [], (row) => row.dataset.mobileRepairOrderRowId || '');
+        if (displayed.some((id) => id && !canonicalId(id))) return false;
+        const identified = displayed.filter(Boolean);
+        return new Set(identified).size === identified.length && identified.every((id) => ids.includes(id));
+      });
     }
 
     function syncMobileRepairOrderLineTotals() {
@@ -6962,7 +6983,9 @@
         values[field.getAttribute('data-mobile-repair-order-field')] = field.value;
       });
       const payments = readMobileRepairOrderPayments();
-      return normalizeRepairOrder({
+      const works = readMobileRepairOrderRows('works');
+      const materials = readMobileRepairOrderRows('materials');
+      return { ...normalizeRepairOrder({
         ...base,
         ...values,
         client_information: values.comment ?? base.comment,
@@ -6972,9 +6995,9 @@
         ),
         prepayment: repairOrderNumberToRaw(repairOrderPaymentsTotalValue(payments)),
         payments: readMobileRepairOrderPayments(),
-        works: readMobileRepairOrderRows('works'),
-        materials: readMobileRepairOrderRows('materials'),
-      });
+        works,
+        materials,
+      }), works, materials };
     }
 
     function mobileRepairOrderDraftSnapshot() {
@@ -7086,7 +7109,8 @@
     }
 
     function mobileRepairOrderReadbackMatches(order, patch) {
-      if (!order || typeof order !== 'object' || Array.isArray(order) || !Array.isArray(patch?.payments)) return false;
+      if (!order || typeof order !== 'object' || Array.isArray(order) || !patch
+          || ['payments', 'works', 'materials'].some((key) => !Array.isArray(patch[key]))) return false;
       if (['payments', 'tags', 'works', 'materials'].some((key) => !Array.isArray(order[key]))) return false;
       const expected = normalizeRepairOrder(patch);
       const actual = normalizeRepairOrder(order);
@@ -7098,6 +7122,10 @@
       if (!keys.every((key) => Object.prototype.hasOwnProperty.call(expected, key)
           && Object.prototype.hasOwnProperty.call(order, key)
           && JSON.stringify(actual[key]) === JSON.stringify(expected[key]))) return false;
+      const editableRowFields = ['name', 'catalog_number', 'quantity', 'cost_price', 'price'];
+      if (!['works', 'materials'].every((section) => patch[section].length === order[section].length
+          && patch[section].every((row, index) => row && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).every((key) => editableRowFields.includes(key)
+            || (typeof row[key] === 'string' && order[section][index]?.[key] === row[key]))))) return false;
       const paymentFields = ['id', 'amount', 'paid_at', 'note', 'payment_method', 'actor_name', 'cashbox_id', 'cashbox_name'];
       return actual.payments.length === expected.payments.length
         && expected.payments.every((payment, index) => mobileRepairOrderExactMoney(order.payments[index]?.amount) === mobileRepairOrderExactMoney(patch.payments[index]?.amount)
@@ -7175,6 +7203,9 @@
       }
       if (repairOrderNeedsVerification(cardId)) {
         return setStatus(repairOrderVerificationMessage(cardId), true);
+      }
+      if (!mobileRepairOrderRowsHaveSafeIds()) {
+        return setStatus('НЕ УДАЛОСЬ ПРОВЕРИТЬ СТРОКИ ЗАКАЗ-НАРЯДА. ОБНОВИТЕ ЗАКАЗ-НАРЯД.', true);
       }
       const repairOrder = readMobileRepairOrderDraft();
       const currentOrder = currentMobileRepairOrderDraft();
