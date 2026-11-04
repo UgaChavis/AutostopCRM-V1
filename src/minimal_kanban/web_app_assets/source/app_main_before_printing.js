@@ -4038,10 +4038,10 @@
     }
 
     function clientProfileVehicleKey(vehicle, index = 0) {
-      const id = String(vehicle?.id || '').trim();
-      if (id) return id;
       const cardId = String(vehicle?.card_id || '').trim();
-      return cardId ? ('card:' + cardId) : ('index:' + index);
+      if (cardId) return 'c:' + cardId;
+      const id = String(vehicle?.id || '').trim();
+      return id ? ('v:' + id) : ('i:' + index);
     }
 
     function clientVehicleFormHtml(vehicle = {}, key = '__new__') {
@@ -4070,7 +4070,7 @@
       const title = String(vehicle?.vehicle || [vehicle?.brand, vehicle?.model, vehicle?.year].filter(Boolean).join(' ') || 'Автомобиль').trim();
       const meta = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ') || 'VIN / номер не указан';
       const tentative = vehicleTentativeSummary(vehicle);
-      const isStored = Boolean(String(vehicle?.id || '').trim());
+      const isStored = Boolean(String(vehicle?.id || '').trim()) && !vehicle?.card_id;
       const source = isStored ? 'профиль клиента' : 'из связанной карточки';
       const deleteButton = isStored
         ? '<button class="btn btn--ghost" type="button" data-client-vehicle-delete="' + escapeHtml(key) + '">УДАЛИТЬ</button>'
@@ -4483,9 +4483,8 @@
 
     function clientSuggestionVehicles(client) {
       const profile = state.clientSuggestionProfiles?.[client?.id] || null;
-      const fullVehicles = Array.isArray(profile?.vehicles) ? profile.vehicles : [];
       const previewVehicles = Array.isArray(client?.vehicles_preview) ? client.vehicles_preview : [];
-      return fullVehicles.length ? fullVehicles : previewVehicles;
+      return Array.isArray(profile?.vehicles) ? profile.vehicles : previewVehicles;
     }
 
     function vehicleMatchScoreForQuery(vehicle, query) {
@@ -4519,10 +4518,10 @@
     }
 
     function clientSuggestionVehicleKey(vehicle) {
-      const id = String(vehicle?.id || '').trim();
-      if (id) return id;
       const cardId = String(vehicle?.card_id || '').trim();
-      return cardId ? ('card:' + cardId) : '';
+      if (cardId) return 'c:' + cardId;
+      const id = String(vehicle?.id || '').trim();
+      return id ? ('v:' + id) : '';
     }
 
     function clientSuggestionVehicleMergeKey(vehicle) {
@@ -4865,7 +4864,7 @@
 
     async function loadClientSuggestionVehicles(clientId, operationContext = null) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
-      if (!client) return;
+      if (!client) return false;
       const viewerStateGeneration = state.viewerStateGeneration;
       const hydrationSeq = state.cardHydrationSeq;
       const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration
@@ -4876,28 +4875,25 @@
       state.clientSuggestTimer = null;
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(clientId) + '&order_limit=5');
-        if (!isCurrent()) return;
-        state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data || {} };
+        if (!isCurrent()) return false;
+        if (data?.client?.id !== clientId || !Array.isArray(data?.vehicles)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
+        state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data };
         renderClientSuggestions(state.clientSuggestions, { query: state.clientSuggestionQuery, showEmpty: true });
+        return true;
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
+        return false;
       }
     }
 
     function findClientSuggestionVehicle(vehicles, vehicleKey = '') {
       const normalizedKey = String(vehicleKey || '').trim();
       if (!normalizedKey) return null;
-      return vehicles.find((vehicle) => {
-        const id = String(vehicle?.id || '').trim();
-        const cardId = String(vehicle?.card_id || '').trim();
-        return id === normalizedKey
-          || clientSuggestionVehicleKey(vehicle) === normalizedKey
-          || (cardId && ('card:' + cardId) === normalizedKey);
-      }) || null;
+      return vehicles.find((vehicle) => clientSuggestionVehicleKey(vehicle) === normalizedKey) || null;
     }
 
     async function ensureStableClientSuggestionVehicle(clientId, vehicle, context = null) {
-      if (!vehicle || String(vehicle?.id || '').trim()) return vehicle;
+      if (!vehicle || (String(vehicle?.id || '').trim() && !vehicle?.card_id)) return vehicle;
       if (context && !context.isCurrent()) return null;
       const data = await api('/api/upsert_client_vehicle', {
         method: 'POST',
@@ -4923,7 +4919,8 @@
         },
       });
       if (context && !context.isCurrent()) return null;
-      const stableVehicle = data?.vehicle || vehicle;
+      if (!String(data?.vehicle?.id || '').trim()) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID АВТОМОБИЛЯ.');
+      const stableVehicle = { ...data.vehicle, card_id: '' };
       state.clientSuggestionProfiles = {
         ...(state.clientSuggestionProfiles || {}),
         [clientId]: {
@@ -4953,14 +4950,14 @@
       if (!context) return;
       try {
         if (vehicleKey && !state.clientSuggestionProfiles?.[clientId]) {
-          await loadClientSuggestionVehicles(clientId, context);
-          if (!context.isCurrent()) return;
+          if (!await loadClientSuggestionVehicles(clientId, context) || !context.isCurrent()) return;
         }
         const vehicles = clientSuggestionVehicles(client);
         let selectedVehicle = vehicleKey
           ? findClientSuggestionVehicle(vehicles, vehicleKey)
           : null;
-        if (selectedVehicle && !String(selectedVehicle?.id || '').trim()) {
+        if (vehicleKey && !selectedVehicle) throw new Error('АВТОМОБИЛЬ НЕ НАЙДЕН В ПРОФИЛЕ КЛИЕНТА. ОБНОВИТЕ ДАННЫЕ.');
+        if (selectedVehicle && (!String(selectedVehicle?.id || '').trim() || selectedVehicle?.card_id)) {
           selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle, context);
           if (!context.isCurrent()) return;
         }

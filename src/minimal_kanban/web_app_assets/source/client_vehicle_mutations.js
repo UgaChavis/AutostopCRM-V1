@@ -37,7 +37,7 @@
       const data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(context.clientId) + '&order_limit=30');
       if (!context.isCurrent()) return null;
       const vehicleId = checkpoint.body.client_vehicle_id;
-      const vehicle = (data?.vehicles || []).find((item) => item.id === vehicleId);
+      const vehicle = (data?.vehicles || []).find((item) => item.id === vehicleId && !item.card_id);
       const deleting = path.endsWith('delete_client_vehicle');
       const expected = checkpoint.body.vehicle || {};
       const comparable = (key, value) => key === 'vin' ? String(value || '').trim().toUpperCase()
@@ -68,7 +68,7 @@
         vehicle: payload,
         sync_linked_cards: true,
       };
-      if (currentVehicle?.id) body.client_vehicle_id = currentVehicle.id;
+      if (currentVehicle?.id && !currentVehicle?.card_id) body.client_vehicle_id = currentVehicle.id;
       const context = beginClientMutation();
       if (!context) return;
       body.client_id = context.clientId;
@@ -88,7 +88,7 @@
     async function deleteClientVehicle(key) {
       if (!state.clientsActiveId) return;
       const vehicle = findActiveClientVehicle(key);
-      if (!vehicle?.id) {
+      if (!vehicle?.id || vehicle?.card_id) {
         setStatus('ЭТА ЗАПИСЬ ПРИШЛА ИЗ СВЯЗАННОЙ КАРТОЧКИ. СНАЧАЛА ОТКРОЙТЕ РЕДАКТИРОВАНИЕ И СОХРАНИТЕ ЕЁ В ПРОФИЛЬ КЛИЕНТА.', true);
         return;
       }
