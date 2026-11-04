@@ -35,7 +35,11 @@ from .card_service_cashbox_cancellation import (
 )
 from .cash_amounts import cash_payment_minor
 from .errors import ServiceError
-from .finance_audit_payment_fixes import payment_kind_safe_fixes
+from .finance_audit_payment_fixes import (
+    TransactionReferences,
+    payment_kind_safe_fixes,
+    payment_protected_transaction_ids,
+)
 from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .journal_labels import day_label, month_label, week_label
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
@@ -236,7 +240,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             transactions_by_id = {
                 transaction.id: transaction for transaction in bundle["cash_transactions"]
             }
-            payment_links = self._finance_payment_links(bundle["cards"])
+            payment_links, ambiguous_payment_ids = self._finance_payment_reference_index(
+                bundle["cards"], TransactionReferences(bundle["cash_transactions"])
+            )
             applied: list[dict[str, object]] = []
             changed_cashbox_ids: set[str] = set()
             for fix in planned_fixes:
@@ -288,7 +294,11 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     fix.get("cash_transaction_id"), default="", limit=128
                 )
                 transaction = transactions_by_id.get(transaction_id)
-                if transaction is None or transaction_id not in payment_links:
+                if (
+                    transaction is None
+                    or transaction_id in ambiguous_payment_ids
+                    or len(payment_links.get(transaction_id, [])) != 1
+                ):
                     continue
                 if kind == "set_transaction_kind":
                     value = normalize_text(fix.get("value"), default="", limit=32)
@@ -1771,26 +1781,69 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             return "linked_transfer"
         return "manual"
 
-    def _repair_order_transaction_context(self, cards: list[Card]) -> dict[str, dict[str, object]]:
-        contexts: dict[str, dict[str, object]] = {}
+    def _finance_payment_reference_index(
+        self, cards: list[Card], references: TransactionReferences
+    ) -> tuple[dict[str, list[tuple[Card, RepairOrderPayment]]], set[str]]:
+        links: dict[str, list[tuple[Card, RepairOrderPayment]]] = {}
+        ambiguous_ids: set[str] = set()
         for card in cards:
+            for payment in card.repair_order.payments:
+                matches = references.matches(payment.cash_transaction_id)
+                if len(matches) > 1:
+                    ambiguous_ids.update(transaction.id for transaction in matches)
+                for transaction in matches:
+                    links.setdefault(transaction.id, []).append((card, payment))
+        return links, ambiguous_ids
+
+    def _repair_order_transaction_context(
+        self, cards: list[Card], transactions: list[CashTransaction], cashboxes: list[CashBox]
+    ) -> dict[str, dict[str, object]]:
+        contexts: dict[str, dict[str, object]] = {}
+        references = TransactionReferences(transactions)
+        links, ambiguous_ids = self._finance_payment_reference_index(cards, references)
+        blocked_ids = payment_protected_transaction_ids(
+            transactions, self._is_cashbox_transfer_transaction, references, set(links)
+        )
+        cashbox_ids = {cashbox.id for cashbox in cashboxes}
+        for transaction_id, payments in links.items():
+            if len(payments) != 1 or transaction_id in ambiguous_ids:
+                continue
+            card, payment = payments[0]
+            matches = references.matches(transaction_id)
+            if len(matches) != 1 or not self._is_trusted_finance_payment(
+                matches[0], payment, cashbox_ids, blocked_ids
+            ):
+                continue
             order = card.repair_order
-            for payment in order.payments:
-                transaction_id = normalize_text(
-                    payment.cash_transaction_id,
-                    default="",
-                    limit=128,
-                )
-                if not transaction_id:
-                    continue
-                contexts[transaction_id] = {
-                    "source_label": "заказ-наряд",
-                    "repair_order_number": order.number,
-                    "repair_order_card_id": card.id,
-                    "repair_order_vehicle": order.vehicle or card.vehicle,
-                    "repair_order_payment_id": payment.id,
-                }
+            contexts[transaction_id] = {
+                "source_label": "заказ-наряд",
+                "repair_order_number": order.number,
+                "repair_order_card_id": card.id,
+                "repair_order_vehicle": order.vehicle or card.vehicle,
+                "repair_order_payment_id": payment.id,
+            }
         return contexts
+
+    def _is_trusted_finance_payment(
+        self,
+        transaction: CashTransaction,
+        payment: RepairOrderPayment,
+        cashbox_ids: set[str],
+        blocked_ids: set[str],
+    ) -> bool:
+        cashbox_id = normalize_text(payment.cashbox_id, default="", limit=128)
+        if (
+            transaction.id in blocked_ids
+            or transaction.direction != "income"
+            or not cashbox_id
+            or cashbox_id not in cashbox_ids
+            or cashbox_id != transaction.cashbox_id
+        ):
+            return False
+        try:
+            return cash_payment_minor(payment.amount) == transaction.amount_minor
+        except ServiceError:
+            return False
 
     def _finance_payment_links(
         self, cards: list[Card]
@@ -1855,26 +1908,23 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
         transactions = bundle["cash_transactions"]
         transactions_by_id = {transaction.id: transaction for transaction in transactions}
         cashboxes_by_id = {cashbox.id: cashbox for cashbox in bundle["cashboxes"]}
-        payment_links = self._finance_payment_links(cards)
-        payment_kind_fixes = payment_kind_safe_fixes(
-            transactions, self._is_cashbox_transfer_transaction
+        references = TransactionReferences(transactions)
+        payment_refs_by_transaction_id, ambiguous_payment_ids = (
+            self._finance_payment_reference_index(cards, references)
         )
-        payment_refs_by_transaction_id: dict[str, list[tuple[Card, RepairOrderPayment]]] = {}
-        for payment_card in cards:
-            for payment in payment_card.repair_order.payments:
-                transaction_id = normalize_text(
-                    payment.cash_transaction_id,
-                    default="",
-                    limit=128,
-                )
-                if transaction_id:
-                    payment_refs_by_transaction_id.setdefault(transaction_id, []).append(
-                        (payment_card, payment)
-                    )
+        blocked_ids = payment_protected_transaction_ids(
+            transactions,
+            self._is_cashbox_transfer_transaction,
+            references,
+            set(payment_refs_by_transaction_id),
+        )
+        payment_kind_fixes = payment_kind_safe_fixes(transactions, blocked_ids)
+        cashbox_ids = set(cashboxes_by_id)
         employees = self._employees_from_settings(bundle.get("settings", {}))
         employee_ids = {employee["id"] for employee in employees}
         issues: list[dict[str, object]] = []
         checked_transfer_keys: set[str] = set()
+        safe_payment_ids: set[str] = set()
 
         for card in cards:
             order = card.repair_order
@@ -1893,19 +1943,28 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                         )
                     )
                     continue
-                transaction = transactions_by_id.get(transaction_id)
-                if transaction is None:
+                matches = references.matches(transaction_id)
+                if len(matches) != 1:
                     issues.append(
                         self._finance_audit_issue(
-                            code="payment_missing_cash_transaction",
+                            code=(
+                                "payment_missing_cash_transaction"
+                                if not matches
+                                else "payment_cash_transaction_ambiguous"
+                            ),
                             severity="error",
-                            message="Оплата заказ-наряда ссылается на отсутствующее движение кассы.",
+                            message=(
+                                "Оплата заказ-наряда ссылается на отсутствующее движение кассы."
+                                if not matches
+                                else "Ссылка оплаты неоднозначна. Требуется сверка."
+                            ),
                             card=card,
                             payment=payment,
                         )
                     )
                     continue
-                duplicate_payment_refs = payment_refs_by_transaction_id.get(transaction_id, [])
+                transaction = matches[0]
+                duplicate_payment_refs = payment_refs_by_transaction_id.get(transaction.id, [])
                 if len(duplicate_payment_refs) > 1:
                     issues.append(
                         self._finance_audit_issue(
@@ -1927,14 +1986,21 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                             },
                         )
                     )
-                expected_amount_minor = normalize_money_minor(payment.amount, default=0)
+                try:
+                    exact_amount_minor = cash_payment_minor(payment.amount)
+                except ServiceError:
+                    exact_amount_minor = None
                 expected_cashbox_id = normalize_text(payment.cashbox_id, default="", limit=128)
                 mismatch_reasons: list[str] = []
                 if transaction.direction != "income":
                     mismatch_reasons.append("direction")
-                if transaction.amount_minor != expected_amount_minor:
+                if exact_amount_minor is None or transaction.amount_minor != exact_amount_minor:
                     mismatch_reasons.append("amount")
-                if expected_cashbox_id and transaction.cashbox_id != expected_cashbox_id:
+                if (
+                    not expected_cashbox_id
+                    or expected_cashbox_id not in cashbox_ids
+                    or transaction.cashbox_id != expected_cashbox_id
+                ):
                     mismatch_reasons.append("cashbox")
                 if mismatch_reasons:
                     issues.append(
@@ -1949,13 +2015,22 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                                 "mismatch_reasons": mismatch_reasons,
                                 "expected_direction": "income",
                                 "direction": transaction.direction,
-                                "expected_amount_minor": expected_amount_minor,
+                                "expected_amount_minor": exact_amount_minor,
                                 "amount_minor": transaction.amount_minor,
                                 "expected_cashbox_id": expected_cashbox_id,
                                 "cashbox_id": transaction.cashbox_id,
                             },
                         )
                     )
+                safe_payment = (
+                    len(duplicate_payment_refs) == 1
+                    and transaction.id not in ambiguous_payment_ids
+                    and self._is_trusted_finance_payment(
+                        transaction, payment, cashbox_ids, blocked_ids
+                    )
+                )
+                if safe_payment:
+                    safe_payment_ids.add(transaction.id)
                 if transaction.transaction_kind != "repair_order_payment":
                     issues.append(
                         self._finance_audit_issue(
@@ -1965,7 +2040,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                             card=card,
                             payment=payment,
                             transaction=transaction,
-                            safe_fix=payment_kind_fixes.get(transaction.id, {}).copy() or None,
+                            safe_fix=(payment_kind_fixes.get(transaction.id, {}).copy() or None)
+                            if safe_payment
+                            else None,
                         )
                     )
                 expected_note = self._repair_order_cash_transaction_note(order.number)
@@ -1985,7 +2062,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                                 "kind": "refresh_default_note",
                                 "cash_transaction_id": transaction.id,
                                 "value": expected_note,
-                            },
+                            }
+                            if safe_payment and normalize_text(order.number, default="", limit=40)
+                            else None,
                             data={"stored_note": transaction.note, "expected_note": expected_note},
                         )
                     )
@@ -2173,8 +2252,13 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             has_default_order_note = self._is_default_repair_order_cash_transaction_note(
                 transaction.note
             )
-            linked = payment_links.get(transaction.id)
-            if kind == "repair_order_payment" and linked is None:
+            linked_payments = payment_refs_by_transaction_id.get(transaction.id, [])
+            linked = (
+                linked_payments[0]
+                if len(linked_payments) == 1 and transaction.id not in ambiguous_payment_ids
+                else None
+            )
+            if kind == "repair_order_payment" and not linked_payments:
                 issues.append(
                     self._finance_audit_issue(
                         code="repair_payment_transaction_without_payment",
@@ -2187,7 +2271,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 card = linked[0] if linked is not None else None
                 payment = linked[1] if linked is not None else None
                 safe_fix = None
-                if linked is not None:
+                if transaction.id in safe_payment_ids:
                     safe_fix = payment_kind_fixes.get(transaction.id, {}).copy() or None
                 issues.append(
                     self._finance_audit_issue(

@@ -823,6 +823,13 @@ unrelated password or employee-binding changes do not conflict.
   normal work/material editing is unchanged.
 - `/api/finance_audit` is read-only and also requires
   `employees_cashboxes_access` for human sessions.
+  Full bundle reads reject duplicate raw cash transaction IDs before
+  normalization, including IDs that collide after trimming or the 128-character
+  limit. If the rest of the state is structurally valid, this condition does not
+  create a new backup; embedded API startup can also stop. Other legacy or
+  damaged fields, including overlong references, may still be normalized and
+  persisted before the audit, so its results do not establish full raw-storage
+  integrity. Other kinds of corruption may trigger the existing backup flow.
   A movement whose cashbox is missing remains in storage and is reported as
   `cash_transaction_missing_cashbox`. Reads also retain inventory movements
   whose item is missing; bundle writes reject these broken parent references

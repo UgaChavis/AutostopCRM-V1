@@ -73,7 +73,7 @@ class FinanceReadCore:
                 transaction_offset : transaction_offset + transaction_limit
             ]
             repair_order_transaction_context = service._repair_order_transaction_context(
-                bundle["cards"]
+                bundle["cards"], bundle["cash_transactions"], bundle["cashboxes"]
             )
             serialize_transaction = (
                 service._serialize_cash_transaction_compact
@@ -130,7 +130,7 @@ class FinanceReadCore:
             cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
             cashboxes_by_id = {cashbox.id: cashbox for cashbox in cashboxes}
             repair_order_transaction_context = service._repair_order_transaction_context(
-                bundle["cards"]
+                bundle["cards"], bundle["cash_transactions"], bundle["cashboxes"]
             )
             journal = service._build_cash_journal(
                 returned_transactions,
