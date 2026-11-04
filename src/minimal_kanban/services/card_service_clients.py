@@ -326,8 +326,9 @@ class CardServiceClientsMixin:
             return deepcopy(result)
 
     def _read_client_profile_context(self, payload: dict, *, strict_links: bool):
-        bundle = self._store._read_context_bundle_snapshot(domains=("clients",))
-        client = self._find_client(bundle["clients"], payload.get("client_id"))
+        bundle = self._store._read_context_bundle_snapshot(domains=("client_profile",))
+        candidates = bundle.profile_client_candidates(self._store, payload.get("client_id"))
+        client = self._find_client(candidates, payload.get("client_id"))
         bundle.require_client(client)
         related_cards = self._client_related_cards(client, bundle["cards"])
         read_warnings = set()

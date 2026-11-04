@@ -5,7 +5,7 @@ from copy import deepcopy
 import orjson
 
 from ..json_safety import DEFAULT_JSON_MAX_DEPTH
-from ..models import Card, ClientProfile, normalize_text, parse_datetime
+from ..models import Card, ClientProfile, normalize_text, parse_datetime, short_entity_id
 from ..repair_order import RepairOrderPayment, RepairOrderRow, normalize_repair_order_payments
 from .json_store import StateFileCorruptedError, _validate_snapshot_financial_fields
 
@@ -77,6 +77,7 @@ class ReadonlyContextSnapshot(dict):
         source_indexes=None,
         cards_index=None,
         search_cards_need_retention=False,
+        profile_clients=None,
     ):
         super().__init__(bundle)
         self.search_cards_need_retention = search_cards_need_retention
@@ -89,6 +90,26 @@ class ReadonlyContextSnapshot(dict):
                 raise ValueError("Conflicting source indexes")
             self._cards, self._clients, self._events = source_indexes
         self._link_clients = {client.id: client for client in bundle["clients"]}
+        self._profile_clients = profile_clients
+
+    def profile_client_candidates(self, store, requested_id):
+        if self._profile_clients is None:
+            return self["clients"]
+        requested = normalize_text(requested_id, default="")
+        if not requested or len(requested) > 128:
+            return []
+        exact = self._clients.get(requested, [])
+        if exact:
+            clients, _ = store._normalize_clients({"clients": exact}, compare_storage=False)
+            if clients:
+                return clients
+        key = requested.upper()
+        candidates = [
+            row
+            for row in self._profile_clients
+            if row["id"].upper() == key or short_entity_id(row["id"], prefix="CL").upper() == key
+        ]
+        return store._normalize_clients({"clients": candidates}, compare_storage=False)[0]
 
     @staticmethod
     def _source(index, key, *, alias=None):
@@ -348,7 +369,7 @@ def build_context_snapshot(store, state, domains):
     ):
         raise StateFileCorruptedError("Список карточек отсутствует или поврежден.")
     for name in ("clients", "stickies", "events"):
-        if name not in domains:
+        if name not in domains and not (name == "clients" and "client_profile" in domains):
             continue
         if name in state and not isinstance(state[name], list):
             raise StateFileCorruptedError("Снимок состояния содержит поврежденный список.")
@@ -356,6 +377,7 @@ def build_context_snapshot(store, state, domains):
     cards_index = None if needs_cards else {}
     search_cards_need_retention = False
     clients = []
+    profile_clients = None
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
         clients = _search_clients(deepcopy(raw_clients))
@@ -377,6 +399,23 @@ def build_context_snapshot(store, state, domains):
         columns, cards = [], []
     if "clients" in domains and "client_search" not in domains:
         clients = store._normalize_clients({"clients": raw_clients}, compare_storage=False)[0]
+    if "client_profile" in domains:
+        seen = set()
+        for row in raw_clients:
+            raw_id = row.get("id") if isinstance(row, dict) else None
+            if (
+                not isinstance(raw_id, str)
+                or not raw_id
+                or raw_id != normalize_text(raw_id, limit=128)
+                or raw_id in seen
+            ):
+                clients = store._normalize_clients({"clients": raw_clients}, compare_storage=False)[
+                    0
+                ]
+                break
+            seen.add(raw_id)
+        else:
+            profile_clients = raw_clients
     stickies = store._normalize_stickies(state)[0] if "stickies" in domains else []
     events = (
         store._normalize_events({"events": deepcopy(state.get("events", []))})[0]
@@ -396,4 +435,5 @@ def build_context_snapshot(store, state, domains):
         state,
         cards_index=cards_index,
         search_cards_need_retention=search_cards_need_retention,
+        profile_clients=profile_clients,
     )
