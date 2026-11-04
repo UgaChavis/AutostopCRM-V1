@@ -19,7 +19,10 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
         ]["id"]
         self.load_board()
         response = self.context.request.get(
-            self.runtime.base_url + "/api/get_client?client_id=" + client_id,
+            self.runtime.base_url
+            + "/api/get_client?client_id="
+            + client_id
+            + ("&order_limit=8" if mobile else "&order_limit=30"),
             headers={"X-Operator-Session": self.session_token},
         ).json()
         data = response["data"]
@@ -50,22 +53,24 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/get_client?**", lambda route: route.fulfill(json=response))
 
         cases = (
-            ([], {"repair_orders_total": 0, "repair_orders_returned": 0}, "0 ₽"),
-            (["100", "25"], {"repair_orders_total": 2, "repair_orders_returned": 2}, "125 ₽"),
+            ([], {"repair_orders_total": 0, "repair_orders_returned": 0}, "0 ₽", True),
+            (["100", "25"], {"repair_orders_total": 2, "repair_orders_returned": 2}, "125 ₽", True),
             (
                 ["0.03", "0.29", "0.18"],
                 {"repair_orders_total": 3, "repair_orders_returned": 3},
                 "1 ₽",
+                True,
             ),
-            (["-25"], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ"),
-            (["0"], {"repair_orders_total": 31, "repair_orders_returned": 1}, "НЕТ ДАННЫХ"),
+            (["-25"], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ", True),
+            (["0"], {"repair_orders_total": 31, "repair_orders_returned": 1}, "НЕТ ДАННЫХ", False),
             (
                 ["0"] * (8 if mobile else 30),
                 {"repair_orders_total": 31, "repair_orders_returned": 8 if mobile else 30},
                 "НЕТ ДАННЫХ",
+                True,
             ),
-            (["0"], {"repair_orders_total": 2, "repair_orders_returned": 2}, "НЕТ ДАННЫХ"),
-            (["0"], {}, "НЕТ ДАННЫХ"),
+            (["0"], {"repair_orders_total": 2, "repair_orders_returned": 2}, "НЕТ ДАННЫХ", False),
+            (["0"], {}, "НЕТ ДАННЫХ", False),
             (
                 ["0"],
                 {
@@ -74,6 +79,7 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
                     "read_warnings": ["related_card_client_match_unverified"],
                 },
                 "НЕТ ДАННЫХ",
+                True,
             ),
             (
                 ["0"],
@@ -83,6 +89,7 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
                     "read_warnings": ["repair_order_row_identity_unverified"],
                 },
                 "НЕТ ДАННЫХ",
+                True,
             ),
             (
                 ["0"],
@@ -92,6 +99,7 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
                     "read_warnings": ["repair_order_payment_identity_unverified"],
                 },
                 "НЕТ ДАННЫХ",
+                True,
             ),
             (
                 ["0"],
@@ -101,17 +109,29 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
                     "read_warnings": ["deadline_calculated_from_created_at"],
                 },
                 "0 ₽",
+                True,
             ),
-            ([None], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ"),
-            (["broken 100"], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ"),
-            (["1.001"], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ"),
+            ([None], {"repair_orders_total": 1, "repair_orders_returned": 1}, "НЕТ ДАННЫХ", True),
+            (
+                ["broken 100"],
+                {"repair_orders_total": 1, "repair_orders_returned": 1},
+                "НЕТ ДАННЫХ",
+                True,
+            ),
+            (
+                ["1.001"],
+                {"repair_orders_total": 1, "repair_orders_returned": 1},
+                "НЕТ ДАННЫХ",
+                True,
+            ),
             (
                 ["90071992547409.92"],
                 {"repair_orders_total": 1, "repair_orders_returned": 1},
                 "НЕТ ДАННЫХ",
+                True,
             ),
         )
-        for amounts, meta, expected in cases:
+        for amounts, meta, expected, expected_valid in cases:
             with self.subTest(mobile=mobile, amounts=amounts, meta=meta):
                 data["repair_orders"] = [
                     {
@@ -123,16 +143,46 @@ class ClientDebtBrowserTests(UiBrowserTestCase):
                     }
                     for index, amount in enumerate(amounts)
                 ]
-                data["meta"] = deepcopy(meta)
+                data["meta"] = {
+                    "vehicles_total": len(data["vehicles"]),
+                    "order_limit": 8 if mobile else 30,
+                    **deepcopy(meta),
+                }
+                data["client"]["stats"]["vehicles_total"] = len(data["vehicles"])
+                data["client"]["stats"]["repair_orders_total"] = meta.get("repair_orders_total")
+                self.assertEqual(
+                    self.page.evaluate("profile => clientDebtAmountText(profile)", data), expected
+                )
+                actual_valid = self.page.evaluate(
+                    "args => clientProfileReadValid(args.profile, args.id, args.limit)",
+                    {"profile": data, "id": client_id, "limit": 8 if mobile else 30},
+                )
+                self.assertEqual(actual_valid, expected_valid)
+                self.page.evaluate("setStatus('', false)")
                 with self.page.expect_response("**/api/get_client?**"):
                     row.click()
+                if not expected_valid:
+                    self.page.wait_for_function(
+                        "document.querySelector('#statusLine').textContent.includes('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН')"
+                    )
+                    if mobile:
+                        self.assertEqual(debt.count(), 0)
+                    else:
+                        self.assertFalse(debt.is_visible())
+                    continue
                 self.page.wait_for_function(
                     "id => state.clientsActiveProfile?.client?.id === id", arg=client_id
                 )
                 self.assertEqual(debt.inner_text(), expected)
 
         data["repair_orders"] = [{"card_id": "synthetic", "due_total": "125"}]
-        data["meta"] = {"repair_orders_total": 1, "repair_orders_returned": 1}
+        data["meta"] = {
+            "repair_orders_total": 1,
+            "repair_orders_returned": 1,
+            "vehicles_total": len(data["vehicles"]),
+            "order_limit": 8 if mobile else 30,
+        }
+        data["client"]["stats"]["repair_orders_total"] = 1
         with self.page.expect_response("**/api/get_client?**"):
             row.click()
         self.assertEqual(debt.inner_text(), "125 ₽")

@@ -329,10 +329,15 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         )
 
     def test_suggestion_requires_verified_hydration_and_does_not_reuse_empty_preview(self) -> None:
+        client_id = self.runtime.service.create_client({"display_name": "SYNTHETIC PREVIEW"})[
+            "client"
+        ]["id"]
+        profile = self.runtime.service.get_client({"client_id": client_id, "order_limit": 5})
         self.load_board()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(
+            """async (profile) => {
           const original = api;
-          const client = {id: 'synthetic-preview', vehicles_preview: [{id: 'preview-id', vehicle: 'PREVIEW'}]};
+          const client = {id: profile.client.id, vehicles_preview: [{id: 'preview-id', vehicle: 'PREVIEW'}]};
           state.clientSuggestions = [client];
           state.clientSuggestionProfiles = {};
           state.pendingCardClientId = '';
@@ -340,12 +345,14 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             api = async () => { throw new Error('SYNTHETIC HYDRATION FAILURE'); };
             await chooseClientSuggestion(client.id, clientSuggestionVehicleKey(client.vehicles_preview[0]));
             const afterFailure = state.pendingCardClientId;
-            api = async () => ({client: {id: client.id}, vehicles: []});
+            api = async () => profile;
             await chooseClientSuggestion(client.id, clientSuggestionVehicleKey(client.vehicles_preview[0]));
             return {afterFailure, afterEmpty: state.pendingCardClientId,
               visibleVehicles: clientSuggestionVehicles(client).length};
           } finally { api = original; }
-        }""")
+        }""",
+            profile,
+        )
         self.assertEqual(result, {"afterFailure": "", "afterEmpty": "", "visibleVehicles": 0})
         self.assertNotIn("upsert_client_vehicle", self.writes)
         self.assertNotIn("link_card_to_client", self.writes)

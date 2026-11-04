@@ -194,8 +194,8 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # Includes mobile drafts, identity checks and list response validation.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 953_650)
+        # Includes mobile drafts, identity checks and response completeness validation.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 954_500)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]

@@ -4326,13 +4326,20 @@
       return data;
     }
 
-    function clientProfileReadValid(data, clientId) {
-      const client = data?.client;
+    function clientProfileReadValid(data, clientId, orderLimit = 30) {
+      const client = data?.client, meta = data?.meta;
       return Boolean(client && client.id === clientId
         && 'client_type last_name first_name middle_name display_name phone email comment legal_name short_name inn kpp ogrn checking_account bank_name bik correspondent_account legal_address actual_address contact_person contact_position created_at updated_at'.split(' ').every((key) => typeof client[key] === 'string')
         && Array.isArray(client.phones) && client.phones.every((value) => typeof value === 'string')
         && Array.isArray(client.emails) && client.emails.every((value) => typeof value === 'string')
-        && Array.isArray(client.vehicles) && Array.isArray(data.vehicles) && Array.isArray(data.repair_orders));
+        && Array.isArray(client.vehicles) && Array.isArray(data.vehicles) && Array.isArray(data.repair_orders)
+        && meta && typeof meta === 'object' && !Array.isArray(meta) && meta.order_limit === orderLimit
+        && [meta.repair_orders_total, meta.repair_orders_returned, meta.vehicles_total].every((value) => Number.isSafeInteger(value) && value >= 0)
+        && meta.vehicles_total === data.vehicles.length && meta.repair_orders_returned === data.repair_orders.length
+        && meta.repair_orders_returned === Math.min(meta.repair_orders_total, orderLimit)
+        && client.stats && typeof client.stats === 'object' && !Array.isArray(client.stats)
+        && client.stats.vehicles_total === meta.vehicles_total && client.stats.repair_orders_total === meta.repair_orders_total
+        && (meta.read_warnings === undefined || (Array.isArray(meta.read_warnings) && meta.read_warnings.every((warning) => typeof warning === 'string'))));
     }
 
     async function selectClient(clientId) {
@@ -5005,7 +5012,7 @@
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(clientId) + '&order_limit=5');
         if (!isCurrent()) return false;
-        if (data?.client?.id !== clientId || !Array.isArray(data?.vehicles)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
+        if (!clientProfileReadValid(data, clientId, 5)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
         state.clientSuggestionProfiles = { ...(state.clientSuggestionProfiles || {}), [clientId]: data };
         renderClientSuggestions(state.clientSuggestions, { query: state.clientSuggestionQuery, showEmpty: true });
         return true;
@@ -7944,7 +7951,7 @@
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=8');
         if (!isCurrent()) return;
-        if (!clientProfileReadValid(data, normalizedId)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
+        if (!clientProfileReadValid(data, normalizedId, 8)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
         state.clientsActiveProfile = data || null;
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
