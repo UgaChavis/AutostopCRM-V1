@@ -236,7 +236,9 @@ assert.notEqual(renderBoardCardHtml(card),renderBoardCardHtml({...card,title:'Ch
     def test_client_selection_responses_and_errors_belong_to_current_selection(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
         desktop = section(
-            source, "    async function selectClient(", "    function activeClientVehicles("
+            source,
+            "    function beginClientProfileSelection(",
+            "    function activeClientVehicles(",
         )
         mobile = section(
             source,

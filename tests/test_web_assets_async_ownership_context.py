@@ -676,7 +676,7 @@ function openTextBlobWindow(text,fileName){downloads.push({text,fileName});}
         source = SOURCE.read_text(encoding="utf-8")
         select_client = section(
             source,
-            "    async function selectClient(",
+            "    function beginClientProfileSelection(",
             "    function activeClientVehicles(",
         )
         self.run_node(

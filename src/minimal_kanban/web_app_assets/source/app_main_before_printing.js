@@ -260,6 +260,7 @@
       clientsSearchTimer: null,
       clientsRequestSeq: 0,
       clientsProfileRequestSeq: 0,
+      clientsProfileSelectionRequest: null,
       clientsMetaState: null,
       clientsDraftBaseline: '',
       clientsDraftRevision: null,
@@ -2706,6 +2707,7 @@
       if (els.sharedFilesContextMenu) els.sharedFilesContextMenu.hidden = true;
       state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.clientsProfileSelectionRequest = null;
       if (state.clientsSearchTimer) window.clearTimeout(state.clientsSearchTimer);
       if (state.mobileClientsSearchTimer) window.clearTimeout(state.mobileClientsSearchTimer);
       if (state.clientSuggestTimer) window.clearTimeout(state.clientSuggestTimer);
@@ -4381,6 +4383,21 @@
         && (meta.read_warnings === undefined || (Array.isArray(meta.read_warnings) && meta.read_warnings.every((warning) => typeof warning === 'string'))));
     }
 
+    function beginClientProfileSelection(clientId, orderLimit, requestSeq) {
+      const viewer = state.viewerStateGeneration, token = state.operatorSessionToken;
+      const request = { clientId, orderLimit };
+      request.owns = () => state.clientsProfileSelectionRequest === request && state.viewerStateGeneration === viewer && state.clientsProfileRequestSeq === requestSeq && state.clientsActiveId === clientId;
+      request.isCurrent = () => request.owns() && state.operatorSessionToken === token;
+      state.clientsProfileSelectionRequest = request;
+      return request;
+    }
+
+    function clientProfileSelectionPending(clientId, orderLimit) {
+      const request = state.clientsProfileSelectionRequest;
+      return Boolean(request && request.clientId === String(clientId || '').trim()
+        && request.orderLimit === orderLimit && request.isCurrent());
+    }
+
     async function selectClient(clientId) {
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
@@ -4388,8 +4405,8 @@
       const requestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = requestSeq;
       state.clientsActiveId = normalizedId;
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.clientsProfileRequestSeq === requestSeq && state.clientsActiveId === normalizedId;
+      const request = beginClientProfileSelection(normalizedId, 30, requestSeq);
+      const isCurrent = request.isCurrent;
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=30');
         if (!isCurrent()) return;
@@ -4403,6 +4420,12 @@
           if (els.clientProfilePhone) els.clientProfilePhone.textContent = 'ВЫБЕРИТЕ КЛИЕНТА ПОВТОРНО';
           setStatus(error.message, true);
         }
+      } finally {
+        if (request.owns() && !isCurrent()) {
+          if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'ПРОФИЛЬ НЕ ЗАГРУЖЕН';
+          if (els.clientProfilePhone) els.clientProfilePhone.textContent = 'ВЫБЕРИТЕ КЛИЕНТА ПОВТОРНО';
+        }
+        if (state.clientsProfileSelectionRequest === request) state.clientsProfileSelectionRequest = null;
       }
     }
 
@@ -4536,7 +4559,7 @@
           setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
           return;
         }
-        if (protectClientDraft()) return;
+        if (clientProfileSelectionPending(row.dataset.clientId, 30) || protectClientDraft()) return;
         selectClient(row.dataset.clientId);
       }
     }
@@ -7976,8 +7999,8 @@
       const requestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = requestSeq;
       state.clientsActiveId = normalizedId;
-      const viewerStateGeneration = state.viewerStateGeneration;
-      const isCurrent = () => state.viewerStateGeneration === viewerStateGeneration && state.clientsProfileRequestSeq === requestSeq && state.clientsActiveId === normalizedId;
+      const request = beginClientProfileSelection(normalizedId, 8, requestSeq);
+      const isCurrent = request.isCurrent;
       state.mobileClientProfileLoading = true;
       renderMobileClientsPanel();
       try {
@@ -7988,10 +8011,11 @@
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
       } finally {
-        if (isCurrent()) {
+        if (request.owns()) {
           state.mobileClientProfileLoading = false;
           renderMobileClientsPanel();
         }
+        if (state.clientsProfileSelectionRequest === request) state.clientsProfileSelectionRequest = null;
       }
     }
 
@@ -8046,6 +8070,7 @@
       const clientButton = target.closest('[data-mobile-client-id]');
       if (clientButton && els.mobileClientsPanel?.contains(clientButton)) {
         event.preventDefault();
+        if (clientProfileSelectionPending(clientButton.getAttribute('data-mobile-client-id'), 8)) return;
         loadMobileClientProfile(clientButton.getAttribute('data-mobile-client-id'));
       }
     }
