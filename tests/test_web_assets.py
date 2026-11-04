@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # The safety budget covers executor names and ISO date validation.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 918_500)
+        # The safety budget covers ISO dates, executor names and client read errors.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 920_500)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -2984,7 +2984,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("compactPhoneLine(client, '')", client_row_chips_fragment)
         self.assertIn("'ЗН: ' + stats.repair_orders_total", client_row_chips_fragment)
         self.assertIn("'АВТО: ' + stats.vehicles_total", client_row_chips_fragment)
-        self.assertIn("'ПОСЛЕДНИЙ: ' + formatDate(stats.last_visit)", client_row_chips_fragment)
+        self.assertIn(
+            "'ПОСЛЕДНИЙ: ' + clientLastVisit(stats.last_visit)", client_row_chips_fragment
+        )
         self.assertIn(
             "clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);",
             BOARD_WEB_APP_HTML,
@@ -3083,13 +3085,20 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("window.setTimeout(refreshClientSuggestionsForCard, 450)", BOARD_WEB_APP_HTML)
         self.assertIn("function clientSuggestionVehicleKey(vehicle)", BOARD_WEB_APP_HTML)
-        self.assertIn("return cardId ? ('card:' + cardId) : '';", BOARD_WEB_APP_HTML)
+        vehicle_key = BOARD_WEB_APP_HTML.split("function clientSuggestionVehicleKey(vehicle)", 1)[
+            1
+        ].split("function clientSuggestionVehicleMergeKey", 1)[0]
+        self.assertIn("if (cardId) return 'c:' + cardId;", vehicle_key)
+        self.assertIn("return id ? ('v:' + id) : '';", vehicle_key)
         self.assertIn(
             "function findClientSuggestionVehicle(vehicles, vehicleKey = '')", BOARD_WEB_APP_HTML
         )
         self.assertIn("async function ensureStableClientSuggestionVehicle(", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/upsert_client_vehicle'", BOARD_WEB_APP_HTML)
-        self.assertIn("await loadClientSuggestionVehicles(clientId, context);", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (!await loadClientSuggestionVehicles(clientId, context) || !context.isCurrent()) return;",
+            BOARD_WEB_APP_HTML,
+        )
         self.assertIn(
             "selectedVehicle = await ensureStableClientSuggestionVehicle(clientId, selectedVehicle, context);",
             BOARD_WEB_APP_HTML,
@@ -3518,7 +3527,11 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("localStorage.removeItem(ACTOR_STORAGE_KEY", BOARD_WEB_APP_HTML)
         self.assertNotIn("Legacy pre-session operator", BOARD_WEB_APP_HTML)
         self.assertNotIn("legacy-operator-unused", BOARD_WEB_APP_HTML)
-        self.assertNotIn("sessionStorage.setItem", BOARD_WEB_APP_HTML)
+        # Session storage contains only markers for uncertain vehicle creation, never session data.
+        self.assertEqual(
+            re.findall(r"\bsessionStorage\.setItem\(([^)]*)\)", BOARD_WEB_APP_HTML),
+            ["key, '1'", "effect.key, '1'"],
+        )
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorAdminModal"', BOARD_WEB_APP_HTML)

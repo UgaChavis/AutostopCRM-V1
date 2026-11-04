@@ -247,6 +247,7 @@
       },
       clients: [],
       clientsLoaded: false,
+      clientsLoadError: false,
       clientsQuery: '',
       clientsActiveId: '',
       clientsActiveProfile: null,
@@ -2707,6 +2708,7 @@
       state.clientSuggestTimer = null;
       state.clients = [];
       state.clientsLoaded = false;
+      state.clientsLoadError = false;
       state.clientsQuery = '';
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
@@ -3475,9 +3477,11 @@
       const normalizedKey = String(key || '').trim();
       if (!normalizedKey) return;
       if (normalizedKey === 'clients' && !options.keepOpen) {
-        window.clearTimeout(state.clientsSearchTimer);
-        state.clientsSearchTimer = null;
-        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        if (!state.mobileClientsLoading) {
+          window.clearTimeout(state.clientsSearchTimer);
+          state.clientsSearchTimer = null;
+          state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        }
         if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
       }
@@ -3497,9 +3501,11 @@
       const normalizedKey = String(closeKey || '').trim();
       if (!normalizedKey) return false;
       if (normalizedKey === 'clients') {
-        window.clearTimeout(state.clientsSearchTimer);
-        state.clientsSearchTimer = null;
-        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        if (!state.mobileClientsLoading) {
+          window.clearTimeout(state.clientsSearchTimer);
+          state.clientsSearchTimer = null;
+          state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        }
         if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
       }
@@ -4234,6 +4240,7 @@
       const viewerStateGeneration = state.viewerStateGeneration;
       const isCurrentRequest = () => state.clientsRequestSeq === requestSeq && state.viewerStateGeneration === viewerStateGeneration;
       state.clientsMetaState = null;
+      state.clientsLoadError = false;
       if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
       const path = query
         ? '/api/search_clients?query=' + encodeURIComponent(query) + '&limit=' + CLIENTS_SEARCH_LIMIT
@@ -4251,12 +4258,16 @@
           renderClientsList();
         },
         onError: (error) => {
+          state.clientsLoaded = false;
+          state.clientsLoadError = true;
           if (els.clientsModal?.classList.contains('is-open')) {
             setModalListError(els.clientsMeta, els.clientsList, 'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', error.message);
           }
         },
       });
       if (!isCurrentRequest()) return data;
+      state.mobileClientsLoading = false;
+      if (state.mobileView === 'more' && state.mobileMorePanel === 'clients') renderMobileClientsPanel();
       if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
         renderClientProfileEmptyState();
       }
@@ -4488,6 +4499,9 @@
       els.clientsList?.addEventListener('click', handleClientsListClick);
       els.clientsSearchInput?.addEventListener('input', () => {
         const query = String(els.clientsSearchInput?.value || '').trim();
+        window.clearTimeout(state.mobileClientsSearchTimer);
+        state.mobileClientsSearchTimer = null;
+        if (state.mobileMorePanel === 'clients') state.mobileClientsLoading = true;
         state.clientsQuery = query;
         state.clientsLoaded = false;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
@@ -7367,6 +7381,10 @@
         els.mobileClientsList.innerHTML = '<div class="mobile-empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
         return;
       }
+      if (state.clientsLoadError) {
+        els.mobileClientsList.innerHTML = '<div class="mobile-empty">НЕ УДАЛОСЬ ЗАГРУЗИТЬ КЛИЕНТОВ. ПОВТОРИТЕ ПОИСК ИЛИ ОТКРОЙТЕ СПИСОК СНОВА.</div>';
+        return;
+      }
       if (!clients.length) {
         els.mobileClientsList.innerHTML = '<div class="mobile-empty">КЛИЕНТЫ НЕ НАЙДЕНЫ.</div>';
         return;
@@ -7387,6 +7405,10 @@
 
     function renderMobileClientDetail() {
       if (!els.mobileClientDetail) return;
+      if (state.clientsLoadError) {
+        els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ПРОФИЛЬ СКРЫТ ИЗ-ЗА ОШИБКИ ЗАГРУЗКИ КЛИЕНТОВ.</div>';
+        return;
+      }
       if (state.mobileClientProfileLoading) {
         els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ЗАГРУЗКА ПРОФИЛЯ...</div>';
         return;
@@ -7448,6 +7470,12 @@
       if (els.mobileClientsPanel) els.mobileClientsPanel.hidden = !isOpen;
       syncMobileMorePanelChrome();
       if (!isOpen) return;
+      if (!state.mobileClientsLoading && String(els.mobileClientsSearchInput?.value || '').trim() !== String(state.clientsQuery || '').trim()) {
+        if (els.mobileClientsMeta) els.mobileClientsMeta.textContent = 'ПОИСК НЕ ОБНОВЛЁН';
+        if (els.mobileClientsList) els.mobileClientsList.innerHTML = '<div class="mobile-empty">ИЗМЕНИТЕ ЗАПРОС ИЛИ ОТКРОЙТЕ СПИСОК СНОВА.</div>';
+        if (els.mobileClientDetail) els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__empty">ПРОФИЛЬ СКРЫТ.</div>';
+        return;
+      }
       const clients = Array.isArray(state.clients) ? state.clients : [];
       const meta = state.clientsMetaState || {};
       const total = finiteNumber(meta.total, NaN);
@@ -7455,6 +7483,8 @@
       if (els.mobileClientsMeta) {
         if (state.mobileClientsLoading) {
           els.mobileClientsMeta.textContent = 'ЗАГРУЗКА...';
+        } else if (state.clientsLoadError) {
+          els.mobileClientsMeta.textContent = 'ОШИБКА ЗАГРУЗКИ';
         } else if (Number.isFinite(total)) {
           els.mobileClientsMeta.textContent = 'ПОКАЗАНО: ' + String(Number.isFinite(returned) ? returned : clients.length) + ' ИЗ ' + String(total);
         } else {
@@ -7481,7 +7511,7 @@
       try {
         await pending;
       } finally {
-        if (state.viewerStateGeneration === viewerStateGeneration && state.clientsRequestSeq === requestSeq) {
+        if (state.mobileClientsLoading && state.viewerStateGeneration === viewerStateGeneration && state.clientsRequestSeq === requestSeq) {
           state.mobileClientsLoading = false;
           renderMobileClientsPanel();
         }
@@ -7542,6 +7572,8 @@
 
     function handleMobileClientsInput() {
       const query = String(els.mobileClientsSearchInput?.value ?? '').trim();
+      window.clearTimeout(state.clientsSearchTimer);
+      state.clientsSearchTimer = null;
       state.clientsQuery = query;
       state.clientsLoaded = false;
       state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
