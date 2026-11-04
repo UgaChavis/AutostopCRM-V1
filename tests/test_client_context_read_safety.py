@@ -359,3 +359,142 @@ class ClientContextReadSafetyTests(CardServiceCase):
         result = self.service.get_client_stats({"client_id": self.client_id})
         self.assertEqual(result["client"]["vehicles"][0]["id"], self.vehicle_id)
         self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_matches_legacy_shape_and_is_detached(self):
+        self.service.create_client(
+            {
+                "client_type": "company",
+                "display_name": "SYNTHETIC ORG",
+                "vehicles": [{"vehicle": "SYNTHETIC ORG CAR"}],
+            }
+        )
+        bundle = self.store.read_bundle()
+        clients = self.service._ordered_clients(bundle["clients"])
+        before = self.snapshot()
+        for limit in (1, 2, 35):
+            with self.subTest(limit=limit):
+                expected = {
+                    "clients": [
+                        self.service._serialize_client(
+                            client,
+                            bundle["cards"],
+                            include_stats=False,
+                            compact=True,
+                            include_vehicle_preview=False,
+                        )
+                        for client in clients[:limit]
+                    ],
+                    "meta": {
+                        "total": len(clients),
+                        "returned": min(len(clients), limit),
+                        "has_more": len(clients) > limit,
+                        "include_stats": False,
+                    },
+                }
+                result = self.service.list_clients({"include_stats": False, "limit": limit})
+                self.assertEqual(result, expected)
+        result["clients"][0]["vehicles_preview"][0]["vehicle"] = "SYNTHETIC_MUTATION"
+        self.assertNotEqual(
+            self.service.list_clients({"include_stats": False, "limit": 35})["clients"][0][
+                "vehicles_preview"
+            ][0]["vehicle"],
+            "SYNTHETIC_MUTATION",
+        )
+        self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_ignores_unrelated_damage_without_repair(self):
+        self.edit_state(
+            lambda state: (
+                state["cards"][0].update({"position": -123}),
+                state.update({"settings": "SYNTHETIC_LEGACY"}),
+            )
+        )
+        before = self.snapshot()
+        result = self.service.list_clients({"include_stats": False, "limit": 35})
+        self.assertEqual(result["meta"]["total"], 1)
+        self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_rejects_invalid_identities_without_repair(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for scenario in (
+            "duplicate_client",
+            "missing_client_id",
+            "duplicate_unselected",
+            "missing_unselected",
+            "invalid_phones",
+            "missing_version",
+            "duplicate_vehicle",
+        ):
+            with self.subTest(scenario=scenario):
+                state = deepcopy(original)
+                client = self.selected_client(state)
+                if scenario == "duplicate_client":
+                    state["clients"].append(deepcopy(client))
+                elif scenario == "missing_client_id":
+                    client["id"] = ""
+                elif scenario in ("duplicate_unselected", "missing_unselected"):
+                    other = deepcopy(client)
+                    other.update(
+                        {
+                            "id": "synthetic-other" if scenario == "duplicate_unselected" else "",
+                            "display_name": "ZZZ SYNTHETIC",
+                        }
+                    )
+                    state["clients"].append(other)
+                    if scenario == "duplicate_unselected":
+                        state["clients"].append(deepcopy(other))
+                elif scenario == "invalid_phones":
+                    client["phones"] = 42
+                elif scenario == "missing_version":
+                    client["updated_at"] = ""
+                else:
+                    client["vehicles"].append(deepcopy(client["vehicles"][0]))
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                with self.assertRaises(StateFileCorruptedError):
+                    self.service.list_clients(
+                        {
+                            "include_stats": False,
+                            "limit": 1 if scenario.endswith("unselected") else 35,
+                        }
+                    )
+                self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_invalidates_snapshot_after_file_replace(self):
+        first = self.service.list_clients({"include_stats": False})
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        self.selected_client(state)["display_name"] = "SYNTHETIC REPLACED"
+        replacement = self.state_file.with_suffix(".synthetic-replacement")
+        replacement.write_text(json.dumps(state), encoding="utf-8")
+        replacement.replace(self.state_file)
+        before = self.snapshot()
+        second = self.service.list_clients({"include_stats": False})
+        self.assertNotEqual(
+            first["clients"][0]["display_name"], second["clients"][0]["display_name"]
+        )
+        self.assertEqual(second["clients"][0]["display_name"], "SYNTHETIC REPLACED")
+        self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_checks_sort_dates_beyond_limit(self):
+        def add_unreliable_sort_key(state):
+            other = deepcopy(self.selected_client(state))
+            other["id"] = "SYNTHETIC_OTHER_CLIENT"
+            other["created_at"] = ""
+            state["clients"].append(other)
+
+        self.edit_state(add_unreliable_sort_key)
+        before = self.snapshot()
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.list_clients({"include_stats": False, "limit": 1})
+        self.assertEqual(before, self.snapshot())
+
+    def test_compact_client_list_preserves_legacy_vehicle_id_alias(self):
+        def use_alias(state):
+            vehicle = self.selected_client(state)["vehicles"][0]
+            vehicle["client_vehicle_id"] = vehicle.pop("id")
+
+        self.edit_state(use_alias)
+        before = self.snapshot()
+        result = self.service.list_clients({"include_stats": False})
+        self.assertEqual(result["clients"][0]["vehicles"][0]["id"], self.vehicle_id)
+        self.assertEqual(before, self.snapshot())

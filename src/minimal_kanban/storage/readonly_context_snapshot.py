@@ -136,14 +136,17 @@ class ReadonlyContextSnapshot(dict):
     def require_client_identity(self, client):
         return self._source(self._clients, client.id)
 
-    def require_client(self, client):
+    def require_client_sort_key(self, client):
         source = self.require_client_identity(client)
-        if not all(
-            isinstance(source.get(field), str)
-            and source[field]
-            and source[field] == getattr(client, field)
-            for field in ("created_at", "updated_at")
-        ):
+        created_at = source.get("created_at")
+        if not isinstance(created_at, str) or not created_at or created_at != client.created_at:
+            raise StateFileCorruptedError("Недостоверная версия клиента в снимке состояния.")
+        return source
+
+    def require_client(self, client):
+        source = self.require_client_sort_key(client)
+        updated_at = source.get("updated_at")
+        if not isinstance(updated_at, str) or not updated_at or updated_at != client.updated_at:
             raise StateFileCorruptedError("Недостоверная версия клиента в снимке состояния.")
         raw_vehicles = source.get("vehicles", [])
         vehicles = _index(

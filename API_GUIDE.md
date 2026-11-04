@@ -490,8 +490,13 @@ retention. They also fail closed if duplicates of other cards make a considered
 client's archived-card membership ambiguous. Client search indexes all clients,
 so an unrelated client's collision can fail a narrower query. Profile-only
 lists do not normalize cards. Invalid source identities make the read fail closed.
-The existing `/api/search_clients` and `/api/list_clients` UI behavior remains
-unchanged.
+The ordinary `/api/list_clients` with `include_stats=false` uses a read-only
+profile snapshot while retaining its existing compact response and vehicle
+preview. It rejects invalid or duplicate client IDs and unreliable creation
+times across the list, and unreliable versions or vehicle IDs in returned
+profiles, without repairing stored data. Unrelated domains are not validated. The ordinary
+`/api/search_clients` and `/api/list_clients` with stats retain their legacy
+behavior.
 
 The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then

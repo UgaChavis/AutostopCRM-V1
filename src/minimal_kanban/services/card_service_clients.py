@@ -35,13 +35,23 @@ class CardServiceClientsMixin:
             payload = payload or {}
             limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
             include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
-            bundle = self._store.read_bundle()
+            bundle = (
+                self._store.read_bundle()
+                if include_stats
+                else self._store._read_context_bundle_snapshot(domains=("clients", "client_search"))
+            )
             clients = self._ordered_clients(bundle["clients"])
+            if not include_stats:
+                for client in clients:
+                    bundle.require_client_sort_key(client)
             selected = clients[:limit]
+            if not include_stats:
+                for client in selected:
+                    bundle.require_client(client)
             related_cards_by_client_id = (
                 self._client_related_cards_map(selected, bundle["cards"]) if include_stats else {}
             )
-            return {
+            result = {
                 "clients": [
                     self._serialize_client(
                         client,
@@ -60,6 +70,7 @@ class CardServiceClientsMixin:
                     "include_stats": include_stats,
                 },
             }
+            return result if include_stats else deepcopy(result)
 
     def search_clients(self, payload: dict | None = None) -> dict:
         with self._lock:
