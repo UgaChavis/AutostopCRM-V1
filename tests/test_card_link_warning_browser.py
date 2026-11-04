@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from tests.browser_ui_support import UiBrowserTestCase
@@ -22,16 +23,18 @@ class CardLinkWarningBrowserTests(UiBrowserTestCase):
         )
         return card_id, client, original_id
 
-    def replace_client_vehicle(self, card_id, client):
-        replacement_id = "SYNTHETIC_REPLACEMENT_" + card_id
-        client = self.runtime.service.update_client(
-            {
-                "client_id": client["id"],
-                "vehicles": [{**client["vehicles"][0], "id": replacement_id}],
-            }
-        )["client"]
-        client["vehicles_preview"] = client["vehicles"]
-        return client, replacement_id
+    def replace_client_vehicle(self, card_id, client, *, vehicle_id=None):
+        replacement_id = vehicle_id or "SYNTHETIC_REPLACEMENT_" + card_id
+        # Seed an old dangling link directly in the disposable fixture; current
+        # mutation APIs correctly reject creating this state.
+        with self.runtime.service._lock:
+            bundle = self.runtime.state_store.read_bundle()
+            stored_client = next(item for item in bundle["clients"] if item.id == client["id"])
+            stored_client.vehicles[0].id = replacement_id
+            stored_client.updated_at = datetime.now(UTC).isoformat()
+            self.runtime.state_store.write_bundle(**bundle)
+        vehicles = [{**client["vehicles"][0], "id": replacement_id}]
+        return {**client, "vehicles": vehicles, "vehicles_preview": vehicles}, replacement_id
 
     def create_stale_link(self):
         card_id, client, original_id = self.create_linked_card()
@@ -64,9 +67,7 @@ class CardLinkWarningBrowserTests(UiBrowserTestCase):
         self.page.locator("#cardModalCloseButtonTop").click()
         self.page.locator("#cardModal.is-open").wait_for(state="hidden")
 
-        self.runtime.service.update_client(
-            {"client_id": client["id"], "vehicles": client["vehicles"]}
-        )
+        self.replace_client_vehicle(card_id, client, vehicle_id=original_id)
         self.open_card(card_id)
         self.assertEqual(len(reads), before_poll + 2)
         self.assertFalse(self.page.locator("#cardLinkWarning").is_visible())
