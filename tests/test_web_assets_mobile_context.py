@@ -579,10 +579,12 @@ function normalizeRepairOrderStatus(value){return value;}
 function orderListResponse(id,status){return {
   repair_orders:[{card_id:id,status,payment_status:'unpaid',is_paid:false,status_label:status,
     payment_status_label:'unpaid',paid_total:'0',paid_total_display:'0',works_total:'0',grand_total:'0'}],
-  meta:{limit:300,total:1,returned:1,has_more:false,status},
+  meta:{limit:300,total:1,returned:1,inconsistent_total:0,has_more:false,status},
 };}
 function repairOrdersRequestPath(){return '/orders?status='+state.repairOrdersFilter;}
 function renderRepairOrders(data){state.repairOrdersItems=data.repair_orders;}
+function setRepairOrdersSearchLoading(loading){state.repairOrdersSearchLoading=loading;}
+function renderRepairOrdersView(){}
 function setModalListError(){throw new Error('unexpected current error');}
 function loadModalData(path,options){
   const task=deferred();pending.push({path,options,...task});
