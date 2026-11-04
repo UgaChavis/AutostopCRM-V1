@@ -3836,7 +3836,7 @@
       els.clientProfilePane?.classList.toggle('is-empty', empty);
     }
 
-    function renderClientProfileEmptyState() {
+    function renderClientProfileEmptyState(preserveList = false) {
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
@@ -3851,21 +3851,13 @@
       fillClientForm({ client_type: 'person', phones: [] });
       renderClientVehiclesList([]);
       if (els.clientOrdersList) els.clientOrdersList.innerHTML = '<div class="empty">ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ ЗАКАЗ-НАРЯДЫ.</div>';
-      renderClientsList();
+      if (preserveList && state.clientsLoaded && !state.clientsLoadError) {
+        renderClientsMeta(Array.isArray(state.clients) ? state.clients : []);
+        els.clientsList?.querySelectorAll('.client-row.is-active').forEach((row) => row.classList.remove('is-active'));
+      } else renderClientsList();
     }
 
-    function renderClientsList() {
-      if (state.clientsLoadError) {
-        if (els.clientsMeta && els.clientsList) setModalListError(els.clientsMeta, els.clientsList,
-          'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', 'ПОВТОРИТЕ ПОИСК ИЛИ ОТКРОЙТЕ СПИСОК СНОВА.');
-        return;
-      }
-      if (!state.clientsLoaded) {
-        if (els.clientsMeta) els.clientsMeta.textContent = state.clientsQuery ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
-        if (els.clientsList) els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
-        return;
-      }
-      const clients = Array.isArray(state.clients) ? state.clients : [];
+    function renderClientsMeta(clients) {
       if (els.clientsMeta) {
         const meta = state.clientsMetaState || {};
         const total = finiteNumber(meta.total, NaN);
@@ -3887,6 +3879,21 @@
           els.clientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
         }
       }
+    }
+
+    function renderClientsList() {
+      if (state.clientsLoadError) {
+        if (els.clientsMeta && els.clientsList) setModalListError(els.clientsMeta, els.clientsList,
+          'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', 'ПОВТОРИТЕ ПОИСК ИЛИ ОТКРОЙТЕ СПИСОК СНОВА.');
+        return;
+      }
+      if (!state.clientsLoaded) {
+        if (els.clientsMeta) els.clientsMeta.textContent = state.clientsQuery ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
+        if (els.clientsList) els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
+        return;
+      }
+      const clients = Array.isArray(state.clients) ? state.clients : [];
+      renderClientsMeta(clients);
       if (!els.clientsList) return;
       if (!clients.length) {
         els.clientsList.innerHTML = '<div class="empty">КЛИЕНТЫ НЕ НАЙДЕНЫ.</div>';
@@ -4359,7 +4366,7 @@
     async function selectClient(clientId) {
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
-      if (typeof renderClientProfileEmptyState === 'function') renderClientProfileEmptyState();
+      if (typeof renderClientProfileEmptyState === 'function') renderClientProfileEmptyState(true);
       const requestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.clientsProfileRequestSeq = requestSeq;
       state.clientsActiveId = normalizedId;

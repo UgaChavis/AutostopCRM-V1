@@ -1441,7 +1441,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("client-row__name", BOARD_WEB_APP_HTML)
         self.assertIn("client-row__chips", BOARD_WEB_APP_HTML)
         self.assertIn('aria-label="Клиент ', BOARD_WEB_APP_HTML)
-        self.assertIn("function renderClientProfileEmptyState()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderClientProfileEmptyState(", BOARD_WEB_APP_HTML)
 
         self.assertIn("function employeeRowAriaLabel(employee, summaryValue)", BOARD_WEB_APP_HTML)
         self.assertNotIn("employees-row__scanline", BOARD_WEB_APP_HTML)
