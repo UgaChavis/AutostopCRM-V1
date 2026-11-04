@@ -3743,6 +3743,10 @@
         && client.read_warnings.includes('related_card_client_match_unverified');
     }
 
+    function clientLastVisit(value) {
+      return /^\d{1,2}\.\d{1,2}\.\d{2}(?:\d{2})?(?:[,\s]|$)/.test(value) ? value : formatDate(value);
+    }
+
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
@@ -3750,7 +3754,7 @@
       if (phonesLine) parts.push(phonesLine);
       if (stats.repair_orders_total !== undefined) parts.push('ЗН: ' + stats.repair_orders_total);
       if (stats.vehicles_total !== undefined) parts.push('авто: ' + stats.vehicles_total);
-      if (stats.last_visit) parts.push('последний: ' + formatDate(stats.last_visit));
+      if (stats.last_visit) parts.push('последний: ' + clientLastVisit(stats.last_visit));
       if (clientHasUnverifiedLinks(client)) parts.push('СТАТИСТИКА НЕ ПОДТВЕРЖДЕНА');
       return parts.join(' · ') || 'нет данных';
     }
@@ -3765,7 +3769,7 @@
       ];
       if (stats.repair_orders_total !== undefined) parts.push('заказ-нарядов ' + stats.repair_orders_total);
       if (stats.vehicles_total !== undefined) parts.push('автомобилей ' + stats.vehicles_total);
-      if (stats.last_visit) parts.push('последний визит ' + formatDate(stats.last_visit));
+      if (stats.last_visit) parts.push('последний визит ' + clientLastVisit(stats.last_visit));
       if (clientHasUnverifiedLinks(client)) parts.push('статистика не подтверждена');
       return parts.filter(Boolean).join('. ');
     }
@@ -3775,7 +3779,7 @@
       const chips = [
         stats.repair_orders_total !== undefined ? ('ЗН: ' + stats.repair_orders_total) : '',
         stats.vehicles_total !== undefined ? ('АВТО: ' + stats.vehicles_total) : '',
-        stats.last_visit ? ('ПОСЛЕДНИЙ: ' + formatDate(stats.last_visit)) : '',
+        stats.last_visit ? ('ПОСЛЕДНИЙ: ' + clientLastVisit(stats.last_visit)) : '',
       ].filter(Boolean);
       return chips.length
         ? '<div class="client-row__chips">' + chips.map((item) => '<span class="client-row__chip" title="' + escapeHtml(item) + '">' + escapeHtml(item) + '</span>').join('') + '</div>'

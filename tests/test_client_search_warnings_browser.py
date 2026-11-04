@@ -20,6 +20,7 @@ class ClientSearchWarningsBrowserTests(UiBrowserTestCase):
                 "card_id": self.card_id,
                 "repair_order": {
                     "client": name,
+                    "opened_at": "04.11.2026 19:30",
                     "works": [{"name": "SYNTHETIC WORK", "quantity": "1", "price": "100"}],
                 },
             }
@@ -39,6 +40,8 @@ class ClientSearchWarningsBrowserTests(UiBrowserTestCase):
         legacy = self.page.locator(f'#clientsList [data-client-id="{self.client_id}"]')
         certain = self.page.locator(f'#clientsList [data-client-id="{self.certain_id}"]')
         self.assertIn("ЗН: 1", legacy.inner_text())
+        self.assertIn("04.11.2026 19:30", legacy.inner_text())
+        self.assertIn("04.11.2026 19:30", legacy.get_attribute("aria-label"))
         self.assertIn("СТАТИСТИКА НЕ ПОДТВЕРЖДЕНА", legacy.inner_text())
         self.assertIn("статистика не подтверждена", legacy.get_attribute("aria-label"))
         self.assertNotIn("НЕ ПОДТВЕРЖДЕНА", certain.inner_text())
@@ -69,6 +72,7 @@ class ClientSearchWarningsBrowserTests(UiBrowserTestCase):
             f'#mobileClientsList [data-mobile-client-id="{self.certain_id}"]'
         )
         self.assertIn("ЗН: 1", legacy.inner_text())
+        self.assertIn("04.11.2026 19:30", legacy.inner_text())
         self.assertIn("СТАТИСТИКА НЕ ПОДТВЕРЖДЕНА", legacy.inner_text())
         self.assertNotIn("НЕ ПОДТВЕРЖДЕНА", certain.inner_text())
         legacy.click()
