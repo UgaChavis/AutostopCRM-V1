@@ -697,7 +697,7 @@ class CardService(
                     vehicle_record = self._add_client_vehicle_from_card(
                         client, card, clients, cards
                     )
-                    client.updated_at = utc_now_iso()
+                    self._touch_client(client)
                     card.client_vehicle_id = vehicle_record.id
                 elif client_vehicle_id:
                     vehicle_record = self._find_client_vehicle(client, client_vehicle_id)

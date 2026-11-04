@@ -4,7 +4,7 @@ import re
 import uuid
 from collections import Counter
 from copy import copy, deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -17,7 +17,9 @@ from ..models import (
     _parse_repair_order_seconds,
     normalize_text,
     parse_business_datetime,
+    parse_datetime,
     short_entity_id,
+    utc_now,
     utc_now_iso,
 )
 from ..repair_order import REPAIR_ORDER_STATUS_CLOSED
@@ -35,6 +37,22 @@ def _prepared_search_variant(variant: str) -> tuple[tuple[str, ...], str]:
 
 
 class CardServiceClientsMixin:
+    def _touch_client(self, client: ClientProfile) -> None:
+        previous = parse_datetime(client.updated_at)
+        try:
+            previous = previous.astimezone(UTC) if previous is not None else None
+            moment = utc_now()
+            if previous is not None and moment <= previous:
+                moment = previous + timedelta(microseconds=1)
+        except (OverflowError, ValueError):
+            self._fail(
+                "client_revision_invalid",
+                "Не удалось обновить версию клиента. Проверьте данные профиля.",
+                status_code=409,
+                details={"client_id": client.id},
+            )
+        client.updated_at = moment.isoformat()
+
     def list_clients(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
@@ -478,17 +496,33 @@ class CardServiceClientsMixin:
     def update_client(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
+            expected_updated_at = payload.get("expected_updated_at")
+            if "expected_updated_at" in payload and (
+                not isinstance(expected_updated_at, str) or not expected_updated_at.strip()
+            ):
+                self._fail(
+                    "validation_error",
+                    "Передайте точную непустую версию клиента.",
+                    details={"field": "expected_updated_at"},
+                )
             bundle = self._read_bundle_for_update()
             clients = list(bundle["clients"])
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             client = self._find_client(clients, payload.get("client_id") or payload.get("id"))
+            if expected_updated_at is not None and expected_updated_at != client.updated_at:
+                self._fail(
+                    "client_update_conflict",
+                    "Клиент уже изменён. Обновите профиль и повторите действие.",
+                    status_code=409,
+                    details={"client_id": client.id},
+                )
             before = client.to_storage_dict()
             merged = {**before, **self._client_patch_payload(payload)}
             merged["id"] = client.id
             merged["created_at"] = client.created_at
-            merged["updated_at"] = utc_now_iso()
             next_client = ClientProfile.from_dict(merged)
+            self._touch_client(next_client)
             existing_ids = {vehicle.id for vehicle in client.vehicles}
             next_ids = {vehicle.id for vehicle in next_client.vehicles}
             self._validate_client_vehicle_alias_collisions(
@@ -577,7 +611,7 @@ class CardServiceClientsMixin:
             clients_changed = False
             if create_vehicle_from_card:
                 vehicle = self._add_client_vehicle_from_card(client, card, clients, cards)
-                client.updated_at = utc_now_iso()
+                self._touch_client(client)
                 client_vehicle_id = vehicle.id
                 clients_changed = True
             elif client_vehicle_id:
@@ -739,7 +773,7 @@ class CardServiceClientsMixin:
                 else []
             )
             if changed or synced_card_ids:
-                client.updated_at = utc_now_iso()
+                self._touch_client(client)
                 if changed:
                     self._append_event(
                         events,
@@ -875,7 +909,7 @@ class CardServiceClientsMixin:
                     card_id=card.id,
                     details={"client_id": client.id, "client_vehicle_id": vehicle.id},
                 )
-            client.updated_at = utc_now_iso()
+            self._touch_client(client)
             self._append_event(
                 events,
                 actor_name=actor_name,
@@ -2814,5 +2848,5 @@ class CardServiceClientsMixin:
         if merged.to_dict() == existing.to_dict():
             return False
         self._replace_client_vehicle(client, merged)
-        client.updated_at = utc_now_iso()
+        self._touch_client(client)
         return True

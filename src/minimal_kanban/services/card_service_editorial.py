@@ -5,9 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from datetime import timedelta
 
-from ..models import ClientVehicle, parse_datetime, utc_now
+from ..models import ClientVehicle
 from ..repair_order import REPAIR_ORDER_ROW_NAME_LIMIT
 from ..vehicle_profile import VEHICLE_ALL_FIELDS, normalize_vehicle_field_names
 
@@ -154,11 +153,7 @@ class CardServiceEditorialMixin:
         changed = before != after
         if changed:
             self._replace_client_vehicle(client, vehicle)
-            moment = utc_now()
-            previous = parse_datetime(client.updated_at)
-            if previous is not None and moment <= previous:
-                moment = previous + timedelta(microseconds=1)
-            client.updated_at = moment.isoformat()
+            self._touch_client(client)
             self._append_event(
                 events,
                 actor_name=actor_name,
