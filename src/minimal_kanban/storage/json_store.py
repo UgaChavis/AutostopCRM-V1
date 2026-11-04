@@ -206,6 +206,65 @@ def _validate_cash_transaction_write_ids(transactions: Any) -> None:
         raise ValueError("Идентификаторы кассовых движений неоднозначны.")
 
 
+def _validate_financial_reference(
+    value: Any, *, required: bool = False, single_line: bool = False
+) -> None:
+    text = value.strip() if isinstance(value, str) else str(value or "").strip()
+    if required and not text:
+        raise StateFileCorruptedError("Финансовый идентификатор поврежден.")
+    if len(text) > 128 and (not single_line or len(" ".join(text.split())) > 128):
+        raise StateFileCorruptedError("Финансовый идентификатор поврежден.")
+
+
+def _validate_payment_reference_lengths(order: dict[str, Any]) -> None:
+    payments = order.get("payments", order.get("payment_history"))
+    if not isinstance(payments, list):
+        return
+    for payment in payments:
+        if not isinstance(payment, dict):
+            continue
+        for name, alias in (
+            ("cashbox_id", "cashboxId"),
+            ("cash_transaction_id", "cashTransactionId"),
+        ):
+            value = payment.get(name, payment.get(alias))
+            _validate_financial_reference(value, single_line=True)
+
+
+def _validate_raw_financial_references(state: dict[str, Any]) -> None:
+    for transaction in state.get("cash_transactions", []):
+        for name in ("id", "cashbox_id", "related_transaction_id", "transfer_group_id"):
+            _validate_financial_reference(
+                transaction.get(name), required=name in {"id", "cashbox_id"}
+            )
+    for cashbox in state.get("cashboxes", []):
+        _validate_financial_reference(cashbox.get("id"), required=True)
+    for card in state.get("cards", []):
+        order = card.get("repair_order")
+        if isinstance(order, dict):
+            _validate_payment_reference_lengths(order)
+
+
+def _validate_financial_write_references(cards: Any, cashboxes: Any, transactions: Any) -> None:
+    try:
+        for item in transactions or []:
+            if isinstance(item, CashTransaction):
+                for name in ("id", "cashbox_id", "related_transaction_id", "transfer_group_id"):
+                    _validate_financial_reference(
+                        getattr(item, name), required=name in {"id", "cashbox_id"}
+                    )
+        for item in cashboxes or []:
+            if isinstance(item, CashBox):
+                _validate_financial_reference(item.id, required=True)
+        for card in cards or []:
+            if isinstance(card, Card):
+                for payment in card.repair_order.payments:
+                    _validate_financial_reference(payment.cashbox_id, single_line=True)
+                    _validate_financial_reference(payment.cash_transaction_id, single_line=True)
+    except StateFileCorruptedError as exc:
+        raise ValueError(str(exc)) from None
+
+
 def _snapshot_financial_value_is_valid(value: Any) -> bool:
     """Reject values which a repair-order normalizer would truncate or lose."""
     if value is None:
@@ -224,6 +283,7 @@ def _snapshot_financial_value_is_valid(value: Any) -> bool:
 
 
 def _validate_snapshot_financial_fields(order: dict[str, Any]) -> None:
+    _validate_payment_reference_lengths(order)
     payments = order.get("payments", order.get("payment_history"))
     for name, rows in (
         ("works", order.get("works")),
@@ -665,6 +725,7 @@ class JsonStore:
                 # failed legacy write can never be observed as persisted state.
                 self._invalidate_read_cache()
                 _validate_cash_transaction_write_ids(cash_transactions)
+                _validate_financial_write_references(cards, cashboxes, cash_transactions)
                 normalize_started_at = time.perf_counter()
                 current_state: dict[str, Any] | None = None
                 if (
@@ -780,6 +841,7 @@ class JsonStore:
                     )
                 try:
                     _validate_cash_transaction_write_ids(cash_transactions)
+                    _validate_financial_write_references(cards, cashboxes, cash_transactions)
                     normalize_started_at = time.perf_counter()
                     bundle = self._prepare_cached_bundle(
                         columns=columns,
@@ -1236,6 +1298,7 @@ class JsonStore:
                 f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             ) from None
         if preserve_corrupted:
+            _validate_raw_financial_references(payload)
             _validate_cash_transaction_ids(payload)
             self._validated_state_signature = self._state_signature()
         return payload
