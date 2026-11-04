@@ -361,7 +361,7 @@ function renderMobileShell(){}
         source = SOURCE.read_text(encoding="utf-8")
         definitions = section(
             source,
-            "    function closeMobileRepairOrderDetail()",
+            "    function closeMobileRepairOrderDetail(",
             "    function handleMobileRepairOrdersListClick(",
         )
         self.run_node(
@@ -380,14 +380,22 @@ const state={
 const els={mobileRepairOrderSaveButton:{disabled:false,textContent:''},mobileRepairOrderStatusSelect:{value:'closed'}};
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function mobileRepairOrderSummaryCard(id){return {id,repair_order:{status:'open'}};}
+function mobileCardDesktopWorkspaceBlocked(){return false;}
+function confirmMobileRepairOrderDiscard(){return true;}
+function clearMobileRepairOrderDetailDom(){}
+function mobileRepairOrderDraftSnapshot(){return '';}
+function mobileRepairOrderRowsHaveSafeIds(){return true;}
+function setMobileView(view){state.mobileView=view;return true;}
 function lockMobileRepairOrderEditor(){}
 function renderMobileShell(){}
 function renderMobileRepairOrderDetail(){}
 function ensureMobileRepairOrderPaymentCashboxes(){return Promise.resolve();}
 function cacheFullCard(card){cached.push(card);}
 function setStatus(message,isError){statuses.push({message,isError});}
-function readMobileRepairOrderDraft(){return {status:draftStatus,works:[],materials:[],payments:[]};}
+function readMobileRepairOrderDraft(){return {status:draftStatus,prepayment:'0',payment_method:'cash',works:[],materials:[],payments:[]};}
 function currentMobileRepairOrderDraft(){return {status:currentStatus};}
+function normalizeRepairOrder(order){return order;}
+function repairOrderPaymentPrefixUnchanged(previous,next){return Array.isArray(previous)&&Array.isArray(next)&&JSON.stringify(previous)===JSON.stringify(next);}
 function repairOrderPaymentsForSave(payments){return payments;}
 function normalizeRepairOrderStatus(value){return value||'open';}
 function applySavedCardLocalPatch(card){localPatches.push(card);}
@@ -399,6 +407,13 @@ function repairOrderWriteNeedsVerification(){return false;}
 function repairOrderVerificationMessage(){return 'verification pending';}
 function clearRepairOrderVerificationPending(){}
 function markRepairOrderWriteVerificationPending(){}
+function mobileCardHasRequiredFields(card){return Boolean(card?.id && card?.updated_at);}
+function operatorCanAccessEmployeesCashboxes(){return false;}
+function orderResponse(id,revision='revision'){
+  const order=Object.fromEntries('number date status opened_at closed_at client phone vehicle license_plate vin mileage payment_method tax_label prepayment reason comment note'.split(' ').map(key=>[key,'']));
+  Object.assign(order,{status:'open',prepayment:'0',payment_method:'cash',correction_active:false,active_correction:{},tags:[],payments:[],works:[],materials:[]});
+  return {card_id:id,card:{id,updated_at:revision,repair_order:order},repair_order:order};
+}
 global.window={confirm(){return true;},prompt(){return 'reason';}};
 """
             + definitions
@@ -410,23 +425,23 @@ global.window={confirm(){return true;},prompt(){return 'reason';}};
   assert.equal(calls.length,callsBeforeBlockedSave,'save ran before the full repair order loaded');
   assert.equal(state.mobileRepairOrderLoading,true);
   const second=openMobileRepairOrderDetail('B');
-  calls[1].resolve({card:{id:'B',repair_order:{status:'open'}}}); await second;
-  calls[0].resolve({card:{id:'A',repair_order:{status:'open'}}}); await first;
+  calls[1].resolve(orderResponse('B')); await second;
+  calls[0].resolve(orderResponse('A')); await first;
   assert.equal(state.mobileRepairOrderCardId,'B');
 
   const staleError=openMobileRepairOrderDetail('C'), current=openMobileRepairOrderDetail('D');
   calls[2].reject(new Error('obsolete order')); await staleError;
   assert.equal(state.mobileRepairOrderCardId,'D');
   assert.equal(statuses.some(item=>item.message==='obsolete order'),false,'stale open error was reported');
-  calls[3].resolve({card:{id:'D',repair_order:{status:'open'}}}); await current;
+  calls[3].resolve(orderResponse('D')); await current;
 
   const oldSame=openMobileRepairOrderDetail('same');
   const oldSameCall=calls.at(-1);
   closeMobileRepairOrderDetail();
   const newSame=openMobileRepairOrderDetail('same');
   const newSameCall=calls.at(-1);
-  newSameCall.resolve({card:{id:'same',updated_at:'same-new',repair_order:{status:'open'}}}); await newSame;
-  oldSameCall.resolve({card:{id:'same',updated_at:'same-old',repair_order:{status:'open'}}}); await oldSame;
+  newSameCall.resolve(orderResponse('same','same-new')); await newSame;
+  oldSameCall.resolve(orderResponse('same','same-old')); await oldSame;
   assert.equal(state.mobileRepairOrderCard.updated_at,'same-new');
 
   state.mobileRepairOrderCardId='E'; state.mobileRepairOrderCard={id:'E',updated_at:'r1',repair_order:{status:'open'}};
@@ -485,7 +500,7 @@ global.window={confirm(){return true;},prompt(){return 'reason';}};
   const ambiguousStatusCount=statuses.length;
   const ambiguous=saveMobileRepairOrder();
   const ambiguousUpdate=calls.at(-1);
-  ambiguousUpdate.resolve({card:{id:'I',updated_at:'i-r2',repair_order:{status:'open'}}});
+  ambiguousUpdate.resolve(orderResponse('I','i-r2'));
   for(let i=0;i<5 && calls.at(-1)===ambiguousUpdate;i++) await Promise.resolve();
   const ambiguousWrite=calls.at(-1);
   assert.equal(ambiguousWrite.path,'/api/set_repair_order_status');
@@ -493,7 +508,9 @@ global.window={confirm(){return true;},prompt(){return 'reason';}};
   for(let i=0;i<5 && calls.at(-1)===ambiguousWrite;i++) await Promise.resolve();
   const statusReadback=calls.at(-1);
   assert.equal(statusReadback.path,'/api/get_repair_order');
-  statusReadback.resolve({card:{id:'I',updated_at:'i-r3',repair_order:{status:'ready'}}});
+  const confirmedReadback=orderResponse('I','i-r3');
+  confirmedReadback.card.repair_order.status='ready';
+  statusReadback.resolve(confirmedReadback);
   await ambiguous;
   assert.equal(state.mobileRepairOrderCard.updated_at,'i-r3');
   assert.equal(state.mobileRepairOrderCard.repair_order.status,'ready');

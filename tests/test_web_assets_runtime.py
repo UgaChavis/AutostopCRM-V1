@@ -121,7 +121,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function syncRepairOrderEditingState() {{}}
             function syncRepairOrderCloseButtonState() {{}}
             async function loadEmployeesReference() {{ return {{ employees: [] }}; }}
-            async function api() {{ return {{ repair_order: latest }}; }}
+            async function api() {{ return {{ card_id: 'card', card: {{ id: 'card', repair_order: latest }}, repair_order: latest }}; }}
+            function repairOrderOpenResponseValid(data, id) {{ return data.card_id === id && data.card.id === id; }}
             function repairOrderResponseCard(data) {{ return {{ id: 'card', repair_order: data.repair_order }}; }}
             function clearRepairOrderVerificationPending() {{}}
             function applyRepairOrderCardUpdate(card) {{

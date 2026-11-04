@@ -85,6 +85,7 @@ let employeesLoader=()=>Promise.resolve({employees:[]});
 function loadEmployeesReference(){return employeesLoader();}
 function setStatus(message,isError){statuses.push({message:String(message),isError:Boolean(isError)});}
 function repairOrderIsoFieldsValid(){return true;}
+function repairOrderOpenResponseValid(data,id){return data?.card_id===id&&data?.card?.id===id;}
 function repairOrderCardDraft(_card,order){return {...(order||{}),payments:[...((order||{}).payments||[])]};}
 function applyRepairOrderToForm(order={}){
   state.currentOrder={...order};
@@ -597,9 +598,10 @@ api=async(path,options)=>{
   calls.push({path,options});
   if(path.startsWith('/api/get_card?'))return {card:{...stale,description:'fresh card shell'}};
   if(path==='/api/get_repair_order'&&orderMode==='fail')throw new Error('fresh order GET failed');
-  if(path==='/api/get_repair_order')return {card:{
-    id:'A',updated_at:'r2',repair_order:{revision:'fresh-order',status:'open',payments:[]},
-  }};
+  if(path==='/api/get_repair_order'){
+    const order={revision:'fresh-order',status:'open',payments:[]};
+    return {card_id:'A',card:{id:'A',updated_at:'r2',repair_order:order},repair_order:order};
+  }
   throw new Error('unexpected request '+path);
 };
 
@@ -640,9 +642,10 @@ const oldEmployees=deferred();employeesLoader=()=>oldEmployees.promise;
 let orderRevision='r1';
 api=async(path,options)=>{
   calls.push({path,options,orderRevision});
-  if(path==='/api/get_repair_order')return {card:{
-    id:'A',updated_at:orderRevision,repair_order:{revision:orderRevision,status:'open',payments:[]},
-  }};
+  if(path==='/api/get_repair_order'){
+    const order={revision:orderRevision,status:'open',payments:[]};
+    return {card_id:'A',card:{id:'A',updated_at:orderRevision,repair_order:order},repair_order:order};
+  }
   throw new Error('unexpected request '+path);
 };
 

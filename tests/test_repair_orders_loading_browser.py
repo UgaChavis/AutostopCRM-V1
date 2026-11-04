@@ -215,20 +215,14 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.page.evaluate("state.repairOrdersItems.length"), 0)
 
     def test_mobile_detail_draft_survives_background_list_failure(self):
+        card_id = self.create_card("SYNTHETIC ORDER")
+        self.runtime.service.get_repair_order({"card_id": card_id, "create_if_missing": True})
+        self.runtime.service.update_repair_order(
+            {"card_id": card_id, "repair_order": {"client": "SYNTHETIC CLIENT"}}
+        )
         self.load_board()
         held = []
         self.page.route("**/api/list_repair_orders?**", lambda route: held.append(route))
-        self.page.route(
-            "**/api/get_repair_order",
-            lambda route: route.fulfill(
-                json={
-                    "ok": True,
-                    "data": {
-                        "card": {"id": "synthetic", "repair_order": {"client": "SYNTHETIC CLIENT"}}
-                    },
-                }
-            ),
-        )
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.locator('[data-mobile-view="repair-orders"]').click()
         self.page.wait_for_timeout(150)
@@ -238,17 +232,18 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
                 "ok": True,
                 "data": {
                     "repair_orders": [
-                        {"card_id": "synthetic", "number": "123", "client": "SYNTHETIC CLIENT"}
+                        {"card_id": card_id, "number": "123", "client": "SYNTHETIC CLIENT"}
                     ],
                     "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
                 },
             }
         )
         self.page.locator(
-            '#mobileRepairOrdersList [data-open-repair-order-card="synthetic"]'
+            f'#mobileRepairOrdersList [data-open-repair-order-card="{card_id}"]'
         ).click()
         self.page.wait_for_function(
-            "state.mobileRepairOrderCardId === 'synthetic' && !state.mobileRepairOrderLoading"
+            "id => state.mobileRepairOrderCardId === id && !state.mobileRepairOrderLoading",
+            arg=card_id,
         )
         self.page.locator("#mobileRepairOrderClient").fill("SYNTHETIC UNSAVED DRAFT")
         self.page.evaluate("() => { loadRepairOrders(false); }")
@@ -259,7 +254,7 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
         self.assertEqual(
             self.page.locator("#mobileRepairOrderClient").input_value(), "SYNTHETIC UNSAVED DRAFT"
         )
-        self.assertEqual(self.page.evaluate("state.mobileRepairOrderCardId"), "synthetic")
+        self.assertEqual(self.page.evaluate("state.mobileRepairOrderCardId"), card_id)
         self.page.evaluate("() => { loadRepairOrders(false); }")
         self.page.wait_for_timeout(150)
         self.assertEqual(len(held), 1)
@@ -267,7 +262,7 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
             json={
                 "ok": True,
                 "data": {
-                    "repair_orders": [{"card_id": "synthetic", "number": "789"}],
+                    "repair_orders": [{"card_id": card_id, "number": "789"}],
                     "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
                 },
             }
@@ -280,10 +275,11 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
         self.page.locator("#mobileRepairOrderBackButton").click()
         self.assertIn("789", self.page.locator("#mobileRepairOrdersList").inner_text())
         self.page.locator(
-            '#mobileRepairOrdersList [data-open-repair-order-card="synthetic"]'
+            f'#mobileRepairOrdersList [data-open-repair-order-card="{card_id}"]'
         ).click()
         self.page.wait_for_function(
-            "state.mobileRepairOrderCardId === 'synthetic' && !state.mobileRepairOrderLoading"
+            "id => state.mobileRepairOrderCardId === id && !state.mobileRepairOrderLoading",
+            arg=card_id,
         )
         self.page.locator("#mobileRepairOrderClient").fill("SYNTHETIC UNSAVED DRAFT")
         self.page.evaluate("() => { loadRepairOrders(false); }")

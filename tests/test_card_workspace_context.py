@@ -484,6 +484,10 @@ function perfMeasureAsync(_name, callback) { return callback(); }
 function snapshotCardById(id) { return snapshots.get(id) || null; }
 function applyCardSeenSuppression(card) { return card; }
 function repairOrderNeedsVerification() { return false; }
+function prepareDesktopCardWorkspace() { return true; }
+function repairOrderOpenResponseValid(data, id) {
+  return data?.card_id === id && data?.card?.id === id;
+}
 function syncCardDescriptionHeight() {}
 function applyCardModalState(card, options = {}) {
   state.activeCard = card;
@@ -513,7 +517,7 @@ function api(path, options) {
 function full(id) { return {id, updated_at: 'revision', description: 'full-' + id, read_warnings: []}; }
 function summary(id) { return {id, updated_at: 'revision'}; }
 function repairOrderResponse(id) {
-  return {card: {...full(id), client_id: 'client-' + id}, repair_order: {number: 'RO-' + id}};
+  return {card_id: id, card: {...full(id), client_id: 'client-' + id}, repair_order: {number: 'RO-' + id}};
 }
 function prepareCached(id) { snapshots.set(id, summary(id)); cacheFullCard(full(id)); }
 async function openFreshCard(id) {
