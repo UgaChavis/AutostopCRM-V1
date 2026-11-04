@@ -4307,7 +4307,11 @@
         renderClientProfile(data);
         renderClientsList();
       } catch (error) {
-        if (isCurrent()) setStatus(error.message, true);
+        if (isCurrent()) {
+          if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'ПРОФИЛЬ НЕ ЗАГРУЖЕН';
+          if (els.clientProfilePhone) els.clientProfilePhone.textContent = 'ВЫБЕРИТЕ КЛИЕНТА ПОВТОРНО';
+          setStatus(error.message, true);
+        }
       }
     }
 
