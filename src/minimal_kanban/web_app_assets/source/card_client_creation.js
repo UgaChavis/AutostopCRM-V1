@@ -57,10 +57,14 @@
         if (!context.isCurrent()) return null;
         const key = JSON.stringify(request);
         if (!checkpoint.clientId || checkpoint.key !== key) {
+          const version = checkpoint.client?.updated_at;
+          if (checkpoint.clientId && (checkpoint.client?.id !== checkpoint.clientId || typeof version !== 'string' || !version || version !== version.trim())) {
+            throw new Error('ВЕРСИЯ КЛИЕНТА НЕ ПОДТВЕРЖДЕНА. ПРОВЕРЬТЕ ПРОФИЛЬ; ЧЕРНОВИК СОХРАНЁН.');
+          }
           checkpoint.payload = request;
           try {
             const data = await cardPersistWrite(checkpoint.clientId ? '/api/update_client' : '/api/create_client', checkpoint.clientId
-              ? { client_id: checkpoint.clientId, ...request } : request);
+              ? { client_id: checkpoint.clientId, ...request, expected_updated_at: version } : request);
             if (!context.isCurrent()) return null;
             const client = data?.client;
             if (typeof client?.id !== 'string' || !client.id.trim() || client.id !== client.id.trim()

@@ -224,14 +224,15 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
         card = self.create_card("SYNTHETIC CARD FOR CLIENT")
         self.load_board()
         self.open_card(card)
+        original = self.runtime.service.get_client({"client_id": first})["client"]
         self.page.evaluate(
-            """id => {
+            """client => {
             const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken,
               state.cardEditingGeneration || 0, state.editingId, null]);
-            state.cardClientCreateCheckpoint = { ownerKey, clientId: id, client: null, vehicleId: '',
+            state.cardClientCreateCheckpoint = { ownerKey, clientId: client.id, client, vehicleId: '',
               payload: {}, key: 'previous', uncertain: '', createVehicle: false, linked: true };
         }""",
-            first,
+            original,
         )
         writes = []
 
