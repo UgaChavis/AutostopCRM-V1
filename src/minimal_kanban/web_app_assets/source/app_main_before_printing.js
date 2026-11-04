@@ -262,6 +262,7 @@
       clientsProfileRequestSeq: 0,
       clientsMetaState: null,
       clientsDraftBaseline: '',
+      clientsDraftRevision: null,
       clientVehicleEditor: null,
       clientMutationRequest: null,
       clientMutationControls: null,
@@ -2719,6 +2720,7 @@
       state.clientsActiveProfile = null;
       state.clientsMetaState = null;
       state.clientsDraftBaseline = '';
+      state.clientsDraftRevision = null;
       state.clientVehicleEditor = null;
       state.mobileClientsLoading = false;
       state.mobileClientProfileLoading = false;
@@ -3840,6 +3842,7 @@
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
       state.clientsDesktopProfile = null;
+      state.clientsDraftRevision = null;
       state.clientVehicleEditor = null;
       setClientProfileEmptyState(true);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'КЛИЕНТ НЕ ВЫБРАН';
@@ -4183,6 +4186,7 @@
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
       state.clientsDesktopProfile = data || null;
+      state.clientsDraftRevision = { version: client.updated_at || '', conflict: false };
       setClientProfileEmptyState(false);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
       if (els.clientProfilePhone) {

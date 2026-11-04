@@ -72,7 +72,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
 
     def test_missing_source_revision_stops_before_write(self):
         self.create_client_and_open("SYNTHETIC MISSING VERSION")
-        self.page.evaluate("state.clientsDesktopProfile.client.updated_at = ''")
+        self.page.evaluate("state.clientsDraftRevision.version = ''")
         self.page.locator("#clientCommentInput").fill("SYNTHETIC DRAFT")
         self.page.locator("#clientSaveButton").click()
         self.page.wait_for_function("!state.clientMutationRequest")
@@ -176,7 +176,10 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         )
         self.assertEqual(
             self.page.evaluate("state.clientsDesktopProfile.client.updated_at"),
-            confirmed_versions[0],
+            first_version,
+        )
+        self.assertEqual(
+            self.page.evaluate("state.clientsDraftRevision.version"), confirmed_versions[0]
         )
         self.assertEqual(
             self.page.evaluate("state.clientProfileSaveCheckpoint.expectedUpdatedAt"),

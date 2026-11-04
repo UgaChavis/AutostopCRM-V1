@@ -43,7 +43,7 @@
       let checkpoint = state.clientProfileUncertainEffects.get(effectKey) || state.clientProfileSaveCheckpoint;
       if (!checkpoint || checkpoint.effectKey !== effectKey || (!checkpoint.uncertain && (checkpoint.ownerKey !== ownerKey || checkpoint.profile !== state.clientsDesktopProfile))) {
         checkpoint = { ownerKey, effectKey, profile: state.clientsDesktopProfile, clientId: context.clientId,
-          expectedUpdatedAt: context.clientId ? state.clientsDesktopProfile?.client?.updated_at : null,
+          expectedUpdatedAt: context.clientId ? state.clientsDraftRevision?.version : null,
           uncertain: false, payload };
       }
       state.clientProfileSaveCheckpoint = checkpoint;
@@ -62,9 +62,9 @@
             throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
           }
           const hasNewDraft = JSON.stringify(checkpoint.payload) !== JSON.stringify(payload);
-          if (hasNewDraft) {
+          if (hasNewDraft && !state.clientsDraftRevision?.conflict) {
             checkpoint.expectedUpdatedAt = data.client.updated_at;
-            state.clientsDesktopProfile.client.updated_at = data.client.updated_at;
+            state.clientsDraftRevision = { version: data.client.updated_at, conflict: false };
           }
           checkpoint.uncertain = false;
           state.clientProfileUncertainEffects.delete(effectKey);

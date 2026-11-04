@@ -6,6 +6,8 @@
     async function refreshClientAfterVehicleMutation(context, expectedVehicleId = '', deletedVehicleId = '') {
       const draft = readClientFormPayload();
       const previous = JSON.parse(state.clientsDraftBaseline || '{}');
+      const revision = state.clientsDraftRevision;
+      const pending = state.clientProfileUncertainEffects.get(JSON.stringify([context.clientId, null]))?.uncertain;
       const edited = Object.fromEntries(Object.entries(draft).filter(([key, value]) =>
         JSON.stringify(value) !== JSON.stringify(previous[key])));
       const data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(context.clientId) + '&order_limit=30');
@@ -19,8 +21,16 @@
       state.clientVehicleEditor = null;
       renderClientProfile(data);
       const baseline = state.clientsDraftBaseline;
+      const refreshed = JSON.parse(baseline);
+      const keys = new Set(Object.keys(edited));
+      for (const pair of [['phone', 'phones'], ['email', 'emails']]) {
+        if (pair.some((key) => keys.has(key))) pair.forEach((key) => keys.add(key));
+      }
+      const conflict = Boolean(revision?.conflict) || Array.from(keys).some((key) =>
+        JSON.stringify(previous[key]) !== JSON.stringify(refreshed[key]));
       fillClientForm({ ...readClientFormPayload(), ...edited });
-      state.clientsDraftBaseline = baseline;
+      state.clientsDraftBaseline = pending ? JSON.stringify(previous) : baseline;
+      if (conflict || pending) state.clientsDraftRevision = { version: revision?.version || '', conflict };
       updateClientSaveButtonState();
       renderClientsList();
       return true;
@@ -121,7 +131,8 @@
         if (await refreshClientAfterVehicleMutation(context, result?.vehicle?.id || body.client_vehicle_id || '')) {
           if (state.clientVehicleMutationCheckpoint) state.clientVehicleMutationCheckpoint.confirmedResult = null;
           finishCandidateVehicleCreation(effect, { confirmed: true });
-          setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
+          setStatus(state.clientsDraftRevision?.conflict
+            ? 'АВТОМОБИЛЬ СОХРАНЁН. ПРОФИЛЬ ИЗМЕНИЛСЯ; ПРОВЕРЬТЕ ЧЕРНОВИК.' : 'АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', Boolean(state.clientsDraftRevision?.conflict));
         }
       } catch (error) {
         if (!created && context.isCurrent()) {
@@ -155,7 +166,8 @@
         if (!context.isCurrent()) return;
         if (await refreshClientAfterVehicleMutation(context, '', vehicle.id)) {
           if (state.clientVehicleMutationCheckpoint) state.clientVehicleMutationCheckpoint.confirmedResult = null;
-          setStatus('АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', false);
+          setStatus(state.clientsDraftRevision?.conflict
+            ? 'АВТОМОБИЛЬ УДАЛЁН. ПРОФИЛЬ ИЗМЕНИЛСЯ; ПРОВЕРЬТЕ ЧЕРНОВИК.' : 'АВТОМОБИЛЬ КЛИЕНТА УДАЛЁН.', Boolean(state.clientsDraftRevision?.conflict));
         }
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
