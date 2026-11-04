@@ -136,3 +136,143 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
             self.page.locator("#clientDisplayNameInput").input_value(),
             "Client profile uncertain once",
         )
+
+    def test_create_resize_during_list_refresh_keeps_confirmed_id(self) -> None:
+        self.open_new_profile("Synthetic create resize")
+        held = []
+        self.page.route("**/api/list_clients?**", lambda route: held.append(route))
+        with self.page.expect_request("**/api/create_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function("() => state.clientsActiveId && state.clientMutationRequest")
+        self.page.wait_for_function("() => state.clientsMetaState === null")
+        client_id = self.page.evaluate("state.clientsActiveId")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.wait_for_function("document.body.classList.contains('is-mobile-lite')")
+        self.page.set_viewport_size({"width": 1440, "height": 960})
+        self.page.wait_for_function("!document.body.classList.contains('is-mobile-lite')")
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), client_id)
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "id => !state.clientMutationRequest && state.clientsActiveProfile?.client?.id === id",
+            arg=client_id,
+        )
+        self.assertEqual(self.writes.count("create_client"), 1)
+        self.assertTrue(self.page.locator("#clientSaveButton").is_disabled())
+
+    def test_pending_create_survives_close_and_reopen(self) -> None:
+        self.open_new_profile("Synthetic create reopen")
+        held = []
+        self.page.route("**/api/create_client", lambda route: held.append(route))
+        with self.page.expect_request("**/api/create_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.locator('[data-close="clients"]').click()
+        self.page.locator("#clientsButton").click()
+        self.page.locator("#clientNewButton").click()
+        self.assertEqual(
+            self.page.locator("#clientDisplayNameInput").input_value(), "Synthetic create reopen"
+        )
+        with self.page.expect_response("**/api/create_client"):
+            held.pop().continue_()
+        self.page.wait_for_function(
+            "() => !state.clientMutationRequest && state.clientsActiveProfile?.client?.id"
+        )
+        self.assertEqual(self.writes.count("create_client"), 1)
+
+    def test_unknown_create_stays_blocked_after_close_and_reopen(self) -> None:
+        self.open_new_profile("Synthetic unknown reopen")
+        held = []
+        self.page.route("**/api/create_client", lambda route: held.append(route))
+        with self.page.expect_request("**/api/create_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.locator('[data-close="clients"]').click()
+        self.page.locator("#clientsButton").click()
+        route = held.pop()
+        self.assertEqual(route.fetch().status, 200)
+        route.abort("failed")
+        self.page.wait_for_function(
+            "() => !state.clientMutationRequest && state.clientProfileSaveCheckpoint?.uncertain"
+        )
+        self.page.locator('[data-close="clients"]').click()
+        self.page.locator("#clientsButton").click()
+        self.save_profile()
+        self.assertEqual(self.writes.count("create_client"), 1)
+        self.assertEqual(
+            self.page.locator("#clientDisplayNameInput").input_value(), "Synthetic unknown reopen"
+        )
+
+    def test_unknown_create_is_bound_to_exact_body_across_new_forms(self) -> None:
+        self.open_new_profile("Synthetic uncertain exact body")
+
+        def lose_reply(route):
+            self.assertEqual(route.fetch().status, 200)
+            route.abort("failed")
+
+        self.page.route("**/api/create_client", lose_reply)
+        self.save_profile()
+        self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 1)
+        self.page.locator("#clientNewButton").click()
+        self.page.locator("#clientTypeInput").select_option("company")
+        self.page.locator("#clientDisplayNameInput").fill("Synthetic uncertain exact body")
+        self.save_profile()
+        self.assertEqual(self.writes.count("create_client"), 1)
+        self.page.unroute("**/api/create_client")
+        self.page.locator("#clientNewButton").click()
+        self.page.locator("#clientTypeInput").select_option("company")
+        self.page.locator("#clientDisplayNameInput").fill("Synthetic different body")
+        with self.page.expect_request("**/api/create_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function("() => !state.clientMutationRequest && state.clientsActiveId")
+        self.assertEqual(self.writes.count("create_client"), 2)
+        self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 1)
+        self.page.evaluate("clearOperatorSession()")
+        self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 0)
+
+    def test_unknown_update_survives_other_client_selection(self) -> None:
+        first, second = [
+            self.runtime.service.create_client({"display_name": name})["client"]["id"]
+            for name in ("AAA SYNTHETIC UPDATE A", "AAB SYNTHETIC UPDATE B")
+        ]
+        self.load_board()
+        self.page.locator("#clientsButton").click()
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=first
+        )
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC FIRST UPDATE")
+
+        def lose_reply(route):
+            self.assertEqual(route.fetch().status, 200)
+            route.abort("failed")
+
+        self.page.route("**/api/update_client", lose_reply)
+        self.page.route(
+            "**/api/get_client?**",
+            lambda route: route.fulfill(
+                status=500, json={"ok": False, "error": {"message": "synthetic"}}
+            ),
+        )
+        self.save_profile()
+        self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 1)
+        self.page.unroute("**/api/get_client?**")
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=second
+        )
+        self.assertEqual(self.page.locator("#clientCommentInput").input_value(), "")
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=first
+        )
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC SECOND UPDATE")
+        self.save_profile()
+        self.assertEqual(self.writes.count("update_client"), 1)
+        self.assertEqual(
+            self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC SECOND UPDATE"
+        )
+        self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 0)
+        self.page.unroute("**/api/update_client")
+        self.save_profile()
+        self.assertEqual(self.writes.count("update_client"), 2)
+        self.assertEqual(
+            self.runtime.service.get_client({"client_id": second})["client"]["comment"], ""
+        )

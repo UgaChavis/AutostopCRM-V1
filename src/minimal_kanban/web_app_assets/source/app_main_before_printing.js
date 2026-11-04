@@ -261,6 +261,7 @@
       clientMutationRequest: null,
       clientMutationControls: null,
       clientProfileSaveCheckpoint: null,
+      clientProfileUncertainEffects: new Map(),
       clientVehicleMutationCheckpoint: null,
       sharedFiles: [],
       sharedFilesActiveId: '',
@@ -2588,6 +2589,7 @@
       state.stickyMutationRequest?.release?.();
       resetClientMutationControls();
       state.clientProfileSaveCheckpoint = null;
+      state.clientProfileUncertainEffects.clear();
       state.clientVehicleMutationCheckpoint = null;
       clearBoardSearchState({ keepCache: false });
       clearDisplayDashboardImageDrafts();
@@ -3475,7 +3477,7 @@
         window.clearTimeout(state.clientsSearchTimer);
         state.clientsSearchTimer = null;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
-        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
       }
       const stack = Array.isArray(state.modalStack) ? state.modalStack : [];
@@ -3497,7 +3499,7 @@
         window.clearTimeout(state.clientsSearchTimer);
         state.clientsSearchTimer = null;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
-        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
       }
       const closingKeys = new Set([normalizedKey]);
@@ -3967,6 +3969,10 @@
     }
 
     function resetClientForm() {
+      if (state.clientMutationRequest) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
+        return;
+      }
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
@@ -4311,6 +4317,7 @@
     // @include client_vehicle_mutations.js
 
     function syncDesktopClientProfile() {
+      if (state.clientMutationRequest) return;
       const profile = state.clientsDesktopProfile;
       const displayedId = String(profile?.client?.id || '').trim();
       const selectedId = String(state.clientsActiveId || '').trim();
@@ -4352,7 +4359,13 @@
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const row = target.closest('[data-client-id]');
-      if (row instanceof HTMLElement) selectClient(row.dataset.clientId);
+      if (row instanceof HTMLElement) {
+        if (state.clientMutationRequest) {
+          setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
+          return;
+        }
+        selectClient(row.dataset.clientId);
+      }
     }
 
     async function handleClientVehiclesClick(event) {
@@ -7525,7 +7538,7 @@
       claimMobileMorePanelIntent();
       if (state.mobileMorePanel === 'clients') {
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
-        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
         state.mobileClientsLoading = false;
         window.clearTimeout(state.mobileClientsSearchTimer);

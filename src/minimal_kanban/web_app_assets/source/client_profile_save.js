@@ -32,12 +32,13 @@
       const payload = readClientFormPayload();
       const context = beginClientMutation({ allowNew: true });
       if (!context) return;
-      const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, context.clientId, state.clientsProfileRequestSeq || 0]);
-      let checkpoint = state.clientProfileSaveCheckpoint;
-      if (!checkpoint || checkpoint.ownerKey !== ownerKey) {
-        checkpoint = { ownerKey, clientId: context.clientId, uncertain: false, payload };
-        state.clientProfileSaveCheckpoint = checkpoint;
+      const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, context.clientId]);
+      const effectKey = JSON.stringify([context.clientId, context.clientId ? null : payload]);
+      let checkpoint = state.clientProfileUncertainEffects.get(effectKey) || state.clientProfileSaveCheckpoint;
+      if (!checkpoint || checkpoint.effectKey !== effectKey || (!checkpoint.uncertain && (checkpoint.ownerKey !== ownerKey || checkpoint.profile !== state.clientsDesktopProfile))) {
+        checkpoint = { ownerKey, effectKey, profile: state.clientsDesktopProfile, clientId: context.clientId, uncertain: false, payload };
       }
+      state.clientProfileSaveCheckpoint = checkpoint;
       const wasExisting = Boolean(context.clientId);
       try {
         let data;
@@ -52,6 +53,7 @@
             throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
           }
           checkpoint.uncertain = false;
+          state.clientProfileUncertainEffects.delete(effectKey);
           if (JSON.stringify(checkpoint.payload) !== JSON.stringify(payload)) {
             throw new Error('ПРЕДЫДУЩЕЕ СОХРАНЕНИЕ ПОДТВЕРЖДЕНО. ТЕКУЩИЙ ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ; СОХРАНИТЕ ЕГО ОТДЕЛЬНО.');
           }
@@ -64,6 +66,7 @@
             if (!context.isCurrent()) return;
             if (cardPersistErrorIsDefinite(error)) throw error;
             checkpoint.uncertain = true;
+            state.clientProfileUncertainEffects.set(effectKey, checkpoint);
             if (!checkpoint.clientId) {
               await clientMutationRead('/api/search_clients?query=' + encodeURIComponent(payload.display_name || payload.phone || '') + '&limit=6');
               throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ КЛИЕНТА НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ СПИСОК КЛИЕНТОВ. ПОВТОРНОЕ СОЗДАНИЕ ОСТАНОВЛЕНО; ЧЕРНОВИК СОХРАНЁН.');
@@ -74,11 +77,12 @@
               throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
             }
             checkpoint.uncertain = false;
+            state.clientProfileUncertainEffects.delete(effectKey);
           }
         }
         if (!context.isCurrent()) return;
         const savedClientId = String(data?.client?.id || context.clientId || '').trim();
-        if (!savedClientId) { checkpoint.uncertain = true; throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.'); }
+        if (!savedClientId) { checkpoint.uncertain = true; state.clientProfileUncertainEffects.set(effectKey, checkpoint); throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.'); }
         checkpoint.clientId = savedClientId;
         state.clientsActiveId = savedClientId;
         setStatus(wasExisting ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);
