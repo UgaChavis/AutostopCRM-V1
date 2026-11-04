@@ -3738,6 +3738,11 @@
       return labels[normalized] || String(value || 'Физ. лицо').trim() || 'Физ. лицо';
     }
 
+    function clientHasUnverifiedLinks(client) {
+      return Array.isArray(client?.read_warnings)
+        && client.read_warnings.includes('related_card_client_match_unverified');
+    }
+
     function clientMetaLine(client) {
       const stats = client?.stats || {};
       const parts = [];
@@ -3746,6 +3751,7 @@
       if (stats.repair_orders_total !== undefined) parts.push('ЗН: ' + stats.repair_orders_total);
       if (stats.vehicles_total !== undefined) parts.push('авто: ' + stats.vehicles_total);
       if (stats.last_visit) parts.push('последний: ' + formatDate(stats.last_visit));
+      if (clientHasUnverifiedLinks(client)) parts.push('СТАТИСТИКА НЕ ПОДТВЕРЖДЕНА');
       return parts.join(' · ') || 'нет данных';
     }
 
@@ -3760,6 +3766,7 @@
       if (stats.repair_orders_total !== undefined) parts.push('заказ-нарядов ' + stats.repair_orders_total);
       if (stats.vehicles_total !== undefined) parts.push('автомобилей ' + stats.vehicles_total);
       if (stats.last_visit) parts.push('последний визит ' + formatDate(stats.last_visit));
+      if (clientHasUnverifiedLinks(client)) parts.push('статистика не подтверждена');
       return parts.filter(Boolean).join('. ');
     }
 
@@ -4503,7 +4510,8 @@
 
     function clientSuggestionVehicleText(client) {
       const vehicles = Array.isArray(client?.vehicles_preview) ? client.vehicles_preview : [];
-      if (!vehicles.length) return 'АВТОМОБИЛИ НЕ УКАЗАНЫ';
+      const warning = clientHasUnverifiedLinks(client) ? ' · СВЯЗИ АВТО НЕ ПОДТВЕРЖДЕНЫ' : '';
+      if (!vehicles.length) return 'АВТОМОБИЛИ НЕ УКАЗАНЫ' + warning;
       const visible = vehicles.slice(0, 2).map((vehicle) => {
         const vehicleName = String(vehicle?.vehicle || 'Автомобиль').trim();
         const identity = [vehicle?.license_plate, vehicle?.vin].filter(Boolean).join(' · ');
@@ -4511,7 +4519,7 @@
       });
       const total = finiteNonNegativeNumber(client?.stats?.vehicles_total, vehicles.length);
       if (total > visible.length) visible.push('+' + (total - visible.length) + ' авто');
-      return visible.join(' / ');
+      return visible.join(' / ') + warning;
     }
 
     function clientSuggestionVehicles(client) {
