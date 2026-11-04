@@ -3993,6 +3993,7 @@
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
         return;
       }
+      if (protectClientDraft()) return;
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
@@ -4216,6 +4217,19 @@
       return JSON.stringify(readClientFormPayload());
     }
 
+    function clientHasDraft() {
+      return Boolean(state.clientVehicleEditor || (state.clientsDraftBaseline && clientFormDirtySnapshot() !== state.clientsDraftBaseline));
+    }
+
+    function protectClientDraft(vehicleOnly = false) {
+      if (!(vehicleOnly ? state.clientVehicleEditor : clientHasDraft())) return false;
+      if (!vehicleOnly && window.confirm('Отменить несохранённые изменения клиента и автомобиля?')) return false;
+      const message = 'СНАЧАЛА СОХРАНИТЕ ИЛИ ВЕРНИТЕ ИЗМЕНЕНИЯ.';
+      if (els.clientsMeta) els.clientsMeta.textContent = message;
+      setStatus(message, true);
+      return true;
+    }
+
     function updateClientSaveButtonState() {
       if (!els.clientSaveButton) return;
       const baseline = String(state.clientsDraftBaseline || '');
@@ -4316,6 +4330,7 @@
 
     function startClientVehicleEditor(key) {
       if (!clientDesktopSelectionMatches()) return;
+      if (protectClientDraft(true)) return;
       if (!state.clientsActiveId && key !== '__new__') return;
       state.clientVehicleEditor = { key: String(key || '__new__') };
       renderClientVehiclesList(activeClientVehicles());
@@ -4378,7 +4393,7 @@
       const profile = state.clientsDesktopProfile;
       const displayedId = String(profile?.client?.id || '').trim();
       const selectedId = String(state.clientsActiveId || '').trim();
-      const hasDraft = Boolean(state.clientVehicleEditor || (state.clientsDraftBaseline && clientFormDirtySnapshot() !== state.clientsDraftBaseline));
+      const hasDraft = clientHasDraft();
       const needsSync = displayedId !== selectedId || profile !== state.clientsActiveProfile;
       if (profile && hasDraft && needsSync) {
         state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
@@ -4421,6 +4436,7 @@
           setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
           return;
         }
+        if (protectClientDraft()) return;
         selectClient(row.dataset.clientId);
       }
     }
@@ -4454,6 +4470,7 @@
       const deleteTarget = target.closest('[data-client-vehicle-delete]');
       if (deleteTarget instanceof HTMLElement) {
         event.preventDefault();
+        if (protectClientDraft(true)) return;
         await deleteClientVehicle(deleteTarget.dataset.clientVehicleDelete);
       }
     }

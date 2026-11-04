@@ -190,6 +190,148 @@ class ClientProfileTransitionBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
         self.assertEqual(vehicle.input_value(), "SYNTHETIC UNSAVED VEHICLE")
 
+    def test_desktop_client_draft_blocks_selection_and_new_until_saved(self) -> None:
+        first, second = self.prepare_clients()
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC UNSAVED COMMENT")
+        reads = []
+        self.page.on(
+            "request",
+            lambda request: (
+                reads.append(request.url) if "/api/get_client?" in request.url else None
+            ),
+        )
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.locator("#clientNewButton").click()
+        self.assertEqual(reads, [])
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
+        self.assertEqual(
+            self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC UNSAVED COMMENT"
+        )
+        self.assertIn("СНАЧАЛА СОХРАНИТЕ", self.page.locator("#clientsMeta").inner_text())
+
+        self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function(
+            "id => !state.clientMutationRequest && state.clientsActiveProfile?.client?.id === id && state.clientsActiveProfile?.client?.comment === 'SYNTHETIC UNSAVED COMMENT'",
+            arg=first,
+        )
+        self.assertEqual(
+            self.runtime.service.get_client({"client_id": first})["client"]["comment"],
+            "SYNTHETIC UNSAVED COMMENT",
+        )
+        self.assertEqual(
+            self.runtime.service.get_client({"client_id": second})["client"]["comment"], ""
+        )
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.wait_profile(second)
+
+        self.page.locator("#clientNewButton").click()
+        self.page.locator("#clientDisplayNameInput").fill("SYNTHETIC NEW DRAFT")
+        before = len(reads)
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.locator("#clientNewButton").click()
+        self.assertEqual(len(reads), before)
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), "")
+        self.assertEqual(
+            self.page.locator("#clientDisplayNameInput").input_value(), "SYNTHETIC NEW DRAFT"
+        )
+
+    def test_vehicle_draft_blocks_switch_and_client_save(self) -> None:
+        first, second = self.prepare_clients()
+        self.runtime.service.upsert_client_vehicle(
+            {"client_id": first, "vehicle": {"vehicle": "SYNTHETIC EXISTING VEHICLE"}}
+        )
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.get_by_text("SYNTHETIC EXISTING VEHICLE").wait_for()
+        self.page.locator("#clientVehicleAddButton").click()
+        vehicle = self.page.locator(
+            '[data-client-vehicle-editor="__new__"] [data-client-vehicle-field="vehicle"]'
+        )
+        vehicle.fill("SYNTHETIC UNSAVED VEHICLE")
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC COMMENT")
+        self.page.evaluate(
+            "() => { window.unexpectedVehicleConfirmation = ''; window.confirm = message => { window.unexpectedVehicleConfirmation = message; return false; }; }"
+        )
+        self.page.locator("[data-client-vehicle-edit]").first.click()
+        self.page.locator("[data-client-vehicle-delete]").first.click()
+        self.assertEqual(self.page.evaluate("window.unexpectedVehicleConfirmation"), "")
+        self.assertEqual(vehicle.input_value(), "SYNTHETIC UNSAVED VEHICLE")
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.page.locator("#clientNewButton").click()
+        self.page.locator("#clientsMeta").evaluate("e => e.textContent = 'SYNTHETIC READY'")
+        before = len(self.writes)
+        self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function(
+            "document.querySelector('#clientsMeta').textContent.includes('СНАЧАЛА СОХРАНИТЕ')"
+        )
+        self.assertEqual(len(self.writes), before)
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
+        self.assertEqual(vehicle.input_value(), "SYNTHETIC UNSAVED VEHICLE")
+        self.assertEqual(
+            self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC COMMENT"
+        )
+        self.assertEqual(
+            self.runtime.service.get_client({"client_id": first})["client"]["comment"], ""
+        )
+        self.assertIn("СНАЧАЛА СОХРАНИТЕ", self.page.locator("#clientsMeta").inner_text())
+        self.page.locator('[data-client-vehicle-cancel="__new__"]').click()
+        self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function(
+            "() => !state.clientMutationRequest && state.clientsActiveProfile?.client?.comment === 'SYNTHETIC COMMENT'"
+        )
+
+    def test_discard_confirmation_keeps_or_discards_client_draft(self) -> None:
+        first, second = self.prepare_clients()
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC UNSAVED")
+        self.page.once("dialog", lambda dialog: dialog.dismiss())
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
+        self.assertEqual(
+            self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC UNSAVED"
+        )
+
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.wait_profile(second)
+        self.assertEqual(
+            self.runtime.service.get_client({"client_id": first})["client"]["comment"], ""
+        )
+        self.page.locator("#clientCommentInput").fill("SYNTHETIC SECOND DRAFT")
+        self.page.once("dialog", lambda dialog: dialog.dismiss())
+        self.page.locator("#clientNewButton").click()
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), second)
+        self.assertEqual(
+            self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC SECOND DRAFT"
+        )
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator("#clientNewButton").click()
+        self.page.locator("#clientDisplayNameInput").fill("SYNTHETIC NEW DRAFT")
+        self.page.once("dialog", lambda dialog: dialog.dismiss())
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.assertEqual(
+            self.page.locator("#clientDisplayNameInput").input_value(), "SYNTHETIC NEW DRAFT"
+        )
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.wait_profile(first)
+        self.page.locator("#clientVehicleAddButton").click()
+        vehicle = self.page.locator(
+            '[data-client-vehicle-editor="__new__"] [data-client-vehicle-field="vehicle"]'
+        )
+        vehicle.fill("SYNTHETIC UNSAVED VEHICLE")
+        self.page.once("dialog", lambda dialog: dialog.dismiss())
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.assertEqual(vehicle.input_value(), "SYNTHETIC UNSAVED VEHICLE")
+        self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
+        self.wait_profile(second)
+        self.assertEqual(self.runtime.service.get_client({"client_id": first})["vehicles"], [])
+        self.assertFalse(
+            {"create_client", "update_client", "upsert_client_vehicle", "delete_client_vehicle"}
+            & set(self.writes)
+        )
+
     def test_failed_mobile_and_desktop_reads_hide_the_previous_client(self) -> None:
         _first, second = self.prepare_clients()
         self.page.locator('[data-close="clients"]').click()

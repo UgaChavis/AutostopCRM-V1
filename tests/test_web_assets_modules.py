@@ -194,8 +194,8 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # The safety budget covers dates, executor names and list error handling.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 921_000)
+        # The safety budget covers dates, executor names, list errors and client draft protection.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 921_700)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]

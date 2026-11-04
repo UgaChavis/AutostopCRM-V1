@@ -29,6 +29,7 @@
     async function saveClientProfile() {
       updateClientSaveButtonState();
       if (els.clientSaveButton?.disabled) return;
+      if (protectClientDraft(true)) return;
       const payload = readClientFormPayload();
       const context = beginClientMutation({ allowNew: true });
       if (!context) return;
