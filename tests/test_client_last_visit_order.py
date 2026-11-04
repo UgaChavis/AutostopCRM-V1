@@ -61,6 +61,10 @@ class ClientLastVisitOrderTests(CardServiceCase):
                 self.assertEqual(self.last_visit([valid, self.card("bad", opened=date)]), "")
                 self.assertEqual(self.last_visit([self.card("bad", opened=date), valid]), "")
 
+        corrupted = self.card("corrupted")
+        corrupted.repair_order.opened_at = ["invalid"]
+        self.assertEqual(self.last_visit([corrupted]), "")
+
     @patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"})
     def test_ambiguous_and_nonexistent_local_times_are_not_claimed(self):
         aware = self.card("aware", opened="2025-11-02T06:00:00Z")
@@ -90,3 +94,16 @@ class ClientLastVisitOrderTests(CardServiceCase):
         self.assertEqual(self.last_visit([plain, order]), "01.01.2020 12:00")
         self.assertEqual(self.last_visit([plain]), "2026-01-02T00:00:00+00:00")
         self.assertEqual(self.last_visit([]), "")
+
+    def test_repeated_local_dates_respect_timezone_changes_between_calls(self):
+        cards = [
+            self.card("a", opened="01.01.2026 12:00"),
+            self.card("z", opened="01.01.2026 12:00"),
+            self.card("b", opened="2026-01-01T07:00:00+00:00"),
+        ]
+        with patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk"}):
+            self.assertEqual(self.last_visit(cards), "2026-01-01T07:00:00+00:00")
+        with patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"}):
+            self.assertEqual(self.last_visit(cards), "01.01.2026 12:00")
+        with patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk"}):
+            self.assertEqual(self.last_visit(cards), "2026-01-01T07:00:00+00:00")

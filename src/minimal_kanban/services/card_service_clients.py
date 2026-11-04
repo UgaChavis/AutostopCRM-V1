@@ -1295,6 +1295,7 @@ class CardServiceClientsMixin:
         ]
         last_visit = ""
         latest_key = None
+        date_cache = {}
         for card in repair_order_cards or related_cards:
             value = (
                 card.repair_order.closed_at
@@ -1303,21 +1304,28 @@ class CardServiceClientsMixin:
                 or card.created_at
             )
             try:
-                parsed = parse_business_datetime(value)
-                if parsed is None:
-                    last_visit = ""
-                    break
-                if (
-                    isinstance(parsed.tzinfo, ZoneInfo)
-                    and parsed.utcoffset() != parsed.replace(fold=1 - parsed.fold).utcoffset()
-                ):
-                    last_visit = ""
-                    break
-                if not isinstance(parsed.tzinfo, ZoneInfo):
-                    if datetime.fromisoformat(value.strip()).tzinfo is None:
+                cacheable = type(value) is str
+                instant = date_cache.get(value) if cacheable else None
+                if instant is None:
+                    parsed = parse_business_datetime(value)
+                    if parsed is None:
                         last_visit = ""
                         break
-                key = (parsed.astimezone(UTC), card.id)
+                    if (
+                        isinstance(parsed.tzinfo, ZoneInfo)
+                        and parsed.utcoffset() != parsed.replace(fold=1 - parsed.fold).utcoffset()
+                    ):
+                        last_visit = ""
+                        break
+                    if not isinstance(parsed.tzinfo, ZoneInfo) and (
+                        datetime.fromisoformat(value.strip()).tzinfo is None
+                    ):
+                        last_visit = ""
+                        break
+                    instant = parsed.astimezone(UTC)
+                    if cacheable:
+                        date_cache[value] = instant
+                key = (instant, card.id)
             except (OverflowError, ValueError):
                 last_visit = ""
                 break
