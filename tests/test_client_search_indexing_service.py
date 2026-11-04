@@ -56,8 +56,8 @@ class ClientSearchIndexingTests(CardServiceCase):
 
         with patch.object(
             self.service,
-            "_client_related_vehicle_fields_index",
-            wraps=self.service._client_related_vehicle_fields_index,
+            "_client_checked_search_cards",
+            wraps=self.service._client_checked_search_cards,
         ) as related_index:
             search = self.service.search_clients({"query": "ZZZ-UNKNOWN-999", "limit": 5})
 
@@ -82,8 +82,8 @@ class ClientSearchIndexingTests(CardServiceCase):
 
         with patch.object(
             self.service,
-            "_client_related_vehicle_fields_index",
-            wraps=self.service._client_related_vehicle_fields_index,
+            "_client_checked_search_cards",
+            wraps=self.service._client_checked_search_cards,
         ) as related_index:
             first = self.service.search_clients({"query": "SJNFAAE11U0123456", "limit": 5})
             second = self.service.search_clients({"query": "К456КК124", "limit": 5})

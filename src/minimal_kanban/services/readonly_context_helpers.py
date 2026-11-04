@@ -36,31 +36,28 @@ def _search_card_clients(service, card, related, client_ids_by_key):
     return matching
 
 
-def client_readonly_related_cards(service, bundle, clients, cards):
+def client_readonly_related_cards(service, bundle, clients, cards, *, matcher=None):
     related = {client.id: [] for client in clients}
     if not related:
         return related
     client_ids_by_key = service._client_ids_by_match_key(clients)
+    matcher = matcher or _search_card_clients
     if bundle.search_cards_need_retention:
         for card in cards:
-            if _search_card_clients(service, card, related, client_ids_by_key):
+            if matcher(service, card, related, client_ids_by_key):
                 bundle.require_card_identity(card)
         # Retention is pure; positions are not used by client search or stats.
         retained, _ = service._store._apply_card_retention(cards)
         least_pressure, _ = service._store._apply_card_retention(_least_retention_pressure(cards))
 
         def related_ids(rows):
-            return {
-                card.id
-                for card in rows
-                if _search_card_clients(service, card, related, client_ids_by_key)
-            }
+            return {card.id for card in rows if matcher(service, card, related, client_ids_by_key)}
 
         if related_ids(retained) != related_ids(least_pressure):
             raise StateFileCorruptedError("Дубли карточек влияют на результаты архива клиента.")
         cards = retained
     for card in cards:
-        matching = _search_card_clients(service, card, related, client_ids_by_key)
+        matching = matcher(service, card, related, client_ids_by_key)
         if not matching:
             continue
         # Validate against every raw card with this ID before any deduplication.

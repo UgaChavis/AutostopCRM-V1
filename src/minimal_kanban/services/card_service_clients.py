@@ -36,31 +36,40 @@ class CardServiceClientsMixin:
             limit = self._validated_limit(payload.get("limit"), default=200, maximum=1000)
             include_stats = self._validated_optional_bool(payload, "include_stats", default=True)
             bundle = (
-                self._store.read_bundle()
+                self._store._read_context_bundle_snapshot(
+                    domains=("clients", "client_search", "client_search_cards")
+                )
                 if include_stats
                 else self._store._read_context_bundle_snapshot(domains=("clients", "client_search"))
             )
             clients = self._ordered_clients(bundle["clients"])
-            if not include_stats:
-                for client in clients:
-                    bundle.require_client_sort_key(client)
+            for client in clients:
+                bundle.require_client_sort_key(client)
             selected = clients[:limit]
-            if not include_stats:
-                for client in selected:
-                    bundle.require_client(client)
-            related_cards_by_client_id = (
-                self._client_related_cards_map(selected, bundle["cards"]) if include_stats else {}
+            for client in selected:
+                bundle.require_client(client)
+            related_cards_by_client_id, warnings = (
+                self._client_checked_search_cards(bundle, selected)
+                if include_stats
+                else ({}, set())
             )
             result = {
                 "clients": [
-                    self._serialize_client(
-                        client,
-                        bundle["cards"],
-                        include_stats=include_stats,
-                        compact=True,
-                        include_vehicle_preview=include_stats,
-                        related_cards=related_cards_by_client_id.get(client.id),
-                    )
+                    {
+                        **self._serialize_client(
+                            client,
+                            bundle["cards"],
+                            include_stats=include_stats,
+                            compact=True,
+                            include_vehicle_preview=include_stats,
+                            related_cards=related_cards_by_client_id.get(client.id),
+                        ),
+                        **(
+                            {"read_warnings": ["related_card_client_match_unverified"]}
+                            if client.id in warnings
+                            else {}
+                        ),
+                    }
                     for client in selected
                 ],
                 "meta": {
@@ -70,34 +79,47 @@ class CardServiceClientsMixin:
                     "include_stats": include_stats,
                 },
             }
-            return result if include_stats else deepcopy(result)
+            return deepcopy(result)
 
     def search_clients(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
             query = normalize_text(payload.get("query"), default="", limit=240)
             limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
-            bundle, revision = self._store.read_bundle_with_signature()
-            # The store replaces its read bundle after a save or external reload.
-            # Keep the already normalized search fields for that exact version.
-            # Including bundle identity also handles a replacement with an equal
-            # file signature (for example an externally restored state file).
-            cache_key = (revision, id(bundle))
+            bundle = self._store._read_context_bundle_snapshot(
+                domains=("clients", "client_search", "client_search_cards")
+            )
             prepared = getattr(self, "_client_search_prepared", None)
-            if prepared is None or prepared[0] != cache_key:
+            if prepared is None or prepared[0] is not bundle:
                 clients = self._ordered_clients(bundle["clients"])
+                for client in clients:
+                    bundle.require_client_sort_key(client)
                 client_index = self._client_search_index_for(
-                    clients, signature=("store", *cache_key)
+                    clients, signature=("checked-search", id(bundle))
                 )
-                related_fields = self._client_related_vehicle_fields_index_for(
-                    clients,
-                    bundle["cards"],
-                    client_signature=("store", *cache_key),
-                )
+                related, warnings = self._client_checked_search_cards(bundle, clients)
+                related_fields = {
+                    client.id: [
+                        value
+                        for card in related.get(client.id, [])
+                        for value in self._client_related_vehicle_fields_for_card(
+                            card, explicit_link=card.client_id == client.id
+                        )
+                    ]
+                    for client in clients
+                }
                 related_index = self._client_related_search_index(related_fields)
-                prepared = (cache_key, clients, client_index, related_fields, related_index)
+                prepared = (
+                    bundle,
+                    clients,
+                    client_index,
+                    related,
+                    warnings,
+                    related_fields,
+                    related_index,
+                )
                 self._client_search_prepared = prepared
-            _, clients, client_index, related_fields, related_index = prepared
+            _, clients, client_index, related, warnings, related_fields, related_index = prepared
             matches = (
                 [(1, client) for client in clients]
                 if not query
@@ -109,27 +131,72 @@ class CardServiceClientsMixin:
                     related_search_index_by_client_id=related_index,
                 )
             )
+            if query:
+                for _, client in matches:
+                    bundle.require_client_version(client)
             selected = [client for _, client in matches[:limit]]
-            related_cards_by_client_id = self._client_related_cards_map(selected, bundle["cards"])
-            return {
-                "clients": [
-                    self._serialize_client(
-                        client,
-                        bundle["cards"],
-                        include_stats=True,
-                        compact=True,
-                        query=query,
-                        related_cards=related_cards_by_client_id.get(client.id, []),
-                    )
-                    for client in selected
-                ],
-                "meta": {
-                    "query": query,
-                    "total": len(matches),
-                    "returned": len(selected),
-                    "has_more": len(matches) > len(selected),
-                },
-            }
+            for client in selected:
+                bundle.require_client(client)
+            return deepcopy(
+                {
+                    "clients": [
+                        {
+                            **self._serialize_client(
+                                client,
+                                bundle["cards"],
+                                include_stats=True,
+                                compact=True,
+                                query=query,
+                                related_cards=related.get(client.id, []),
+                            ),
+                            **(
+                                {"read_warnings": ["related_card_client_match_unverified"]}
+                                if client.id in warnings
+                                else {}
+                            ),
+                        }
+                        for client in selected
+                    ],
+                    "meta": {
+                        "query": query,
+                        "total": len(matches),
+                        "returned": len(selected),
+                        "has_more": len(matches) > len(selected),
+                    },
+                }
+            )
+
+    def _client_checked_search_cards(self, bundle, clients):
+        def matching(service, card, related, client_ids_by_key):
+            matched = {card.client_id} if card.client_id in related else set()
+            for key in service._card_client_values(card):
+                matched.update(client_ids_by_key.get(key, set()))
+            return matched
+
+        related = client_readonly_related_cards(
+            self, bundle, clients, bundle["cards"], matcher=matching
+        )
+        checked_cards = set()
+        checked_owners = {}
+        warnings = set()
+        for client in clients:
+            accepted = []
+            for card in related[client.id]:
+                if card.id not in checked_cards:
+                    bundle.require_card(card)
+                    checked_cards.add(card.id)
+                if card.client_id != client.id:
+                    warnings.add(client.id)
+                    if card.client_id:
+                        if card.client_id not in checked_owners:
+                            checked_owners[card.client_id] = bundle.has_other_exact_client(
+                                card.client_id, client.id
+                            )
+                        if checked_owners[card.client_id]:
+                            continue
+                accepted.append(card)
+            related[client.id] = accepted
+        return related, warnings
 
     def list_clients_readonly(self, payload: dict | None = None) -> dict:
         """List clients without normalization writes or inferred confirmed links."""

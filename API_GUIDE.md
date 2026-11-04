@@ -495,8 +495,12 @@ profile snapshot while retaining its existing compact response and vehicle
 preview. It rejects invalid or duplicate client IDs and unreliable creation
 times across the list, and unreliable versions or vehicle IDs in returned
 profiles, without repairing stored data. Unrelated domains are not validated. The ordinary
-`/api/search_clients` and `/api/list_clients` with stats retain their legacy
-behavior.
+`/api/search_clients` and `/api/list_clients` with stats also use read-only
+snapshots. They exclude text-matched cards that identify a different unique,
+validated client by exact stored ID from results, vehicle previews, statistics
+and search ranking, while retaining and warning about unverified text matches.
+The snapshots check considered card identities and links but do not guarantee
+validation of every unrelated source record or domain.
 
 The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then

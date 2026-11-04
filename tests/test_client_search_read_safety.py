@@ -186,12 +186,12 @@ class ClientSearchReadSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
         )
 
     async def test_foreign_explicit_link_is_not_inferred_for_another_client(self):
-        # The UI retains its historical heuristic behavior.
+        # The UI excludes an exact link to another client as well.
         ui_ids = {
             item["id"]
             for item in self.service.search_clients({"query": "SYNTHETIC_B_CAR"})["clients"]
         }
-        self.assertIn(self.client_a["id"], ui_ids)
+        self.assertNotIn(self.client_a["id"], ui_ids)
         before = self.snapshot()
         for raw, name, arguments in (
             (False, "agent_search", {"entity": "client", "query": "SYNTHETIC_B_CAR"}),

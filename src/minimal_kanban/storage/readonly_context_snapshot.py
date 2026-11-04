@@ -164,11 +164,15 @@ class ReadonlyContextSnapshot(dict):
             raise StateFileCorruptedError("Недостоверная версия клиента в снимке состояния.")
         return source
 
-    def require_client(self, client):
+    def require_client_version(self, client):
         source = self.require_client_sort_key(client)
         updated_at = source.get("updated_at")
         if not isinstance(updated_at, str) or not updated_at or updated_at != client.updated_at:
             raise StateFileCorruptedError("Недостоверная версия клиента в снимке состояния.")
+        return source
+
+    def require_client(self, client):
+        source = self.require_client_version(client)
         raw_vehicles = source.get("vehicles", [])
         vehicles = _index(
             raw_vehicles if isinstance(raw_vehicles, list) else [raw_vehicles],
