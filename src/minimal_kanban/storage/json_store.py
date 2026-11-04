@@ -6,7 +6,7 @@ import math
 import shutil
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import nullcontext
 from copy import copy, deepcopy
 from dataclasses import fields
@@ -38,6 +38,7 @@ from ..models import (
     InventoryItem,
     InventoryMovement,
     StickyNote,
+    normalize_text,
     parse_datetime,
     utc_now,
 )
@@ -177,6 +178,32 @@ DEFAULT_STATE = {
 
 class StateFileCorruptedError(RuntimeError):
     """Raised when state.json cannot be decoded without silently resetting data."""
+
+
+def _cash_transaction_ids_are_ambiguous(values: Iterable[Any]) -> bool:
+    seen: set[str] = set()
+    for value in values:
+        transaction_id = normalize_text(value, default="", limit=128)
+        if not transaction_id:
+            continue
+        if transaction_id in seen:
+            return True
+        seen.add(transaction_id)
+    return False
+
+
+def _validate_cash_transaction_ids(state: dict[str, Any]) -> None:
+    if _cash_transaction_ids_are_ambiguous(
+        item.get("id") for item in state.get("cash_transactions", [])
+    ):
+        raise StateFileCorruptedError("Идентификаторы кассовых движений неоднозначны.")
+
+
+def _validate_cash_transaction_write_ids(transactions: Any) -> None:
+    if isinstance(transactions, list) and _cash_transaction_ids_are_ambiguous(
+        item.id for item in transactions if isinstance(item, CashTransaction)
+    ):
+        raise ValueError("Идентификаторы кассовых движений неоднозначны.")
 
 
 def _snapshot_financial_value_is_valid(value: Any) -> bool:
@@ -637,6 +664,7 @@ class JsonStore:
                 # their provenance before any fallible normalization or I/O so a
                 # failed legacy write can never be observed as persisted state.
                 self._invalidate_read_cache()
+                _validate_cash_transaction_write_ids(cash_transactions)
                 normalize_started_at = time.perf_counter()
                 current_state: dict[str, Any] | None = None
                 if (
@@ -751,6 +779,7 @@ class JsonStore:
                         "Cached state no longer matches state.json; reload before writing."
                     )
                 try:
+                    _validate_cash_transaction_write_ids(cash_transactions)
                     normalize_started_at = time.perf_counter()
                     bundle = self._prepare_cached_bundle(
                         columns=columns,
@@ -1207,6 +1236,7 @@ class JsonStore:
                 f"Файл состояния поврежден; резервная копия сохранена как {backup.name}."
             ) from None
         if preserve_corrupted:
+            _validate_cash_transaction_ids(payload)
             self._validated_state_signature = self._state_signature()
         return payload
 

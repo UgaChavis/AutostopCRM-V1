@@ -1717,8 +1717,8 @@ class JsonRouteDispatcher:
                     request_id,
                     HTTPStatus.SERVICE_UNAVAILABLE,
                     "state_file_corrupted",
-                    "Файл состояния поврежден. Автоматический сброс отключен; "
-                    "восстановите данные из резервной копии.",
+                    "Данные состояния повреждены или неоднозначны. "
+                    "Автоматический сброс отключен; требуется проверка данных.",
                     server_timing=performance_trace.server_timing(app_duration_ms=app_duration_ms),
                 )
             except ValueError as exc:

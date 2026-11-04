@@ -132,6 +132,8 @@ class StateStructureApiTests(unittest.TestCase):
             status, result = self.request(route, payload)
             self.assertEqual(status, 503, result)
             self.assertEqual(result["error"]["code"], "state_file_corrupted")
+            self.assertIn("требуется проверка данных", result["error"]["message"])
+            self.assertNotIn("восстановите", result["error"]["message"])
             self.assertEqual(path.read_bytes(), damaged)
             self.assertEqual(self.store.change_feed_store.raw_events_for_test(), before_feed)
         path.write_bytes(original)
