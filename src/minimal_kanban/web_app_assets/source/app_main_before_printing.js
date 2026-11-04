@@ -6764,13 +6764,15 @@
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">ЗАКАЗ-НАРЯДЫ ЗАГРУЖАЮТСЯ...</div>';
         return;
       }
+      const warning = repairOrdersHiddenWarning();
+      const warningHtml = warning ? '<div class="mobile-empty">' + warning + '</div>' : '';
       if (!items.length) {
-        els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">' + repairOrdersEmptyStateText() + '</div>';
+        els.mobileRepairOrdersList.innerHTML = warningHtml + '<div class="mobile-empty">' + repairOrdersEmptyStateText() + '</div>';
         return;
       }
       const meta = state.repairOrdersMetaState;
       const limitNotice = meta?.has_more ? '<div class="mobile-empty">ЗАГРУЖЕНО ' + meta.returned + ' ИЗ ' + meta.total + ' ЗАКАЗ-НАРЯДОВ.</div>' : '';
-      els.mobileRepairOrdersList.innerHTML = limitNotice + items.map((item) => {
+      els.mobileRepairOrdersList.innerHTML = warningHtml + limitNotice + items.map((item) => {
         const status = normalizeRepairOrderStatus(item.status || state.repairOrdersFilter);
         const number = String(item.number || '').replace(/\D+/g, '') || '-';
         const vehicle = String(item.vehicle || '').trim() || 'Автомобиль не указан';
@@ -14235,23 +14237,33 @@
       return Array.isArray(items) ? items : [];
     }
 
+    function repairOrdersHiddenWarning() {
+      const count = state.repairOrdersMetaState?.inconsistent_total;
+      return Number.isSafeInteger(count) && count > 0
+        ? 'ЕСТЬ СКРЫТЫЕ ЗАКАЗ-НАРЯДЫ В АРХИВНЫХ КАРТОЧКАХ. ПРОВЕРЬТЕ АРХИВ.' : '';
+    }
+
     function repairOrdersEmptyStateText() {
+      const scope = !state.repairOrdersSearchLoading && repairOrdersHiddenWarning() ? 'В СПИСКЕ: ' : '';
       if (String(state.repairOrdersQuery || '').trim()) {
         if (state.repairOrdersSearchLoading) return 'ПОИСК ЗАКАЗ-НАРЯДОВ…';
-        return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';
+        return scope + 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';
       }
       if (state.repairOrdersSearchLoading) return 'ЗАГРУЗКА ЗАКАЗ-НАРЯДОВ…';
       const status = normalizeRepairOrderStatus(state.repairOrdersFilter);
-      if (status === 'closed') return 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.';
-      if (status === 'ready') return 'ГОТОВЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
-      return 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
+      if (status === 'closed') return scope + 'АРХИВ ЗАКАЗ-НАРЯДОВ ПУСТ.';
+      if (status === 'ready') return scope + 'ГОТОВЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
+      return scope + 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
     }
 
     function renderRepairOrdersView(forceDesktop = false) {
       const items = filterRepairOrdersItems(state.repairOrdersItems);
       syncRepairOrdersControls();
       if (state.repairOrdersLoadError && !state.repairOrdersSearchLoading) return;
-      els.repairOrdersMeta.textContent = '';
+      const warning = state.repairOrdersSearchLoading ? '' : repairOrdersHiddenWarning();
+      els.repairOrdersMeta.textContent = warning;
+      els.repairOrdersMeta.hidden = !warning;
+      els.repairOrdersMeta.setAttribute('aria-hidden', String(!warning));
       els.repairOrdersList.innerHTML = state.repairOrdersSearchLoading
         ? '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>'
         : items.length
@@ -14340,7 +14352,7 @@
                 && typeof item.is_paid === 'boolean' && item.is_paid === (item.payment_status === 'paid')
                 && ['status_label', 'payment_status_label', 'paid_total', 'paid_total_display', 'works_total', 'grand_total']
                   .every((key) => typeof item[key] === 'string' && item[key].trim()))
-              || ![meta.limit, meta.total, meta.returned].every((value) => Number.isSafeInteger(value) && value >= 0)
+              || ![meta.limit, meta.total, meta.returned, meta.inconsistent_total].every((value) => Number.isSafeInteger(value) && value >= 0)
               || meta.limit !== REPAIR_ORDERS_LIST_LIMIT || meta.returned !== items.length || meta.returned !== Math.min(meta.total, meta.limit)
               || typeof meta.has_more !== 'boolean' || meta.has_more !== (meta.total > meta.limit)
               || meta.status !== requestedStatus) {
@@ -14357,6 +14369,8 @@
             'ОШИБКА ЗАГРУЗКИ СПИСКА ЗАКАЗ-НАРЯДОВ.',
             error.message,
           );
+          els.repairOrdersMeta.hidden = false;
+          els.repairOrdersMeta.setAttribute('aria-hidden', 'false');
           if (state.mobileLite && state.mobileView === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileRepairOrders();
         },
       });

@@ -39,6 +39,7 @@ class RepairOrdersBackgroundMobileBrowserTests(UiBrowserTestCase):
                         "limit": 300,
                         "total": 1,
                         "returned": 1,
+                        "inconsistent_total": 0,
                         "has_more": False,
                     },
                 },

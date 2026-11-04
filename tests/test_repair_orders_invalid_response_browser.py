@@ -74,6 +74,9 @@ class RepairOrdersInvalidResponseBrowserTests(UiBrowserTestCase):
                 },
             },
         ]
+        for partial in cases:
+            if isinstance(partial.get("meta"), dict):
+                partial["meta"]["inconsistent_total"] = 0
         valid_row = {
             "card_id": card,
             "status": "open",
@@ -86,7 +89,14 @@ class RepairOrdersInvalidResponseBrowserTests(UiBrowserTestCase):
             "works_total": "10",
             "grand_total": "10",
         }
-        valid_meta = {"limit": 300, "total": 1, "returned": 1, "has_more": False, "status": "open"}
+        valid_meta = {
+            "limit": 300,
+            "total": 1,
+            "returned": 1,
+            "inconsistent_total": 0,
+            "has_more": False,
+            "status": "open",
+        }
         cases.append({"repair_orders": [{"card_id": card}], "meta": valid_meta})
         for missing in ("grand_total", "paid_total", "payment_status", "is_paid", "status"):
             row = dict(valid_row)

@@ -33,6 +33,7 @@ def order_response(count, prefix="synthetic"):
                 "limit": 300,
                 "total": count,
                 "returned": count,
+                "inconsistent_total": 0,
                 "has_more": False,
             },
         },
