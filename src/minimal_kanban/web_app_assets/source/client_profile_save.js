@@ -26,6 +26,11 @@
       });
     }
 
+    function clientProfileHasRevision(client) {
+      const version = client?.updated_at;
+      return typeof version === 'string' && Boolean(version) && version === version.trim();
+    }
+
     async function saveClientProfile() {
       updateClientSaveButtonState();
       if (els.clientSaveButton?.disabled) return;
@@ -37,7 +42,9 @@
       const effectKey = JSON.stringify([context.clientId, context.clientId ? null : payload]);
       let checkpoint = state.clientProfileUncertainEffects.get(effectKey) || state.clientProfileSaveCheckpoint;
       if (!checkpoint || checkpoint.effectKey !== effectKey || (!checkpoint.uncertain && (checkpoint.ownerKey !== ownerKey || checkpoint.profile !== state.clientsDesktopProfile))) {
-        checkpoint = { ownerKey, effectKey, profile: state.clientsDesktopProfile, clientId: context.clientId, uncertain: false, payload };
+        checkpoint = { ownerKey, effectKey, profile: state.clientsDesktopProfile, clientId: context.clientId,
+          expectedUpdatedAt: context.clientId ? state.clientsDesktopProfile?.client?.updated_at : null,
+          uncertain: false, payload };
       }
       state.clientProfileSaveCheckpoint = checkpoint;
       const wasExisting = Boolean(context.clientId);
@@ -50,19 +57,29 @@
           }
           data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
           if (!context.isCurrent()) return;
-          if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfilePayloadMatches(data?.client, checkpoint.payload)) {
+          if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfileHasRevision(data.client)
+              || !clientProfilePayloadMatches(data.client, checkpoint.payload)) {
             throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
+          }
+          const hasNewDraft = JSON.stringify(checkpoint.payload) !== JSON.stringify(payload);
+          if (hasNewDraft) {
+            checkpoint.expectedUpdatedAt = data.client.updated_at;
+            state.clientsDesktopProfile.client.updated_at = data.client.updated_at;
           }
           checkpoint.uncertain = false;
           state.clientProfileUncertainEffects.delete(effectKey);
-          if (JSON.stringify(checkpoint.payload) !== JSON.stringify(payload)) {
+          if (hasNewDraft) {
             throw new Error('ПРЕДЫДУЩЕЕ СОХРАНЕНИЕ ПОДТВЕРЖДЕНО. ТЕКУЩИЙ ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ; СОХРАНИТЕ ЕГО ОТДЕЛЬНО.');
           }
         } else {
           checkpoint.payload = payload;
+          if (context.clientId && (typeof checkpoint.expectedUpdatedAt !== 'string' || !checkpoint.expectedUpdatedAt
+              || checkpoint.expectedUpdatedAt !== checkpoint.expectedUpdatedAt.trim())) {
+            throw new Error('ВЕРСИЯ КЛИЕНТА НЕ ПОДТВЕРЖДЕНА. ЧЕРНОВИК СОХРАНЁН В ФОРМЕ.');
+          }
           try {
             data = await cardPersistWrite(context.clientId ? '/api/update_client' : '/api/create_client', context.clientId
-              ? { client_id: context.clientId, ...payload } : payload);
+              ? { client_id: context.clientId, ...payload, expected_updated_at: checkpoint.expectedUpdatedAt } : payload);
           } catch (error) {
             if (!context.isCurrent()) return;
             if (cardPersistErrorIsDefinite(error)) throw error;
@@ -74,7 +91,8 @@
             }
             data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
             if (!context.isCurrent()) return;
-            if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfilePayloadMatches(data?.client, payload)) {
+            if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfileHasRevision(data.client)
+                || !clientProfilePayloadMatches(data.client, payload)) {
               throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
             }
             checkpoint.uncertain = false;
