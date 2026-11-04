@@ -56,7 +56,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         )
         self.assertEqual(result["repair_orders"][0]["card_id"], self.card_id)
 
-    def assert_parse_allows_commit(self, snapshot):
+    def assert_parse_allows_commit(self, snapshot, *, requires_file_lock=False):
         parsing, release, committed = threading.Event(), threading.Event(), threading.Event()
         results, errors = [], []
         normalize = self.store._normalize_cards
@@ -82,7 +82,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
                 errors.append(exc)
 
         with (
-            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", requires_file_lock),
             patch.object(self.store, "_normalize_cards", side_effect=paused_normalize),
         ):
             reader = threading.Thread(target=read, name="independent-snapshot")
@@ -107,6 +107,15 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         old = self.assert_parse_allows_commit(self.store.read_repair_order_cards_snapshot)
         self.assertEqual(old[0].title, "BEFORE")
         current = self.store.read_repair_order_cards_snapshot()
+        self.assertEqual(current[0].title, "AFTER")
+
+    def test_locked_repair_order_snapshot_releases_writer_before_normalization(self):
+        old = self.assert_parse_allows_commit(
+            self.store.read_repair_order_cards_snapshot, requires_file_lock=True
+        )
+        self.assertEqual(old[0].title, "BEFORE")
+        with patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", True):
+            current = self.store.read_repair_order_cards_snapshot()
         self.assertEqual(current[0].title, "AFTER")
 
     def test_projector_does_not_block_writer_or_next_snapshot(self):

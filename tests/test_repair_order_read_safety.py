@@ -190,6 +190,18 @@ class RepairOrderReadSafetyTests(CardServiceCase):
             self.service.list_repair_orders({"status": "all"})
         self.assertEqual(before, self.state_and_files())
 
+    def test_locked_snapshot_normalization_error_does_not_write_and_releases_lock(self):
+        before = self.state_and_files()
+        with (
+            patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(self.store, "_normalize_cards", side_effect=ValueError("synthetic")),
+        ):
+            with self.assertRaisesRegex(ValueError, "synthetic"):
+                self.service.list_repair_orders({"status": "all"})
+        self.assertEqual(before, self.state_and_files())
+        with self.store._process_lock.acquire(existing_only=True):
+            pass
+
     def test_redacted_legacy_free_text_and_unsafe_filters_never_echo(self):
         state = json.loads(self.state_file.read_text())
         card = next(item for item in state["cards"] if item["id"] == self.card_id)
