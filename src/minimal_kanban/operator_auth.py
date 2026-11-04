@@ -1047,7 +1047,7 @@ class OperatorAuthService:
         ):
             return True
         return any(
-            _verify_password(legacy_password, password_hash)
+            legacy_password != default_password and _verify_password(legacy_password, password_hash)
             for legacy_password in LEGACY_DEFAULT_ADMIN_PASSWORDS
         )
 
