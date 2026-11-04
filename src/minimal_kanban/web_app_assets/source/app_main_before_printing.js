@@ -4046,10 +4046,17 @@
     }
 
     function beginCandidateVehicleCreation(clientId, vehicle) {
-      const key = JSON.stringify([clientId, String(vehicle?.card_id || '').trim()]);
-      if (state.clientCandidateVehicleEffects.has(key)) throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ АВТОМОБИЛЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ПРОФИЛЬ КЛИЕНТА; ПОВТОР ОСТАНОВЛЕН.');
+      const key = 'autostop:client-vehicle:' + JSON.stringify([clientId, String(vehicle?.card_id || '').trim()]);
+      let stored;
+      try { stored = window.sessionStorage.getItem(key); }
+      catch (_) { throw new Error('НЕВОЗМОЖНО ПРОВЕРИТЬ СОСТОЯНИЕ СОХРАНЕНИЯ АВТОМОБИЛЯ. ПОВТОР ОСТАНОВЛЕН.'); }
+      if (state.clientCandidateVehicleEffects.has(key) || stored !== null) throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ АВТОМОБИЛЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ПРОФИЛЬ КЛИЕНТА; ПОВТОР ОСТАНОВЛЕН.');
       const effect = { key, generation: state.viewerStateGeneration };
       state.clientCandidateVehicleEffects.set(key, effect);
+      try {
+        window.sessionStorage.setItem(key, '1');
+        if (window.sessionStorage.getItem(key) !== '1') throw new Error('storage');
+      } catch (_) { throw new Error('НЕВОЗМОЖНО СОХРАНИТЬ ЗАЩИТУ ОТ ПОВТОРА. ОПЕРАЦИЯ ОСТАНОВЛЕНА.'); }
       return effect;
     }
 
@@ -4058,7 +4065,16 @@
           || state.clientCandidateVehicleEffects.get(effect.key) !== effect) return;
       const rejected = error && error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
         && ['validation_error', 'client_vehicle_conflict', 'client_vehicle_id_conflict', 'client_vehicle_reference_conflict', 'client_ambiguous', 'client_vehicle_ambiguous', 'not_found'].includes(error.code);
-      if (confirmed || rejected) state.clientCandidateVehicleEffects.delete(effect.key);
+      if (confirmed || rejected) {
+        try {
+          window.sessionStorage.removeItem(effect.key);
+          if (window.sessionStorage.getItem(effect.key) !== null) return;
+        } catch (_) {
+          try { window.sessionStorage.setItem(effect.key, '1'); } catch (_) { /* Keep the in-memory block. */ }
+          return;
+        }
+        state.clientCandidateVehicleEffects.delete(effect.key);
+      }
     }
 
     function clientVehicleFormHtml(vehicle = {}, key = '__new__') {

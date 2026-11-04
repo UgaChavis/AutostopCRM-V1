@@ -8,6 +8,91 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class ClientVehiclesBrowserTests(UiBrowserTestCase):
+    def test_candidate_marker_after_definite_rejection_allows_retry_without_private_data(
+        self,
+    ) -> None:
+        self.load_board()
+        result = self.page.evaluate("""async () => {
+          await ensureBoardModule('card_save');
+          const original = api, clientId = 'opaque-client', cardId = 'opaque-card';
+          const candidate = {card_id: cardId, vehicle: 'PRIVATE SYNTHETIC MODEL', vin: 'PRIVATE VIN'};
+          const key = 'autostop:client-vehicle:' + JSON.stringify([clientId, cardId]);
+          state.clientSuggestionProfiles = {[clientId]: {vehicles: [candidate]}};
+          state.clientSuggestions = [{id: clientId}];
+          let rejectWrite, posts = 0;
+          try {
+            api = () => { posts++; return new Promise((_resolve, reject) => {rejectWrite = reject;}); };
+            const first = ensureStableClientSuggestionVehicle(clientId, candidate, {isCurrent: () => true});
+            const marker = sessionStorage.getItem(key);
+            const effect = state.clientCandidateVehicleEffects.get(key);
+            const safeMarker = key === 'autostop:client-vehicle:["opaque-client","opaque-card"]'
+              && marker === '1' && !JSON.stringify(effect).includes(state.operatorSessionToken)
+              && !JSON.stringify(effect).includes(candidate.vehicle) && !JSON.stringify(effect).includes(candidate.vin);
+            rejectWrite(Object.assign(new Error('rejected'), {status: 422, code: 'validation_error'}));
+            try { await first; } catch (_) {}
+            const afterReject = sessionStorage.getItem(key);
+            api = async () => { posts++; return {vehicle: {id: 'owned-id', vehicle: 'SYNTHETIC'}}; };
+            const next = await ensureStableClientSuggestionVehicle(clientId, candidate, {isCurrent: () => true});
+            return {safeMarker, afterReject, posts, savedId: next?.id, afterSuccess: sessionStorage.getItem(key)};
+          } finally { api = original; sessionStorage.removeItem(key); state.clientCandidateVehicleEffects.clear(); }
+        }""")
+        self.assertEqual(
+            result,
+            {
+                "safeMarker": True,
+                "afterReject": None,
+                "posts": 2,
+                "savedId": "owned-id",
+                "afterSuccess": None,
+            },
+        )
+
+    def test_candidate_storage_failure_or_corruption_blocks_before_write(self) -> None:
+        self.load_board()
+        result = self.page.evaluate("""async () => {
+          await ensureBoardModule('card_save');
+          const originalApi = api, get = Storage.prototype.getItem, set = Storage.prototype.setItem,
+            remove = Storage.prototype.removeItem;
+          const candidate = {card_id: 'synthetic-storage-card', vehicle: 'SYNTHETIC'};
+          const key = 'autostop:client-vehicle:' + JSON.stringify(['synthetic-storage-client', candidate.card_id]);
+          let posts = 0;
+          api = async () => { posts++; return {vehicle: {id: 'unexpected'}}; };
+          const attempt = async () => { try { await ensureStableClientSuggestionVehicle('synthetic-storage-client', candidate); return false; } catch (_) { return true; } };
+          try {
+            Storage.prototype.getItem = () => { throw new Error('unavailable'); };
+            const unreadable = await attempt();
+            Storage.prototype.getItem = get;
+            Storage.prototype.setItem = () => { throw new Error('quota'); };
+            const unwritable = await attempt();
+            Storage.prototype.setItem = set;
+            state.clientCandidateVehicleEffects.clear();
+            sessionStorage.setItem(key, 'corrupted-value');
+            const corrupted = await attempt();
+            sessionStorage.removeItem(key);
+            const effect = beginCandidateVehicleCreation('synthetic-storage-client', candidate);
+            Storage.prototype.removeItem = function(k) { remove.call(this, k); throw new Error('after removal'); };
+            finishCandidateVehicleCreation(effect, {confirmed: true});
+            Storage.prototype.removeItem = remove;
+            const blockedAfterRemoveFailure = state.clientCandidateVehicleEffects.has(key)
+              && sessionStorage.getItem(key) === '1';
+            return {posts, unreadable, unwritable, corrupted, blockedAfterRemoveFailure};
+          } finally {
+            api = originalApi; Storage.prototype.getItem = get; Storage.prototype.setItem = set;
+            Storage.prototype.removeItem = remove; sessionStorage.removeItem(key);
+            state.clientCandidateVehicleEffects.clear();
+          }
+        }""")
+        self.assertEqual(
+            result,
+            {
+                "posts": 0,
+                "unreadable": True,
+                "unwritable": True,
+                "corrupted": True,
+                "blockedAfterRemoveFailure": True,
+            },
+        )
+
     def test_cold_module_concurrent_same_candidate_sends_once(self) -> None:
         self.load_board()
         result = self.page.evaluate("""async () => {
@@ -99,6 +184,10 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
           await ensureBoardModule('card_save');
           const original = api;
           const candidate = {card_id: 'synthetic-source', vehicle: 'CAR'};
+          const clearEffects = () => {
+            for (const effect of state.clientCandidateVehicleEffects.values()) sessionStorage.removeItem(effect.key);
+            state.clientCandidateVehicleEffects.clear();
+          };
           let resolve, posts = 0, current = true;
           api = () => { posts++; return new Promise(done => {resolve = done;}); };
           try {
@@ -112,12 +201,12 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             const lateRetained = state.clientCandidateVehicleEffects.size;
             const outcomes = [];
             for (const [status, code] of [[408, 'validation_error'], [429, 'validation_error'], [409, 'invalid_json'], [500, 'error'], [422, 'validation_error']]) {
-              state.clientCandidateVehicleEffects.clear();
+              clearEffects();
               const effect = beginCandidateVehicleCreation('synthetic-client', candidate);
               finishCandidateVehicleCreation(effect, {error: {status, code}});
               outcomes.push(state.clientCandidateVehicleEffects.size);
             }
-            state.clientCandidateVehicleEffects.clear();
+            clearEffects();
             const oldEffect = beginCandidateVehicleCreation('synthetic-client', candidate);
             const storedSession = Object.hasOwn(oldEffect, 'session');
             resetViewerScopedState();
@@ -126,7 +215,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             try { beginCandidateVehicleCreation('synthetic-client', candidate); }
             catch (_) { blockedAfterReset = true; }
             return {posts, blocked, lateRetained, outcomes, blockedAfterReset, storedSession};
-          } finally { api = original; state.clientCandidateVehicleEffects.clear(); }
+          } finally { api = original; clearEffects(); }
         }""")
         self.assertEqual(
             result,
@@ -192,6 +281,30 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
             "UNSAVED CHANGE",
         )
+        self.page.unroute("**/api/upsert_client_vehicle")
+        self.runtime.service.update_card({"card_id": source["id"], "vehicle": "MODEL B CHANGED"})
+        self.page.reload()
+        self.page.wait_for_function(
+            "state.snapshot && state.operatorSessionToken && state.operatorProfile && state.personalBoardPreferences && window.__AUTOSTOP_UI_BOUND__"
+        )
+        self.page.evaluate("stopSnapshotPolling()")
+        self.page.locator("#clientsButton").click()
+        self.page.evaluate("id => selectClient(id)", "uncertain-owner-a")
+        self.page.wait_for_function(
+            "state.clientsActiveProfile?.client?.id === 'uncertain-owner-a'"
+        )
+        candidate_row = self.page.locator("#clientVehiclesList .client-mini--vehicle").filter(
+            has_text="MODEL B CHANGED"
+        )
+        candidate_row.locator("[data-client-vehicle-edit]").click()
+        self.page.locator('[data-client-vehicle-field="vehicle"]').fill("CHANGED AFTER RELOAD")
+        self.page.locator("[data-client-vehicle-save]").click()
+        self.page.wait_for_function("!state.clientMutationRequest")
+        self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
+        self.assertEqual(
+            self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
+            "CHANGED AFTER RELOAD",
+        )
 
     def test_vehicle_keys_separate_sources_and_accept_legacy_unicode(self) -> None:
         self.load_board()
@@ -243,6 +356,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
           const original = api;
           const candidate = {id: 'foreign-id', card_id: 'foreign-card', vehicle: 'CANDIDATE'};
           const client = {id: 'synthetic-owner', vehicles_preview: [candidate]};
+          const key = 'autostop:client-vehicle:' + JSON.stringify([client.id, candidate.card_id]);
           state.clientSuggestions = [client];
           state.clientSuggestionProfiles = {[client.id]: {client: {id: client.id}, vehicles: [candidate]}};
           let writes = 0, body;
@@ -251,7 +365,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             await ensureStableClientSuggestionVehicle(client.id, candidate);
             const stored = state.clientSuggestionProfiles[client.id].vehicles[0];
             const again = await ensureStableClientSuggestionVehicle(client.id, stored);
-            return {writes, body, stored, again};
+            return {writes, body, stored, again, marker: sessionStorage.getItem(key)};
           } finally { api = original; }
         }""")
         self.assertEqual(result["writes"], 1)
@@ -259,6 +373,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         self.assertEqual(result["stored"]["id"], "owned-id")
         self.assertEqual(result["stored"]["card_id"], "")
         self.assertEqual(result["again"]["id"], "owned-id")
+        self.assertIsNone(result["marker"])
 
     def test_card_candidate_with_another_clients_vehicle_id_cannot_edit_or_delete_saved_vehicle(
         self,
