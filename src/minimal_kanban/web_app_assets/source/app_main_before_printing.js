@@ -13940,9 +13940,9 @@
 
     repairOrderListTotalText = function(value, fallbackValue = '') {
       const normalized = String(value ?? '').trim();
-      if (normalized && normalized !== '0') return normalized;
+      if (normalized) return normalized;
       const fallback = String(fallbackValue ?? '').trim();
-      return fallback || normalized || '0';
+      return fallback || '0';
     };
 
     function filterRepairOrdersItems(items = state.repairOrdersItems) {
