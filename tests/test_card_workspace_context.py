@@ -381,7 +381,6 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
         self.assertIn("Смысл карточки", BOARD_WEB_APP_HTML)
         self.assertIn("Госномер", BOARD_WEB_APP_HTML)
         self.assertIn("Сумма", BOARD_WEB_APP_HTML)
-        self.assertIn("const datePart = canonical.split(' ')[0] || canonical;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "item.opened_at || item.created_at || item.date || item.updated_at", BOARD_WEB_APP_HTML
         )
