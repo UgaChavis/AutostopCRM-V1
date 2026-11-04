@@ -37,6 +37,27 @@ def _prepared_search_variant(variant: str) -> tuple[tuple[str, ...], str]:
 
 
 class CardServiceClientsMixin:
+    def _ensure_client_vehicle_expected_revision(
+        self, client: ClientProfile, payload: dict
+    ) -> None:
+        field = "expected_client_updated_at"
+        if field not in payload:
+            return
+        expected = payload[field]
+        if not isinstance(expected, str) or not expected.strip():
+            self._fail(
+                "validation_error",
+                "Передайте точную непустую версию клиента.",
+                details={"field": field},
+            )
+        if expected != client.updated_at:
+            self._fail(
+                "client_update_conflict",
+                "Клиент уже изменён. Обновите профиль и повторите действие.",
+                status_code=409,
+                details={"client_id": client.id},
+            )
+
     def _touch_client(self, client: ClientProfile) -> None:
         previous = parse_datetime(client.updated_at)
         try:
@@ -691,6 +712,7 @@ class CardServiceClientsMixin:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             client = self._find_client(clients, payload.get("client_id"))
+            self._ensure_client_vehicle_expected_revision(client, payload)
             vehicle_id = self._validated_client_vehicle_id(
                 payload.get("client_vehicle_id") or payload.get("vehicle_id")
             )
@@ -856,6 +878,7 @@ class CardServiceClientsMixin:
             events = bundle["events"]
             actor_name, source = self._audit_identity(payload, default_source="api")
             client = self._find_client(clients, payload.get("client_id"))
+            self._ensure_client_vehicle_expected_revision(client, payload)
             vehicle = self._find_client_vehicle(
                 client, payload.get("client_vehicle_id") or payload.get("vehicle_id")
             )
