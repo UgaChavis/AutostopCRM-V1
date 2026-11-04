@@ -10757,19 +10757,16 @@
     function repairOrderCanonicalDateValue(value) {
       const normalized = String(value ?? '').trim();
       if (!normalized) return '';
-      const inlineMatch = normalized.match(/^(\d{2})\.(\d{2})\.(\d{2}|\d{4})(?:[,\s]+(\d{2}):(\d{2})(?::\d{2})?)?$/);
+      const inlineMatch = normalized.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?:[,\s]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
       if (inlineMatch) {
-        const yearValue = Number(inlineMatch[3]);
-        const resolvedYear = inlineMatch[3].length === 2
-          ? (yearValue >= 70 ? 1900 + yearValue : 2000 + yearValue)
-          : yearValue;
-        const hour = inlineMatch[4] || '00';
-        const minute = inlineMatch[5] || '00';
+        const [, day, month, year, hour = '0', minute = '0', second] = inlineMatch;
+        const yearValue = Number(year);
+        const resolvedYear = year.length === 2 ? yearValue + (yearValue >= 69 ? 1900 : 2000) : yearValue;
         return [
-          inlineMatch[1],
-          inlineMatch[2],
+          day.padStart(2, '0'),
+          month.padStart(2, '0'),
           String(resolvedYear).padStart(4, '0'),
-        ].join('.') + ' ' + hour + ':' + minute;
+        ].join('.') + ' ' + hour.padStart(2, '0') + ':' + minute.padStart(2, '0') + (second ? ':' + second.padStart(2, '0') : '');
       }
       const parsed = new Date(normalized);
       if (Number.isNaN(parsed.getTime())) return normalized;
@@ -10783,7 +10780,8 @@
     function repairOrderFormDateDisplayValue(value) {
       const canonical = repairOrderCanonicalDateValue(value);
       if (!canonical) return '';
-      return canonical.replace(/^(\d{2}\.\d{2}\.)\d{2}(\d{2}\s+\d{2}:\d{2})$/, '$1$2');
+      const year = +canonical.slice(6, 10);
+      return year >= 1969 && year <= 2068 ? canonical.replace(/^(\d{2}\.\d{2}\.)\d{2}(\d{2}\s+\d{2}:\d{2}(?::\d{2})?)$/, '$1$2') : canonical;
     }
 
     function currentRepairOrderDateTime() {
@@ -10796,14 +10794,8 @@
     }
 
     function repairOrderListDateDisplayValue(value) {
-      const canonical = repairOrderCanonicalDateValue(value);
-      if (!canonical) return '';
-      const datePart = canonical.split(' ')[0] || canonical;
-      const parts = datePart.split('.');
-      if (parts.length === 3 && parts[2].length === 4) {
-        return parts[0] + '.' + parts[1] + '.' + parts[2].slice(-2);
-      }
-      return datePart;
+      const display = repairOrderFormDateDisplayValue(value);
+      return display.split(' ')[0] || display;
     }
 
     function repairOrderStatusLabel(status) {
