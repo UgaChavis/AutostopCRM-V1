@@ -54,9 +54,23 @@ class ClientLastVisitOrderTests(CardServiceCase):
         second_fold = self.card("b", opened="2026-11-01T01:30:00-05:00")
         self.assertEqual(self.last_visit([first_fold, second_fold]), "2026-11-01T01:30:00-05:00")
 
+    @patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "Asia/Krasnoyarsk"})
+    def test_legacy_local_seconds_compare_without_rewriting_source(self):
+        newer = self.card("a", opened="01.11.2026 10:00:35")
+        earlier = self.card("b", opened="2026-11-01T03:00:20Z")
+        self.assertEqual(self.last_visit([earlier, newer]), "01.11.2026 10:00:35")
+        self.assertEqual(
+            self.last_visit([self.card("a", opened="1.11.26, 9:3:5")]), "1.11.26, 9:3:5"
+        )
+
     def test_invalid_or_unrepresentable_time_does_not_claim_a_last_visit(self):
         valid = self.card("valid", opened="01.11.2026 10:00")
-        for date in ("invalid", "0001-01-01T00:00:00+14:00"):
+        for date in (
+            "invalid",
+            "0001-01-01T00:00:00+14:00",
+            "31.02.2026 10:00:01",
+            "01.11.2026 10:00:99",
+        ):
             with self.subTest(date=date):
                 self.assertEqual(self.last_visit([valid, self.card("bad", opened=date)]), "")
                 self.assertEqual(self.last_visit([self.card("bad", opened=date), valid]), "")
@@ -68,7 +82,13 @@ class ClientLastVisitOrderTests(CardServiceCase):
     @patch.dict("os.environ", {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"})
     def test_ambiguous_and_nonexistent_local_times_are_not_claimed(self):
         aware = self.card("aware", opened="2025-11-02T06:00:00Z")
-        for date in ("02.11.2025 01:30", "09.03.2025 02:30", "2025-11-02T01:30:00"):
+        for date in (
+            "02.11.2025 01:30",
+            "02.11.2025 01:30:01",
+            "09.03.2025 02:30",
+            "09.03.2025 02:30:01",
+            "2025-11-02T01:30:00",
+        ):
             with self.subTest(date=date):
                 self.assertEqual(self.last_visit([aware, self.card("local", opened=date)]), "")
         first = self.card("first", opened="2025-11-02T01:30:00-04:00")
@@ -81,7 +101,7 @@ class ClientLastVisitOrderTests(CardServiceCase):
         return_value=timezone(timedelta(hours=-5)),
     )
     def test_timezone_fallback_requires_explicit_iso_offset(self, _timezone_provider):
-        for date in ("02.11.2025 01:30", "2025-11-02T01:30:00"):
+        for date in ("02.11.2025 01:30", "01.11.2026 10:00:35", "2025-11-02T01:30:00"):
             with self.subTest(date=date):
                 self.assertEqual(self.last_visit([self.card("local", opened=date)]), "")
         first = self.card("first", opened="2025-11-02T01:30:00-04:00")

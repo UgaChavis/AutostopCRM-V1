@@ -1312,6 +1312,16 @@ class CardServiceClientsMixin:
                 instant = date_cache.get(value) if cacheable else None
                 if instant is None:
                     parsed = parse_business_datetime(value)
+                    if parsed is None and cacheable:
+                        for date_format in ("%d.%m.%Y %H:%M:%S", "%d.%m.%y %H:%M:%S"):
+                            try:
+                                local = datetime.strptime(
+                                    value.strip().replace(",", " "), date_format
+                                )
+                            except ValueError:
+                                continue
+                            parsed = parse_business_datetime(local.isoformat())
+                            break
                     if parsed is None:
                         last_visit = ""
                         break
