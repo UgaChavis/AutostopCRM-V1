@@ -4,8 +4,10 @@ import re
 import uuid
 from collections import Counter
 from copy import copy, deepcopy
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ..models import (
     CLIENT_VEHICLE_METADATA_FIELDS,
@@ -13,6 +15,7 @@ from ..models import (
     ClientProfile,
     ClientVehicle,
     normalize_text,
+    parse_business_datetime,
     short_entity_id,
     utc_now_iso,
 )
@@ -1291,24 +1294,36 @@ class CardServiceClientsMixin:
             if card.repair_order.status != REPAIR_ORDER_STATUS_CLOSED
         ]
         last_visit = ""
-        for card in sorted(
-            repair_order_cards or related_cards,
-            key=lambda item: (
-                item.repair_order.closed_at
-                or item.repair_order.opened_at
-                or item.updated_at
-                or item.created_at,
-                item.id,
-            ),
-            reverse=True,
-        ):
-            last_visit = (
+        latest_key = None
+        for card in repair_order_cards or related_cards:
+            value = (
                 card.repair_order.closed_at
                 or card.repair_order.opened_at
                 or card.updated_at
                 or card.created_at
             )
-            break
+            try:
+                parsed = parse_business_datetime(value)
+                if parsed is None:
+                    last_visit = ""
+                    break
+                if (
+                    isinstance(parsed.tzinfo, ZoneInfo)
+                    and parsed.utcoffset() != parsed.replace(fold=1 - parsed.fold).utcoffset()
+                ):
+                    last_visit = ""
+                    break
+                if not isinstance(parsed.tzinfo, ZoneInfo):
+                    if datetime.fromisoformat(value.strip()).tzinfo is None:
+                        last_visit = ""
+                        break
+                key = (parsed.astimezone(UTC), card.id)
+            except (OverflowError, ValueError):
+                last_visit = ""
+                break
+            if latest_key is None or key > latest_key:
+                latest_key = key
+                last_visit = value
         return {
             "cards_total": len(related_cards),
             "repair_orders_total": len(repair_order_cards),

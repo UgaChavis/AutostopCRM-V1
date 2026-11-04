@@ -523,6 +523,13 @@ that can be normalized, even when no vehicle ID is present. A stored
 otherwise the read fails with `state_file_corrupted`. An empty client ID is
 allowed when the vehicle ID is also empty.
 
+Client `stats.last_visit` is the original date string from the latest related
+repair order, or from the latest related card when there are no orders. Dates
+without an offset use the configured business timezone. The field is empty if
+any relevant date cannot be compared reliably, including ambiguous or nonexistent
+local times at a daylight-saving transition or local times without available
+business timezone data. ISO dates with an explicit offset remain comparable.
+
 Client lookup prefers an exact, case-sensitive full ID. A case-insensitive
 `CL-*` short ID is accepted only when it does not conflict with another short
 ID or a full ID differing only by case; ambiguous requests fail with
