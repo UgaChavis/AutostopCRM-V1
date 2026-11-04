@@ -4297,7 +4297,9 @@
       const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
       const viewerStateGeneration = state.viewerStateGeneration;
-      const isCurrentRequest = () => state.clientsRequestSeq === requestSeq && state.viewerStateGeneration === viewerStateGeneration;
+      const operatorSessionToken = state.operatorSessionToken;
+      const ownsRequest = () => state.clientsRequestSeq === requestSeq && state.viewerStateGeneration === viewerStateGeneration;
+      const isCurrentRequest = () => ownsRequest() && state.operatorSessionToken === operatorSessionToken;
       state.clientsMetaState = null;
       state.clientsLoadError = false;
       if (!state.clientsLoaded) renderClientsList();
@@ -4344,7 +4346,17 @@
           }
         },
       });
-      if (!isCurrentRequest()) return data;
+      if (!isCurrentRequest()) {
+        if (ownsRequest()) {
+          state.clientsLoaded = false;
+          state.clientsMetaState = null;
+          state.clientsLoadError = true;
+          state.mobileClientsLoading = false;
+          if (els.clientsModal?.classList.contains('is-open')) renderClientsList();
+          if (state.mobileView === 'more' && state.mobileMorePanel === 'clients') renderMobileClientsPanel();
+        }
+        return data;
+      }
       state.mobileClientsLoading = false;
       if (state.mobileView === 'more' && state.mobileMorePanel === 'clients') renderMobileClientsPanel();
       if (openModal && !state.clientsActiveId && !state.clientsActiveProfile) {
@@ -7937,7 +7949,11 @@
       state.mobileClientsLoading = true;
       renderMobileClientsPanel();
       const viewerStateGeneration = state.viewerStateGeneration;
-      const pending = loadClients({ openModal: false });
+      const more = state.mobileMoreRequest;
+      const shared = !force && !state.clientsLoaded && !state.clientsLoadError && state.mobileMoreLoading
+        && more?.isCurrent?.() && more.clientsSeq === state.clientsRequestSeq
+        && more.clientsQuery === query && more.clientsPromise;
+      const pending = shared || loadClients({ openModal: false });
       const requestSeq = state.clientsRequestSeq;
       try {
         await pending;
@@ -8129,8 +8145,12 @@
       state.mobileMoreError = '';
       renderMobileMoreModules();
       try {
+        request.isCurrent = isCurrent;
+        request.clientsPromise = loadClients({ openModal: false });
+        request.clientsSeq = state.clientsRequestSeq;
+        request.clientsQuery = state.clientsQuery;
         const tasks = [
-          loadClients({ openModal: false }),
+          request.clientsPromise,
           loadArchive(false, { force }),
           loadSharedFiles({ openModal: false }),
         ];
