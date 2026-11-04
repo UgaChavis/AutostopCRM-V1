@@ -527,7 +527,12 @@ The same resolver is shared by card creation, linking and vehicle update/delete.
 Vehicle lookup IDs longer than 128 characters are rejected instead of truncated;
 the same limit applies to IDs supplied inside a vehicle mutation payload or a
 client create/update vehicles list. Legacy state remains readable without
-applying this input validation retroactively.
+applying this input validation retroactively. New duplicate IDs or full/short
+ID collisions are rejected. Client update, vehicle upsert and vehicle delete
+reject changes that would redirect an existing card link; an explicit delete
+with `unlink_cards=true` still unlinks exact links. Unchanged historical
+collisions are not silently repaired. An upsert that would lose the requested
+vehicle during deduplication returns 409 instead of reporting success.
 
 The MCP `get_card_context` requests a read-only snapshot for both values of
 `include_repair_order_text`. When text is requested, it is rendered in memory

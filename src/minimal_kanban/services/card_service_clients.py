@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter
-from copy import deepcopy
+from copy import copy, deepcopy
 from functools import lru_cache
 from typing import Any
 
@@ -403,6 +403,15 @@ class CardServiceClientsMixin:
             merged["created_at"] = client.created_at
             merged["updated_at"] = utc_now_iso()
             next_client = ClientProfile.from_dict(merged)
+            existing_ids = {vehicle.id for vehicle in client.vehicles}
+            next_ids = {vehicle.id for vehicle in next_client.vehicles}
+            self._validate_client_vehicle_alias_collisions(
+                existing_ids | next_ids,
+                existing_ids=existing_ids,
+            )
+            self._guard_client_vehicle_reference_changes(
+                client, clients, bundle["cards"], next_client.vehicles
+            )
             changed = before != next_client.to_storage_dict()
             if changed:
                 index = clients.index(client)
@@ -582,7 +591,18 @@ class CardServiceClientsMixin:
             created = existing is None
             changed = created
             if existing is None:
-                client.vehicles.append(next_vehicle)
+                if any(vehicle.id == next_vehicle.id for vehicle in client.vehicles):
+                    self._fail(
+                        "client_vehicle_id_conflict",
+                        "Автомобиль с таким ID уже существует. Передайте client_vehicle_id для обновления.",
+                        status_code=409,
+                        details={"client_id": client.id, "client_vehicle_id": next_vehicle.id},
+                    )
+                existing_ids = {vehicle.id for vehicle in client.vehicles}
+                self._validate_client_vehicle_alias_collisions(
+                    existing_ids | {next_vehicle.id}, existing_ids=existing_ids
+                )
+                next_vehicles = self._dedupe_client_vehicles([*client.vehicles, next_vehicle])
             else:
                 metadata_keys = set(payload).intersection(CLIENT_VEHICLE_METADATA_FIELDS)
                 if isinstance(payload.get("vehicle"), dict):
@@ -595,10 +615,19 @@ class CardServiceClientsMixin:
                     existing, next_vehicle, metadata_keys=metadata_keys
                 )
                 changed = existing.to_dict() != merged.to_dict()
-                if changed:
-                    self._replace_client_vehicle(client, merged)
+                next_vehicles = self._dedupe_client_vehicles(
+                    [merged if vehicle is existing else vehicle for vehicle in client.vehicles]
+                )
                 next_vehicle = merged
-            client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+            if not any(vehicle.id == next_vehicle.id for vehicle in next_vehicles):
+                self._fail(
+                    "client_vehicle_conflict",
+                    "Автомобиль с такими данными уже существует или достигнут лимит.",
+                    status_code=409,
+                    details={"client_id": client.id},
+                )
+            self._guard_client_vehicle_reference_changes(client, clients, cards, next_vehicles)
+            client.vehicles = next_vehicles
             next_vehicle_key = self._client_vehicle_identity_key(
                 next_vehicle.vehicle,
                 next_vehicle.vin,
@@ -729,9 +758,17 @@ class CardServiceClientsMixin:
                         "linked_card_ids": [card.id for card in linked_cards],
                     },
                 )
-            client.vehicles = [
+            next_vehicles = [
                 candidate for candidate in client.vehicles if candidate.id != vehicle.id
             ]
+            self._guard_client_vehicle_reference_changes(
+                client,
+                clients,
+                cards,
+                next_vehicles,
+                unlink_vehicle_id=vehicle.id if unlink_cards else None,
+            )
+            client.vehicles = next_vehicles
             deleted_key = self._client_vehicle_identity_key(
                 vehicle.vehicle,
                 vehicle.vin,
@@ -1102,11 +1139,25 @@ class CardServiceClientsMixin:
         }
         result = {key: value for key, value in source_payload.items() if key in allowed}
         vehicles = result.get("vehicles")
+        seen_vehicle_ids: set[str] = set()
         for vehicle in vehicles if isinstance(vehicles, list) else [vehicles]:
             if isinstance(vehicle, dict):
-                self._validated_client_vehicle_id(
+                vehicle_id = self._validated_client_vehicle_id(
                     vehicle.get("id") or vehicle.get("client_vehicle_id")
                 )
+            elif isinstance(vehicle, ClientVehicle):
+                vehicle_id = self._validated_client_vehicle_id(vehicle.id)
+            else:
+                continue
+            if vehicle_id and vehicle_id in seen_vehicle_ids:
+                self._fail(
+                    "client_vehicle_id_conflict",
+                    "ID автомобиля клиента повторяется в списке.",
+                    status_code=409,
+                    details={"client_vehicle_id": vehicle_id},
+                )
+            if vehicle_id:
+                seen_vehicle_ids.add(vehicle_id)
         return result
 
     def _validated_client_profile(self, payload: dict[str, Any]) -> ClientProfile:
@@ -1120,6 +1171,7 @@ class CardServiceClientsMixin:
         raw_payload["created_at"] = now_iso
         raw_payload["updated_at"] = now_iso
         client = ClientProfile.from_dict(raw_payload)
+        self._validate_client_vehicle_alias_collisions({vehicle.id for vehicle in client.vehicles})
         if not client.name().strip() or client.name() in {"Без имени", "Без названия"}:
             self._fail(
                 "validation_error",
@@ -2271,6 +2323,62 @@ class CardServiceClientsMixin:
                 setattr(card.repair_order, field, value)
                 changed = True
         return changed
+
+    def _validate_client_vehicle_alias_collisions(
+        self, vehicle_ids: set[str], *, existing_ids: set[str] | None = None
+    ) -> None:
+        existing_ids = existing_ids or set()
+        full_ids: dict[str, list[str]] = {}
+        short_ids: dict[str, list[str]] = {}
+        for vehicle_id in vehicle_ids:
+            full_key = vehicle_id.upper()
+            short_key = short_entity_id(vehicle_id, prefix="CV").upper()
+            candidates = (*full_ids.get(short_key, ()), *short_ids.get(full_key, ()))
+            for other in candidates:
+                if other != vehicle_id and not (
+                    vehicle_id in existing_ids and other in existing_ids
+                ):
+                    self._fail(
+                        "client_vehicle_id_conflict",
+                        "ID автомобиля конфликтует с коротким ID другого автомобиля.",
+                        status_code=409,
+                        details={"client_vehicle_id": vehicle_id},
+                    )
+            full_ids.setdefault(full_key, []).append(vehicle_id)
+            short_ids.setdefault(short_key, []).append(vehicle_id)
+
+    def _guard_client_vehicle_reference_changes(
+        self,
+        client: ClientProfile,
+        clients: list[ClientProfile],
+        cards: list[Card],
+        next_vehicles: list[ClientVehicle],
+        *,
+        unlink_vehicle_id: str | None = None,
+    ) -> None:
+        if Counter(vehicle.id for vehicle in client.vehicles) == Counter(
+            vehicle.id for vehicle in next_vehicles
+        ):
+            return
+        next_client = copy(client)
+        next_client.vehicles = next_vehicles
+        client_keys = {client.id.upper(), short_entity_id(client.id, prefix="CL").upper()}
+        for card in cards:
+            if not card.client_vehicle_id or card.client_id.upper() not in client_keys:
+                continue
+            if self._find_client_or_none(clients, card.client_id) is not client:
+                continue
+            if card.client_id == client.id and card.client_vehicle_id == unlink_vehicle_id:
+                continue
+            before = self._find_client_vehicle_or_none(client, card.client_vehicle_id)
+            after = self._find_client_vehicle_or_none(next_client, card.client_vehicle_id)
+            if (before.id if before else None) != (after.id if after else None):
+                self._fail(
+                    "client_vehicle_reference_conflict",
+                    "Изменение автомобилей нарушает связь с карточкой.",
+                    status_code=409,
+                    details={"client_id": client.id, "card_id": card.id},
+                )
 
     def _validated_client_vehicle_id(self, value: Any) -> str:
         requested_id = normalize_text(value, default="")
