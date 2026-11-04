@@ -6640,7 +6640,8 @@
     function renderMobileRepairOrderRows(section, rows) {
       const root = section === 'materials' ? els.mobileRepairOrderMaterials : els.mobileRepairOrderWorks;
       if (!root) return;
-      root.innerHTML = ensureRepairOrderRows(rows).map((row, index) => mobileRepairOrderLineHtml(section, row, index)).join('');
+      const visibleRows = Array.isArray(rows) && rows.length ? rows : [emptyRepairOrderRow()];
+      root.innerHTML = visibleRows.map((row, index) => mobileRepairOrderLineHtml(section, row, index)).join('');
     }
 
     function readMobileRepairOrderRows(section) {
