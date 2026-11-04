@@ -282,3 +282,23 @@ class ClientSearchOwnerSafetyTests(CardServiceCase):
         with self.assertRaises(StateFileCorruptedError):
             self.service.suggest_clients_for_card({"card_id": source["id"]})
         self.assertEqual(before, self.state_file.read_bytes())
+
+    def test_suggest_normalizes_source_position_without_mutating_snapshot(self):
+        source_id = self.service.create_card({"title": "SYNTHETIC SOURCE"})["card"]["id"]
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        source = next(card for card in state["cards"] if card["id"] == source_id)
+        source["position"] = 77
+        unrelated = deepcopy(source)
+        unrelated.update(id="unrelated-duplicate", title="UNRELATED", position=0)
+        state["cards"] = [unrelated, deepcopy(unrelated), source]
+        self.install(state)
+        before = self.state_file.read_bytes()
+        domains = ("clients", "client_search", "client_search_cards")
+        bundle = self.store._read_context_bundle_snapshot(domains=domains)
+        originals = [card.to_storage_dict() for card in bundle["cards"]]
+        for payload in ({}, {"query": "SYNTHETIC SHARED"}):
+            result = self.service.suggest_clients_for_card({"card_id": source_id, **payload})
+            self.assertEqual(result["card"]["position"], 2)
+            self.assertIs(bundle, self.store._read_context_bundle_snapshot(domains=domains))
+            self.assertEqual([card.to_storage_dict() for card in bundle["cards"]], originals)
+            self.assertEqual(before, self.state_file.read_bytes())

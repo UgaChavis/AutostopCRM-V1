@@ -1035,6 +1035,10 @@ class CardServiceClientsMixin:
                 cards = retained
             card = self._find_card(cards, payload.get("card_id"))
             bundle.require_card(card)
+            if bundle.search_cards_need_retention:
+                column_cards = [copy(item) for item in cards if item.column == card.column]
+                self._store._normalize_card_positions(column_cards)
+                card = next(item for item in column_cards if item.id == card.id)
             events = bundle.normalized_events(self._store)
             query = normalize_text(payload.get("query"), default="", limit=240)
             if not query:
