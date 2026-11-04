@@ -8208,6 +8208,15 @@
       if (view === 'more') renderMobileMore();
     }
 
+    function clearMobileRepairOrdersSearch() {
+      if (state.mobileView !== 'repair-orders' || !(state.repairOrdersQuery || state.repairOrdersRemoteQuery)) return false;
+      state.repairOrdersQuery = '';
+      state.repairOrdersRemoteQuery = '';
+      invalidateRepairOrdersRequests();
+      invalidateRepairOrdersListCache();
+      return true;
+    }
+
     function setMobileView(view) {
       if (state.cashboxMoneyRequest || state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation || state.inventorySaving) return false;
       const requested = String(view || '').trim();
@@ -8215,6 +8224,7 @@
       claimMobileMorePanelIntent();
       const previousView = state.mobileView;
       state.mobileView = normalizeMobileView(view);
+      clearMobileRepairOrdersSearch();
       renderMobileShell({ skipRepairOrderList: previousView === state.mobileView });
       if (requested === 'more' && state.mobileMorePanel === 'employees') openMobileEmployeesPanel();
       if (state.mobileView === 'cashboxes') {
@@ -8767,7 +8777,9 @@
         renderBoard();
       }
       if (!enabled && els.clientsModal?.classList.contains('is-open')) syncDesktopClientProfile();
+      const refreshMobileOrders = enabled && clearMobileRepairOrdersSearch();
       renderMobileShell();
+      if (refreshMobileOrders && typeof loadRepairOrders === 'function') loadRepairOrders(false);
       return enabled;
     }
 
