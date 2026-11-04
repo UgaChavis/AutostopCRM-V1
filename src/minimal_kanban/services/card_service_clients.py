@@ -490,9 +490,7 @@ class CardServiceClientsMixin:
             vehicle: ClientVehicle | None = None
             clients_changed = False
             if create_vehicle_from_card:
-                vehicle = self._client_vehicle_from_card(card)
-                client.vehicles.append(vehicle)
-                client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+                vehicle = self._add_client_vehicle_from_card(client, card, clients, cards)
                 client.updated_at = utc_now_iso()
                 client_vehicle_id = vehicle.id
                 clients_changed = True
@@ -622,7 +620,7 @@ class CardServiceClientsMixin:
             if not any(vehicle.id == next_vehicle.id for vehicle in next_vehicles):
                 self._fail(
                     "client_vehicle_conflict",
-                    "Автомобиль с такими данными уже существует или достигнут лимит.",
+                    "Не удалось сохранить автомобиль. Проверьте данные, дубликаты и лимит.",
                     status_code=409,
                     details={"client_id": client.id},
                 )
@@ -2529,6 +2527,33 @@ class CardServiceClientsMixin:
                 "В карточке нет достаточных данных для создания автомобиля клиента.",
                 details={"card_id": card.id},
             )
+        return vehicle
+
+    def _add_client_vehicle_from_card(
+        self, client: ClientProfile, card: Card, clients: list[ClientProfile], cards: list[Card]
+    ) -> ClientVehicle:
+        vehicle = self._client_vehicle_from_card(card)
+        existing_ids = {item.id for item in client.vehicles}
+        if vehicle.id in existing_ids:
+            self._fail(
+                "client_vehicle_id_conflict",
+                "Автомобиль с таким ID уже существует.",
+                status_code=409,
+                details={"client_id": client.id},
+            )
+        self._validate_client_vehicle_alias_collisions(
+            existing_ids | {vehicle.id}, existing_ids=existing_ids
+        )
+        next_vehicles = self._dedupe_client_vehicles([*client.vehicles, vehicle])
+        if not any(item.id == vehicle.id for item in next_vehicles):
+            self._fail(
+                "client_vehicle_conflict",
+                "Не удалось сохранить автомобиль. Проверьте данные, дубликаты и лимит.",
+                status_code=409,
+                details={"client_id": client.id},
+            )
+        self._guard_client_vehicle_reference_changes(client, clients, cards, next_vehicles)
+        client.vehicles = next_vehicles
         return vehicle
 
     def _merge_client_vehicle(

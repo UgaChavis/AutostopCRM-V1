@@ -532,7 +532,9 @@ ID collisions are rejected. Client update, vehicle upsert and vehicle delete
 reject changes that would redirect an existing card link; an explicit delete
 with `unlink_cards=true` still unlinks exact links. Unchanged historical
 collisions are not silently repaired. An upsert that would lose the requested
-vehicle during deduplication returns 409 instead of reporting success.
+vehicle during deduplication returns 409 instead of reporting success. Creating
+a vehicle from a card also returns 409 when deduplication or the vehicle limit
+would discard the new vehicle; no card is linked to an absent ID.
 
 The MCP `get_card_context` requests a read-only snapshot for both values of
 `include_repair_order_text`. When text is requested, it is rendered in memory

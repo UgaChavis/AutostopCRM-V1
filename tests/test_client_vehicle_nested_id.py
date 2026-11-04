@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 
+from minimal_kanban.models import ClientVehicle
 from minimal_kanban.services.errors import ServiceError
 
 
@@ -463,3 +464,154 @@ class ClientVehicleNestedIdTests(CardServiceCase):
             )
         self.assertEqual(failure.exception.status_code, 409)
         self.assertEqual(self.files(), before)
+
+    def test_create_from_card_rejects_duplicate_without_writes(self):
+        before = self.files()
+        for operation, payload in (
+            (
+                self.service.create_card,
+                {
+                    "title": "OTHER",
+                    "vehicle": "ORIGINAL VEHICLE",
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+            (
+                self.service.link_card_to_client,
+                {
+                    "card_id": self.card_id,
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+        ):
+            with (
+                self.subTest(operation=operation.__name__),
+                self.assertRaises(ServiceError) as failure,
+            ):
+                operation(payload)
+            self.assertEqual(failure.exception.code, "client_vehicle_conflict")
+            self.assertEqual(failure.exception.status_code, 409)
+            self.assertEqual(self.files(), before)
+
+    def test_create_from_card_stores_the_vehicle_id_for_both_paths(self):
+        created = self.service.create_card(
+            {
+                "title": "OTHER",
+                "vehicle": "SECOND VEHICLE",
+                "client_id": self.client_id,
+                "create_vehicle_from_card": True,
+            }
+        )["card"]
+        other = self.service.create_card({"title": "THIRD", "vehicle": "THIRD VEHICLE"})["card"]
+        linked = self.service.link_card_to_client(
+            {"card_id": other["id"], "client_id": self.client_id, "create_vehicle_from_card": True}
+        )["card"]
+        client = self.service.get_client({"client_id": self.client_id})["client"]
+        ids = {vehicle["id"] for vehicle in client["vehicles"]}
+        self.assertIn(created["client_vehicle_id"], ids)
+        self.assertIn(linked["client_vehicle_id"], ids)
+        self.assertNotEqual(created["client_vehicle_id"], linked["client_vehicle_id"])
+
+    def test_create_from_card_rejects_vehicle_limit_without_writes(self):
+        vehicles = [{"id": self.vehicle_id, "vehicle": "ORIGINAL VEHICLE"}]
+        vehicles.extend({"id": f"other-{index}", "vehicle": f"CAR {index}"} for index in range(49))
+        self.service.update_client({"client_id": self.client_id, "vehicles": vehicles})
+        other = self.service.create_card({"title": "OTHER", "vehicle": "OVER LIMIT"})["card"]
+        before = self.files()
+        for operation, payload in (
+            (
+                self.service.create_card,
+                {
+                    "title": "OTHER",
+                    "vehicle": "OVER LIMIT",
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+            (
+                self.service.link_card_to_client,
+                {
+                    "card_id": other["id"],
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+        ):
+            with (
+                self.subTest(operation=operation.__name__),
+                self.assertRaises(ServiceError) as failure,
+            ):
+                operation(payload)
+            self.assertEqual(failure.exception.code, "client_vehicle_conflict")
+            self.assertEqual(self.files(), before)
+
+    def test_create_from_card_does_not_capture_dangling_reference(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        card = next(item for item in state["cards"] if item["id"] == self.card_id)
+        card["client_vehicle_id"] = "CV-AAAAAAAA"
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        self.store.read_bundle()
+        vehicle = ClientVehicle.from_value(
+            {"id": "aaaaaaaa-abcd-0000-0000-000000000001", "vehicle": "NEW"}
+        )
+        before = self.files()
+        for operation, payload in (
+            (
+                self.service.create_card,
+                {
+                    "title": "OTHER",
+                    "vehicle": "NEW",
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+            (
+                self.service.link_card_to_client,
+                {
+                    "card_id": self.card_id,
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+        ):
+            with self.subTest(operation=operation.__name__):
+                with patch.object(self.service, "_client_vehicle_from_card", return_value=vehicle):
+                    with self.assertRaises(ServiceError) as failure:
+                        operation(payload)
+                self.assertEqual(failure.exception.code, "client_vehicle_reference_conflict")
+                self.assertEqual(self.files(), before)
+
+    def test_create_from_card_rejects_body_only_when_normalization_drops_it(self):
+        card = self.service.create_card(
+            {"title": "BODY ONLY", "vehicle_profile": {"body_number": "SYNTHETIC BODY"}}
+        )["card"]
+        before = self.files()
+        for operation, payload in (
+            (
+                self.service.create_card,
+                {
+                    "title": "BODY ONLY",
+                    "vehicle_profile": {"body_number": "SYNTHETIC BODY"},
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+            (
+                self.service.link_card_to_client,
+                {
+                    "card_id": card["id"],
+                    "client_id": self.client_id,
+                    "create_vehicle_from_card": True,
+                },
+            ),
+        ):
+            with (
+                self.subTest(operation=operation.__name__),
+                self.assertRaises(ServiceError) as failure,
+            ):
+                operation(payload)
+            self.assertEqual(failure.exception.code, "client_vehicle_conflict")
+            self.assertIn("Проверьте данные", str(failure.exception))
+            self.assertEqual(self.files(), before)

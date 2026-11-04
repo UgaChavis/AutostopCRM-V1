@@ -693,9 +693,9 @@ class CardService(
                     payload, "sync_vehicle_fields", default=True
                 )
                 if create_vehicle_from_card:
-                    vehicle_record = self._client_vehicle_from_card(card)
-                    client.vehicles.append(vehicle_record)
-                    client.vehicles = self._dedupe_client_vehicles(client.vehicles)
+                    vehicle_record = self._add_client_vehicle_from_card(
+                        client, card, clients, cards
+                    )
                     client.updated_at = utc_now_iso()
                     card.client_vehicle_id = vehicle_record.id
                 elif client_vehicle_id:
