@@ -7,6 +7,7 @@ import os
 import tempfile
 import threading
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -63,6 +64,147 @@ class RepairOrderReadSafetyTests(CardServiceCase):
             for path in root.rglob("*")
             if path.is_file()
         }
+
+    def test_list_handles_extreme_dates_without_writes(self):
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == self.card_id)
+        extremes = ("0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-12:00")
+        with patch.dict(os.environ, {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"}):
+            for field in ("opened_at", "closed_at", "created_at"):
+                for value in extremes:
+                    with self.subTest(field=field, value=value):
+                        card.created_at = (
+                            value if field == "created_at" else "2025-01-01T00:00:00+00:00"
+                        )
+                        card.repair_order.status = "closed" if field == "closed_at" else "open"
+                        card.repair_order.opened_at = value if field == "opened_at" else ""
+                        card.repair_order.closed_at = value if field == "closed_at" else ""
+                        self.store.write_bundle(**bundle)
+                        before = self.state_and_files()
+                        for compact in (False, True):
+                            result = self.service.list_repair_orders(
+                                {"status": "all", "compact": compact}
+                            )
+                            self.assertEqual(len(result["repair_orders"]), 1)
+                            if field == "created_at" and not compact:
+                                self.assertEqual(result["repair_orders"][0]["opened_at"], "")
+                                self.assertEqual(result["repair_orders"][0]["created_at"], value)
+                            self.assertEqual(before, self.state_and_files())
+
+    def test_list_sorts_extreme_dates_with_neighbors_and_text(self):
+        ids = [self.card_id]
+        for index in range(6):
+            ids.append(self.service.create_card({"title": f"Synthetic {index}"})["card"]["id"])
+        values = (
+            "0001-01-01T00:00:00+14:00",
+            "0001-01-01T00:00:01+14:00",
+            "0001-01-02T12:00:00+00:00",
+            "9999-12-30T12:00:00+00:00",
+            "9999-12-31T23:59:58-12:00",
+            "9999-12-31T23:59:59-12:00",
+            "Дата не задана",
+        )
+        bundle = self.store.read_bundle()
+        for card in bundle["cards"]:
+            if card.id in ids:
+                card.repair_order = RepairOrder.from_dict({"opened_at": values[ids.index(card.id)]})
+        self.store.write_bundle(**bundle)
+        before = self.state_and_files()
+        with patch.dict(os.environ, {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"}):
+            for direction, expected in (("asc", ids), ("desc", list(reversed(ids)))):
+                for compact in (False, True):
+                    with self.subTest(direction=direction, compact=compact):
+                        result = self.service.list_repair_orders(
+                            {"sort_dir": direction, "compact": compact}
+                        )
+                        self.assertEqual(
+                            [item["card_id"] for item in result["repair_orders"]], expected
+                        )
+                        self.assertEqual(before, self.state_and_files())
+            for value in (values[0], values[5]):
+                with self.subTest(value=value), self.assertRaises(OverflowError):
+                    self.service._repair_order_sortable_datetime(value)
+
+    def test_list_propagates_unexpected_sort_overflow(self):
+        for parsed in (None, datetime(2025, 1, 1), datetime(1, 1, 2, 12), datetime(9999, 12, 30)):
+            with (
+                self.subTest(parsed=parsed),
+                patch.object(
+                    self.service, "_repair_order_sortable_datetime", side_effect=OverflowError
+                ),
+                patch.object(
+                    self.service, "_parse_repair_order_business_datetime", return_value=parsed
+                ),
+                self.assertRaises(OverflowError),
+            ):
+                self.service._repair_order_list_date_sort_value("0001-unexpected")
+        with (
+            patch.object(
+                self.service, "_parse_repair_order_business_datetime", side_effect=OverflowError
+            ),
+            self.assertRaises(OverflowError),
+        ):
+            self.service._repair_order_list_date_sort_value("0001-unexpected")
+
+    def test_unexpected_serialize_overflow_is_not_suppressed(self):
+        card = next(item for item in self.store.read_bundle()["cards"] if item.id == self.card_id)
+        card.repair_order.opened_at = ""
+        for value in ("2025-01-01T12:00:00+00:00", "0001-01-02T12:00:00+00:00"):
+            card.created_at = value
+            with (
+                self.subTest(value=value),
+                patch.object(
+                    self.service, "_repair_order_card_datetime", side_effect=OverflowError
+                ),
+                self.assertRaises(OverflowError),
+            ):
+                self.service._serialize_repair_order_list_item(card, materialize=False)
+
+    def test_client_profile_handles_extreme_created_at_without_writes(self):
+        client = self.service.create_client({"display_name": "Synthetic client"})["client"]
+        bundle = self.store.read_bundle()
+        card = next(item for item in bundle["cards"] if item.id == self.card_id)
+        card.client_id = client["id"]
+        card.repair_order.opened_at = ""
+        with patch.dict(os.environ, {"AUTOSTOPCRM_BUSINESS_TIMEZONE": "America/New_York"}):
+            for value in ("0001-01-01T00:00:00+14:00", "9999-12-31T23:59:59-12:00"):
+                with self.subTest(value=value):
+                    card.created_at = value
+                    self.store.write_bundle(**bundle)
+                    before = self.state_and_files()
+                    result = self.service.get_client({"client_id": client["id"]})
+                    self.assertEqual(len(result["repair_orders"]), 1)
+                    self.assertEqual(result["repair_orders"][0]["opened_at"], "")
+                    self.assertEqual(result["repair_orders"][0]["created_at"], value)
+                    self.assertEqual(before, self.state_and_files())
+
+    def test_list_keeps_existing_sort_keys_for_normal_and_text_dates(self):
+        for value in ("2025-03-04T12:30:00+03:00", "04.03.2025 12:30", "Дата не задана", ""):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.service._repair_order_list_date_sort_value(value),
+                    self.service._repair_order_sortable_datetime(value),
+                )
+        second = self.service.create_card({"title": "Synthetic second"})["card"]["id"]
+        third = self.service.create_card({"title": "Synthetic third"})["card"]["id"]
+        dates = {
+            self.card_id: "04.03.2025 12:30",
+            second: "2025-03-05T12:30:00+03:00",
+            third: "Дата не задана",
+        }
+        bundle = self.store.read_bundle()
+        for card in bundle["cards"]:
+            if card.id in dates:
+                card.repair_order = RepairOrder.from_dict({"opened_at": dates[card.id]})
+        self.store.write_bundle(**bundle)
+        before = self.state_and_files()
+        for direction, expected in (
+            ("asc", [self.card_id, second, third]),
+            ("desc", [third, second, self.card_id]),
+        ):
+            result = self.service.list_repair_orders({"sort_dir": direction})
+            self.assertEqual([row["card_id"] for row in result["repair_orders"]], expected)
+            self.assertEqual(before, self.state_and_files())
 
     def test_list_is_read_only_and_keeps_legacy_number_and_derived_files(self):
         before = self.state_and_files()

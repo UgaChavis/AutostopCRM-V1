@@ -8614,6 +8614,31 @@ class CardService(
         return self._repair_order_numeric_number(card.repair_order.number)
 
     def _repair_order_list_date_sort_value(self, value: str | None) -> str:
+        raw_value = str(value or "").strip()
+        if raw_value.startswith(("0001", "9999")):
+            parsed = self._parse_repair_order_business_datetime(value)
+            if parsed is not None and parsed.year in (1, 9999):
+                timezone = business_timezone()
+                try:
+                    parsed.astimezone(timezone)
+                except OverflowError:
+                    offset = parsed.utcoffset()
+                    if offset is None:
+                        raise
+                    micros = (
+                        (
+                            parsed.toordinal() * 86400
+                            + parsed.hour * 3600
+                            + parsed.minute * 60
+                            + parsed.second
+                        )
+                        * 1000000
+                        + parsed.microsecond
+                        - (offset.days * 86400 + offset.seconds) * 1000000
+                        - offset.microseconds
+                    )
+                    boundary = "00000000000000" if parsed.year == 1 else "99999999999999"
+                    return f"{boundary}{micros:020d}"
         sort_value = self._repair_order_sortable_datetime(value)
         if "." in sort_value[:10] and sort_value.count(":") == 2:
             parsed = _parse_repair_order_seconds(sort_value)
@@ -9349,12 +9374,25 @@ class CardService(
         paid_total = order.prepayment_amount()
         amounts = order.payment_summary_amounts()
         is_paid = Decimal(amounts["cash_due"]) <= 0
+        opened_at = order.opened_at
+        if not opened_at:
+            overflow = False
+            if card.created_at.startswith(("0001", "9999")):
+                parsed = parse_datetime(card.created_at)
+                if parsed is not None and parsed.year in (1, 9999):
+                    timezone = business_timezone()
+                    try:
+                        parsed.astimezone(timezone)
+                    except OverflowError:
+                        overflow = True
+            if not overflow:
+                opened_at = self._repair_order_card_datetime(card.created_at)
         item: dict[str, object] = {
             "card_id": card.id,
             "number": order.number,
             "date": order.date,
             "created_at": card.created_at,
-            "opened_at": order.opened_at or self._repair_order_card_datetime(card.created_at),
+            "opened_at": opened_at,
             "closed_at": order.closed_at,
             "status": order.status,
             "status_label": self._repair_order_status_label(order.status),
