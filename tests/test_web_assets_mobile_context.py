@@ -69,7 +69,7 @@ assert.equal(state.repairOrdersLoadTimer, null);
         source = SOURCE.read_text(encoding="utf-8")
         definitions = section(
             source,
-            "    function closeMobileCardDetail()",
+            "    function closeMobileCardDetail(",
             "    async function saveMobileCardDetail()",
         )
         self.run_node(
@@ -82,6 +82,7 @@ const state = {
   mobileCardContextGeneration: 0, mobileCardOpenRequest: null,
   mobileCardId: '', mobileCard: null, mobileCardTab: 'overview', mobileCardCreating: false,
   mobileCardLoading: false, mobileCardSaving: false, mobileCardFilesBusy: false,
+  mobileCardWriteVerificationPending: new Set(),
   activeCard: null, activeCardIsFull: false, editingId: null, pendingCardClientId: '',
 };
 const els = {mobileCardTitleInput:{focus(){}}};
@@ -93,6 +94,9 @@ function fetchFullCard(id) {
 }
 function resetMobileCardJournal() {}
 function syncMobileCardEditorBusyState() {}
+function mobileCardDesktopWorkspaceBlocked() {return false;}
+function confirmMobileCardDiscard() {return true;}
+function mobileCardDraftSnapshot() {return 'snapshot';}
 function renderMobileShell() {}
 function renderMobileCardDetail() {}
 function cacheFullCard() {}
@@ -306,7 +310,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
         )
         close = section(
             source,
-            "    function closeMobileCardDetail()",
+            "    function closeMobileCardDetail(",
             "    function invalidateMobileCardContext()",
         )
         self.run_node(
