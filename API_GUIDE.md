@@ -828,7 +828,8 @@ unrelated password or employee-binding changes do not conflict.
   limit. They also reject cashboxes with missing or empty IDs or names, and
   cashbox ID or name collisions after model normalization. Cashbox IDs remain
   case-sensitive; names are compared case-insensitively after trimming and the
-  80-character limit. Reads reject missing or empty transaction `id` or
+  80-character limit, and a name longer than 80 characters after trimming is
+  rejected instead of truncated. Reads reject missing or empty transaction `id` or
   `cashbox_id`, and IDs longer than 128 characters in cashbox `id`, transaction
   `id`, `cashbox_id`, `related_transaction_id`, `transfer_group_id`, and payment
   `cashbox_id` or `cash_transaction_id` (including their supported camelCase

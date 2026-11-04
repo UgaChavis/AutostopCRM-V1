@@ -95,6 +95,40 @@ class RawCashboxIdentityTests(CardServiceCase):
         bundle = self.store.read_bundle()
         self.assertEqual({box.id for box in bundle["cashboxes"]}, {"Case-id", "case-id"})
 
+    def test_unique_name_length_is_checked_before_raw_normalization(self):
+        state = deepcopy(self.original)
+        state["cashboxes"][0]["name"] = "X" * 80
+        self.replace_state(state)
+        self.assertEqual(self.store.read_bundle()["cashboxes"][0].name, "X" * 80)
+        state["cashboxes"][0]["name"] += "Y"
+        self.replace_state(state)
+        before = self.protected_files()
+        with self.assertRaises(StateFileCorruptedError):
+            self.store.read_bundle()
+        self.assertEqual(self.protected_files(), before)
+
+    def test_unique_name_length_is_checked_on_both_write_paths(self):
+        for cached in (False, True):
+            with self.subTest(cached=cached):
+                source, signature = self.store.read_bundle_with_signature()
+                payload = {**source, "cashboxes": [replace(source["cashboxes"][0], name="X" * 80)]}
+                if cached:
+                    self.store.write_cached_bundle(source, **payload, expected_signature=signature)
+                else:
+                    self.store.write_bundle(**payload, expected_signature=signature)
+                source, signature = self.store.read_bundle_with_signature()
+                self.assertEqual(source["cashboxes"][0].name, "X" * 80)
+                payload = {**source, "cashboxes": [replace(source["cashboxes"][0], name="X" * 81)]}
+                before = self.protected_files()
+                with self.assertRaises(ValueError):
+                    if cached:
+                        self.store.write_cached_bundle(
+                            source, **payload, expected_signature=signature
+                        )
+                    else:
+                        self.store.write_bundle(**payload, expected_signature=signature)
+                self.assertEqual(self.protected_files(), before)
+
     def test_write_paths_reject_cashbox_collisions_and_missing_identity(self):
         for case in ("same_id", "space_id", "same_name", "missing_name", "missing_id"):
             for cached in (False, True):

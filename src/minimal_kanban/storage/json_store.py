@@ -237,7 +237,10 @@ def _validate_cashbox_identities(values: Iterable[tuple[Any, Any]]) -> None:
     names: set[str] = set()
     for raw_id, raw_name in values:
         cashbox_id = normalize_text(raw_id, default="", limit=128)
-        name = normalize_text(raw_name, default="", limit=CASHBOX_NAME_LIMIT).casefold()
+        name = normalize_text(raw_name, default="")
+        if len(name) > CASHBOX_NAME_LIMIT:
+            raise StateFileCorruptedError("Имя кассы превышает допустимую длину.")
+        name = name.casefold()
         if not cashbox_id or not name or cashbox_id in ids or name in names:
             raise StateFileCorruptedError("Идентификаторы или имена касс неоднозначны.")
         ids.add(cashbox_id)
