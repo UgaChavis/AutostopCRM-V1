@@ -16008,7 +16008,7 @@
           + '</div>';
       }).join('') : '<div class="cashboxes-empty">КАСС ПОКА НЕТ.</div>';
       syncCashboxDragClasses();
-      renderMobileShell();
+      renderMobileShell({ skipRepairOrderList: true });
     }
 
     function renderCashboxTransactions() {
@@ -16063,7 +16063,7 @@
         els.cashboxExpenseButton.disabled = true;
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">НЕТ ДАННЫХ.</div>';
         closeCashboxCancelPopover();
-        renderMobileShell();
+        renderMobileShell({ skipRepairOrderList: true });
         return;
       }
       els.cashboxDetailTitle.textContent = cashbox.name || 'КАССА';
@@ -16075,7 +16075,7 @@
       if (state.cashboxCancelTransactionId && !cashboxTransactionById(state.cashboxCancelTransactionId)) {
         closeCashboxCancelPopover();
       }
-      renderMobileShell();
+      renderMobileShell({ skipRepairOrderList: true });
       state.cashboxMoneyRequest?.lock();
     }
 
