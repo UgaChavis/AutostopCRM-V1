@@ -4171,6 +4171,12 @@
       els.clientVehiclesList.innerHTML = addForm + listHtml;
     }
 
+    function clientProfileTruncation(shown, total, meta, className) {
+      if (shown >= total) return '';
+      const warning = meta?.read_warnings?.includes('related_card_client_match_unverified') ? ' · СВЯЗИ НЕ ПОДТВЕРЖДЕНЫ' : '';
+      return '<div class="' + className + '">ПОКАЗАНО ' + shown + ' ИЗ ' + total + ' В ПРОФИЛЕ' + warning + '</div>';
+    }
+
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
@@ -4198,7 +4204,7 @@
             '<div class="client-mini__order-meta">' + escapeHtml(orderMeta) + '</div>' +
             '<div class="client-mini__order-total-row"><span class="client-mini__order-total-label">СУММА</span><span class="client-mini__order-total-value">' + escapeHtml(totalLabel) + '</span></div>' +
           '</button>';
-        }).join('')
+        }).join('') + clientProfileTruncation(orders.length, data.meta.repair_orders_total, data.meta, 'client-mini__meta')
         : '<div class="empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
     }
 
@@ -7845,7 +7851,7 @@
             + '<strong>' + escapeHtml(mobileClientVehicleTitle(vehicle)) + '</strong>'
             + '<span>' + escapeHtml(mobileClientVehicleMeta(vehicle)) + '</span>'
           + '</div>';
-        }).join('')
+        }).join('') + clientProfileTruncation(Math.min(vehicles.length, 4), profile.meta.vehicles_total, profile.meta, 'mobile-client-detail__empty')
         : '<div class="mobile-client-detail__empty">МАШИН ПОКА НЕТ.</div>';
       const ordersHtml = orders.length
         ? orders.slice(0, 5).map((order) => {
@@ -7858,7 +7864,7 @@
             + '<span>' + escapeHtml(mobileClientOrderMeta(order)) + '</span>'
             + '<span>' + escapeHtml(repairOrderFormatRubles(order?.grand_total ?? 0)) + '</span>'
           + '</' + tagName + '>';
-        }).join('')
+        }).join('') + clientProfileTruncation(Math.min(orders.length, 5), profile.meta.repair_orders_total, profile.meta, 'mobile-client-detail__empty')
         : '<div class="mobile-client-detail__empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
       els.mobileClientDetail.innerHTML = '<div class="mobile-client-detail__head">'
           + '<div>'
