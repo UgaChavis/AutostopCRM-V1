@@ -8169,7 +8169,7 @@
       }
     }
 
-    function renderMobileShell() {
+    function renderMobileShell({ skipRepairOrderList = false } = {}) {
       if (!els.mobileAppShell || !state.mobileLite) return;
       const view = normalizeMobileView(state.mobileView);
       state.mobileView = view;
@@ -8186,7 +8186,7 @@
       if (view === 'board') renderMobileBoard();
       if (view === 'cashboxes') renderMobileCashboxes();
       if (view === 'inventory') renderMobileInventory();
-      if (view === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileRepairOrders();
+      if (view === 'repair-orders' && !state.mobileRepairOrderCardId && !skipRepairOrderList) renderMobileRepairOrders();
       if (view === 'more') renderMobileMore();
     }
 
@@ -14544,7 +14544,7 @@
       const snapshot = state.snapshot;
       if (!snapshot || !columnId) return false;
       if (state.mobileLite) {
-        renderMobileShell();
+        renderMobileShell({ skipRepairOrderList: true });
         return true;
       }
       const columnIndex = snapshot.columns.findIndex((column) => column.id === columnId);
@@ -14572,7 +14572,7 @@
         return;
       }
       if (state.mobileLite) {
-        renderMobileShell();
+        renderMobileShell({ skipRepairOrderList: true });
         perfEnd(perfToken, { mobile: true, cards: snapshot.cards?.length || 0 });
         return;
       }
