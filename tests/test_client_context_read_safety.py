@@ -168,6 +168,24 @@ class ClientContextReadSafetyTests(CardServiceCase):
                 self.service.get_client({"client_id": self.client_id})
             self.assertTrue(before == self.snapshot(), "Profile read changed persisted files")
 
+    def test_duplicate_or_invalid_selected_client_fails_without_writes(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for scenario in ("duplicate_client", "duplicate_vehicle", "invalid_phones"):
+            with self.subTest(scenario=scenario):
+                state = deepcopy(original)
+                client = self.selected_client(state)
+                if scenario == "duplicate_client":
+                    state["clients"].append(deepcopy(client))
+                elif scenario == "duplicate_vehicle":
+                    client["vehicles"].append(deepcopy(client["vehicles"][0]))
+                else:
+                    client["phones"] = 3
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.snapshot()
+                with self.assertRaises((StateFileCorruptedError, ServiceError)):
+                    self.service.get_client({"client_id": self.client_id})
+                self.assertEqual(before, self.snapshot())
+
     def test_stored_legacy_vehicle_id_alias_is_stable_without_persisting_it(self):
         original = json.loads(self.state_file.read_text(encoding="utf-8"))
         for include_empty_id in (False, True):

@@ -71,12 +71,33 @@ class ContextSnapshotMemoryTests(CardServiceCase):
         self.assertEqual(self.state_file.read_bytes(), before)
 
     def test_normalized_cards_and_clients_are_detached_from_shared_raw_records(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        client = next(item for item in state["clients"] if item["id"] == self.client_id)
+        client["phones"] = ["123"]
+        client["emails"] = ["synthetic@example.test"]
+        client["deleted_vehicle_keys"] = ["synthetic-deleted"]
+        client["vehicles"][0].update(
+            {
+                "manual_fields": ["vin"],
+                "field_sources": {"vin": "synthetic"},
+                "source_links_or_refs": ["synthetic-ref"],
+            }
+        )
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
         events, clients, full, search = self.snapshots()
         raw = deepcopy(self.store._context_snapshot_state)
         events["cards"][0].title = "SYNTHETIC_MUTATED"
-        clients["clients"][0].vehicles[0].vehicle = "SYNTHETIC_MUTATED"
+        profile = clients["clients"][0]
+        profile.vehicles[0].vehicle = "SYNTHETIC_MUTATED"
+        profile.vehicles[0].manual_fields.append("model")
+        profile.vehicles[0].field_sources["vin"] = "changed"
+        profile.vehicles[0].source_links_or_refs.append("changed")
+        profile.phones.append("456")
+        profile.emails.append("changed@example.test")
+        profile.deleted_vehicle_keys.append("changed")
         self.assertEqual(full["cards"][0].title, "SYNTHETIC_BEFORE")
         self.assertEqual(search["clients"][0].vehicles[0].vehicle, "SYNTHETIC_VEHICLE")
+        self.assertEqual(search["clients"][0].vehicles[0].field_sources["vin"], "synthetic")
         self.assertEqual(self.store._context_snapshot_state, raw)
 
     def test_readonly_snapshot_preserves_normalized_clients(self):
