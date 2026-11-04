@@ -570,6 +570,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               operatorProfile: {{ user: {{ username: 'FIRST' }} }},
               operatorUsers: [{{ username: 'FIRST' }}],
               operatorSessionToken: 'first-session',
+              clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
               snapshot: {{ meta: {{ revision: 'viewer-first' }} }},
               lastSnapshotRevision: 'viewer-first',
               refreshInFlight: Promise.resolve(),
@@ -686,6 +687,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             {clear_session}
 
             clearOperatorSession();
+            assert.equal(state.clientProfileUncertainEffects.size, 0, 'logout must clear client effects');
             assert.equal(state.snapshot, null, 'logout must discard the previous viewer snapshot');
             assert.equal(state.lastSnapshotRevision, '', 'logout must discard the viewer revision');
             assert.equal(state.refreshInFlight, null, 'logout must detach an old viewer refresh');
