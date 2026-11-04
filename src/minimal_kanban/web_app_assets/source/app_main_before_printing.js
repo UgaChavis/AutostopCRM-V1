@@ -250,6 +250,7 @@
       clientsQuery: '',
       clientsActiveId: '',
       clientsActiveProfile: null,
+      clientsDesktopProfile: null,
       clientsUiBound: false,
       clientsSearchTimer: null,
       clientsRequestSeq: 0,
@@ -3810,6 +3811,7 @@
       state.mobileClientProfileLoading = false;
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
+      state.clientsDesktopProfile = null;
       state.clientVehicleEditor = null;
       setClientProfileEmptyState(true);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'КЛИЕНТ НЕ ВЫБРАН';
@@ -4094,6 +4096,7 @@
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
+      state.clientsDesktopProfile = data || null;
       setClientProfileEmptyState(false);
       if (els.clientProfileTitle) els.clientProfileTitle.textContent = clientDisplayName(client);
       if (els.clientProfilePhone) {
@@ -4241,7 +4244,15 @@
       return activeClientVehicles().find((vehicle, index) => clientProfileVehicleKey(vehicle, index) === normalizedKey) || null;
     }
 
+    function clientDesktopSelectionMatches() {
+      const selectedId = String(state.clientsActiveId || '').trim();
+      const displayedId = String(state.clientsDesktopProfile?.client?.id || '').trim();
+      return Boolean(state.clientsDesktopProfile) && state.clientsDesktopProfile === state.clientsActiveProfile
+        && selectedId === displayedId && !els.clientProfilePane?.classList.contains('is-empty');
+    }
+
     function startClientVehicleEditor(key) {
+      if (!clientDesktopSelectionMatches()) return;
       if (!state.clientsActiveId && key !== '__new__') return;
       state.clientVehicleEditor = { key: String(key || '__new__') };
       renderClientVehiclesList(activeClientVehicles());
@@ -4263,6 +4274,7 @@
       if (state.clientMutationRequest) return null;
       const clientId = String(state.clientsActiveId || '').trim();
       if (!allowNew && !clientId) return null;
+      if (!clientDesktopSelectionMatches()) return null;
       const request = {};
       const context = captureViewerRequestContext();
       const profileRequestSeq = state.clientsProfileRequestSeq || 0;
@@ -4298,17 +4310,37 @@
 
     // @include client_vehicle_mutations.js
 
+    function syncDesktopClientProfile() {
+      const profile = state.clientsDesktopProfile;
+      const displayedId = String(profile?.client?.id || '').trim();
+      const selectedId = String(state.clientsActiveId || '').trim();
+      const hasDraft = Boolean(state.clientVehicleEditor || (state.clientsDraftBaseline && clientFormDirtySnapshot() !== state.clientsDraftBaseline));
+      const needsSync = displayedId !== selectedId || profile !== state.clientsActiveProfile;
+      if (profile && hasDraft && needsSync) {
+        state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+        state.mobileClientProfileLoading = false;
+        state.clientsActiveId = displayedId;
+        state.clientsActiveProfile = profile;
+        renderClientsList();
+      } else if (selectedId && needsSync) {
+        selectClient(selectedId);
+      } else if (!selectedId && displayedId) {
+        renderClientProfileEmptyState();
+      }
+    }
+
     async function openClientsModal() {
       if (!requireOperatorSession()) return;
       bindClientsUiEvents();
       if (els.clientsModal?.classList.contains('is-open')) return;
+      syncDesktopClientProfile();
       if (state.clientsLoaded && !String(state.clientsQuery || '').trim()) {
         maybeOpenModal(els.clientsModal, true);
         renderClientsList();
-        if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
+        if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();
         return;
       }
-      if (!state.clients.length && !state.clientsActiveProfile) renderClientProfileEmptyState();
+      if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();
       if (els.clientsList) els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
       maybeOpenModal(els.clientsModal, true);
       await loadClients({ openModal: false });
@@ -4326,6 +4358,10 @@
     async function handleClientVehiclesClick(event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      if (!clientDesktopSelectionMatches()) {
+        event.preventDefault();
+        return;
+      }
       const editTarget = target.closest('[data-client-vehicle-edit]');
       if (editTarget instanceof HTMLElement) {
         event.preventDefault();
@@ -7448,6 +7484,10 @@
     }
 
     async function loadMobileClientProfile(clientId) {
+      if (state.clientMutationRequest) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ КЛИЕНТА.', true);
+        return;
+      }
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
       state.clientsActiveProfile = null;
@@ -8238,6 +8278,7 @@
         applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: false });
         renderBoard();
       }
+      if (!enabled && els.clientsModal?.classList.contains('is-open')) syncDesktopClientProfile();
       renderMobileShell();
       return enabled;
     }

@@ -734,8 +734,9 @@ const els={};
 const window={setTimeout,clearTimeout};
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',apiToken:'api-A',actor:'actor-A',
-  clientsActiveId:'A',clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__'},
+  clientsActiveId:'A',clientsDesktopProfile:{client:{id:'A'}},clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__'},
 };
+state.clientsActiveProfile=state.clientsDesktopProfile;
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function findActiveClientVehicle(){return null;}
 function readClientVehicleEditorPayload(){return {vehicle:'Vehicle A',vin:'VIN-A',license_plate:''};}
@@ -744,6 +745,7 @@ async function selectClient(id){selected.push(id);}
 function setStatus(message,isError){statuses.push({message,isError});}
 """
             + viewer_context
+            + functions("app_main_before_printing.js", "clientDesktopSelectionMatches")
             + vehicle_mutation
             + functions(
                 "app_main_before_printing.js",
@@ -760,7 +762,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
   assert.deepEqual(selected,[]);assert.deepEqual(statuses,[]);
   assert.deepEqual(state.clientVehicleEditor,{key:'__new__'});
 
-  state.clientsActiveId='same';state.clientsProfileRequestSeq=10;state.clientMutationRequest=null;
+  state.clientsActiveId='same';state.clientsDesktopProfile={client:{id:'same'}};state.clientsActiveProfile=state.clientsDesktopProfile;state.clientsProfileRequestSeq=10;state.clientMutationRequest=null;
   state.clientVehicleEditor={key:'__new__'};
   const oldSame=saveClientVehicleFromEditor('__new__');
   state.clientsActiveId='away';state.clientsProfileRequestSeq=11;
