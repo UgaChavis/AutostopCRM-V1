@@ -6,6 +6,21 @@ from pathlib import Path
 from tests.browser_ui_support import UiBrowserTestCase
 
 
+def complete_order(row):
+    return {
+        "status": "open",
+        "status_label": "Открыт",
+        "payment_status": "paid",
+        "payment_status_label": "Оплачен",
+        "is_paid": True,
+        "paid_total": "0",
+        "paid_total_display": "0",
+        "works_total": "0",
+        "grand_total": "0",
+        **row,
+    }
+
+
 class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
     def test_loading_freshness_and_close_while_pending(self):
         self.load_board()
@@ -44,8 +59,16 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
                 json={
                     "ok": True,
                     "data": {
-                        "repair_orders": rows,
-                        "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                        "repair_orders": [complete_order(row) for row in rows],
+                        "meta": {
+                            "status": "open",
+                            "sort_by": "number",
+                            "sort_dir": "desc",
+                            "limit": 300,
+                            "total": len(rows),
+                            "returned": len(rows),
+                            "has_more": False,
+                        },
                     },
                 },
             )
@@ -154,9 +177,19 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
                     "ok": True,
                     "data": {
                         "repair_orders": [
-                            {"card_id": card_id, "number": "321", "summary": "SYNTHETIC ORDER"}
+                            complete_order(
+                                {"card_id": card_id, "number": "321", "summary": "SYNTHETIC ORDER"}
+                            )
                         ],
-                        "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                        "meta": {
+                            "status": "open",
+                            "sort_by": "number",
+                            "sort_dir": "desc",
+                            "limit": 300,
+                            "total": 1,
+                            "returned": 1,
+                            "has_more": False,
+                        },
                     },
                 }
             )
@@ -232,9 +265,19 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
                 "ok": True,
                 "data": {
                     "repair_orders": [
-                        {"card_id": card_id, "number": "123", "client": "SYNTHETIC CLIENT"}
+                        complete_order(
+                            {"card_id": card_id, "number": "123", "client": "SYNTHETIC CLIENT"}
+                        )
                     ],
-                    "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                    "meta": {
+                        "status": "open",
+                        "sort_by": "number",
+                        "sort_dir": "desc",
+                        "limit": 300,
+                        "total": 1,
+                        "returned": 1,
+                        "has_more": False,
+                    },
                 },
             }
         )
@@ -262,8 +305,16 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
             json={
                 "ok": True,
                 "data": {
-                    "repair_orders": [{"card_id": card_id, "number": "789"}],
-                    "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                    "repair_orders": [complete_order({"card_id": card_id, "number": "789"})],
+                    "meta": {
+                        "status": "open",
+                        "sort_by": "number",
+                        "sort_dir": "desc",
+                        "limit": 300,
+                        "total": 1,
+                        "returned": 1,
+                        "has_more": False,
+                    },
                 },
             }
         )

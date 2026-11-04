@@ -482,6 +482,7 @@
     const MOBILE_LITE_MEDIA_QUERY = '(max-width: 760px)';
     const MOBILE_LITE_USER_AGENT_RE = /Android|webOS|iPhone|iPad|iPod|Mobile|Opera Mini|IEMobile/i;
     const REPAIR_ORDER_TAG_LIMIT = 5;
+    const REPAIR_ORDERS_LIST_LIMIT = 300;
     const REPAIR_ORDER_SORT_FIELDS = ['number', 'opened_at', 'closed_at'];
     const REPAIR_ORDER_SORT_DIRECTIONS = ['asc', 'desc'];
     const REPAIR_ORDER_SEARCH_FIELDS = ['number', 'date', 'client', 'phone', 'vehicle', 'summary', 'license_plate'];
@@ -14074,7 +14075,7 @@
 
     function repairOrdersRequestPath() {
       const params = new URLSearchParams();
-      params.set('limit', '300');
+      params.set('limit', String(REPAIR_ORDERS_LIST_LIMIT));
       params.set('status', normalizeRepairOrderStatus(state.repairOrdersFilter));
       params.set('sort_by', normalizeRepairOrdersSortBy(state.repairOrdersSortBy));
       params.set('sort_dir', normalizeRepairOrdersSortDir(state.repairOrdersSortDir));
@@ -14255,6 +14256,7 @@
       state.repairOrdersRequestSeq = requestSeq;
       const viewerStateGeneration = state.viewerStateGeneration;
       const operatorSessionToken = state.operatorSessionToken;
+      const requestedStatus = normalizeRepairOrderStatus(state.repairOrdersFilter);
       const isCurrent = () => state.repairOrdersRequestSeq === requestSeq
         && state.viewerStateGeneration === viewerStateGeneration
         && state.operatorSessionToken === operatorSessionToken;
@@ -14262,7 +14264,23 @@
         openModal,
         modalEl: els.repairOrdersModal,
         isCurrent,
-        onSuccess: renderRepairOrders,
+        onSuccess: (data) => {
+          const items = data?.repair_orders, meta = data?.meta;
+          if (!Array.isArray(items) || !meta || typeof meta !== 'object' || Array.isArray(meta)
+              || !items.every((item) => item && typeof item === 'object' && !Array.isArray(item)
+                && typeof item.card_id === 'string' && item.card_id && item.card_id === item.card_id.trim()
+                && item.status === requestedStatus && ['paid', 'unpaid'].includes(item.payment_status)
+                && typeof item.is_paid === 'boolean' && item.is_paid === (item.payment_status === 'paid')
+                && ['status_label', 'payment_status_label', 'paid_total', 'paid_total_display', 'works_total', 'grand_total']
+                  .every((key) => typeof item[key] === 'string' && item[key].trim()))
+              || ![meta.limit, meta.total, meta.returned].every((value) => Number.isSafeInteger(value) && value >= 0)
+              || meta.limit !== REPAIR_ORDERS_LIST_LIMIT || meta.returned !== items.length || meta.returned !== Math.min(meta.total, meta.limit)
+              || typeof meta.has_more !== 'boolean' || meta.has_more !== (meta.total > meta.limit)
+              || meta.status !== requestedStatus) {
+            throw new Error('СПИСОК ЗАКАЗ-НАРЯДОВ НЕ ПОДТВЕРЖДЁН.');
+          }
+          renderRepairOrders(data);
+        },
         onError: (error) => {
           state.repairOrdersLoadError = true;
           setRepairOrdersSearchLoading(false);

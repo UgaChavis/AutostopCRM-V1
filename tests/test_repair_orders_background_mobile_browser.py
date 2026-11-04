@@ -17,8 +17,30 @@ class RepairOrdersBackgroundMobileBrowserTests(UiBrowserTestCase):
             json={
                 "ok": True,
                 "data": {
-                    "repair_orders": [{"card_id": "synthetic-order", "number": "444"}],
-                    "meta": {"status": "open", "sort_by": "number", "sort_dir": "desc"},
+                    "repair_orders": [
+                        {
+                            "card_id": "synthetic-order",
+                            "number": "444",
+                            "status": "open",
+                            "status_label": "Открыт",
+                            "payment_status": "paid",
+                            "payment_status_label": "Оплачен",
+                            "is_paid": True,
+                            "paid_total": "0",
+                            "paid_total_display": "0",
+                            "works_total": "0",
+                            "grand_total": "0",
+                        }
+                    ],
+                    "meta": {
+                        "status": "open",
+                        "sort_by": "number",
+                        "sort_dir": "desc",
+                        "limit": 300,
+                        "total": 1,
+                        "returned": 1,
+                        "has_more": False,
+                    },
                 },
             }
         )
