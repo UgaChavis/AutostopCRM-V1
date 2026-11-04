@@ -45,6 +45,20 @@
         throw new Error('ПРЕДЫДУЩАЯ ОПЕРАЦИЯ С АВТОМОБИЛЕМ НЕ ПОДТВЕРЖДЕНА. СНАЧАЛА ПРОВЕРЬТЕ ЕЁ.');
       }
     }
+    function prepareClientVehicleMutation(path, body, context) {
+      const ownerKey = clientVehicleMutationOwnerKey(path, body, context);
+      requireClientVehicleMutationOwner(ownerKey);
+      const checkpoint = state.clientVehicleMutationCheckpoint;
+      const version = checkpoint?.ownerKey === ownerKey && (checkpoint.uncertain || checkpoint.confirmedResult)
+        ? checkpoint.body.expected_client_updated_at
+        : path.endsWith('/upsert_client_vehicle') ? state.clientVehicleEditor?.expectedClientUpdatedAt
+        : state.clientsDesktopProfile?.client?.updated_at;
+      if (typeof version !== 'string' || !version || version !== version.trim()) {
+        throw new Error('ВЕРСИЯ КЛИЕНТА НЕ ПОДТВЕРЖДЕНА. ПРОВЕРЬТЕ ПРОФИЛЬ; ИЗМЕНЕНИЯ АВТОМОБИЛЯ СОХРАНЕНЫ В ФОРМЕ.');
+      }
+      body.expected_client_updated_at = version;
+      return ownerKey;
+    }
     async function clientVehicleWrite(path, body, context, effect = null) {
       const ownerKey = clientVehicleMutationOwnerKey(path, body, context);
       requireClientVehicleMutationOwner(ownerKey);
@@ -102,6 +116,10 @@
       }
       const normalizedKey = String(key || '').trim();
       const currentVehicle = normalizedKey === '__new__' ? null : findActiveClientVehicle(normalizedKey);
+      if (normalizedKey !== '__new__' && !currentVehicle) {
+        setStatus('АВТОМОБИЛЬ НЕ НАЙДЕН В ПРОФИЛЕ. ПРОВЕРЬТЕ ДАННЫЕ; ЧЕРНОВИК СОХРАНЁН.', true);
+        return;
+      }
       const payload = readClientVehicleEditorPayload(normalizedKey);
       if (!payload.vehicle && !payload.vin && !payload.license_plate) {
         setStatus('ЗАПОЛНИТЕ МОДЕЛЬ, VIN ИЛИ ГОСНОМЕР АВТОМОБИЛЯ.', true);
@@ -118,8 +136,7 @@
       body.client_id = context.clientId;
       let effect = null, created = false;
       try {
-        const ownerKey = clientVehicleMutationOwnerKey('/api/upsert_client_vehicle', body, context);
-        requireClientVehicleMutationOwner(ownerKey);
+        const ownerKey = prepareClientVehicleMutation('/api/upsert_client_vehicle', body, context);
         if (!currentVehicle || currentVehicle.card_id) {
           const checkpoint = state.clientVehicleMutationCheckpoint;
           effect = checkpoint?.ownerKey === ownerKey && checkpoint.effect && state.clientCandidateVehicleEffects.get(checkpoint.effect.key) === checkpoint.effect
@@ -158,11 +175,13 @@
       const context = beginClientMutation();
       if (!context) return;
       try {
-        await clientVehicleWrite('/api/delete_client_vehicle', {
+        const body = {
           client_id: context.clientId,
           client_vehicle_id: vehicle.id,
           unlink_cards: true,
-        }, context);
+        };
+        prepareClientVehicleMutation('/api/delete_client_vehicle', body, context);
+        await clientVehicleWrite('/api/delete_client_vehicle', body, context);
         if (!context.isCurrent()) return;
         if (await refreshClientAfterVehicleMutation(context, '', vehicle.id)) {
           if (state.clientVehicleMutationCheckpoint) state.clientVehicleMutationCheckpoint.confirmedResult = null;

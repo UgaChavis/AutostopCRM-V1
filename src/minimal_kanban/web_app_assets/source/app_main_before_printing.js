@@ -4103,7 +4103,7 @@
 
     function clientVehicleErrorIsDefinite(error) {
       return Boolean(error && error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
-        && ['validation_error', 'client_vehicle_conflict', 'client_vehicle_id_conflict', 'client_vehicle_reference_conflict', 'client_ambiguous', 'client_vehicle_ambiguous', 'not_found'].includes(error.code));
+        && ['validation_error', 'client_update_conflict', 'client_vehicle_conflict', 'client_vehicle_id_conflict', 'client_vehicle_reference_conflict', 'client_ambiguous', 'client_vehicle_ambiguous', 'not_found'].includes(error.code));
     }
 
     function finishCandidateVehicleCreation(effect, { confirmed = false, error = null } = {}) {
@@ -4403,7 +4403,10 @@
       if (!clientDesktopSelectionMatches()) return;
       if (protectClientDraft(true)) return;
       if (!state.clientsActiveId && key !== '__new__') return;
-      state.clientVehicleEditor = { key: String(key || '__new__') };
+      state.clientVehicleEditor = {
+        key: String(key || '__new__'),
+        expectedClientUpdatedAt: state.clientsDesktopProfile?.client?.updated_at,
+      };
       renderClientVehiclesList(activeClientVehicles());
     }
 
