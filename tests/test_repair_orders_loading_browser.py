@@ -276,6 +276,7 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
         self.assertEqual(
             self.page.locator("#mobileRepairOrderClient").input_value(), "SYNTHETIC UNSAVED DRAFT"
         )
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator("#mobileRepairOrderBackButton").click()
         self.assertIn("789", self.page.locator("#mobileRepairOrdersList").inner_text())
         self.page.locator(
@@ -290,6 +291,7 @@ class RepairOrdersLoadingBrowserTests(UiBrowserTestCase):
         self.assertEqual(len(held), 1)
         held.pop().fulfill(status=503, json={"ok": False, "error": {"message": "SYNTHETIC"}})
         self.page.wait_for_function("state.repairOrdersLoadError")
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator("#mobileRepairOrderBackButton").click()
         self.assertIn(
             "НЕ УДАЛОСЬ ЗАГРУЗИТЬ", self.page.locator("#mobileRepairOrdersList").inner_text()

@@ -28,6 +28,7 @@ class MobileRepairOrderDraftBrowserTests(UiBrowserTestCase):
         )
         other = self.create_card("SYNTHETIC OTHER ORDER")
         self.runtime.service.get_repair_order({"card_id": other, "create_if_missing": True})
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.evaluate("id => openMobileRepairOrderDetail(id)", other)
         self.page.wait_for_function(
             "id => state.mobileRepairOrderCardId === id && !state.mobileRepairOrderLoading",
@@ -108,6 +109,7 @@ class MobileRepairOrderDraftBrowserTests(UiBrowserTestCase):
         self.page.evaluate("saveMobileRepairOrder()")
         self.assertEqual(len(writes), 1)
         self.page.unroute("**/api/update_repair_order", applied_then_lost)
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.evaluate("closeMobileRepairOrderDetail()")
         self.page.evaluate("id => openMobileRepairOrderDetail(id)", card)
         self.page.wait_for_function(
