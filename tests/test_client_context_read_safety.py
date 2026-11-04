@@ -273,6 +273,137 @@ class ClientContextReadSafetyTests(CardServiceCase):
                 )
                 self.assertEqual(before, self.snapshot())
 
+    def test_profile_excludes_confirmed_other_owner_but_keeps_unverified_links(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for scenario in ("exact", "empty", "unknown", "short", "exact_over_short"):
+            with self.subTest(scenario=scenario):
+                state = deepcopy(original)
+                selected = self.selected_client(state)
+                selected_id = self.client_id
+                other_id = "12345678-0000-0000-0000-000000000002"
+                if scenario == "exact_over_short":
+                    selected_id = "12345678-0000-0000-0000-000000000001"
+                    selected["id"] = selected_id
+                    for card in state["cards"]:
+                        if card["client_id"] == self.client_id:
+                            card["client_id"] = selected_id
+                    other_id = "CL-12345678"
+                other = deepcopy(selected)
+                other["id"] = other_id
+                state["clients"].append(other)
+                card = next(card for card in state["cards"] if card["id"] == self.card_ids[0])
+                card["client_id"] = {
+                    "empty": "",
+                    "unknown": "SYNTHETIC-MISSING",
+                    "short": "CL-12345678",
+                }.get(scenario, other_id)
+                card["repair_order"]["vehicle"] = "SYNTHETIC FOREIGN VEHICLE"
+                card["vehicle"] = "SYNTHETIC FOREIGN VEHICLE"
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.state_file.read_bytes()
+                profile = self.service.get_client({"client_id": selected_id})
+                stats = self.service.get_client_stats({"client_id": selected_id})
+                excluded = scenario in ("exact", "exact_over_short")
+                orders = profile["repair_orders"]
+                self.assertEqual(
+                    self.card_ids[0] not in [row["card_id"] for row in orders], excluded
+                )
+                self.assertEqual(profile["meta"]["repair_orders_total"], 2 if excluded else 3)
+                self.assertEqual(stats["stats"]["repair_orders_total"], 2 if excluded else 3)
+                self.assertEqual(
+                    sum(int(row["due_total"]) for row in orders), 500 if excluded else 600
+                )
+                self.assertEqual(
+                    any(
+                        vehicle["vehicle"] == "SYNTHETIC FOREIGN VEHICLE"
+                        for vehicle in profile["vehicles"]
+                    ),
+                    not excluded,
+                )
+                self.assertIn(
+                    "related_card_client_match_unverified", profile["meta"].get("read_warnings", [])
+                )
+                strict = self.service.get_client(
+                    {"client_id": selected_id, "strict_client_links": True}
+                )
+                self.assertNotIn(
+                    self.card_ids[0], [row["card_id"] for row in strict["repair_orders"]]
+                )
+                self.assertEqual(strict["meta"]["repair_orders_total"], 2)
+                self.assertIn(
+                    "related_card_client_match_unverified", strict["meta"].get("read_warnings", [])
+                )
+                self.assertEqual(before, self.state_file.read_bytes())
+
+    def test_profile_rejects_damaged_confirmed_owner_or_raw_card_link(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for scenario in (
+            "duplicate",
+            "bad_model",
+            "bad_date",
+            "bad_vehicle_id",
+            "truncated_card_link",
+        ):
+            with self.subTest(scenario=scenario):
+                state = deepcopy(original)
+                other = deepcopy(self.selected_client(state))
+                other["id"] = "x" * 128 if scenario == "truncated_card_link" else "SYNTHETIC-OTHER"
+                if scenario == "bad_model":
+                    other["phones"] = 123
+                elif scenario == "bad_date":
+                    other["created_at"] = ""
+                elif scenario == "bad_vehicle_id":
+                    other["vehicles"][0]["id"] = "x" * 129
+                state["clients"].append(other)
+                if scenario == "duplicate":
+                    state["clients"].append(deepcopy(other))
+                card = next(card for card in state["cards"] if card["id"] == self.card_ids[0])
+                card["client_id"] = other["id"] + ("A" if scenario == "truncated_card_link" else "")
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.state_file.read_bytes()
+                for operation in (self.service.get_client, self.service.get_client_stats):
+                    with self.assertRaises(StateFileCorruptedError):
+                        operation({"client_id": self.client_id})
+                strict = self.service.get_client(
+                    {"client_id": self.client_id, "strict_client_links": True}
+                )
+                self.assertNotIn(
+                    self.card_ids[0], [row["card_id"] for row in strict["repair_orders"]]
+                )
+                self.assertIn(
+                    "related_card_client_match_unverified", strict["meta"].get("read_warnings", [])
+                )
+                self.assertEqual(before, self.state_file.read_bytes())
+
+    def test_profile_checks_each_other_owner_and_preserves_warnings(self):
+        original = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for bad_second in (False, True):
+            with self.subTest(bad_second=bad_second):
+                state = deepcopy(original)
+                for index in range(2):
+                    other = deepcopy(self.selected_client(state))
+                    other["id"] = f"SYNTHETIC-OTHER-{index}"
+                    if index == 1 and bad_second:
+                        other["created_at"] = ""
+                    state["clients"].append(other)
+                for index, card_id in enumerate(self.card_ids):
+                    card = next(row for row in state["cards"] if row["id"] == card_id)
+                    card["client_id"] = f"SYNTHETIC-OTHER-{1 if index == 2 else 0}"
+                self.state_file.write_text(json.dumps(state), encoding="utf-8")
+                before = self.state_file.read_bytes()
+                for operation in (self.service.get_client, self.service.get_client_stats):
+                    if bad_second:
+                        with self.assertRaises(StateFileCorruptedError):
+                            operation({"client_id": self.client_id})
+                    else:
+                        result = operation({"client_id": self.client_id})
+                        stats = result.get("stats", result["client"]["stats"])
+                        self.assertEqual(stats["repair_orders_total"], 0)
+                        self.assertIn(
+                            "related_card_client_match_unverified", result["meta"]["read_warnings"]
+                        )
+                self.assertEqual(before, self.state_file.read_bytes())
+
     def test_client_stats_preserves_legacy_shape_and_short_id_without_writes(self):
         bundle = self.store.read_bundle()
         client = self.service._find_client(bundle["clients"], self.client_id)

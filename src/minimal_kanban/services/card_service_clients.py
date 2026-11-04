@@ -332,18 +332,28 @@ class CardServiceClientsMixin:
         bundle.require_client(client)
         related_cards = self._client_related_cards(client, bundle["cards"])
         read_warnings = set()
-        if strict_links:
-            if any(card.client_id != client.id for card in related_cards):
-                read_warnings.add("related_card_client_match_unverified")
-            related_cards = [card for card in related_cards if card.client_id == client.id]
+        accepted_cards = []
+        other_clients = {}
         for card in related_cards:
+            if strict_links and card.client_id != client.id:
+                read_warnings.add("related_card_client_match_unverified")
+                continue
             bundle.require_card(card)
             if strict_links:
                 bundle.require_card_client_links(card)
+            elif card.client_id and card.client_id != client.id:
+                if card.client_id not in other_clients:
+                    other_clients[card.client_id] = bundle.has_other_exact_client(
+                        card.client_id, client.id
+                    )
+                if other_clients[card.client_id]:
+                    read_warnings.add("related_card_client_match_unverified")
+                    continue
+            accepted_cards.append(card)
             read_warnings.update(bundle.card_warnings(card))
             if card.client_id != client.id:
                 read_warnings.add("related_card_client_match_unverified")
-        return bundle, client, related_cards, read_warnings
+        return bundle, client, accepted_cards, read_warnings
 
     def create_client(self, payload: dict | None = None) -> dict:
         with self._lock:

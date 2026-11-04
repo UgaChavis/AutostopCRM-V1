@@ -502,8 +502,12 @@ The MCP `get_client` and `agent_entity_context(client)` request
 `strict_client_links=true`: related cards, orders and derived vehicles then
 require an exact stored `client_id`, and their totals count only those records.
 Excluded text matches are signaled by `related_card_client_match_unverified`.
-The ordinary service/API client profile retains its existing matching behavior
-unless this flag is explicitly set. In read-only card and repair-order context,
+The ordinary service/API client profile retains unverified text matches, except
+that it excludes a card whose exact stored client ID identifies a different,
+uniquely validated client. Exclusion still produces an unverified-match warning,
+so the browser does not present a potentially incomplete debt as definitive.
+An empty, unresolved or short-only ID remains an unverified match; malformed
+candidate records fail closed. In read-only card and repair-order context,
 a nonempty stored `client_id` must resolve to exactly one client source record
 that can be normalized, even when no vehicle ID is present. A stored
 `client_vehicle_id` must resolve uniquely to a retained vehicle of that client;

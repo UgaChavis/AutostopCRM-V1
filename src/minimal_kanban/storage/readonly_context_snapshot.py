@@ -177,6 +177,18 @@ class ReadonlyContextSnapshot(dict):
         for vehicle in client.vehicles:
             self._source(vehicles, vehicle.id, alias="client_vehicle_id")
 
+    def has_other_exact_client(self, client_id, selected_id):
+        """Recognize only an exact, validated stored owner, never a short alias."""
+        if not client_id or client_id == selected_id or client_id not in self._clients:
+            return False
+        source = self._source(self._clients, client_id)
+        try:
+            client = ClientProfile.from_dict(source)
+        except (OverflowError, TypeError, ValueError):
+            raise StateFileCorruptedError("Запись связанного клиента повреждена.") from None
+        self.require_client(client)
+        return client.id == client_id
+
     def require_card_client_links(self, card):
         if not card.client_id:
             if card.client_vehicle_id:
