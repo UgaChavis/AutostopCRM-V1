@@ -260,6 +260,36 @@ class RepairOrderReadSafetyTests(CardServiceCase):
         self.assertTrue(any(card.id == self.card_id for card in cards))
         self.assertEqual(before, self.state_and_files())
 
+    def test_snapshot_matches_previous_normalization_for_legacy_and_archived_orders(self):
+        state = json.loads(self.state_file.read_text())
+        card = next(item for item in state["cards"] if item["id"] == self.card_id)
+        archived = deepcopy(card)
+        archived.update(id="synthetic-archived-order", archived=True)
+        archived["repair_order"] = {
+            "client": "synthetic",
+            "advancePayment": "10",
+            "works": [{"name": "synthetic", "qty": "2", "price": "5"}],
+        }
+        empty = deepcopy(card)
+        empty.update(id="synthetic-empty-order", repair_order={})
+        state["cards"].extend([archived, empty])
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.state_and_files()
+        normalize = self.store._normalize_cards
+
+        def previous_normalization(*args, **kwargs):
+            kwargs.pop("_repair_orders", None)
+            return normalize(*args, **kwargs)
+
+        with patch.object(self.store, "_normalize_cards", side_effect=previous_normalization):
+            expected = self.store._build_repair_order_cards_snapshot()
+        actual = self.store._build_repair_order_cards_snapshot()
+        self.assertEqual(
+            [card.to_storage_dict() for card in actual],
+            [card.to_storage_dict() for card in expected],
+        )
+        self.assertEqual(before, self.state_and_files())
+
     def test_snapshot_does_not_overwrite_concurrent_state_replacement(self):
         state = json.loads(self.state_file.read_text())
         replacement = json.loads(self.state_file.read_text())

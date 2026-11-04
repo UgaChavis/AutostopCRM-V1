@@ -2158,6 +2158,7 @@ class Card:
         valid_columns: Collection[str] | None = None,
         default_column: str = "inbox",
         fallback_position: int = 0,
+        _repair_order: RepairOrder | None = None,
     ) -> Card:
         if not isinstance(payload, dict):
             raise TypeError("Card payload must be a dictionary.")
@@ -2190,7 +2191,11 @@ class Card:
 
         vehicle = normalize_text(payload.get("vehicle"), default="", limit=CARD_VEHICLE_LIMIT)
         vehicle_profile = VehicleProfile.from_dict(payload.get("vehicle_profile"))
-        repair_order = RepairOrder.from_dict(payload.get("repair_order"))
+        repair_order = (
+            _repair_order
+            if _repair_order is not None
+            else RepairOrder.from_dict(payload.get("repair_order"))
+        )
         profile_display = build_vehicle_display(
             vehicle_profile.make_display,
             vehicle_profile.model_display,

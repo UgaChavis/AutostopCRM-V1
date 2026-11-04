@@ -493,11 +493,13 @@ class JsonStore:
         ):
             raise StateFileCorruptedError("Данные заказ-наряда повреждены.")
         identities: dict[str, bool] = {}
+        repair_orders = []
         for card in raw_cards:
             raw_order = card.get("repair_order") or {}
             _validate_snapshot_financial_fields(raw_order)
             try:
-                has_order = not RepairOrder.from_dict(raw_order).is_empty()
+                order = RepairOrder.from_dict(raw_order)
+                has_order = not order.is_empty()
             except (InvalidOperation, OverflowError, ValueError):
                 raise StateFileCorruptedError("Данные заказ-наряда повреждены.") from None
             card_id = card.get("id")
@@ -520,8 +522,9 @@ class JsonStore:
                 raise StateFileCorruptedError("Идентификаторы карточек заказ-нарядов неоднозначны.")
             if normalized_id:
                 identities[normalized_id] = identities.get(normalized_id, False) or has_order
+            repair_orders.append(order)
         columns, _ = self._normalize_columns(state)
-        cards, _ = self._normalize_cards(state, columns)
+        cards, _ = self._normalize_cards(state, columns, _repair_orders=repair_orders)
         cards = [card for card in cards if not card.repair_order.is_empty()]
         return cards
 
@@ -1573,7 +1576,9 @@ class JsonStore:
         ensure_parts_store_column(normalized)
         return normalized
 
-    def _normalize_cards(self, state: dict, columns: list[Column]) -> tuple[list[Card], bool]:
+    def _normalize_cards(
+        self, state: dict, columns: list[Column], *, _repair_orders: list[RepairOrder] | None = None
+    ) -> tuple[list[Card], bool]:
         raw_cards = state.get("cards", [])
         repaired = False
         if not isinstance(raw_cards, list):
@@ -1593,11 +1598,15 @@ class JsonStore:
                     "Пропущена поврежденная карточка с индексом %s в state.json.", index
                 )
                 continue
+            order_arg = (
+                {"_repair_order": _repair_orders[index]} if _repair_orders is not None else {}
+            )
             card = Card.from_dict(
                 item,
                 valid_columns=valid_column_ids,
                 default_column=default_column_id,
                 fallback_position=index,
+                **order_arg,
             )
             cards.append(card)
             if item != card.to_storage_dict():
