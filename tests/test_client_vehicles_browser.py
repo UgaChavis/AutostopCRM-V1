@@ -8,6 +8,191 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class ClientVehiclesBrowserTests(UiBrowserTestCase):
+    def test_cold_module_concurrent_same_candidate_sends_once(self) -> None:
+        self.load_board()
+        result = self.page.evaluate("""async () => {
+          const original = api;
+          const candidate = {card_id: 'source-card', vehicle: 'SYNTHETIC'};
+          state.clientSuggestionProfiles = {'synthetic-client': {vehicles: [candidate]}};
+          state.clientSuggestions = [{id: 'synthetic-client'}];
+          let posts = 0;
+          try {
+            api = async () => { posts++; return {vehicle: {id: 'created', vehicle: 'SYNTHETIC'}}; };
+            const context = {isCurrent: () => true};
+            const [a, b] = await Promise.all([
+              ensureStableClientSuggestionVehicle('synthetic-client', candidate, context),
+              ensureStableClientSuggestionVehicle('synthetic-client', candidate, context),
+            ]);
+            return {posts, a: a?.id, b: b?.id};
+          } finally { api = original; }
+        }""")
+        self.assertEqual(result, {"posts": 1, "a": "created", "b": "created"})
+
+    def test_cold_module_does_not_start_write_after_context_switch(self) -> None:
+        self.load_board()
+        module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+        held = []
+        self.page.route("**" + module_path, lambda route: held.append(route))
+        self.page.evaluate("""() => {
+          const candidate = {card_id: 'source-card', vehicle: 'SYNTHETIC'};
+          window.syntheticCurrent = true;
+          window.syntheticPending = ensureStableClientSuggestionVehicle('synthetic-client', candidate,
+            {isCurrent: () => window.syntheticCurrent});
+        }""")
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.page.evaluate("window.syntheticCurrent = false")
+        held.pop().continue_()
+        self.assertFalse(self.page.evaluate("async () => Boolean(await window.syntheticPending)"))
+        self.assertNotIn("upsert_client_vehicle", self.writes)
+
+    def test_cold_suggestion_failures_never_link_client_without_selected_vehicle(self) -> None:
+        for failure in ("module", "timeout"):
+            with self.subTest(failure=failure):
+                self.load_board()
+                module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+                if failure == "module":
+                    pattern = "**" + module_path
+                    self.page.route(pattern, lambda route: route.abort("failed"))
+                else:
+                    pattern = "**/api/upsert_client_vehicle"
+                    self.page.route(
+                        pattern,
+                        lambda route: route.fulfill(
+                            status=408,
+                            content_type="application/json",
+                            body=json.dumps(
+                                {
+                                    "ok": False,
+                                    "error": {
+                                        "code": "validation_error",
+                                        "message": "SYNTHETIC TIMEOUT",
+                                    },
+                                }
+                            ),
+                        ),
+                    )
+                self.writes.clear()
+                result = self.page.evaluate("""async () => {
+                  const client = {id: 'synthetic-client'};
+                  const candidate = {id: 'foreign-id', card_id: 'source-card', vehicle: 'SYNTHETIC'};
+                  state.editingId = 'synthetic-target';
+                  state.activeCard = {id: 'synthetic-target'};
+                  state.clientSuggestions = [client];
+                  state.clientSuggestionProfiles = {[client.id]: {client, vehicles: [candidate]}};
+                  state.pendingCardClientId = 'old-client';
+                  state.pendingCardClientVehicleId = 'old-vehicle';
+                  await chooseClientSuggestion(client.id, clientSuggestionVehicleKey(candidate));
+                  return {client: state.pendingCardClientId, vehicle: state.pendingCardClientVehicleId,
+                    blocked: state.clientCandidateVehicleEffects.size};
+                }""")
+                self.assertEqual(result["client"], "old-client")
+                self.assertEqual(result["vehicle"], "old-vehicle")
+                self.assertNotIn("link_card_to_client", self.writes)
+                self.assertEqual(self.writes.count("upsert_client_vehicle"), failure == "timeout")
+                self.assertEqual(result["blocked"], 1 if failure == "timeout" else 0)
+                self.page.unroute(pattern)
+
+    def test_candidate_creation_guard_survives_context_switch_and_uncertain_errors(self) -> None:
+        self.load_board()
+        result = self.page.evaluate("""async () => {
+          await ensureBoardModule('card_save');
+          const original = api;
+          const candidate = {card_id: 'synthetic-source', vehicle: 'CAR'};
+          let resolve, posts = 0, current = true;
+          api = () => { posts++; return new Promise(done => {resolve = done;}); };
+          try {
+            const first = ensureStableClientSuggestionVehicle('synthetic-client', candidate, {isCurrent: () => current});
+            current = false;
+            let blocked = false;
+            try { await ensureStableClientSuggestionVehicle('synthetic-client', candidate, {isCurrent: () => true}); }
+            catch (_) { blocked = true; }
+            resolve({vehicle: {id: 'created', vehicle: 'CAR'}});
+            await first;
+            const lateRetained = state.clientCandidateVehicleEffects.size;
+            const outcomes = [];
+            for (const [status, code] of [[408, 'validation_error'], [429, 'validation_error'], [409, 'invalid_json'], [500, 'error'], [422, 'validation_error']]) {
+              state.clientCandidateVehicleEffects.clear();
+              const effect = beginCandidateVehicleCreation('synthetic-client', candidate);
+              finishCandidateVehicleCreation(effect, {error: {status, code}});
+              outcomes.push(state.clientCandidateVehicleEffects.size);
+            }
+            state.clientCandidateVehicleEffects.clear();
+            const oldEffect = beginCandidateVehicleCreation('synthetic-client', candidate);
+            const storedSession = Object.hasOwn(oldEffect, 'session');
+            resetViewerScopedState();
+            finishCandidateVehicleCreation(oldEffect, {confirmed: true});
+            let blockedAfterReset = false;
+            try { beginCandidateVehicleCreation('synthetic-client', candidate); }
+            catch (_) { blockedAfterReset = true; }
+            return {posts, blocked, lateRetained, outcomes, blockedAfterReset, storedSession};
+          } finally { api = original; state.clientCandidateVehicleEffects.clear(); }
+        }""")
+        self.assertEqual(
+            result,
+            {
+                "posts": 1,
+                "blocked": True,
+                "lateRetained": 1,
+                "outcomes": [1, 1, 1, 1, 0],
+                "blockedAfterReset": True,
+                "storedSession": False,
+            },
+        )
+
+    def test_lost_suggestion_create_blocks_desktop_retry_for_same_card_candidate(self) -> None:
+        phone = "+7 900 222-33-44"
+        for client_id, model in (
+            ("uncertain-owner-a", "MODEL A"),
+            ("uncertain-owner-b", "MODEL B"),
+        ):
+            self.runtime.service.create_client(
+                {
+                    "id": client_id,
+                    "display_name": client_id,
+                    "phone": phone,
+                    "vehicles": [{"id": "shared-uncertain", "vehicle": model}],
+                }
+            )
+        source = self.runtime.service.create_card(
+            {
+                "title": "SYNTHETIC OTHER CARD",
+                "client_id": "uncertain-owner-b",
+                "client_vehicle_id": "shared-uncertain",
+            }
+        )["card"]
+        self.load_board()
+        self.page.locator("#clientsButton").click()
+        self.page.evaluate("id => selectClient(id)", "uncertain-owner-a")
+        self.page.wait_for_function(
+            "state.clientsActiveProfile?.client?.id === 'uncertain-owner-a'"
+        )
+
+        def lose_reply(route):
+            self.assertEqual(route.fetch().status, 200)
+            route.abort("failed")
+
+        self.page.route("**/api/upsert_client_vehicle", lose_reply)
+        self.page.evaluate(
+            """async sourceId => {
+          const candidate = state.clientsActiveProfile.vehicles.find(item => item.card_id === sourceId);
+          try { await ensureStableClientSuggestionVehicle('uncertain-owner-a', candidate, {isCurrent: () => true}); }
+          catch (_) {}
+        }""",
+            source["id"],
+        )
+        self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
+        candidate_row = self.page.locator("#clientVehiclesList .client-mini--vehicle").nth(1)
+        candidate_row.locator("[data-client-vehicle-edit]").click()
+        self.page.locator('[data-client-vehicle-field="vehicle"]').fill("UNSAVED CHANGE")
+        self.page.locator("[data-client-vehicle-save]").click()
+        self.page.wait_for_function("!state.clientMutationRequest")
+        self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
+        self.assertEqual(
+            self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
+            "UNSAVED CHANGE",
+        )
+
     def test_vehicle_keys_separate_sources_and_accept_legacy_unicode(self) -> None:
         self.load_board()
         result = self.page.evaluate("""() => {

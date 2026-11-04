@@ -14,7 +14,6 @@
       renderClientsList();
       return true;
     }
-
     async function clientVehicleWrite(path, body, context) {
       const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken,
         context.clientId, state.clientsProfileRequestSeq || 0, path, body.client_vehicle_id || '__new__']);
@@ -72,13 +71,18 @@
       const context = beginClientMutation();
       if (!context) return;
       body.client_id = context.clientId;
+      let effect = null, created = false;
       try {
-        await clientVehicleWrite('/api/upsert_client_vehicle', body, context);
+        if (currentVehicle?.card_id) effect = beginCandidateVehicleCreation(context.clientId, currentVehicle);
+        const result = await clientVehicleWrite('/api/upsert_client_vehicle', body, context);
+        created = Boolean(result?.vehicle?.id);
         if (!context.isCurrent()) return;
         if (await refreshClientAfterVehicleMutation(context)) {
+          finishCandidateVehicleCreation(effect, { confirmed: true });
           setStatus('АВТОМОБИЛЬ КЛИЕНТА СОХРАНЁН.', false);
         }
       } catch (error) {
+        if (!created && context.isCurrent()) finishCandidateVehicleCreation(effect, { error });
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
         finishClientMutation(context);
@@ -110,5 +114,60 @@
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
         finishClientMutation(context);
+      }
+    }
+
+    async function ensureStableClientSuggestionVehicle(clientId, vehicle, context = null) {
+      if (!vehicle || (String(vehicle?.id || '').trim() && !vehicle?.card_id)) return vehicle;
+      if (context && !context.isCurrent()) return null;
+      const effect = beginCandidateVehicleCreation(clientId, vehicle);
+      try {
+        const data = await cardPersistWrite('/api/upsert_client_vehicle', {
+          client_id: clientId,
+          vehicle: {
+            vehicle: vehicle.vehicle || '',
+            brand: vehicle.brand || '',
+            model: vehicle.model || '',
+            year: vehicle.year || '',
+            mileage: vehicle.mileage || '',
+            vin: vehicle.vin || '',
+            license_plate: vehicle.license_plate || vehicle.registration_plate || '',
+            body_number: vehicle.body_number || '',
+            chassis_number: vehicle.chassis_number || '',
+            engine_code: vehicle.engine_code || '',
+            engine_model: vehicle.engine_model || '',
+            gearbox_type: vehicle.gearbox_type || '',
+            gearbox_model: vehicle.gearbox_model || '',
+            drivetrain: vehicle.drivetrain || '',
+            notes: vehicle.notes || '',
+          },
+        });
+        if (context && !context.isCurrent()) return null;
+        if (!String(data?.vehicle?.id || '').trim()) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID АВТОМОБИЛЯ.');
+        const stableVehicle = { ...data.vehicle, card_id: '' };
+        state.clientSuggestionProfiles = {
+          ...(state.clientSuggestionProfiles || {}),
+          [clientId]: {
+            ...(state.clientSuggestionProfiles?.[clientId] || {}),
+            vehicles: clientSuggestionVehicles({ id: clientId, vehicles_preview: [] }).map((item) => (
+              clientSuggestionVehicleKey(item) === clientSuggestionVehicleKey(vehicle) ? { ...item, ...stableVehicle } : item
+            )),
+          },
+        };
+        state.clientSuggestions = state.clientSuggestions.map((item) => {
+          if (String(item?.id || '') !== String(clientId)) return item;
+          const preview = Array.isArray(item.vehicles_preview) ? item.vehicles_preview : [];
+          return {
+            ...item,
+            vehicles_preview: preview.map((previewVehicle) => (
+              clientSuggestionVehicleKey(previewVehicle) === clientSuggestionVehicleKey(vehicle) ? { ...previewVehicle, ...stableVehicle } : previewVehicle
+            )),
+          };
+        });
+        finishCandidateVehicleCreation(effect, { confirmed: true });
+        return stableVehicle;
+      } catch (error) {
+        if (!context || context.isCurrent()) finishCandidateVehicleCreation(effect, { error });
+        throw error;
       }
     }
