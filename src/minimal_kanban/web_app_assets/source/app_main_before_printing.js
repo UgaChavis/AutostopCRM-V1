@@ -3771,12 +3771,33 @@
         : '';
     }
 
-    function clientDebtAmountText(orders) {
-      const total = (Array.isArray(orders) ? orders : []).reduce((sum, order) => {
-        const due = repairOrderParseNumber(order?.due_total);
-        return sum + (Number.isFinite(due) ? due : 0);
-      }, 0);
-      return repairOrderFormatRubles(Math.max(0, total));
+    function clientDebtAmountText(profile) {
+      const orders = profile?.repair_orders;
+      const total = profile?.meta?.repair_orders_total;
+      const returned = profile?.meta?.repair_orders_returned;
+      const warnings = profile?.meta?.read_warnings;
+      if (!Array.isArray(orders) || !Number.isSafeInteger(total) || total < 0
+          || !Number.isSafeInteger(returned) || returned !== total || returned !== orders.length
+          || (warnings != null && (!Array.isArray(warnings) || warnings.some((warning) =>
+            typeof warning !== 'string' || ['related_card_client_match_unverified',
+              'repair_order_payment_identity_unverified', 'repair_order_row_identity_unverified'].includes(warning))))) {
+        return 'НЕТ ДАННЫХ';
+      }
+      let debtMinor = 0;
+      for (const order of orders) {
+        const value = order?.due_total;
+        const text = String(value ?? '').trim().replace(',', '.');
+        if (!['string', 'number'].includes(typeof value) || !/^\d+(?:\.\d{1,2})?$/.test(text)) {
+          return 'НЕТ ДАННЫХ';
+        }
+        const [units, fraction = ''] = text.split('.');
+        const minor = Number(units) * 100 + Number((fraction + '00').slice(0, 2));
+        if (!Number.isSafeInteger(minor)) return 'НЕТ ДАННЫХ';
+        debtMinor += minor;
+        if (!Number.isSafeInteger(debtMinor)) return 'НЕТ ДАННЫХ';
+      }
+      const roundedRubles = Math.floor(debtMinor / 100) + (debtMinor % 100 >= 50 ? 1 : 0);
+      return repairOrderFormatRubles(roundedRubles);
     }
 
     function setClientProfileEmptyState(isEmpty) {
@@ -3976,7 +3997,7 @@
         contact_position: '',
       };
       fillClientForm(blank);
-      renderClientProfile({ client: blank, vehicles: [], repair_orders: [], meta: {} });
+      renderClientProfile({ client: blank, vehicles: [], repair_orders: [], meta: { repair_orders_total: 0, repair_orders_returned: 0 } });
       renderClientsList();
     }
 
@@ -4080,7 +4101,7 @@
       }
       const orders = Array.isArray(data?.repair_orders) ? data.repair_orders : [];
       if (els.clientDebtValue) {
-        els.clientDebtValue.textContent = clientDebtAmountText(orders);
+        els.clientDebtValue.textContent = clientDebtAmountText(data);
       }
       fillClientForm(client);
       const vehicles = Array.isArray(data?.vehicles) ? data.vehicles : [];
@@ -7363,7 +7384,7 @@
             + '<div class="mobile-client-detail__name">' + escapeHtml(clientDisplayName(client)) + '</div>'
             + '<div class="mobile-client-detail__meta">' + escapeHtml(mobileClientPhoneLine(client)) + '</div>'
           + '</div>'
-          + '<div class="mobile-client-detail__debt">' + escapeHtml(clientDebtAmountText(orders)) + '</div>'
+          + '<div class="mobile-client-detail__debt">' + escapeHtml(clientDebtAmountText(profile)) + '</div>'
         + '</div>'
         + '<section class="mobile-client-detail__section"><h4>Машины</h4>' + vehiclesHtml + '</section>'
         + '<section class="mobile-client-detail__section"><h4>Заказ-наряды</h4>' + ordersHtml + '</section>';
