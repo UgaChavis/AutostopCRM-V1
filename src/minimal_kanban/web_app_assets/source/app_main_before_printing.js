@@ -3850,6 +3850,16 @@
     }
 
     function renderClientsList() {
+      if (state.clientsLoadError) {
+        if (els.clientsMeta && els.clientsList) setModalListError(els.clientsMeta, els.clientsList,
+          'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', 'ПОВТОРИТЕ ПОИСК ИЛИ ОТКРОЙТЕ СПИСОК СНОВА.');
+        return;
+      }
+      if (!state.clientsLoaded) {
+        if (els.clientsMeta) els.clientsMeta.textContent = state.clientsQuery ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
+        if (els.clientsList) els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА КЛИЕНТОВ...</div>';
+        return;
+      }
       const clients = Array.isArray(state.clients) ? state.clients : [];
       if (els.clientsMeta) {
         const meta = state.clientsMetaState || {};
@@ -4263,6 +4273,7 @@
       const isCurrentRequest = () => state.clientsRequestSeq === requestSeq && state.viewerStateGeneration === viewerStateGeneration;
       state.clientsMetaState = null;
       state.clientsLoadError = false;
+      if (!state.clientsLoaded) renderClientsList();
       if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
       const path = query
         ? '/api/search_clients?query=' + encodeURIComponent(query) + '&limit=' + CLIENTS_SEARCH_LIMIT
@@ -4273,8 +4284,27 @@
         isCurrent: isCurrentRequest,
         onSuccess: (payload) => {
           if (!isCurrentRequest()) return;
-          const clients = Array.isArray(payload?.clients) ? payload.clients : [];
-          state.clientsMetaState = payload?.meta || null;
+          const clients = payload?.clients, meta = payload?.meta;
+          const limit = query ? CLIENTS_SEARCH_LIMIT : CLIENTS_INITIAL_LIMIT;
+          if (!Array.isArray(clients) || !meta || typeof meta !== 'object' || Array.isArray(meta)
+              || ![meta.total, meta.returned].every((value) => Number.isSafeInteger(value) && value >= 0)
+              || meta.returned !== clients.length || meta.returned !== Math.min(meta.total, limit)
+              || typeof meta.has_more !== 'boolean' || meta.has_more !== (meta.total > meta.returned)
+              || (query ? typeof meta.query !== 'string' : meta.include_stats !== false)
+              || new Set(clients.map((client) => client?.id)).size !== clients.length
+              || !clients.every((client) => client && typeof client === 'object' && !Array.isArray(client)
+                && typeof client.id === 'string' && client.id && client.id === client.id.trim()
+                && typeof client.name === 'string' && client.name.trim()
+                && typeof client.client_type === 'string' && typeof client.type_label === 'string'
+                && typeof client.phone === 'string' && Array.isArray(client.phones)
+                && client.phones.every((phone) => typeof phone === 'string') && Array.isArray(client.vehicles_preview)
+                && (client.read_warnings === undefined || (Array.isArray(client.read_warnings) && client.read_warnings.every((warning) => typeof warning === 'string')))
+                && ((!query && client.stats === undefined) || (client.stats && typeof client.stats === 'object' && !Array.isArray(client.stats)
+                  && ['cards_total', 'repair_orders_total', 'active_repair_orders', 'closed_repair_orders', 'vehicles_total'].every((key) => Number.isSafeInteger(client.stats[key]) && client.stats[key] >= 0)
+                  && typeof client.stats.last_visit === 'string')))) {
+            throw new Error('СПИСОК КЛИЕНТОВ НЕ ПОДТВЕРЖДЁН.');
+          }
+          state.clientsMetaState = meta;
           state.clients = clients;
           state.clientsLoaded = true;
           renderClientsList();
@@ -4544,6 +4574,7 @@
         state.clientsLoaded = false;
         state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         if (els.clientsMeta) els.clientsMeta.textContent = query ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
+        renderClientsList();
         window.clearTimeout(state.clientsSearchTimer);
         state.clientsSearchTimer = window.setTimeout(() => loadClients({ openModal: false }), 160);
       });
