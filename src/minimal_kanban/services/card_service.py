@@ -7085,14 +7085,19 @@ class CardService(
         self,
         cards: list[Card],
         transaction_id: str | None,
+        transactions: list[CashTransaction],
     ) -> tuple[Card | None, RepairOrderPayment | None]:
         requested_id = normalize_text(transaction_id, default="", limit=128)
         if not requested_id:
             return None, None
+        candidate_ids = {requested_id.upper(), short_entity_id(requested_id, prefix="CT").upper()}
         match: tuple[Card | None, RepairOrderPayment | None] = (None, None)
         for card in cards:
             for payment in card.repair_order.payments:
-                if payment.cash_transaction_id == requested_id:
+                if payment.cash_transaction_id.upper() not in candidate_ids:
+                    continue
+                transaction = self._find_cash_transaction(transactions, payment.cash_transaction_id)
+                if transaction is not None and transaction.id == requested_id:
                     if match[0] is not None:
                         self._fail(
                             "repair_order_payment_cash_link_ambiguous",
@@ -7123,6 +7128,7 @@ class CardService(
         attestation_run_id: str = "",
         digest_correlation_id: str,
     ) -> RepairOrder:
+        reference_transactions = list(cash_transactions)
         resolved_transaction_ids = {}
         for transaction_id in dict.fromkeys(
             payment.cash_transaction_id
@@ -7261,6 +7267,7 @@ class CardService(
                 previous_payment,
                 existing_transaction,
                 owner=(card.id, previous_payment.id),
+                reference_transactions=reference_transactions,
             )
             cash_transactions[:] = [
                 item for item in cash_transactions if item.id != existing_transaction.id
@@ -7286,7 +7293,10 @@ class CardService(
                 },
             )
 
-        next_cash_link_counts = Counter(payment.cash_transaction_id for payment in next_payments)
+        next_cash_link_counts = Counter(
+            resolved_transaction_ids.get(payment.cash_transaction_id) or payment.cash_transaction_id
+            for payment in next_payments
+        )
         new_amounts = {
             id(payment): cash_payment_minor(payment.amount)
             for payment in next_payments
@@ -7320,6 +7330,7 @@ class CardService(
                         payment,
                         existing_transaction,
                         duplicate=next_cash_link_counts[existing_transaction.id] > 1,
+                        reference_transactions=reference_transactions,
                     )
                 continue
             transaction = CashTransaction(

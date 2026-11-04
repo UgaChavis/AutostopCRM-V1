@@ -1299,8 +1299,17 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 )
 
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
-                cards, latest_transaction.id
+                cards, latest_transaction.id, transactions
             )
+            if linked_card is not None and linked_payment is not None:
+                self._ensure_repair_order_payment_cash_link(
+                    cards,
+                    transactions,
+                    linked_payment,
+                    latest_transaction,
+                    owner=(linked_card.id, linked_payment.id),
+                    exact_amount=True,
+                )
             response_meta: dict[str, object] = {
                 "cancelled": True,
                 "transaction_id": latest_transaction.id,
@@ -1346,6 +1355,7 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     linked_card,
                     cards,
                     latest_transaction,
+                    linked_payment,
                     events,
                     actor_name,
                     source,
@@ -1422,6 +1432,9 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "related_cashbox_id": related_cashbox.id,
                 },
             )
+        self._ensure_transfer_has_no_payment_links(
+            bundle["cards"], transactions, latest_transaction, related_transaction
+        )
         removed_ids = {latest_transaction.id, related_transaction.id}
         transactions[:] = [item for item in transactions if item.id not in removed_ids]
         self._append_event(

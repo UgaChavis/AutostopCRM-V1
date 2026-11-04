@@ -763,8 +763,12 @@ records, a short ID is accepted only when it identifies one object; collisions
 return `cashbox_ambiguous` or `cash_transaction_ambiguous` (409) before a
 business mutation. Repair-order payment references are resolved against the
 original transaction list; ambiguous legacy links can block an order update.
-The legacy storage read may normalize malformed records
-before lookup; this is not a validation guarantee for a corrupted state file.
+Full and short references to the same movement are treated as one link. A new
+duplicate link, an ambiguous owner, or an inconsistent payment blocks the
+affected write or cancellation; a linked transfer requires reconciliation.
+Untouched historical duplicates are not silently repaired. The legacy storage
+read may normalize malformed records before lookup; this is not a validation
+guarantee for a corrupted state file.
 
 The browser checks the current operator profile on visible board polls,
 at most once per 30 seconds, and immediately when the page becomes visible.

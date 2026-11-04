@@ -14,7 +14,12 @@ from ..models import (
     format_money_minor,
     normalize_text,
 )
-from ..repair_order import REPAIR_ORDER_STATUS_CLOSED, REPAIR_ORDER_STATUS_OPEN, RepairOrder
+from ..repair_order import (
+    REPAIR_ORDER_STATUS_CLOSED,
+    REPAIR_ORDER_STATUS_OPEN,
+    RepairOrder,
+    RepairOrderPayment,
+)
 
 _CASH_CANCEL_REASON_MIN_CHARS = 10
 _CASH_TRANSACTION_KIND_CANCELLED = "cashbox_cancelled"
@@ -91,8 +96,17 @@ class CardServiceCashboxCancellationMixin:
                     attestation_run_id=attestation_run_id,
                 )
             linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
-                cards, transaction.id
+                cards, transaction.id, transactions
             )
+            if linked_card is not None and linked_payment is not None:
+                self._ensure_repair_order_payment_cash_link(
+                    cards,
+                    transactions,
+                    linked_payment,
+                    transaction,
+                    owner=(linked_card.id, linked_payment.id),
+                    exact_amount=True,
+                )
             cancellation = self._append_cash_transaction(
                 transactions=transactions,
                 cashbox=cashbox,
@@ -119,6 +133,7 @@ class CardServiceCashboxCancellationMixin:
                     linked_card,
                     cards,
                     transaction,
+                    linked_payment,
                     events,
                     actor_name,
                     source,
@@ -171,6 +186,7 @@ class CardServiceCashboxCancellationMixin:
         card: Card,
         cards: list[Card],
         transaction: CashTransaction,
+        linked_payment: RepairOrderPayment,
         events: list[AuditEvent],
         actor_name: str,
         source: str,
@@ -182,7 +198,7 @@ class CardServiceCashboxCancellationMixin:
         next_payload["payments"] = [
             payment.to_storage_dict()
             for payment in card.repair_order.payments
-            if payment.cash_transaction_id != transaction.id
+            if payment is not linked_payment
         ]
         if not next_payload["payments"]:
             next_payload["prepayment"] = ""
@@ -363,6 +379,9 @@ class CardServiceCashboxCancellationMixin:
                 status_code=409,
                 details={"cashbox_id": related_cashbox.id},
             )
+        self._ensure_transfer_has_no_payment_links(
+            bundle["cards"], transactions, transaction, related_transaction
+        )
         cancellation_note = self._cash_cancellation_note(reason)
         cancellation_created_at = (
             model_helpers.utc_now().astimezone(business_timezone()).isoformat()
