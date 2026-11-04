@@ -2984,7 +2984,7 @@
       if (els.mobileEmployeesPanel && !canViewEmployees) els.mobileEmployeesPanel.hidden = true;
       if (typeof syncEmployeesReadOnlyWorkspaceUi === 'function') syncEmployeesReadOnlyWorkspaceUi();
       if (typeof renderMobileMoreModules === 'function') renderMobileMoreModules();
-      if (typeof renderMobileShell === 'function') renderMobileShell();
+      if (typeof renderMobileShell === 'function') renderMobileShell({ skipRepairOrderList: !accessChanged && !clearCachedData });
     }
 
     function operatorStatHtml(label, value) {
