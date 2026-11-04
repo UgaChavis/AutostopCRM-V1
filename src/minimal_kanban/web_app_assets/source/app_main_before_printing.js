@@ -14242,7 +14242,7 @@
       return 'ОТКРЫТЫХ ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.';
     }
 
-    function renderRepairOrdersView() {
+    function renderRepairOrdersView(forceDesktop = false) {
       const items = filterRepairOrdersItems(state.repairOrdersItems);
       syncRepairOrdersControls();
       if (state.repairOrdersLoadError && !state.repairOrdersSearchLoading) return;
@@ -14250,7 +14250,7 @@
       els.repairOrdersList.innerHTML = state.repairOrdersSearchLoading
         ? '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>'
         : items.length
-        ? renderRepairOrderListRows(items)
+        ? (state.mobileLite && !repairOrdersModalIsOpen() && !forceDesktop ? '' : renderRepairOrderListRows(items))
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
       if (state.mobileView === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileShell();
     }
@@ -14294,7 +14294,7 @@
           + '</div>';
       }).join('');
     };
-    function renderRepairOrders(data) {
+    function renderRepairOrders(data, forceDesktop = false) {
       const items = data?.repair_orders || [];
       const meta = data?.meta || {};
       state.repairOrdersLoadError = false;
@@ -14306,7 +14306,7 @@
       state.repairOrdersMetaState = meta;
       updateRepairOrdersTabs();
       setRepairOrdersSearchLoading(false);
-      renderRepairOrdersView();
+      renderRepairOrdersView(forceDesktop);
     }
 
     loadRepairOrders = async function(openModal = false) {
@@ -14341,7 +14341,7 @@
               || meta.status !== requestedStatus) {
             throw new Error('СПИСОК ЗАКАЗ-НАРЯДОВ НЕ ПОДТВЕРЖДЁН.');
           }
-          renderRepairOrders(data);
+          renderRepairOrders(data, openModal);
         },
         onError: (error) => {
           state.repairOrdersLoadError = true;
