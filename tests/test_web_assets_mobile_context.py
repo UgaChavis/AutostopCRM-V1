@@ -561,6 +561,13 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const state={viewerStateGeneration:1,operatorSessionToken:'A',repairOrdersRequestSeq:0,repairOrdersFilter:'open',repairOrdersItems:[]};
 const els={repairOrdersModal:{},repairOrdersMeta:{},repairOrdersList:{}};
 const pending=[];
+const REPAIR_ORDERS_LIST_LIMIT=300;
+function normalizeRepairOrderStatus(value){return value;}
+function orderListResponse(id,status){return {
+  repair_orders:[{card_id:id,status,payment_status:'unpaid',is_paid:false,status_label:status,
+    payment_status_label:'unpaid',paid_total:'0',paid_total_display:'0',works_total:'0',grand_total:'0'}],
+  meta:{limit:300,total:1,returned:1,has_more:false,status},
+};}
 function repairOrdersRequestPath(){return '/orders?status='+state.repairOrdersFilter;}
 function renderRepairOrders(data){state.repairOrdersItems=data.repair_orders;}
 function setModalListError(){throw new Error('unexpected current error');}
@@ -581,13 +588,13 @@ function loadModalData(path,options){
   const old=loadRepairOrders(true);
   state.repairOrdersFilter='closed';
   const current=loadRepairOrders(false);
-  pending[1].resolve({repair_orders:[{card_id:'new'}]}); await current;
-  pending[0].resolve({repair_orders:[{card_id:'old'}]}); await old;
+  pending[1].resolve(orderListResponse('new','closed')); await current;
+  pending[0].resolve(orderListResponse('old','open')); await old;
   assert.equal(state.repairOrdersItems[0].card_id,'new');
 
   const loggedOut=loadRepairOrders(false);
   state.viewerStateGeneration++; state.operatorSessionToken='B'; state.repairOrdersItems=[];
-  pending[2].resolve({repair_orders:[{card_id:'private-old-viewer'}]}); await loggedOut;
+  pending[2].resolve(orderListResponse('private-old-viewer','closed')); await loggedOut;
   assert.deepEqual(state.repairOrdersItems,[]);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
