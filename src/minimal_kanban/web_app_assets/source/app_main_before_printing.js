@@ -6899,7 +6899,7 @@
       ).forEach((control) => { control.disabled = true; });
     }
 
-    function renderMobileRepairOrderDetail() {
+    function renderMobileRepairOrderDetail({ preserveDraft = false } = {}) {
       if (!els.mobileRepairOrderDetail) return;
       const detailOpen = Boolean(state.mobileRepairOrderCardId);
       els.mobileRepairOrderDetail.hidden = !detailOpen;
@@ -6921,16 +6921,18 @@
         els.mobileRepairOrderStatus.textContent = repairOrderStatusLabel(order.status);
       }
       if (els.mobileRepairOrderStatusSelect) {
-        els.mobileRepairOrderStatusSelect.value = normalizeRepairOrderStatus(order.status);
+        if (!preserveDraft) els.mobileRepairOrderStatusSelect.value = normalizeRepairOrderStatus(order.status);
         els.mobileRepairOrderStatusSelect.disabled = busy || closed;
       }
-      els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
-        const fieldName = field.getAttribute('data-mobile-repair-order-field');
-        field.value = order[fieldName] || '';
-      });
-      renderMobileRepairOrderRows('works', order.works);
-      renderMobileRepairOrderRows('materials', order.materials);
-      renderMobileRepairOrderPayments(order.payments);
+      if (!preserveDraft) {
+        els.mobileRepairOrderDetail.querySelectorAll('[data-mobile-repair-order-field]').forEach((field) => {
+          const fieldName = field.getAttribute('data-mobile-repair-order-field');
+          field.value = order[fieldName] || '';
+        });
+        renderMobileRepairOrderRows('works', order.works);
+        renderMobileRepairOrderRows('materials', order.materials);
+        renderMobileRepairOrderPayments(order.payments);
+      }
       renderMobileRepairOrderTotals();
       els.mobileRepairOrderDetail.querySelectorAll('input, textarea, select').forEach((field) => {
         field.disabled = busy || closed;
@@ -7056,6 +7058,10 @@
     }
 
     async function openMobileRepairOrderDetail(cardId) {
+      if (state.mobileRepairOrderSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', true);
+        return null;
+      }
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
       invalidateMobileRepairOrderContext();
@@ -7065,6 +7071,7 @@
       state.mobileRepairOrderLoading = true;
       state.mobileRepairOrderSaving = false;
       if (els.mobileRepairOrderPaymentCashbox) els.mobileRepairOrderPaymentCashbox.value = '';
+      renderMobileRepairOrderDetail();
       renderMobileShell();
       const context = captureMobileRepairOrderContext();
       const openRequest = {};
@@ -7091,6 +7098,7 @@
         applyMobileRepairOrderCard(updatedCard, normalizedCardId);
         state.mobileRepairOrderOpenRequest = null;
         state.mobileRepairOrderLoading = false;
+        renderMobileRepairOrderDetail();
         renderMobileShell();
         setStatus('ЗАКАЗ-НАРЯД ЗАГРУЖЕН.', false);
         return updatedCard;
@@ -7123,6 +7131,8 @@
       const context = captureMobileRepairOrderContext();
       const expectedUpdatedAt = state.mobileRepairOrderCard?.updated_at || '';
       const saveRequest = {};
+      let preserveDraft = true;
+      let updatePending = false;
       state.mobileRepairOrderSaveRequest = saveRequest;
       const isCurrent = () => state.mobileRepairOrderSaveRequest === saveRequest && context.isCurrent();
       state.mobileRepairOrderSaving = true;
@@ -7173,6 +7183,7 @@
             if (!isCurrent()) return null;
           }
           const appliedCard = applyMobileRepairOrderCard(reopenedCard || state.mobileRepairOrderCard, cardId, { persisted: Boolean(reopenedCard) });
+          preserveDraft = false;
           await loadRepairOrders(false);
           if (!isCurrent()) return null;
           renderMobileRepairOrderDetail();
@@ -7201,6 +7212,7 @@
         repairOrderPatch.payments = repairOrderPaymentsForSave(
           repairOrderPatch.payments, state.mobileRepairOrderCard?.repair_order
         );
+        updatePending = true;
         const data = await api('/api/update_repair_order', {
           method: 'POST',
           body: {
@@ -7217,6 +7229,7 @@
           repair_order: repairOrder,
         }, cardId);
         applyMobileRepairOrderCard(updatedCard, cardId, { persisted: true });
+        updatePending = false;
         if (addedPaymentIds.length) {
           const responsePayments = data?.card?.repair_order?.payments || data?.repair_order?.payments || [];
           const responseHasNewPayment = Array.isArray(responsePayments)
@@ -7231,7 +7244,8 @@
           if (!confirmed) {
             if (!readback || responseHasNewPayment
                 || !prefixUnchanged
-                || readbackPayments.some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))) {
+                || readbackPayments.some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))
+                || !updatedCard?.updated_at || readback?.updated_at !== updatedCard.updated_at) {
               markRepairOrderPaymentVerificationPending(cardId);
               setStatus('РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
             } else {
@@ -7270,6 +7284,7 @@
           }
         }
         applyMobileRepairOrderCard(updatedCard, cardId, { persisted: true });
+        preserveDraft = false;
         await loadRepairOrders(false);
         if (!isCurrent()) return null;
         renderMobileRepairOrderDetail();
@@ -7289,19 +7304,26 @@
         return updatedCard;
       } catch (error) {
         if (!isCurrent()) return null;
+        if (updatePending && !addedPayments.length && !(error?.status === 400 && error?.code === 'validation_error')) {
+          markRepairOrderWriteVerificationPending(cardId);
+          setStatus(repairOrderVerificationMessage(cardId), true);
+          return null;
+        }
         if (addedPayments.length) {
           const readback = await readRepairOrderAfterAmbiguousWrite({ ...context, isCurrent }, state.mobileRepairOrderCard);
           if (!isCurrent()) return null;
-          if (readback) applyMobileRepairOrderCard(readback, cardId, { persisted: true });
           const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
           const confirmed = prefixUnchanged
             && addedPayments.every((item) => repairOrderNewPaymentRecorded(readback?.repair_order?.payments, item));
           if (confirmed) {
+            applyMobileRepairOrderCard(readback, cardId, { persisted: true });
+            preserveDraft = false;
             setStatus('ОПЛАТА СОХРАНЕНА В ЗАКАЗ-НАРЯДЕ И КАССЕ; ПОДТВЕРЖДЕНА ПОВТОРНЫМ ЧТЕНИЕМ.', false);
             return readback;
           }
           if (!readback || !prefixUnchanged || (readback.repair_order?.payments || [])
-              .some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))) {
+              .some((item) => addedPaymentIds.includes(String(item?.id || '').trim()))
+              || !(error?.status === 400 && error?.code === 'validation_error')) {
             markRepairOrderPaymentVerificationPending(cardId);
             setStatus('РЕЗУЛЬТАТ ЗАПИСИ ОПЛАТЫ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ; ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ.', true);
             return null;
@@ -7313,7 +7335,7 @@
         if (state.mobileRepairOrderSaveRequest === saveRequest && context.isCurrent()) {
           state.mobileRepairOrderSaveRequest = null;
           state.mobileRepairOrderSaving = false;
-          renderMobileRepairOrderDetail();
+          renderMobileRepairOrderDetail({ preserveDraft });
         }
       }
     }
@@ -7776,7 +7798,7 @@
       if (view === 'board') renderMobileBoard();
       if (view === 'cashboxes') renderMobileCashboxes();
       if (view === 'inventory') renderMobileInventory();
-      if (view === 'repair-orders') renderMobileRepairOrders();
+      if (view === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileRepairOrders();
       if (view === 'more') renderMobileMore();
     }
 
