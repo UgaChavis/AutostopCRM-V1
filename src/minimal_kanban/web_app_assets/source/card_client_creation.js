@@ -90,7 +90,7 @@
             checkpoint.linked = true;
           } catch (error) {
             if (!context.isCurrent()) return null;
-            if (cardPersistErrorIsDefinite(error)) throw new Error('КЛИЕНТ СОЗДАН, НО ПРИВЯЗКА НЕ ЗАВЕРШЕНА. ' + error.message);
+            if (error?.localValidation || cardPersistErrorIsDefinite(error)) throw new Error('КЛИЕНТ СОЗДАН, НО ПРИВЯЗКА НЕ ЗАВЕРШЕНА. ' + error.message);
             checkpoint.uncertain = 'link';
             await reconcileCreatedClient(checkpoint, context);
           }

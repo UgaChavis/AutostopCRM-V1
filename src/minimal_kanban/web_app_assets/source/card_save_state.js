@@ -117,8 +117,13 @@
       const cardId = checkpoint.cardId;
       const persistedClientId = data.card.client_id ?? state.activeCard?.client_id ?? '';
       if (cardId && clientId && persistedClientId !== clientId) {
+        const version = data.card.updated_at;
+        if (typeof version !== 'string' || !version || version !== version.trim() || version.length > 80) {
+          throw new Error('ВЕРСИЯ СОХРАНЁННОЙ КАРТОЧКИ НЕ ПОДТВЕРЖДЕНА. ПРИВЯЗКА НЕ ВЫПОЛНЕНА.');
+        }
         checkpoint.linkBody = {
           card_id: cardId, client_id: clientId, client_vehicle_id: clientVehicleId,
+          expected_card_updated_at: version,
           create_vehicle_from_card: createVehicle, sync_vehicle_fields: true,
           sync_fields: true, overwrite_card_fields: false,
         };

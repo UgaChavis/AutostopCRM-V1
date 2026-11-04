@@ -5118,30 +5118,23 @@
     async function linkActiveCardToClient(clientId, { clientVehicleId = '', createVehicleFromCard = false, context = null } = {}) {
       if (!context?.isCurrent() || !context.cardId || !clientId) return null;
       try {
-        const options = {
-          method: 'POST',
-          body: {
-            card_id: context.cardId,
-            client_id: clientId,
-            client_vehicle_id: clientVehicleId || '',
-            create_vehicle_from_card: Boolean(createVehicleFromCard),
-            sync_vehicle_fields: true,
-            sync_fields: true,
-            overwrite_card_fields: false,
-          },
+        const version = context.expectedUpdatedAt;
+        if (!version || version !== version.trim() || version.length > 80) throw Object.assign(new Error('НЕТ ВЕРСИИ КАРТОЧКИ.'), { localValidation: true });
+        const body = {
+          card_id: context.cardId, expected_card_updated_at: version,
+          client_id: clientId, client_vehicle_id: clientVehicleId || '',
+          create_vehicle_from_card: Boolean(createVehicleFromCard),
+          sync_vehicle_fields: true, sync_fields: true, overwrite_card_fields: false,
         };
         const data = context.writeRequest
-          ? await context.writeRequest('/api/link_card_to_client', options.body)
-          : await api('/api/link_card_to_client', options);
+          ? await context.writeRequest('/api/link_card_to_client', body)
+          : await api('/api/link_card_to_client', { method: 'POST', body });
         if (!context.isCurrent()) return null;
-        if (data?.card && String(data.card.id || '').trim() === context.cardId) {
-          applyCardClientLinkResult(data.card);
-        }
+        if (String(data?.card?.id || '').trim() === context.cardId) applyCardClientLinkResult(data.card);
         hideClientSuggestions();
         setStatus('КАРТОЧКА СВЯЗАНА С КЛИЕНТОМ.', false);
         await refreshSnapshot(true);
-        if (!context.isCurrent()) return null;
-        return data;
+        return context.isCurrent() ? data : null;
       } catch (error) {
         if (!context.isCurrent()) return null;
         setStatus(error.message, true);
@@ -14246,10 +14239,7 @@
     }
 
     repairOrderListTotalText = function(value, fallbackValue = '') {
-      const normalized = String(value ?? '').trim();
-      if (normalized) return normalized;
-      const fallback = String(fallbackValue ?? '').trim();
-      return fallback || '0';
+      return String(value ?? '').trim() || String(fallbackValue ?? '').trim() || '0';
     };
 
     function filterRepairOrdersItems(items = state.repairOrdersItems) {
