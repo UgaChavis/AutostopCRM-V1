@@ -10784,6 +10784,12 @@
       return year >= 1969 && year <= 2068 ? canonical.replace(/^(\d{2}\.\d{2}\.)\d{2}(\d{2}\s+\d{2}:\d{2}(?::\d{2})?)$/, '$1$2') : canonical;
     }
 
+    function repairOrderFormDateValue(input) {
+      const source = input.dataset.sourceDate;
+      return source && /^\d{4}-\d{2}-\d{2}(?:[Tt ]|$)/.test(source) && input.value === input.dataset.displayDate
+        ? source : repairOrderCanonicalDateValue(input.value);
+    }
+
     function currentRepairOrderDateTime() {
       const now = new Date();
       return [
@@ -11831,6 +11837,10 @@
       els.repairOrderDate.value = repairOrderFormDateDisplayValue(normalized.date || currentRepairOrderDateTime());
       els.repairOrderOpenedAt.value = repairOrderFormDateDisplayValue(normalized.opened_at || normalized.date || currentRepairOrderDateTime());
       els.repairOrderClosedAt.value = repairOrderFormDateDisplayValue(normalized.closed_at);
+      for (const [input, source] of [[els.repairOrderDate, normalized.date], [els.repairOrderOpenedAt, normalized.opened_at || normalized.date], [els.repairOrderClosedAt, normalized.closed_at]]) {
+        input.dataset.sourceDate = source;
+        input.dataset.displayDate = input.value;
+      }
       els.repairOrderClient.value = normalized.client;
       els.repairOrderPhone.value = normalized.phone;
       els.repairOrderVehicle.value = normalized.vehicle;
@@ -11868,10 +11878,10 @@
       }, item?.id || ('payment-' + (index + 1))));
       return normalizeRepairOrder({
         number: state.activeCard?.repair_order?.number || '',
-        date: repairOrderCanonicalDateValue(els.repairOrderDate.value),
+        date: repairOrderFormDateValue(els.repairOrderDate),
         status: els.repairOrderStatus.dataset.status || 'open',
-        opened_at: repairOrderCanonicalDateValue(els.repairOrderOpenedAt.value),
-        closed_at: repairOrderCanonicalDateValue(els.repairOrderClosedAt.value),
+        opened_at: repairOrderFormDateValue(els.repairOrderOpenedAt),
+        closed_at: repairOrderFormDateValue(els.repairOrderClosedAt),
         client: els.repairOrderClient.value,
         phone: els.repairOrderPhone.value,
         vehicle: els.repairOrderVehicle.value,
