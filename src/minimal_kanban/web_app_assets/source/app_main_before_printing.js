@@ -3485,7 +3485,7 @@
         if (!state.mobileClientsLoading) {
           window.clearTimeout(state.clientsSearchTimer);
           state.clientsSearchTimer = null;
-          state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+          if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         }
         if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
@@ -3509,7 +3509,7 @@
         if (!state.mobileClientsLoading) {
           window.clearTimeout(state.clientsSearchTimer);
           state.clientsSearchTimer = null;
-          state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+          if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         }
         if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
@@ -3866,7 +3866,9 @@
         const total = finiteNumber(meta.total, NaN);
         const returned = finiteNumber(meta.returned, NaN);
         const hasMore = Boolean(meta.has_more);
-        if (state.clientsQuery) {
+        if (!state.clientsMetaState) {
+          els.clientsMeta.textContent = state.clientsQuery ? 'ПОИСК ПО ВСЕМ КЛИЕНТАМ...' : 'ЗАГРУЗКА КРАТКОГО СПИСКА...';
+        } else if (state.clientsQuery) {
           if (Number.isFinite(total)) {
             els.clientsMeta.textContent = 'НАЙДЕНО: ' + (Number.isFinite(returned) ? returned : clients.length) + ' ИЗ ' + total + (hasMore ? ' · УТОЧНИТЕ ПОИСК' : '');
           } else {
@@ -4474,6 +4476,7 @@
         maybeOpenModal(els.clientsModal, true);
         renderClientsList();
         if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();
+        loadClients({ openModal: false });
         return;
       }
       if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();
@@ -7898,6 +7901,8 @@
       if (els.mobileClientsMeta) {
         if (state.mobileClientsLoading) {
           els.mobileClientsMeta.textContent = 'ЗАГРУЗКА...';
+        } else if (state.clientsLoaded && !state.clientsMetaState) {
+          els.mobileClientsMeta.textContent = 'ОБНОВЛЕНИЕ...';
         } else if (state.clientsLoadError) {
           els.mobileClientsMeta.textContent = 'ОШИБКА ЗАГРУЗКИ';
         } else if (Number.isFinite(total)) {
@@ -7974,7 +7979,7 @@
     function closeMobileMorePanel() {
       claimMobileMorePanelIntent();
       if (state.mobileMorePanel === 'clients') {
-        state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+        if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
         if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
         state.mobileClientProfileLoading = false;
         state.mobileClientsLoading = false;
