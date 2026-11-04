@@ -107,7 +107,7 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("if (!String(state.repairOrdersQuery || '').trim()) {", BOARD_WEB_APP_HTML)
-        self.assertIn("return 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';", BOARD_WEB_APP_HTML)
+        self.assertIn("return scope + 'ПО ПОИСКУ НИЧЕГО НЕ НАЙДЕНО.';", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersSortBy: 'number'", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersSortDir: 'desc'", BOARD_WEB_APP_HTML)
         self.assertIn(
@@ -182,7 +182,7 @@ class RepairOrderWorkspaceContractTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertNotIn("ПОКАЗАНО: ' + items.length", BOARD_WEB_APP_HTML)
-        self.assertIn("els.repairOrdersMeta.textContent = '';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.repairOrdersMeta.textContent = warning;", BOARD_WEB_APP_HTML)
         self.assertIn(".repair-orders-controls--header {", BOARD_WEB_APP_HTML)
         self.assertIn(
             "grid-template-columns: repeat(3, minmax(160px, 172px));",

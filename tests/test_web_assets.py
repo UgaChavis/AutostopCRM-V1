@@ -354,7 +354,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn('data-mobile-repair-order-add-row="works"', BOARD_WEB_APP_HTML)
         self.assertIn('data-mobile-repair-order-add-row="materials"', BOARD_WEB_APP_HTML)
         self.assertIn("function openMobileRepairOrderDetail(cardId)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderMobileRepairOrderDetail()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileRepairOrderDetail(", BOARD_WEB_APP_HTML)
         self.assertIn("function readMobileRepairOrderDraft()", BOARD_WEB_APP_HTML)
         self.assertIn("function saveMobileRepairOrder()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleMobileRepairOrdersListClick(event)", BOARD_WEB_APP_HTML)
@@ -608,7 +608,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("const isNewCard = state.mobileCardCreating;", BOARD_WEB_APP_HTML)
-        self.assertIn("api('/api/create_card'", BOARD_WEB_APP_HTML)
+        self.assertIn("mobileCardWrite('/api/create_card'", BOARD_WEB_APP_HTML)
         self.assertIn("state.mobileCardCreating = false;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.mobileCardCreateButton?.addEventListener('click', openMobileNewCard);",
@@ -4671,7 +4671,7 @@ class WebAssetsTests(unittest.TestCase):
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("syncRepairOrdersLayout();", BOARD_WEB_APP_HTML)
-        self.assertIn("els.repairOrdersMeta.textContent = '';", BOARD_WEB_APP_HTML)
+        self.assertIn("els.repairOrdersMeta.textContent = warning;", BOARD_WEB_APP_HTML)
         self.assertNotIn("repairOrdersMetaText", BOARD_WEB_APP_HTML)
         self.assertIn("const phoneText = phone || '-';", BOARD_WEB_APP_HTML)
         self.assertIn("repairOrdersTableHeadSearchableHtml('Даты', 'date')", BOARD_WEB_APP_HTML)
