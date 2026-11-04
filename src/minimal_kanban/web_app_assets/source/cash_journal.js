@@ -316,11 +316,9 @@
       return true;
     }
 
-    function cashJournalFilteredEntries(data) {
-      const entries = cashJournalFlatEntries(data);
+    function cashJournalFilteredEntries(data, rows) {
       const filters = cashJournalFilters();
       const anchor = cashJournalPeriodAnchor(data);
-      const rows = cashJournalDisplayRows(entries);
       const result = [];
       const usedIds = new Set();
       rows.forEach((row) => {
@@ -569,8 +567,9 @@
     }
 
     function cashJournalLedgerParts(data) {
-      const totalRowCount = cashJournalDisplayRows(cashJournalFlatEntries(data)).length;
-      const filteredEntries = cashJournalFilteredEntries(data);
+      const rows = cashJournalDisplayRows(cashJournalFlatEntries(data));
+      const totalRowCount = rows.length;
+      const filteredEntries = cashJournalFilteredEntries(data, rows);
       const filteredRows = cashJournalDisplayRows(filteredEntries);
       const rowLimit = cashJournalVisibleRowLimit();
       const renderedRows = filteredRows.slice(0, rowLimit);

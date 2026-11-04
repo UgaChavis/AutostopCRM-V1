@@ -4876,7 +4876,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("source === 'перемещение' ? ['нет пары'] : []", BOARD_WEB_APP_HTML)
         self.assertNotIn("cashJournalOperationTagsHtml(['перемещение'])", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalEntryMatchesExactPeriod(", BOARD_WEB_APP_HTML)
-        self.assertIn("function cashJournalFilteredEntries(data)", BOARD_WEB_APP_HTML)
+        self.assertIn("function cashJournalFilteredEntries(data, rows)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalRebuildDays(data, entries)", BOARD_WEB_APP_HTML)
         self.assertIn("function cashJournalStatsHeaderHtml()", BOARD_WEB_APP_HTML)
         self.assertIn("function applyCashJournalStatsPeriodFilter(", BOARD_WEB_APP_HTML)
