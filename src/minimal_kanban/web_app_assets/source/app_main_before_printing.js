@@ -3598,6 +3598,7 @@
             window.clearTimeout(state.repairOrdersLoadTimer);
             state.repairOrdersLoadTimer = null;
           }
+          if (state.repairOrdersSearchLoading) invalidateRepairOrdersListCache();
           popModal('repair-orders');
         },
         clients: () => {
@@ -6763,6 +6764,10 @@
       if (!els.mobileRepairOrdersList) return;
       renderMobileRepairOrderDetail();
       if (state.mobileRepairOrderCardId) return;
+      if (state.repairOrdersSearchLoading) {
+        els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">ЗАКАЗ-НАРЯДЫ ЗАГРУЖАЮТСЯ...</div>';
+        return;
+      }
       if (state.repairOrdersLoadError) {
         els.mobileRepairOrdersList.innerHTML = '<div class="mobile-empty">НЕ УДАЛОСЬ ЗАГРУЗИТЬ ЗАКАЗ-НАРЯДЫ. НАЖМИТЕ «ОБНОВИТЬ».</div>';
         return;
@@ -14240,8 +14245,11 @@
     function renderRepairOrdersView() {
       const items = filterRepairOrdersItems(state.repairOrdersItems);
       syncRepairOrdersControls();
+      if (state.repairOrdersLoadError && !state.repairOrdersSearchLoading) return;
       els.repairOrdersMeta.textContent = '';
-      els.repairOrdersList.innerHTML = items.length
+      els.repairOrdersList.innerHTML = state.repairOrdersSearchLoading
+        ? '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>'
+        : items.length
         ? renderRepairOrderListRows(items)
         : '<div class="log-row__meta">' + repairOrdersEmptyStateText() + '</div>';
       if (state.mobileView === 'repair-orders' && !state.mobileRepairOrderCardId) renderMobileShell();
@@ -14311,6 +14319,9 @@
       const isCurrent = () => state.repairOrdersRequestSeq === requestSeq
         && state.viewerStateGeneration === viewerStateGeneration
         && state.operatorSessionToken === operatorSessionToken;
+      state.repairOrdersLoadError = false;
+      setRepairOrdersSearchLoading(true);
+      renderRepairOrdersView();
       return loadModalData(repairOrdersRequestPath(), {
         openModal,
         modalEl: els.repairOrdersModal,
@@ -14350,6 +14361,7 @@
       if (state.repairOrdersLoadTimer) window.clearTimeout(state.repairOrdersLoadTimer);
       invalidateRepairOrdersRequests();
       setRepairOrdersSearchLoading(true);
+      renderRepairOrdersView();
       if (!String(state.repairOrdersQuery || '').trim()) {
         loadRepairOrders(false);
         return;
@@ -14381,7 +14393,6 @@
         setRepairOrdersSearchLoading(true);
         loadRepairOrders(false);
       } else {
-        setRepairOrdersSearchLoading(false);
         renderRepairOrdersView();
       }
     }
