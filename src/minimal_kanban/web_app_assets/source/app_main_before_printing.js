@@ -4073,7 +4073,7 @@
       let stored;
       try { stored = window.sessionStorage.getItem(key); }
       catch (_) { throw new Error('НЕВОЗМОЖНО ПРОВЕРИТЬ СОСТОЯНИЕ СОХРАНЕНИЯ АВТОМОБИЛЯ. ПОВТОР ОСТАНОВЛЕН.'); }
-      if (state.clientCandidateVehicleEffects.has(key) || stored !== null) throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ АВТОМОБИЛЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ПРОФИЛЬ КЛИЕНТА; ПОВТОР ОСТАНОВЛЕН.');
+      if (state.clientCandidateVehicleEffects.has(key) || stored !== null) throw new Error('РЕЗУЛЬТАТ СОЗДАНИЯ АВТОМОБИЛЯ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ПРОФИЛЬ КЛИЕНТА; ПОВТОР ОСТАНОВЛЕН. ПОСЛЕ ПРОВЕРКИ ОТКРОЙТЕ НОВУЮ ВКЛАДКУ.');
       const effect = { key, generation: state.viewerStateGeneration };
       state.clientCandidateVehicleEffects.set(key, effect);
       try {
@@ -4083,12 +4083,15 @@
       return effect;
     }
 
+    function clientVehicleErrorIsDefinite(error) {
+      return Boolean(error && error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
+        && ['validation_error', 'client_vehicle_conflict', 'client_vehicle_id_conflict', 'client_vehicle_reference_conflict', 'client_ambiguous', 'client_vehicle_ambiguous', 'not_found'].includes(error.code));
+    }
+
     function finishCandidateVehicleCreation(effect, { confirmed = false, error = null } = {}) {
       if (!effect || state.viewerStateGeneration !== effect.generation
           || state.clientCandidateVehicleEffects.get(effect.key) !== effect) return;
-      const rejected = error && error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
-        && ['validation_error', 'client_vehicle_conflict', 'client_vehicle_id_conflict', 'client_vehicle_reference_conflict', 'client_ambiguous', 'client_vehicle_ambiguous', 'not_found'].includes(error.code);
-      if (confirmed || rejected) {
+      if (confirmed || clientVehicleErrorIsDefinite(error)) {
         try {
           window.sessionStorage.removeItem(effect.key);
           if (window.sessionStorage.getItem(effect.key) !== null) return;
@@ -4292,6 +4295,15 @@
       return data;
     }
 
+    function clientProfileReadValid(data, clientId) {
+      const client = data?.client;
+      return Boolean(client && client.id === clientId
+        && 'client_type last_name first_name middle_name display_name phone email comment legal_name short_name inn kpp ogrn checking_account bank_name bik correspondent_account legal_address actual_address contact_person contact_position created_at updated_at'.split(' ').every((key) => typeof client[key] === 'string')
+        && Array.isArray(client.phones) && client.phones.every((value) => typeof value === 'string')
+        && Array.isArray(client.emails) && client.emails.every((value) => typeof value === 'string')
+        && Array.isArray(client.vehicles) && Array.isArray(data.vehicles) && Array.isArray(data.repair_orders));
+    }
+
     async function selectClient(clientId) {
       const normalizedId = String(clientId || '').trim();
       if (!normalizedId) return;
@@ -4304,7 +4316,7 @@
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=30');
         if (!isCurrent()) return;
-        state.clientsActiveId = data?.client?.id || normalizedId;
+        if (!clientProfileReadValid(data, normalizedId)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
         state.clientVehicleEditor = null;
         renderClientProfile(data);
         renderClientsList();
@@ -7900,7 +7912,7 @@
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=8');
         if (!isCurrent()) return;
-        state.clientsActiveId = data?.client?.id || normalizedId;
+        if (!clientProfileReadValid(data, normalizedId)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
         state.clientsActiveProfile = data || null;
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);

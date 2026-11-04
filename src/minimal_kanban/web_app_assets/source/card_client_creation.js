@@ -17,6 +17,7 @@
       } else {
         const data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
         if (!context.isCurrent()) return null;
+        if (!clientProfileReadValid(data, checkpoint.clientId)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН. ПОВТОР ЗАПИСИ ОСТАНОВЛЕН.');
         if (checkpoint.uncertain === 'client') {
           if (!clientProfilePayloadMatches(data?.client, checkpoint.payload)) {
             throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО. ЧЕРНОВИК ОСТАЛСЯ В ОКНЕ.');
@@ -62,7 +63,8 @@
               ? { client_id: checkpoint.clientId, ...request } : request);
             if (!context.isCurrent()) return null;
             const client = data?.client;
-            if (!client?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА.');
+            if (typeof client?.id !== 'string' || !client.id.trim() || client.id !== client.id.trim()
+                || (checkpoint.clientId && client.id !== checkpoint.clientId)) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА.');
             checkpoint.client = client;
             checkpoint.clientId = client.id;
             checkpoint.key = key;
@@ -92,7 +94,9 @@
           try {
             const upserted = await cardPersistWrite('/api/upsert_client_vehicle', { client_id: checkpoint.clientId, vehicle: vehiclePayloadFromProfile(sourceProfile), sync_linked_cards: true });
             if (!context.isCurrent()) return null;
-            checkpoint.vehicleId = upserted?.vehicle?.id || '';
+            const vehicleId = upserted?.vehicle?.id;
+            if (upserted?.client?.id !== checkpoint.clientId || typeof vehicleId !== 'string' || !vehicleId || vehicleId !== vehicleId.trim()) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ КЛИЕНТА И АВТОМОБИЛЬ.');
+            checkpoint.vehicleId = vehicleId;
           } catch (error) {
             if (!context.isCurrent()) return null;
             if (cardPersistErrorIsDefinite(error)) throw new Error('КЛИЕНТ СОЗДАН, НО АВТО НЕ ДОБАВЛЕНО. ' + error.message);

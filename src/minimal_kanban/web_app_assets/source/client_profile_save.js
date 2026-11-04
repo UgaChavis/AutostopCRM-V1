@@ -50,7 +50,7 @@
           }
           data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
           if (!context.isCurrent()) return;
-          if (!clientProfilePayloadMatches(data?.client, checkpoint.payload)) {
+          if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfilePayloadMatches(data?.client, checkpoint.payload)) {
             throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
           }
           checkpoint.uncertain = false;
@@ -74,7 +74,7 @@
             }
             data = await clientMutationRead('/api/get_client?client_id=' + encodeURIComponent(checkpoint.clientId));
             if (!context.isCurrent()) return;
-            if (!clientProfilePayloadMatches(data?.client, payload)) {
+            if (!clientProfileReadValid(data, checkpoint.clientId) || !clientProfilePayloadMatches(data?.client, payload)) {
               throw new Error('СОХРАНЕНИЕ КЛИЕНТА НЕ ПОДТВЕРЖДЕНО ПРИ ЧТЕНИИ. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.');
             }
             checkpoint.uncertain = false;
@@ -82,8 +82,8 @@
           }
         }
         if (!context.isCurrent()) return;
-        const savedClientId = String(data?.client?.id || context.clientId || '').trim();
-        if (!savedClientId) { checkpoint.uncertain = true; state.clientProfileUncertainEffects.set(effectKey, checkpoint); throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.'); }
+        const savedClientId = typeof data?.client?.id === 'string' ? data.client.id : '';
+        if (!savedClientId || savedClientId !== savedClientId.trim() || (context.clientId && savedClientId !== context.clientId)) { checkpoint.uncertain = true; state.clientProfileUncertainEffects.set(effectKey, checkpoint); throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.'); }
         checkpoint.clientId = savedClientId;
         state.clientsActiveId = savedClientId;
         setStatus(wasExisting ? 'КЛИЕНТ СОХРАНЕН.' : 'КЛИЕНТ СОЗДАН.', false);

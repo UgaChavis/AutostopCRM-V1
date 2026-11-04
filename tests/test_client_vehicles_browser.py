@@ -31,7 +31,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             rejectWrite(Object.assign(new Error('rejected'), {status: 422, code: 'validation_error'}));
             try { await first; } catch (_) {}
             const afterReject = sessionStorage.getItem(key);
-            api = async () => { posts++; return {vehicle: {id: 'owned-id', vehicle: 'SYNTHETIC'}}; };
+            api = async () => { posts++; return {client: {id: clientId}, vehicle: {id: 'owned-id', vehicle: 'SYNTHETIC'}}; };
             const next = await ensureStableClientSuggestionVehicle(clientId, candidate, {isCurrent: () => true});
             return {safeMarker, afterReject, posts, savedId: next?.id, afterSuccess: sessionStorage.getItem(key)};
           } finally { api = original; sessionStorage.removeItem(key); state.clientCandidateVehicleEffects.clear(); }
@@ -102,7 +102,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
           state.clientSuggestions = [{id: 'synthetic-client'}];
           let posts = 0;
           try {
-            api = async () => { posts++; return {vehicle: {id: 'created', vehicle: 'SYNTHETIC'}}; };
+            api = async () => { posts++; return {client: {id: 'synthetic-client'}, vehicle: {id: 'created', vehicle: 'SYNTHETIC'}}; };
             const context = {isCurrent: () => true};
             const [a, b] = await Promise.all([
               ensureStableClientSuggestionVehicle('synthetic-client', candidate, context),
@@ -361,7 +361,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
           state.clientSuggestionProfiles = {[client.id]: {client: {id: client.id}, vehicles: [candidate]}};
           let writes = 0, body;
           try {
-            api = async (_path, options) => { writes++; body = options.body; return {vehicle: {id: 'owned-id', vehicle: 'CANDIDATE'}}; };
+            api = async (_path, options) => { writes++; body = options.body; return {client: {id: client.id}, vehicle: {id: 'owned-id', vehicle: 'CANDIDATE'}}; };
             await ensureStableClientSuggestionVehicle(client.id, candidate);
             const stored = state.clientSuggestionProfiles[client.id].vehicles[0];
             const again = await ensureStableClientSuggestionVehicle(client.id, stored);
@@ -507,7 +507,12 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             lambda route: route.fulfill(
                 status=422,
                 content_type="application/json",
-                body=json.dumps({"ok": False, "error": {"message": "Synthetic validation"}}),
+                body=json.dumps(
+                    {
+                        "ok": False,
+                        "error": {"code": "validation_error", "message": "Synthetic validation"},
+                    }
+                ),
             ),
         )
         self.save_vehicle()
