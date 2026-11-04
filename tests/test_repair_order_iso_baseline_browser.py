@@ -284,6 +284,7 @@ class RepairOrderIsoBaselineBrowserTests(UiBrowserTestCase):
         self.assertIn(
             "ВЕРНИТЕСЬ К ЗАКАЗ-НАРЯДУ", self.page.locator("#repairOrderPaymentsMeta").inner_text()
         )
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator('#repairOrderPaymentsModal [data-close="repair-order-payments"]').click()
 
         self.page.route(

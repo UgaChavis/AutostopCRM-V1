@@ -3593,6 +3593,7 @@
           state.archiveLoaded = false;
         },
         'repair-orders': () => {
+          if (state.repairOrderParentLayer === 'repair-orders' && !closeRepairOrderModal()) return false;
           invalidateRepairOrdersRequests();
           if (state.repairOrdersLoadTimer) {
             window.clearTimeout(state.repairOrdersLoadTimer);
@@ -12050,11 +12051,22 @@
       }
     }
 
-    function closeRepairOrderPaymentsModal() {
+    function repairOrderPaymentHasDraft() {
+      return Boolean(els.repairOrderPaymentsModal?.classList.contains('is-open')
+        && (String(els.repairOrderPaymentAmount?.value || '').trim() || String(els.repairOrderPaymentNote?.value || '').trim()));
+    }
+
+    function closeRepairOrderPaymentsModal({ discardConfirmed = false } = {}) {
+      if (state.repairOrderMutationRequest || state.inventoryMaterialSaving) {
+        setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
+        return false;
+      }
+      if (!discardConfirmed && repairOrderPaymentHasDraft() && !window.confirm('Отменить несохранённые данные оплаты?')) return false;
       state.repairOrderPaymentCashboxesRequest = null;
       popModal('repair-order-payments');
       if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
       if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
+      return true;
     }
 
     function repairOrderPaymentNeedsVerification(cardId = state.activeCard?.id || state.editingId || '') {
@@ -12271,6 +12283,10 @@
         const prefixUnchanged = repairOrderPaymentPrefixUnchanged(previousPayments, readback?.repair_order?.payments);
         const confirmed = repairOrderNewPaymentRecorded(readback?.repair_order?.payments, payment) && prefixUnchanged;
         const knownUnchanged = Boolean(readback) && !recordedPayment && prefixUnchanged;
+        if (confirmed) {
+          if (els.repairOrderPaymentAmount) els.repairOrderPaymentAmount.value = '';
+          if (els.repairOrderPaymentNote) els.repairOrderPaymentNote.value = '';
+        }
         if (!readback || (recordedPayment && !confirmed)) {
           markRepairOrderPaymentVerificationPending(resolvedCardId || cardId);
           state.repairOrderPayments = (state.repairOrderPayments || []).map((item) => (
@@ -12510,6 +12526,8 @@
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
       }
+      if ((repairOrderModalHasUnsavedChanges() || repairOrderPaymentHasDraft())
+          && !window.confirm('Отменить несохранённые изменения заказ-наряда и оплаты?')) return false;
       state.repairOrderContextGeneration = (state.repairOrderContextGeneration || 0) + 1;
       state.repairOrderMutationRequest = null;
       state.repairOrderOpenRequest = null;
@@ -12522,7 +12540,7 @@
       state.inventoryMaterialSaving = false;
       const parentLayer = String(state.repairOrderParentLayer || '').trim();
       closeRepairOrderWorkSalaryPopover();
-      closeRepairOrderPaymentsModal();
+      closeRepairOrderPaymentsModal({ discardConfirmed: true });
       popModal('repair-order');
       state.repairOrderParentLayer = '';
       syncRepairOrderSaveDirtyState();
@@ -13993,6 +14011,7 @@
       if (state.cardOpeningShell) closeCardModal();
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
+      if (els.repairOrderModal?.classList.contains('is-open') && !closeRepairOrderModal()) return;
       state.cardHydrationSeq += 1;
       let editingContext = captureCardEditingContext();
       const parentEntry = (state.modalStack || []).find((entry) => entry?.key === String(parentLayer || 'repair-orders').trim());
@@ -14676,8 +14695,8 @@
         setStatus('СОХРАНЯЮ КАРТОЧКУ. ЗАКРОЮ ПОСЛЕ СОХРАНЕНИЯ.', false);
         return false;
       }
+      if (!closeRepairOrderModal()) return false;
       closeCardClientCreateModal();
-      closeRepairOrderModal();
       clearFilePreview({ sync: false });
       popModal('card');
       resetCardModalState();
