@@ -26,12 +26,15 @@ from ..repair_order import (
     REPAIR_ORDER_STATUS_OPEN,
     RepairOrder,
     RepairOrderPayment,
+    RepairOrderRow,
 )
 from .card_service_cashbox_cancellation import (
     _CASH_TRANSACTION_KIND_CANCELLATION,
     _CASH_TRANSACTION_KIND_CANCELLED,
     CardServiceCashboxCancellationMixin,
 )
+from .cash_amounts import cash_payment_minor
+from .errors import ServiceError
 from .finance_audit_payment_fixes import payment_kind_safe_fixes
 from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .journal_labels import day_label, month_label, week_label
@@ -690,24 +693,24 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 )
             if related_transactions and not attestation_cleanup:
                 raise ValueError("Нельзя удалить кассу, пока в ней есть движения.")
+            if attestation_cleanup:
+                self._ensure_cleanup_transactions_not_payroll(related_transactions)
+                for transaction in related_transactions:
+                    linked_card, _ = self._find_repair_order_payment_by_cash_transaction(
+                        bundle["cards"], transaction.id, transactions
+                    )
+                    if linked_card is not None:
+                        self._fail(
+                            "repair_order_payment_cash_link_ambiguous",
+                            "Движение связано с оплатой заказ-наряда. Требуется сверка.",
+                            status_code=409,
+                            details={"transaction_id": transaction.id},
+                        )
             payment_links = self._finance_payment_links(bundle["cards"])
             related_ids = {transaction.id for transaction in related_transactions}
             linked_payment_ids = related_ids.intersection(payment_links)
-            peer_transactions = [
-                transaction
-                for transaction in transactions
-                if transaction.id not in related_ids
-                and (
-                    transaction.related_transaction_id in related_ids
-                    or any(
-                        peer_id and transaction.id == peer_id
-                        for peer_id in (
-                            candidate.related_transaction_id for candidate in related_transactions
-                        )
-                    )
-                )
-            ]
-            peer_cashboxes = {item.id: item for item in cashboxes if item.id != cashbox.id}
+            if attestation_cleanup:
+                self._ensure_no_external_cleanup_links(transactions, related_transactions)
             if attestation_cleanup and not (
                 _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
                 and expected_cashbox_updated_at
@@ -717,13 +720,6 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                 and all(
                     transaction.amount_minor == 100 and attestation_run_id in transaction.note
                     for transaction in related_transactions
-                )
-                and all(
-                    peer.amount_minor == 100
-                    and attestation_run_id in peer.note
-                    and peer.cashbox_id in peer_cashboxes
-                    and peer_cashboxes[peer.cashbox_id].name.startswith(f"{attestation_run_id}-")
-                    for peer in peer_transactions
                 )
                 and str(payload.get("source") or "").strip().casefold() == "mcp_agent_gateway_v2"
                 and actor_name
@@ -803,6 +799,27 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=404,
                     details={"card_id": card.id, "payment_id": payment_id},
                 )
+            if len(card.repair_order.payments) != 1:
+                self._fail(
+                    "repair_order_payment_cash_link_ambiguous",
+                    "В заказ-наряде есть другие оплаты. Требуется сверка.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
+            accruals = bundle["settings"].get("employee_repair_order_accruals", [])
+            card_ids = {card.id.upper(), short_entity_id(card.id, prefix="C").upper()}
+            if not isinstance(accruals, list) or any(
+                not isinstance(item, dict)
+                or len(normalize_text(item.get("card_id"), default="")) > 128
+                or normalize_text(item.get("card_id"), default="").upper() in card_ids
+                for item in accruals
+            ):
+                self._fail(
+                    "repair_order_payroll_link_conflict",
+                    "Заказ-наряд может быть связан с начислением. Требуется сверка.",
+                    status_code=409,
+                    details={"card_id": card.id},
+                )
             cashbox = self._find_cashbox(cashboxes, payment.cashbox_id)
             expected_cashbox_updated_at = normalize_text(
                 payload.get("expected_cashbox_updated_at"),
@@ -847,6 +864,8 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     status_code=409,
                     details={"cashbox_id": cashbox.id},
                 )
+            self._ensure_cleanup_transactions_not_payroll(scoped_transactions)
+            self._ensure_no_external_cleanup_links(transactions, scoped_transactions)
             payment_links = self._finance_payment_links(cards)
             linked_scoped = {
                 transaction_id: link
@@ -865,14 +884,36 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
             current_transaction = self._find_cash_transaction(
                 transactions, payment.cash_transaction_id
             )
+            for transaction in scoped_transactions:
+                linked_card, linked_payment = self._find_repair_order_payment_by_cash_transaction(
+                    cards, transaction.id, transactions
+                )
+                if linked_card is not None and (
+                    linked_card is not card or linked_payment is not payment
+                ):
+                    self._fail(
+                        "repair_order_payment_cash_link_ambiguous",
+                        "Движение связано с другой оплатой заказ-наряда. Требуется сверка.",
+                        status_code=409,
+                        details={"transaction_id": transaction.id},
+                    )
             if not (
                 _GATEWAY_ATTESTATION_RUN_RE.fullmatch(attestation_run_id)
                 and card.title.startswith(attestation_run_id)
-                and payment.note.startswith(attestation_run_id)
-                and normalize_money_minor(payment.amount) == 100
+                and payment.note
+                in {
+                    f"{attestation_run_id} synthetic payment",
+                    f"{attestation_run_id} synthetic repair order payment",
+                }
+                and self._attestation_payment_order_is_scoped(card.repair_order, attestation_run_id)
                 and current_transaction is not None
                 and current_transaction.id in scoped_ids
                 and current_transaction.transaction_kind == "repair_order_payment"
+                and current_transaction.direction == "income"
+                and current_transaction.cashbox_id == payment.cashbox_id == cashbox.id
+                and current_transaction.note == payment.note
+                and not current_transaction.related_transaction_id
+                and not current_transaction.transfer_group_id
                 and all(
                     item.amount_minor == 100
                     and attestation_run_id in item.note
@@ -940,6 +981,91 @@ class CardServiceFinanceMixin(CardServiceCashboxCancellationMixin):
                     "balance_minor_after": after_balance,
                 },
             }
+
+    def _ensure_cleanup_transactions_not_payroll(self, transactions: list[CashTransaction]) -> None:
+        for transaction in transactions:
+            if (
+                transaction.employee_id
+                or transaction.employee_name
+                or transaction.transaction_kind.casefold()
+                in {
+                    "salary_payout",
+                    "payout",
+                    "salary",
+                    "salary_payment",
+                    "salary_advance",
+                    "advance",
+                    "avans",
+                }
+            ):
+                self._fail(
+                    "cashbox_cleanup_payroll_conflict",
+                    "Движение может относиться к зарплате. Требуется сверка.",
+                    status_code=409,
+                    details={"transaction_id": transaction.id},
+                )
+
+    def _ensure_no_external_cleanup_links(
+        self, transactions: list[CashTransaction], removed: list[CashTransaction]
+    ) -> None:
+        removed_ids = {item.id for item in removed}
+        candidate_ids = {
+            key
+            for item in removed
+            for key in (item.id.upper(), short_entity_id(item.id, prefix="CT").upper())
+        }
+        groups = {item.transfer_group_id for item in removed if item.transfer_group_id}
+        for item in removed:
+            peer = self._find_cash_transaction(transactions, item.related_transaction_id)
+            if peer is not None and peer.id not in removed_ids:
+                self._fail(
+                    "cashbox_external_transaction_link",
+                    "Движение связано с операцией вне очищаемого набора. Требуется сверка.",
+                    status_code=409,
+                    details={"transaction_id": item.id},
+                )
+        for item in transactions:
+            if item.id in removed_ids:
+                continue
+            peer = (
+                self._find_cash_transaction(transactions, item.related_transaction_id)
+                if item.related_transaction_id.upper() in candidate_ids
+                else None
+            )
+            if item.transfer_group_id in groups or (peer is not None and peer.id in removed_ids):
+                self._fail(
+                    "cashbox_external_transaction_link",
+                    "Движение связано с операцией вне очищаемого набора. Требуется сверка.",
+                    status_code=409,
+                    details={"transaction_id": item.id},
+                )
+
+    def _attestation_payment_order_is_scoped(self, order: RepairOrder, run_id: str) -> bool:
+        try:
+            if len(order.payments) != 1 or cash_payment_minor(order.payments[0].amount) != 100:
+                return False
+        except ServiceError:
+            return False
+        if len(order.works) > 1:
+            return False
+        if order.works:
+            work = order.works[0]
+            expected_work = RepairOrderRow.from_dict(
+                {
+                    "id": work.id,
+                    "name": f"{run_id} synthetic work",
+                    "quantity": "1",
+                    "price": "1",
+                }
+            )
+            if work.to_dict() != expected_work.to_dict():
+                return False
+        actual = order.to_storage_dict()
+        expected = RepairOrder().to_storage_dict()
+        for key in ("number", "date", "opened_at", "prepayment", "payments", "works"):
+            actual.pop(key)
+            expected.pop(key)
+        return actual == expected
 
     def create_cash_transaction(self, payload: dict | None = None) -> dict:
         with self._lock:

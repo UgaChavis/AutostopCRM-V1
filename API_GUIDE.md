@@ -777,6 +777,14 @@ Untouched historical duplicates are not silently repaired. The legacy storage
 read may normalize malformed records before lookup; this is not a validation
 guarantee for a corrupted state file.
 
+Attestation cleanup rejects payroll-linked movements, external transaction
+links, ambiguous payment owners and orders outside the expected synthetic
+shape. The shape check permits generated order numbers, dates and some payment
+fields; it is not proof of their origin. Sequential cleanup of two linked
+attestation cashboxes is blocked: the gateway attestation workflow requires a
+safe atomic cleanup strategy before that scenario can pass. These guards inspect
+the normalized bundle, not the original malformed storage bytes.
+
 The browser checks the current operator profile on visible board polls,
 at most once per 30 seconds, and immediately when the page becomes visible.
 With a responsive server, new rights appear within 45 seconds on a visible
