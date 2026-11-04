@@ -29,15 +29,17 @@
 
     const cardLinkEffects = new Set();
 
-    function requireCardLinkSettled(cardId) {
+    function requireCardLinkSettled(cardId, isCurrent = null) {
+      if (isCurrent && !isCurrent()) return '';
       const key = 'autostop:card-link:' + JSON.stringify(cardId);
       try {
         if (cardLinkEffects.has(key) || window.sessionStorage.getItem(key) !== null) {
           throw Object.assign(new Error('РЕЗУЛЬТАТ ПРИВЯЗКИ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ КАРТОЧКУ; ПОВТОР ОСТАНОВЛЕН, ЧЕРНОВИК СОХРАНЁН.'), { linkUncertain: true });
         }
       } catch (error) {
-        if (error?.linkUncertain) throw error;
-        throw Object.assign(new Error('НЕВОЗМОЖНО ПРОВЕРИТЬ СОСТОЯНИЕ ПРИВЯЗКИ. ЗАПИСЬ ОСТАНОВЛЕНА, ЧЕРНОВИК СОХРАНЁН.'), { localValidation: true });
+        if (!error?.linkUncertain) error = Object.assign(new Error('НЕВОЗМОЖНО ПРОВЕРИТЬ СОСТОЯНИЕ ПРИВЯЗКИ. ЗАПИСЬ ОСТАНОВЛЕНА, ЧЕРНОВИК СОХРАНЁН.'), { localValidation: true });
+        if (isCurrent) { if (isCurrent()) setStatus(error.message, true); return ''; }
+        throw error;
       }
       return key;
     }

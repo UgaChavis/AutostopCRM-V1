@@ -6447,6 +6447,7 @@
         els.mobileCardSaveButton.textContent = '...';
       }
       try {
+        if (!isNewCard && (!await requireCardLinkSettled(cardId, isCurrent) || !isCurrent())) return null;
         const data = isNewCard
           ? await mobileCardWrite('/api/create_card', {
               actor_name: payload.actor_name,

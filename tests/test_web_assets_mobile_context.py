@@ -153,7 +153,7 @@ function emptyMobileCardDraft() {return {id:''};}
         source = SOURCE.read_text(encoding="utf-8")
         definitions = section(
             source,
-            "    function closeMobileCardDetail()",
+            "    function closeMobileCardDetail(",
             "    function handleMobileBoardClick(",
         )
         self.run_node(
@@ -166,13 +166,20 @@ const state = {
   mobileCardContextGeneration: 0, mobileCardOpenRequest: null, mobileCardSaveRequest: null,
   mobileCardId: 'A', mobileCard: {id:'A',title:'draft-A'}, mobileCardTab:'overview',
   mobileCardCreating:false, mobileCardLoading:false, mobileCardSaving:false, mobileCardFilesBusy:false,
+  mobileCardWriteVerificationPending:new Set(),
   activeCard:{id:'A'}, activeCardIsFull:true, editingId:'A', pendingCardClientId:'', snapshot:{columns:[{id:'todo'}]},
 };
 const els = {mobileCardSaveButton:{disabled:false,textContent:''},mobileCardTitleInput:{focus(){}}};
 global.requestAnimationFrame=(callback)=>callback();
 function deferredApi(path,options) {const task=deferred();calls.push({path,options,...task});return task.promise;}
 const api=deferredApi;
-function readMobileCardDraft(){return {actor_name:state.actor,source:'ui',title:'saved-A',column:'todo',tags:[],vehicle_profile:{}};}
+function readMobileCardDraft(){return {actor_name:state.actor,source:'ui',title:'saved-A',column:'todo',tags:[],vehicle_profile:{},expected_updated_at:'revision'};}
+function requireCardLinkSettled(id,isCurrent){assert.equal(id,state.mobileCardId);assert.ok(isCurrent());return 'guard-clear';}
+function mobileCardDesktopWorkspaceBlocked(){return false;}
+function confirmMobileCardDiscard(){return true;}
+function mobileCardDraftSnapshot(){return 'snapshot';}
+function mobileCardHasRequiredFields(card){return Boolean(card?.id && card?.updated_at);}
+function mobileCardWrite(path,body){return api(path,{method:'POST',body});}
 function currentMobileCard(){return state.mobileCard;}
 function resetMobileCardJournal(){}
 function syncMobileCardEditorBusyState(){}
@@ -192,11 +199,12 @@ function loadMobileCardJournal(){}
             + """
 (async()=>{
   const saving=saveMobileCardDetail();
+  await Promise.resolve();
   assert.equal(calls.length,1);
   assert.equal(closeMobileCardDetail(),false);
   assert.equal(state.mobileCardId,'A');
   assert.equal(state.mobileCardSaving,true);
-  calls[0].resolve({card:{id:'A',title:'server-A'}}); await saving;
+  calls[0].resolve({card:{id:'A',title:'server-A',updated_at:'revision-2'}}); await saving;
   assert.equal(state.mobileCardId,'A');
   assert.equal(state.mobileCard.title,'server-A');
   assert.equal(state.mobileCardSaving,false);
@@ -207,7 +215,8 @@ function loadMobileCardJournal(){}
   state.mobileCardContextGeneration++;
   state.mobileCardId='C'; state.mobileCard={id:'C',title:'current-C'};
   state.mobileCardLoading=false; state.mobileCardSaving=false;
-  const rejected=saveMobileCardDetail(); invalidateMobileCardContext(); state.mobileCardSaving=false;
+  const rejected=saveMobileCardDetail(); await Promise.resolve(); assert.equal(calls.length,2);
+  invalidateMobileCardContext(); state.mobileCardSaving=false;
   calls[1].reject(new Error('obsolete save')); await rejected;
   assert.equal(statuses.some(item=>item.message==='obsolete save'),false);
   assert.equal(state.mobileCardSaving,false);

@@ -46,6 +46,117 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
             {"clientId": client["id"], "vehicleId": vehicle["id"]},
         )
 
+    def open_mobile_card(self, card_id):
+        self.page.evaluate("closeCardModal()")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.page.wait_for_function("state.mobileLite")
+        self.page.evaluate("id => openMobileCardDetail(id)", card_id)
+        self.page.wait_for_function(
+            "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
+        )
+
+    def test_unknown_desktop_link_blocks_mobile_card_save(self):
+        card_id, client, first, second = self.open_vehicle_choice()
+        self.page.route(
+            "**/api/link_card_to_client",
+            lambda route: route.fulfill(
+                status=503, json={"ok": False, "error": {"message": "SYNTHETIC"}}
+            ),
+        )
+        self.choose(client, second)
+        self.open_mobile_card(card_id)
+        self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC MOBILE DRAFT")
+        self.page.locator("#mobileCardSaveButton").click()
+        self.page.wait_for_function("!state.mobileCardSaving")
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertEqual(self.stored_card(card_id)["client_vehicle_id"], first["id"])
+        self.assertEqual(
+            self.page.locator("#mobileCardTitleInput").input_value(), "SYNTHETIC MOBILE DRAFT"
+        )
+        self.assertFalse(
+            self.page.evaluate("id => state.mobileCardWriteVerificationPending.has(id)", card_id)
+        )
+        self.assertIn("НЕ ПОДТВЕРЖДЁН", self.page.locator("#statusLine").inner_text())
+
+    def test_unavailable_link_storage_blocks_mobile_save_locally(self):
+        card_id = self.create_card("SYNTHETIC MOBILE STORAGE")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.load_board()
+        self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
+        self.page.wait_for_function(
+            "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
+        )
+        self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC MOBILE STORAGE DRAFT")
+        self.page.evaluate("""() => {
+          const get = Storage.prototype.getItem;
+          Storage.prototype.getItem = function(key) {
+            if (key.startsWith('autostop:card-link:')) throw new Error('synthetic storage');
+            return get.call(this, key);
+          };
+        }""")
+        self.page.locator("#mobileCardSaveButton").click()
+        self.page.wait_for_function("!state.mobileCardSaving")
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertFalse(
+            self.page.evaluate("id => state.mobileCardWriteVerificationPending.has(id)", card_id)
+        )
+        self.assertEqual(
+            self.page.locator("#mobileCardTitleInput").input_value(),
+            "SYNTHETIC MOBILE STORAGE DRAFT",
+        )
+        self.assertIn("НЕВОЗМОЖНО ПРОВЕРИТЬ", self.page.locator("#statusLine").inner_text())
+
+    def test_mobile_save_cold_module_cannot_write_after_viewer_reset(self):
+        card_id = self.create_card("SYNTHETIC COLD MOBILE")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.load_board()
+        self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
+        self.page.wait_for_function(
+            "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
+        )
+        self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC COLD DRAFT")
+        self.assertFalse(
+            self.page.evaluate("Boolean(boardModuleRecords.get('card_save')?.exports)")
+        )
+        held = []
+        module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+        self.page.route("**" + module_path, lambda route: held.append(route))
+        self.page.locator("#mobileCardSaveButton").click()
+        self.page.wait_for_function("state.mobileCardSaving")
+        self.page.evaluate("() => { void saveMobileCardDetail(); }")
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.page.evaluate("resetViewerScopedState()")
+        held.pop().continue_()
+        self.page.wait_for_timeout(200)
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertEqual(self.stored_card(card_id)["title"], "SYNTHETIC COLD MOBILE")
+
+    def test_mobile_save_module_load_error_is_local_and_preserves_draft(self):
+        card_id = self.create_card("SYNTHETIC MOBILE MODULE")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.load_board()
+        self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
+        self.page.wait_for_function(
+            "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
+        )
+        self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC MODULE DRAFT")
+        module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+        self.page.route("**" + module_path, lambda route: route.abort("failed"))
+        self.page.locator("#mobileCardSaveButton").click()
+        self.page.wait_for_function("!state.mobileCardSaving")
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertFalse(
+            self.page.evaluate("id => state.mobileCardWriteVerificationPending.has(id)", card_id)
+        )
+        self.assertEqual(
+            self.page.locator("#mobileCardTitleInput").input_value(), "SYNTHETIC MODULE DRAFT"
+        )
+        self.assertIn(
+            "НЕ УДАЛОСЬ ЗАГРУЗИТЬ МОДУЛЬ", self.page.locator("#statusLine").inner_text().upper()
+        )
+
     def test_503_cannot_save_changed_vehicle_on_old_link_or_retry_after_reload(self):
         card_id, client, first, second = self.open_vehicle_choice()
         self.page.route(
