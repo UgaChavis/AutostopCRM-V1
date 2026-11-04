@@ -323,7 +323,7 @@ class WebAssetsTests(unittest.TestCase):
         ):
             self.assertIn(f'id="{element_id}"', BOARD_WEB_APP_HTML)
         self.assertIn("function setMobileView(view)", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderMobileShell()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileShell(", BOARD_WEB_APP_HTML)
         self.assertIn("function renderMobileCashboxes()", BOARD_WEB_APP_HTML)
         self.assertIn("function bindMobileShellEvents()", BOARD_WEB_APP_HTML)
         self.assertIn("body.is-mobile-lite .mobile-shell", BOARD_WEB_APP_HTML)

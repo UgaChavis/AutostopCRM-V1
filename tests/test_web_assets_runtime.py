@@ -145,7 +145,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
     def test_hidden_mobile_shell_defers_render_until_mobile_mode(self) -> None:
         renderer = _source_section(
-            self.source, "function renderMobileShell()", "function setMobileView(view)"
+            self.source, "function renderMobileShell(", "function setMobileView(view)"
         )
 
         self._run_node(f"""
