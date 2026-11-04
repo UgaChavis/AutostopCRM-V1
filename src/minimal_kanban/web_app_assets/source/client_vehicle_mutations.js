@@ -121,7 +121,14 @@
         return;
       }
       const payload = readClientVehicleEditorPayload(normalizedKey);
-      if (!payload.vehicle && !payload.vin && !payload.license_plate) {
+      const checkpoint = state.clientVehicleMutationCheckpoint;
+      const pending = Boolean(checkpoint?.uncertain || checkpoint?.confirmedResult);
+      if (currentVehicle && !currentVehicle.card_id && !pending
+          && ['vehicle', 'vin', 'license_plate'].some((field) => String(currentVehicle[field] || '').trim() && !payload[field])) {
+        setStatus('ОЧИСТКА ПОЛЕЙ АВТОМОБИЛЯ ПОКА НЕДОСТУПНА. ИЗМЕНЕНИЯ НЕ СОХРАНЕНЫ.', true);
+        return;
+      }
+      if (!pending && !payload.vehicle && !payload.vin && !payload.license_plate) {
         setStatus('ЗАПОЛНИТЕ МОДЕЛЬ, VIN ИЛИ ГОСНОМЕР АВТОМОБИЛЯ.', true);
         return;
       }
