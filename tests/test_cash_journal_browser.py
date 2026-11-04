@@ -67,10 +67,11 @@ class CashJournalBrowserTests(UiBrowserTestCase):
                 source_label="ручное",
                 note="ordinary synthetic income",
             ),
+            entry("older", "income", "2026-09-20", "a", "Alpha", note="older synthetic income"),
         ]
         days = [
             {"key": date, "date": date, "label": date}
-            for date in ("2026-10-04", "2026-10-03", "2026-10-02")
+            for date in ("2026-10-04", "2026-10-03", "2026-10-02", "2026-09-20")
         ]
         journal = {
             "entries": entries,
@@ -96,13 +97,32 @@ class CashJournalBrowserTests(UiBrowserTestCase):
         transfers = self.page.locator(
             "#cashboxJournalModal .cashbox-journal-operation-row--transfer"
         )
-        self.assertEqual(rows.count(), 4)
+        self.assertEqual(rows.count(), 5)
         self.assertEqual(transfers.count(), 2)
         self.assertIn("Alpha → Beta", transfers.nth(0).inner_text())
         self.assertIn("Alpha → Beta", transfers.nth(1).inner_text())
         self.assertIn(
             "ordinary synthetic income", self.page.locator("#cashboxJournalText").inner_text()
         )
+
+        def apply_filters(filters):
+            self.page.evaluate("filters => { state.cashboxJournalFilters = filters; }", filters)
+            self.page.locator("#cashboxJournalLedgerButton").click()
+
+        apply_filters({"period": "7"})
+        self.assertEqual(rows.count(), 4)
+        self.assertNotIn(
+            "older synthetic income", self.page.locator("#cashboxJournalText").inner_text()
+        )
+        apply_filters({"type": "transfer"})
+        self.assertEqual(rows.count(), 2)
+        self.assertEqual(transfers.count(), 2)
+        apply_filters({"cashbox": "b"})
+        self.assertEqual(rows.count(), 3)
+        apply_filters({"query": "ordinary synthetic income"})
+        self.assertEqual(rows.count(), 1)
+        self.assertIn("ordinary synthetic income", rows.first.inner_text())
+        apply_filters({})
 
         self.page.locator("#cashboxJournalStatsButton").click()
         self.page.locator(

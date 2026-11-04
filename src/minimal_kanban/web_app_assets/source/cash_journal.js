@@ -318,7 +318,8 @@
 
     function cashJournalFilteredEntries(data, rows) {
       const filters = cashJournalFilters();
-      const anchor = cashJournalPeriodAnchor(data);
+      const anchor = filters.period === 'all' || (filters.periodKind && filters.periodKey)
+        ? null : cashJournalPeriodAnchor(data);
       const result = [];
       const usedIds = new Set();
       rows.forEach((row) => {
