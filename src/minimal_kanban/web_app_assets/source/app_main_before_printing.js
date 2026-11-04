@@ -6781,7 +6781,7 @@
       const limitNotice = meta?.has_more ? '<div class="mobile-empty">ЗАГРУЖЕНО ' + meta.returned + ' ИЗ ' + meta.total + ' ЗАКАЗ-НАРЯДОВ.</div>' : '';
       els.mobileRepairOrdersList.innerHTML = warningHtml + limitNotice + items.map((item) => {
         const status = normalizeRepairOrderStatus(item.status || state.repairOrdersFilter);
-        const number = String(item.number || '').replace(/\D+/g, '') || '-';
+        const number = String(item.number || '').trim() || '-';
         const vehicle = String(item.vehicle || '').trim() || 'Автомобиль не указан';
         const client = String(item.client || '').trim() || 'Клиент не указан';
         const heading = String(item.summary || item.reason || item.heading || '').trim() || 'Без описания';
@@ -14284,8 +14284,7 @@
     renderRepairOrderListRows = function(items) {
       const isClosedView = repairOrdersIsClosedView();
       return items.map((item) => {
-        const number = item.number || '-';
-        const numberDigits = String(number).replace(/\D+/g, '') || '-';
+        const number = String(item.number || '').trim() || '-';
         const openedAt = repairOrderListDateDisplayValue(item.opened_at || item.created_at || item.date || item.updated_at);
         const closedAt = repairOrderListDateDisplayValue(item.closed_at);
         const displayedDate = isClosedView ? (closedAt || openedAt || '-') : (openedAt || closedAt || '-');
@@ -14307,8 +14306,8 @@
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
-          return '<div class="archive-row repair-orders-row" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Open repair order">'
-            + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">' + escapeHtml(numberDigits) + '</div></div>'
+          return '<div class="archive-row repair-orders-row' + (/^\d{1,4}$/.test(number) ? '' : ' repair-orders-row--full-number') + '" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Open repair order">'
+            + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">' + escapeHtml(number) + '</div></div>'
             + '<div class="repair-orders-row__cell"><div class="repair-orders-row__dates"><div class="repair-orders-row__opened">' + escapeHtml(displayedDate) + '</div></div></div>'
             + '<div class="repair-orders-row__cell repair-orders-row__payment-cell"><div class="repair-orders-row__payment-status" data-payment-status="' + escapeHtml(paymentStatus) + '">' + escapeHtml(paymentStatusLabel) + '</div></div>'
             + '<div class="repair-orders-row__cell"><div class="repair-orders-row__client" title="' + escapeHtml(clientText) + '">' + escapeHtml(clientText) + '</div></div>'

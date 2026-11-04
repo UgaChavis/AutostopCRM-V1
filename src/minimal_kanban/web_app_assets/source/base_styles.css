@@ -4357,6 +4357,11 @@
       line-height: 1.2;
       white-space: nowrap;
     }
+    .repair-orders-row--full-number { height: auto; min-height: max-content; }
+    .repair-orders-row--full-number .repair-orders-row__number {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
     .repair-orders-row__number .repair-order-number-badge {
       font-size: 1.18em;
     }
