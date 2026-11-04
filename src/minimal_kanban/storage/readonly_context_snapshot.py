@@ -260,7 +260,10 @@ def reject_deeply_nested_native_json(value):
         if depth >= DEFAULT_JSON_MAX_DEPTH and item:
             raise ValueError("state file JSON is too deeply nested")
         values = item.values() if type(item) is dict else item
-        pending.extend((child, depth + 1) for child in values if type(child) in (dict, list))
+        for child in values:
+            child_type = type(child)
+            if child_type is dict or child_type is list:
+                pending.append((child, depth + 1))
 
 
 def encoder_enforces_state_depth():

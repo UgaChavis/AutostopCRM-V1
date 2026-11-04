@@ -347,6 +347,20 @@ class CommittedCardSnapshotSafetyTests(CardServiceCase):
                         outcomes.append("rejected")
                 self.assertEqual(outcomes[0], outcomes[1], (depth, kind))
 
+        for leaf in ({}, [], {"leaf": None}, [None]):
+            for depth in (DEFAULT_JSON_MAX_DEPTH - 1, DEFAULT_JSON_MAX_DEPTH):
+                value = leaf
+                for index in range(depth):
+                    value = {"sibling": [], "child": value} if index % 2 else [None, value]
+                outcomes = []
+                for check in (reject_deeply_nested_json, reject_deeply_nested_native_json):
+                    try:
+                        check(value)
+                        outcomes.append("ok")
+                    except ValueError:
+                        outcomes.append("rejected")
+                self.assertEqual(outcomes[0], outcomes[1], (depth, leaf))
+
     def test_fast_encoder_decoder_preserves_standard_json_number_values(self):
         randomizer = random.Random(20261028)
         values = [-(2**63), 2**64 - 1, 2**53 + 1, -0.0, "SYNTHETIC_Юникод"]
