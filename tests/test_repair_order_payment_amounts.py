@@ -91,7 +91,7 @@ class RepairOrderPaymentAmountTests(CardServiceCase):
         self.assertEqual(result["repair_order"]["paid_total"], "1.01")
         self.assertEqual(self.store.read_bundle()["cash_transactions"][0].amount_minor, 101)
 
-    def test_historical_link_is_not_rewritten_and_native_cancellation_still_works(self):
+    def test_historical_inexact_payment_is_preserved_and_cancellation_is_rejected(self):
         self.service.update_repair_order(
             {
                 "card_id": self.card_id,
@@ -111,27 +111,25 @@ class RepairOrderPaymentAmountTests(CardServiceCase):
         self.assertEqual(self.store.read_bundle()["cash_transactions"], before["cash_transactions"])
         transaction = before["cash_transactions"][0]
         view = self.service.get_cashbox({"cashbox_id": transaction.cashbox_id})
-        self.service.cancel_cash_transaction(
-            {
-                "cashbox_id": transaction.cashbox_id,
-                "transaction_id": transaction.id,
-                "expected_cashbox_updated_at": view["cashbox"]["updated_at"],
-                "reason": "Synthetic historical payment cancellation",
-            }
-        )
-        self.assertFalse(self.store.read_bundle()["cards"][0].repair_order.payments)
-        cancelled = self.store.read_bundle()["cash_transactions"]
-        self.assertEqual(len(cancelled), 2)
-        self.assertEqual(
-            {item.transaction_kind for item in cancelled},
-            {"cashbox_cancelled", "cashbox_cancellation"},
-        )
-        self.assertEqual(
-            sum(
-                item.amount_minor * (1 if item.direction == "income" else -1) for item in cancelled
-            ),
-            0,
-        )
+        before_cancellation = self.state_file.read_bytes()
+        bundle_before_cancellation = deepcopy(self.store.read_bundle())
+        with (
+            patch.object(self.service, "_save_bundle") as save,
+            self.assertRaises(ServiceError) as caught,
+        ):
+            self.service.cancel_cash_transaction(
+                {
+                    "cashbox_id": transaction.cashbox_id,
+                    "transaction_id": transaction.id,
+                    "expected_cashbox_updated_at": view["cashbox"]["updated_at"],
+                    "reason": "Synthetic historical payment cancellation",
+                }
+            )
+        self.assertEqual(caught.exception.code, "repair_order_payment_cash_link_invalid")
+        self.assertEqual(caught.exception.status_code, 409)
+        save.assert_not_called()
+        self.assertEqual(self.state_file.read_bytes(), before_cancellation)
+        self.assertEqual(self.store.read_bundle(), bundle_before_cancellation)
 
     def test_decimal_precision_cannot_round_subcent_input_into_an_exact_cent(self):
         for value in ("1.000000000000000000000000000001", "1E100000", "NaN", "Infinity"):
