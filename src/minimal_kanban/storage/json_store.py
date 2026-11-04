@@ -27,6 +27,7 @@ from ..models import (
     ARCHIVED_CARD_RETENTION_LIMIT,
     AUDIT_EVENT_RETENTION_DAYS,
     AUDIT_EVENT_RETENTION_LIMIT,
+    CASHBOX_NAME_LIMIT,
     DEFAULT_COLUMN_IDS,
     POSITION_MAX_VALUE,
     AuditEvent,
@@ -231,6 +232,18 @@ def _validate_payment_reference_lengths(order: dict[str, Any]) -> None:
             _validate_financial_reference(value, single_line=True)
 
 
+def _validate_cashbox_identities(values: Iterable[tuple[Any, Any]]) -> None:
+    ids: set[str] = set()
+    names: set[str] = set()
+    for raw_id, raw_name in values:
+        cashbox_id = normalize_text(raw_id, default="", limit=128)
+        name = normalize_text(raw_name, default="", limit=CASHBOX_NAME_LIMIT).casefold()
+        if not cashbox_id or not name or cashbox_id in ids or name in names:
+            raise StateFileCorruptedError("Идентификаторы или имена касс неоднозначны.")
+        ids.add(cashbox_id)
+        names.add(name)
+
+
 def _validate_raw_financial_references(state: dict[str, Any]) -> None:
     for transaction in state.get("cash_transactions", []):
         for name in ("id", "cashbox_id", "related_transaction_id", "transfer_group_id"):
@@ -239,6 +252,9 @@ def _validate_raw_financial_references(state: dict[str, Any]) -> None:
             )
     for cashbox in state.get("cashboxes", []):
         _validate_financial_reference(cashbox.get("id"), required=True)
+    _validate_cashbox_identities(
+        (cashbox.get("id"), cashbox.get("name")) for cashbox in state.get("cashboxes", [])
+    )
     for card in state.get("cards", []):
         order = card.get("repair_order")
         if isinstance(order, dict):
@@ -256,6 +272,9 @@ def _validate_financial_write_references(cards: Any, cashboxes: Any, transaction
         for item in cashboxes or []:
             if isinstance(item, CashBox):
                 _validate_financial_reference(item.id, required=True)
+        _validate_cashbox_identities(
+            (item.id, item.name) for item in cashboxes or [] if isinstance(item, CashBox)
+        )
         for card in cards or []:
             if isinstance(card, Card):
                 for payment in card.repair_order.payments:
