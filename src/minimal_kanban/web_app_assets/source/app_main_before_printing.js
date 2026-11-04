@@ -7247,6 +7247,23 @@
       };
     }
 
+    function repairOrderOpenResponseValid(data, cardId) {
+      const strings = (object, fields) => Boolean(object && typeof object === 'object' && !Array.isArray(object)
+        && fields.split(' ').every((key) => typeof object[key] === 'string'));
+      const complete = (order) => strings(order, 'number date status opened_at closed_at client phone vehicle license_plate vin mileage payment_method tax_label prepayment reason comment note')
+        && typeof order.correction_active === 'boolean' && order.active_correction
+        && typeof order.active_correction === 'object' && !Array.isArray(order.active_correction)
+        && Array.isArray(order.tags) && order.tags.every((tag) => strings(tag, 'label color'))
+        && Array.isArray(order.payments) && order.payments.every((payment) => strings(payment, 'id amount paid_at note payment_method actor_name cashbox_id cashbox_name cash_transaction_id'))
+        && ['works', 'materials'].every((section) => Array.isArray(order[section]) && order[section].every((row) => strings(row, 'id name catalog_number quantity cost_price price total executor_id executor_name inventory_item_id inventory_movement_id inventory_unit')
+          && (!operatorCanAccessEmployeesCashboxes() || strings(row, 'work_executor_id_snapshot work_executor_name_snapshot work_quantity_snapshot work_price_snapshot work_total_snapshot salary_mode_snapshot base_salary_snapshot work_percent_snapshot salary_amount salary_accrued_at work_salary_override_enabled work_salary_guarantee work_salary_percent_override work_salary_cost_price work_salary_note material_executor_id_snapshot material_executor_name_snapshot material_quantity_snapshot material_price_snapshot material_cost_price_snapshot material_percent_snapshot material_profit material_salary_amount material_salary_accrued_at'))));
+      return Boolean(mobileCardHasRequiredFields(data?.card) && data.card.id === cardId && data.card_id === cardId
+        && complete(data.card.repair_order) && complete(data.repair_order)
+        && data.card.repair_order.correction_active === data.repair_order.correction_active
+        && JSON.stringify(data.card.repair_order.active_correction) === JSON.stringify(data.repair_order.active_correction)
+        && JSON.stringify(data.card.repair_order.payments) === JSON.stringify(data.repair_order.payments));
+    }
+
     function applyMobileRepairOrderCard(card, cardId, { persisted = false } = {}) {
       if (!card) return null;
       const resolvedCard = { ...card, id: String(card.id || cardId || '').trim() };
@@ -7359,10 +7376,8 @@
           },
         });
         if (!isCurrent()) return null;
-        const updatedCard = (data?.card || data?.repair_order)
-          ? repairOrderCardFromResponse(data, state.mobileRepairOrderCard, normalizedCardId)
-          : null;
-        if (!updatedCard) throw new Error('НЕ УДАЛОСЬ ПОЛУЧИТЬ АКТУАЛЬНЫЙ ЗАКАЗ-НАРЯД.');
+        if (!repairOrderOpenResponseValid(data, normalizedCardId)) throw new Error('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ ЗАКАЗ-НАРЯД И КАРТОЧКУ.');
+        const updatedCard = data.card;
         await ensureMobileRepairOrderPaymentCashboxes(isCurrent);
         if (!isCurrent()) return null;
         clearRepairOrderVerificationPending(normalizedCardId);
@@ -12357,7 +12372,7 @@
       state.repairOrderLoading = true;
       state.repairOrderWriteReady = false;
       const editingContext = captureCardEditingContext();
-      let order = repairOrderCardDraft(state.activeCard, preloadedRepairOrderData?.repair_order || state.activeCard?.repair_order || {});
+      let order = repairOrderCardDraft(state.activeCard, preloadedRepairOrderData?.card?.repair_order || state.activeCard?.repair_order || {});
       const cardId = String(state.activeCard?.id || state.editingId || '').trim();
       const actorName = state.actor;
       const isCurrent = () => state.repairOrderOpenRequest === request
@@ -12396,10 +12411,14 @@
             return;
           }
           const data = repairOrderResult.value;
+          if (!repairOrderOpenResponseValid(data, cardId)) {
+            setStatus('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ ЗАКАЗ-НАРЯД И КАРТОЧКУ.', true);
+            return;
+          }
           const updatedCard = repairOrderResponseCard(data, order);
           state.repairOrderWriteReady = true;
           clearRepairOrderVerificationPending(cardId);
-          order = applyRepairOrderCardUpdate(updatedCard, data?.repair_order || order);
+          order = applyRepairOrderCardUpdate(updatedCard, data.card.repair_order);
         } else {
           state.repairOrderWriteReady = true;
           applyRepairOrderToForm(order);
@@ -13923,6 +13942,9 @@
           },
         });
         if (!isCurrent()) return;
+        if (!repairOrderOpenResponseValid(data, normalizedCardId)) {
+          throw new Error('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ ЗАКАЗ-НАРЯД И КАРТОЧКУ.');
+        }
         isOwner = null;
         const updatedCard = repairOrderResponseCard(data, data?.repair_order || {});
         state.activeCard = updatedCard;
