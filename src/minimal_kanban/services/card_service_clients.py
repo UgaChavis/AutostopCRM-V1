@@ -22,8 +22,13 @@ from ..models import (
     utc_now,
     utc_now_iso,
 )
-from ..repair_order import REPAIR_ORDER_STATUS_CLOSED
+from ..repair_order import (
+    REPAIR_ORDER_FIELD_LIMIT,
+    REPAIR_ORDER_STATUS_CLOSED,
+    _normalize_single_line,
+)
 from ..storage.json_store import StateFileCorruptedError
+from ..vehicle_profile import normalize_vehicle_text
 from .readonly_context_helpers import _least_retention_pressure, client_readonly_related_cards
 
 _PHONE_PATTERN = re.compile(
@@ -2468,6 +2473,7 @@ class CardServiceClientsMixin:
         client_phone = client.phone
         client_phones = list(client.phones or ([client_phone] if client_phone else []))
         for field, value in (("customer_name", client_name), ("customer_phone", client_phone)):
+            value = normalize_vehicle_text(value)
             current = getattr(card.vehicle_profile, field)
             if value and (overwrite or not current) and current != value:
                 setattr(card.vehicle_profile, field, value)
@@ -2497,6 +2503,8 @@ class CardServiceClientsMixin:
         if not self._card_has_repair_order(card):
             return False
         changed = False
+        client_name = _normalize_single_line(client_name, limit=REPAIR_ORDER_FIELD_LIMIT)
+        client_phone = _normalize_single_line(client_phone, limit=REPAIR_ORDER_FIELD_LIMIT)
         for field, value in (("client", client_name), ("phone", client_phone)):
             current = getattr(card.repair_order, field)
             if value and (overwrite or not current) and current != value:

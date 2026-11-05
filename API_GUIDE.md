@@ -379,9 +379,10 @@ The card editor checks the visible customer name, registration plate, engine
 model, gearbox model and drivetrain against the 120-character normalized
 vehicle-profile limit before writing. This is a UI safeguard; direct API
 normalization and its existing replay behavior are unchanged. A linked client
-can have a name longer than that limit: the link response can contain the full
-name even though the stored vehicle profile is normalized to 120 characters.
-Read the card back before treating the full name as stored there.
+can have a name longer than that limit: newly synchronized card and order fields
+use their own limits of 120 and 160 characters, while the client's name stays
+unchanged. The suggestion UI can still display the full client name in its
+draft after linking, so a later card save may require correcting that draft.
 
 ## Repair Orders And Documents
 
