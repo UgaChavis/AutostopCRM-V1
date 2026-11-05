@@ -9290,55 +9290,6 @@ class CardService(
             changed = True
         return changed
 
-    def _repair_order_list_summary(self, card: Card) -> str:
-        for value in (card.description, card.title, card.vehicle_profile.oem_notes, card.heading()):
-            summary = normalize_text(value, default="", limit=220)
-            if summary:
-                return summary
-        return ""
-
-    def _repair_order_search_values(self, card: Card) -> list[str]:
-        order = card.repair_order
-        payment_text = " ".join(
-            " ".join(
-                filter(
-                    None,
-                    (
-                        payment.amount,
-                        payment.paid_at,
-                        payment.note,
-                        payment.payment_method,
-                    ),
-                )
-            )
-            for payment in order.payments
-        )
-        return [
-            order.number,
-            order.date,
-            order.opened_at
-            or self._repair_order_card_datetime(card.created_at, search_overflow_none=True)
-            or "",
-            order.closed_at,
-            self._repair_order_status_label(order.status),
-            order.status,
-            order.client,
-            order.phone,
-            order.vehicle or card.vehicle,
-            order.license_plate,
-            order.vin,
-            order.mileage,
-            order.payment_method,
-            order.prepayment,
-            payment_text,
-            order.reason,
-            order.comment,
-            order.note,
-            card.heading(),
-            self._repair_order_list_summary(card),
-            " ".join(tag.label for tag in order.tags),
-        ]
-
     def _serialize_repair_order_compact_item(
         self, card: Card, *, redact_private: bool
     ) -> dict[str, object]:

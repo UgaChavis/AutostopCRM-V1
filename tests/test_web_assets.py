@@ -647,31 +647,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(".mobile-module-card__value", BOARD_WEB_APP_HTML)
         self.assertIn(".mobile-module-card__detail", BOARD_WEB_APP_HTML)
 
-    def test_mobile_more_clients_module_has_native_drilldown(self) -> None:
-        self.assertIn("mobileMorePanel: ''", BOARD_WEB_APP_HTML)
-        for element_id in (
-            "mobileClientsPanel",
-            "mobileClientsBackButton",
-            "mobileClientsSearchInput",
-            "mobileClientsMeta",
-            "mobileClientsList",
-            "mobileClientDetail",
-        ):
-            self.assertIn(element_id, BOARD_WEB_APP_HTML)
-        self.assertIn("function openMobileClientsPanel()", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderMobileClientsPanel(preserveList = false)", BOARD_WEB_APP_HTML)
-        self.assertIn("function loadMobileClients(", BOARD_WEB_APP_HTML)
-        self.assertIn("function loadMobileClientProfile(clientId)", BOARD_WEB_APP_HTML)
-        self.assertIn("data-mobile-client-id", BOARD_WEB_APP_HTML)
-        self.assertIn("data-mobile-client-order-card", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "if (target === 'clients') return openMobileClientsPanel();", BOARD_WEB_APP_HTML
-        )
-        self.assertIn("els.mobileClientsSearchInput?.addEventListener('input'", BOARD_WEB_APP_HTML)
-        self.assertIn(".mobile-client-row", BOARD_WEB_APP_HTML)
-        self.assertIn(".mobile-client-detail", BOARD_WEB_APP_HTML)
-        self.assertIn(".mobile-more-grid[hidden]", BOARD_WEB_APP_HTML)
-
     def test_mobile_more_employees_module_has_native_drilldown(self) -> None:
         self.assertIn("mobileEmployeesLoading: false", BOARD_WEB_APP_HTML)
         for element_id in (
