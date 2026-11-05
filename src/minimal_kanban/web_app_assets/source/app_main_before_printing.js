@@ -4395,8 +4395,10 @@
         && [client.vehicles, data.vehicles, data.repair_orders].every((items) => Array.isArray(items)
           && items.every((item) => item && typeof item === 'object' && !Array.isArray(item)))
         && client.vehicles.every((vehicle) => validId(vehicle.id) && Boolean(vehicle.id))
+        && new Set(client.vehicles.map((vehicle) => vehicle.id)).size === client.vehicles.length
         && data.vehicles.every((vehicle) => validId(vehicle.id) && validId(vehicle.card_id)
           && Boolean(vehicle.id || vehicle.card_id))
+        && new Set(data.vehicles.map(clientProfileVehicleKey)).size === data.vehicles.length
         && meta && typeof meta === 'object' && !Array.isArray(meta) && meta.order_limit === orderLimit
         && [meta.repair_orders_total, meta.repair_orders_returned, meta.vehicles_total].every((value) => Number.isSafeInteger(value) && value >= 0)
         && meta.vehicles_total === data.vehicles.length && meta.repair_orders_returned === data.repair_orders.length
