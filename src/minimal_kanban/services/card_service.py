@@ -8572,11 +8572,20 @@ class CardService(
         parsed = self._parse_repair_order_business_datetime(value)
         return (parsed or utc_now()).isoformat()
 
-    def _repair_order_card_datetime(self, value: str | None) -> str:
+    def _repair_order_card_datetime(
+        self, value: str | None, *, search_overflow_none: bool = False
+    ) -> str | None:
         parsed = parse_datetime(value)
         if parsed is None:
             return ""
-        return parsed.astimezone(business_timezone()).strftime("%d.%m.%Y %H:%M")
+        timezone = business_timezone()
+        try:
+            local = parsed.astimezone(timezone)
+        except OverflowError:
+            if search_overflow_none and parsed.year in (1, 9999):
+                return None
+            raise
+        return local.strftime("%d.%m.%Y %H:%M")
 
     def _repair_order_sort_key(self, card: Card) -> tuple[str, int]:
         return str(card.created_at or ""), self._repair_order_numeric_number(
@@ -9305,7 +9314,9 @@ class CardService(
         return [
             order.number,
             order.date,
-            order.opened_at or self._repair_order_card_datetime(card.created_at),
+            order.opened_at
+            or self._repair_order_card_datetime(card.created_at, search_overflow_none=True)
+            or "",
             order.closed_at,
             self._repair_order_status_label(order.status),
             order.status,

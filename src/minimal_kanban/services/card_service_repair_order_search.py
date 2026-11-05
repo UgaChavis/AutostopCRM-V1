@@ -68,11 +68,22 @@ class CardServiceRepairOrderSearchMixin:
             order = card.repair_order
             full_date_part = ""
             if search_field == "date":
-                opened_at = order.opened_at or self._repair_order_card_datetime(card.created_at)
+                opened_at = order.opened_at or self._repair_order_card_datetime(
+                    card.created_at, search_overflow_none=True
+                )
+                if opened_at is None and not (
+                    status_filter == REPAIR_ORDER_STATUS_CLOSED and order.closed_at
+                ):
+                    continue
                 opened_at = opened_at or card.created_at or order.date or card.updated_at
                 closed_at = order.closed_at or opened_at
                 date_value = closed_at if status_filter == REPAIR_ORDER_STATUS_CLOSED else opened_at
-                display_date = self._repair_order_card_datetime(date_value) or str(date_value or "")
+                display_date = self._repair_order_card_datetime(
+                    date_value, search_overflow_none=True
+                )
+                if display_date is None:
+                    continue
+                display_date = display_date or str(date_value or "")
                 date_part = display_date.split(" ", 1)[0]
                 date_parts = date_part.split(".")
                 if len(date_parts) == 3 and len(date_parts[2]) == 4:
