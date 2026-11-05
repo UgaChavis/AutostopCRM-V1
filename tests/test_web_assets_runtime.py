@@ -298,6 +298,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             let failSave = false;
             let changed = true;
             function currentCardPayload() {{ return {{ title: 'Card' }}; }}
+            function cardVehicleNumbersCanSave() {{ return true; }}
+            function cardDescriptionCanSave() {{ return true; }}
+            function cardMileageCanSave() {{ return true; }}
             const CARD_TITLE_REQUIRED_MESSAGE = 'TITLE REQUIRED';
             function setStatus() {{}}
             function clearCardOpenSideEffectTimer() {{}}

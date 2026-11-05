@@ -178,6 +178,8 @@ global.requestAnimationFrame=(callback)=>callback();
 function deferredApi(path,options) {const task=deferred();calls.push({path,options,...task});return task.promise;}
 const api=deferredApi;
 function readMobileCardDraft(){return {actor_name:state.actor,source:'ui',title:'saved-A',column:'todo',tags:[],vehicle_profile:{},expected_updated_at:'revision'};}
+function cardVehicleNumbersCanSave(){return true;}
+function cardMileageCanSave(){return true;}
 function requireCardLinkSettled(id,isCurrent){assert.equal(id,state.mobileCardId);assert.ok(isCurrent());return 'guard-clear';}
 function mobileCardDesktopWorkspaceBlocked(){return false;}
 function confirmMobileCardDiscard(){return true;}

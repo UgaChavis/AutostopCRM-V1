@@ -27,6 +27,9 @@ function renderInventoryItems() {} function renderInventory() {} function render
 function renderInventoryMovements() {} function renderMobileInventoryMovements() {}
 function renderRepairOrderInventoryPanel() {}
 function inventoryStatus(...args) {statuses.push(args);} function setStatus(...args) {statuses.push(args);}
+function cardVehicleNumbersCanSave() {return true;}
+function cardDescriptionCanSave() {return true;}
+function cardMileageCanSave() {return true;}
 function repairOrderIsoFieldsValid() {return true;}
 function maybeOpenModal(...args) {modalCalls.push(args);}
 function inventoryItemById(id) {return state.inventoryItems.find(item=>item.id===id);}

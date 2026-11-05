@@ -5170,8 +5170,10 @@
     async function chooseClientSuggestion(clientId, vehicleKey = '', { createNewVehicle = false } = {}) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
+      if (!cardVehicleNumbersCanSave()) return;
       const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
       if (!context) return;
+      setCardSaveInteractionLocked(true);
       try {
         const module = context.cardId ? await ensureBoardModule('card_save') : null;
         if (!context.isCurrent()) return;
@@ -5207,6 +5209,7 @@
       } catch (error) {
         if (context.isCurrent()) setStatus(error.message, true);
       } finally {
+        if (context.ownsRequest()) setCardSaveInteractionLocked(false);
         finishCardScopedRequest(context);
       }
     }
@@ -6558,6 +6561,7 @@
       if (state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', true);
       if (mobileCardDesktopWorkspaceBlocked()) return;
       if (!isNewCard && state.mobileCardWriteVerificationPending.has(cardId)) return setStatus('РЕЗУЛЬТАТ СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ ЗАНОВО.', true);
+      if (!cardVehicleNumbersCanSave(true)) return;
       const payload = readMobileCardDraft();
       if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
       if (!cardMileageCanSave(payload.vehicle_profile)) return;
@@ -10258,6 +10262,21 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function cardVehicleNumbersCanSave(mobile = false) {
+      for (const [name, label] of [['production_year', 'ГОД'], ['mileage', 'ПРОБЕГ']]) {
+        const input = mobile ? document.getElementById(name === 'mileage' ? 'mobileCardVehicleMileage' : 'mobileCardVehicleYear') : getVehicleFieldInput(name);
+        if (!input) continue;
+        const value = input.value;
+        const invalid = input.validity.badInput || (value && (!/^-?\d{1,12}$/.test(value)
+          || Number(value) > 1000000000 || (name === 'mileage' ? Number(value) < 0 : Number(value) <= 0)));
+        if (!invalid) continue;
+        setStatus(label + ': УКАЖИТЕ ЦЕЛОЕ ЧИСЛО ОТ 1 ДО 1000000000 ИЛИ ОСТАВЬТЕ ПОЛЕ ПУСТЫМ.', true);
+        input.focus();
+        return false;
+      }
+      return true;
+    }
+
     function cardMileageCanSave(profile) {
       if (profile?.mileage !== 0) return true;
       setStatus('НУЛЕВОЙ ПРОБЕГ НЕ СОХРАНЯЕТСЯ. УКАЖИТЕ ПОЛОЖИТЕЛЬНОЕ ЗНАЧЕНИЕ ИЛИ ОСТАВЬТЕ ПОЛЕ ПУСТЫМ.', true);
@@ -11774,6 +11793,7 @@
     async function ensureRepairOrderCard() {
       if (state.editingId && state.activeCard?.id) return state.activeCard;
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
+      if (!cardVehicleNumbersCanSave()) return null;
       const isCurrent = captureCardSaveWorkspace();
       const payload = currentCardPayload();
       if (!cardDescriptionCanSave(payload.description)) return null;

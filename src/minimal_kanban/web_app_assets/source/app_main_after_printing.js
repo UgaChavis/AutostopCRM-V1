@@ -867,6 +867,7 @@
         return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С КАРТОЧКОЙ.', true);
       }
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
+      if (!cardVehicleNumbersCanSave()) return;
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
       if (!cardDescriptionCanSave(payload.description)) return;
