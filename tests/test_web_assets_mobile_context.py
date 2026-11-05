@@ -572,7 +572,7 @@ global.window={confirm(){return true;},prompt(){return 'reason';}};
         source = SOURCE.read_text(encoding="utf-8")
         loader = section(
             source,
-            "    loadRepairOrders = async function(openModal = false)",
+            "    loadRepairOrders = async function(openModal = false, { silentError = false } = {})",
             "    function applyRepairOrdersSearch()",
         )
         self.run_node(

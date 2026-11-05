@@ -95,7 +95,10 @@ class BoardModuleAssetsTests(unittest.TestCase):
         )
         self.assertEqual(BOARD_WEB_APP_HTML.count("renderRepairOrderListRows = function(items)"), 1)
         self.assertEqual(
-            BOARD_WEB_APP_HTML.count("loadRepairOrders = async function(openModal = false)"), 1
+            BOARD_WEB_APP_HTML.count(
+                "loadRepairOrders = async function(openModal = false, { silentError = false } = {})"
+            ),
+            1,
         )
 
     def test_lazy_modules_export_only_invoked_entrypoints(self) -> None:

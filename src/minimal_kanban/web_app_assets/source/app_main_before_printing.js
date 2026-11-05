@@ -3671,7 +3671,7 @@
       return true;
     }
 
-    async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {}) {
+    async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true, reportError = true } = {}) {
       return perfMeasureAsync('loadModalData:' + String(path || '').split('?')[0], async () => {
         try {
           const request = { method };
@@ -3685,7 +3685,7 @@
           if (!isCurrent()) return null;
           if (typeof onError === 'function') onError(error);
           maybeOpenModal(modalEl, openModal);
-          setStatus(error.message, true);
+          if (reportError) setStatus(error.message, true);
           return null;
         }
       });
@@ -12745,7 +12745,7 @@
         return;
       }
       if (state.mobileLite && state.mobileView === 'repair-orders') {
-        loadRepairOrders(false);
+        loadRepairOrders(false, { silentError: true });
         return;
       }
       invalidateRepairOrdersListCache();
@@ -14518,7 +14518,7 @@
       renderRepairOrdersView(forceDesktop);
     }
 
-    loadRepairOrders = async function(openModal = false) {
+    loadRepairOrders = async function(openModal = false, { silentError = false } = {}) {
       state.repairOrdersRemoteQuery = String(state.repairOrdersQuery || '').trim();
       const requestSeq = (state.repairOrdersRequestSeq || 0) + 1;
       state.repairOrdersRequestSeq = requestSeq;
@@ -14535,6 +14535,7 @@
         openModal,
         modalEl: els.repairOrdersModal,
         isCurrent,
+        reportError: !silentError,
         onSuccess: (data) => {
           const items = data?.repair_orders, meta = data?.meta;
           if (!Array.isArray(items) || !meta || typeof meta !== 'object' || Array.isArray(meta)

@@ -5339,7 +5339,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function createColumnFromBoard()", BOARD_WEB_APP_HTML)
         self.assertIn("function closeNamedModal(closeKey)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true } = {})",
+            "async function loadModalData(path, { method = 'GET', body = null, openModal = false, modalEl = null, onSuccess, onError, isCurrent = () => true, reportError = true } = {})",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function reloadOperatorAdminUsers(", BOARD_WEB_APP_HTML)
