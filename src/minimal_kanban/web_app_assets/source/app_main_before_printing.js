@@ -4282,6 +4282,10 @@
     }
 
     function protectClientDraft(vehicleOnly = false) {
+      if (!vehicleOnly && state.clientProfileSaveCheckpoint?.receipt?.meta?.created === false && state.clientProfileSaveCheckpoint.effect) {
+        setStatus('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА. ПОВТОРИТЕ СОХРАНЕНИЕ.', true);
+        return true;
+      }
       if (!(vehicleOnly ? state.clientVehicleEditor : clientHasDraft())) return false;
       if (!vehicleOnly && window.confirm('Отменить несохранённые изменения клиента и автомобиля?')) return false;
       const message = 'СНАЧАЛА СОХРАНИТЕ ИЛИ ВЕРНИТЕ ИЗМЕНЕНИЯ.';

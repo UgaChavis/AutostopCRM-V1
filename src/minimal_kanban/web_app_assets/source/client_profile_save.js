@@ -31,6 +31,14 @@
       return typeof version === 'string' && Boolean(version) && version === version.trim();
     }
 
+    function clientProfileDuplicateIdentity(payload) {
+      const text = (key) => String(payload?.[key] || '').trim();
+      const name = payload?.client_type === 'person'
+        ? [text('last_name'), text('first_name'), text('middle_name')].filter(Boolean).join(' ') || text('display_name')
+        : text('short_name') || text('legal_name') || text('display_name');
+      return JSON.stringify([name, payload?.phones || []]);
+    }
+
     async function saveClientProfile() {
       updateClientSaveButtonState();
       if (els.clientSaveButton?.disabled) return;
@@ -40,9 +48,13 @@
       if (!context) return;
       const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, context.clientId]);
       const effectKey = JSON.stringify([context.clientId, context.clientId ? null : payload]);
-      let checkpoint = state.clientProfileUncertainEffects.get(effectKey) || state.clientProfileSaveCheckpoint;
+      const previous = state.clientProfileSaveCheckpoint;
+      const duplicateCreate = !context.clientId && previous?.ownerKey === ownerKey
+        && previous.profile === state.clientsDesktopProfile && previous.receipt?.meta?.created === false
+        && (previous.effect || clientProfileDuplicateIdentity(previous.payload) === clientProfileDuplicateIdentity(payload));
+      let checkpoint = duplicateCreate ? previous : state.clientProfileUncertainEffects.get(effectKey) || previous;
       const confirmedCreate = !context.clientId && checkpoint?.receipt && checkpoint.effect && checkpoint.ownerKey === ownerKey;
-      if (!confirmedCreate && (!checkpoint || checkpoint.effectKey !== effectKey || (!checkpoint.uncertain && (checkpoint.ownerKey !== ownerKey || checkpoint.profile !== state.clientsDesktopProfile)))) {
+      if (!duplicateCreate && !confirmedCreate && (!checkpoint || checkpoint.effectKey !== effectKey || (!checkpoint.uncertain && (checkpoint.ownerKey !== ownerKey || checkpoint.profile !== state.clientsDesktopProfile)))) {
         checkpoint = { ownerKey, effectKey, profile: state.clientsDesktopProfile, clientId: context.clientId,
           expectedUpdatedAt: context.clientId ? state.clientsDraftRevision?.version : null,
           uncertain: false, payload };
@@ -53,6 +65,14 @@
         let data;
         if (!wasExisting && checkpoint.effect) {
           beginCardClientCreate(checkpoint.ownerKey === ownerKey ? checkpoint.effect : null);
+        }
+        if (duplicateCreate) {
+          if (checkpoint.effect && !finishCardClientCreate(checkpoint.effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА. ПОВТОР ОСТАНОВЛЕН.');
+          checkpoint.effect = null;
+          checkpoint.uncertain = false;
+          state.clientProfileUncertainEffects.delete(checkpoint.effectKey);
+          setStatus('НАЙДЕН СУЩЕСТВУЮЩИЙ КЛИЕНТ. ВВЕДЁННЫЕ ДАННЫЕ НЕ СОХРАНЕНЫ; ПРОВЕРЬТЕ ПРОФИЛЬ.', true);
+          return;
         }
         if (confirmedCreate) {
           if (!finishCardClientCreate(checkpoint.effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА. ПОВТОР ОСТАНОВЛЕН.');
@@ -138,6 +158,10 @@
           checkpoint.effect = null;
           checkpoint.uncertain = false;
           state.clientProfileUncertainEffects.delete(effectKey);
+        }
+        if (!wasExisting && data?.meta?.created === false) {
+          setStatus('НАЙДЕН СУЩЕСТВУЮЩИЙ КЛИЕНТ. ВВЕДЁННЫЕ ДАННЫЕ НЕ СОХРАНЕНЫ; ПРОВЕРЬТЕ ПРОФИЛЬ.', true);
+          return;
         }
         state.clientsActiveId = savedClientId;
         setStatus(wasExisting ? 'КЛИЕНТ СОХРАНЕН.' : data.meta.created ? 'КЛИЕНТ СОЗДАН.' : 'КЛИЕНТ НАЙДЕН.', false);
