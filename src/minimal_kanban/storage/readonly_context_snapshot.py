@@ -55,29 +55,37 @@ def _safe_to_detach_shallow_json(value):
         pass
     else:
         return False
-    root_type = type(value)
+    type_of = type
+    scalar_types = (str, int, float, bool, type(None))
+    root_type = type_of(value)
     if root_type is not dict and root_type is not list:
-        return root_type in (str, int, float, bool, type(None))
+        return root_type in scalar_types
     seen = set()
     pending = [(value, 0)]
     while pending:
         item, depth = pending.pop()
-        kind = type(item)
-        if depth > 32 or id(item) in seen:
+        kind = type_of(item)
+        identity = id(item)
+        if depth > 32 or identity in seen:
             return False
-        seen.add(id(item))
+        seen.add(identity)
+        next_depth = depth + 1
         if kind is dict:
-            if any(type(key) is not str for key in item):
-                return False
-            children = item.values()
+            for key, child in item.items():
+                if type_of(key) is not str:
+                    return False
+                child_type = type_of(child)
+                if child_type is dict or child_type is list:
+                    pending.append((child, next_depth))
+                elif child_type not in scalar_types:
+                    return False
         else:
-            children = item
-        for child in children:
-            child_type = type(child)
-            if child_type is dict or child_type is list:
-                pending.append((child, depth + 1))
-            elif child_type not in (str, int, float, bool, type(None)):
-                return False
+            for child in item:
+                child_type = type_of(child)
+                if child_type is dict or child_type is list:
+                    pending.append((child, next_depth))
+                elif child_type not in scalar_types:
+                    return False
     return True
 
 
