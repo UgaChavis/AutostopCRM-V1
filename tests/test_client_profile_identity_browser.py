@@ -291,6 +291,7 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
         self.page.on("pageerror", lambda error: self.page_errors.append(str(error)))
         self.load_board()
         self.page.locator("#clientsButton").click()
+        self.page.locator("#clientsSearchInput").fill("SYNTHETIC RESTRICTED")
         self.page.locator(f'#clientsList [data-client-id="{client}"]').click()
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=client
@@ -494,6 +495,9 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
         def empty_stored(route):
             payload = route.fetch().json()
             payload["data"]["client"]["vehicles"] = []
+            payload["data"]["vehicles"] = []
+            payload["data"]["meta"]["vehicles_total"] = 0
+            payload["data"]["client"]["stats"]["vehicles_total"] = 0
             route.fulfill(json=payload)
 
         self.page.route("**/api/upsert_client_vehicle", count_write)
@@ -502,6 +506,13 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
             self.page.locator("[data-client-vehicle-save]").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertIn("АВТОМОБИЛЬ НЕ ПОДТВЕРЖДЁН", self.page.locator("#statusLine").text_content())
+        self.assertEqual(
+            self.page.evaluate(
+                "id => sessionStorage.getItem('autostop:client-vehicle:' + JSON.stringify([id, '']))",
+                first,
+            ),
+            "1",
+        )
         self.assertEqual(
             self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
             "SYNTHETIC EMPTY READBACK",
@@ -743,7 +754,13 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
         )
 
     def test_uncertain_vehicle_a_blocks_b_and_can_be_verified_after_return(self):
-        first, other = self.clients()
+        first, other = [
+            self.runtime.service.create_client(
+                {"client_type": "company", "display_name": f"SYNTHETIC CYCLE {name}"}
+            )["client"]["id"]
+            for name in ("ALPHA", "BETA")
+        ]
+        self.load_board()
         vehicle_a = self.runtime.service.upsert_client_vehicle(
             {"client_id": first, "vehicle": {"vehicle": "SYNTHETIC CAR A"}}
         )["vehicle"]["id"]
@@ -751,6 +768,7 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
             {"client_id": other, "vehicle": {"vehicle": "SYNTHETIC CAR B"}}
         )
         self.page.locator("#clientsButton").click()
+        self.page.locator("#clientsSearchInput").fill("SYNTHETIC CYCLE")
         self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=first

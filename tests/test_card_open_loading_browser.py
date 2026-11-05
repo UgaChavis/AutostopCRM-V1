@@ -210,11 +210,15 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
             route.fulfill(response=response)
         old_response.value.body()
         self.page.wait_for_timeout(100)
-        self.assertTrue(self.page.evaluate("state.mobileCardLoading"))
+        self.assertFalse(self.page.evaluate("state.mobileCardLoading"))
+        self.assertEqual(self.page.evaluate("state.mobileCardId"), "")
+        self.assertFalse(self.page.evaluate("state.activeCardIsFull"))
+        self.assertTrue(self.page.locator('#cardModal[data-card-loading="true"]').is_visible())
         route, response = held.pop(0)
         if fail_new:
             route.fulfill(status=503, json={"ok": False, "error": {"message": "Synthetic failure"}})
-            self.page.wait_for_function("!state.mobileCardLoading && !state.mobileCardId")
+            self.page.locator("#statusLine").get_by_text("Synthetic failure").wait_for()
+            self.assertTrue(self.page.locator("#cardModal").is_hidden())
         else:
             route.fulfill(response=response)
             self.page.wait_for_function(
@@ -223,9 +227,15 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
             self.page.locator("#cardModalCloseButtonTop").click()
         self.page.set_viewport_size({"width": 700, "height": 900})
         self.page.wait_for_function("state.mobileLite")
+        self.assertTrue(self.page.locator("#mobileCardDetail").is_hidden())
         if fail_new:
-            self.assertTrue(self.page.locator("#mobileCardDetail").is_hidden())
+            self.assertEqual(self.page.evaluate("state.mobileCardId"), "")
         else:
+            self.page.unroute("**/api/get_card?**")
+            self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
+            self.page.wait_for_function(
+                "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
+            )
             self.assertEqual(
                 self.page.locator("#mobileCardTitleInput").input_value(), "Synthetic new mobile"
             )

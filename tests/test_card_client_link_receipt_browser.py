@@ -451,10 +451,9 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.writes.count("link_card_to_client"), 0)
         self.assertIn("НЕ ПОДТВЕРЖД", self.page.locator("#statusLine").inner_text())
 
-    def test_empty_success_during_card_save_preserves_checkpoint_and_draft(self):
-        card_id = self.create_card("SYNTHETIC SAVED CARD")
+    def test_empty_success_during_new_card_save_preserves_checkpoint_and_draft(self):
         self.load_board()
-        self.open_card(card_id)
+        self.page.locator("[data-create-in]").first.click()
         self.page.locator("#cardTitle").fill("SYNTHETIC PENDING LINK")
         self.page.evaluate(
             "id => applyClientSuggestionToVehicleProfile({id, display_name:'SYNTHETIC CLIENT'})",
@@ -464,17 +463,48 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
             "**/api/link_card_to_client",
             lambda route: route.fulfill(status=200, json={"ok": True, "data": {}}),
         )
-        self.page.locator("#saveCardButton").click()
+        with self.page.expect_response("**/api/link_card_to_client"):
+            self.page.locator("#saveCardButton").click()
         self.finish_save()
         self.assert_card_open()
         self.assertEqual(self.page.locator("#cardTitle").input_value(), "SYNTHETIC PENDING LINK")
         self.assertTrue(self.page.evaluate("Boolean(state.cardPersistCheckpoint.linkBody)"))
         self.assertEqual(self.page.evaluate("state.cardPersistCheckpoint.uncertain"), "link")
+        card_id = self.page.evaluate("state.cardPersistCheckpoint.cardId")
+        self.assertTrue(card_id)
+        self.assertEqual(
+            self.page.evaluate(
+                "id => sessionStorage.getItem('autostop:card-link:' + JSON.stringify(id))",
+                card_id,
+            ),
+            "1",
+        )
         self.page.locator("#saveCardButton").click()
         self.finish_save()
-        self.assertEqual(self.writes.count("update_card"), 1)
+        self.assertEqual(self.writes.count("create_card"), 1)
+        self.assertEqual(self.writes.count("update_card"), 0)
         self.assertEqual(self.writes.count("link_card_to_client"), 1)
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "SYNTHETIC PENDING LINK")
+        self.assertEqual(self.page.evaluate("state.cardPersistCheckpoint.uncertain"), "link")
         self.assertFalse(self.stored_card(card_id)["client_id"])
+
+    def test_existing_card_with_unconfirmed_client_keeps_draft_without_writes(self):
+        card_id = self.create_card("SYNTHETIC SAVED CARD")
+        self.load_board()
+        self.open_card(card_id)
+        self.page.locator("#cardTitle").fill("SYNTHETIC PENDING LINK")
+        self.page.evaluate(
+            "id => applyClientSuggestionToVehicleProfile({id, display_name:'SYNTHETIC CLIENT'})",
+            self.runtime.client_id,
+        )
+        self.page.locator("#saveCardButton").click()
+        self.finish_save()
+        self.assert_card_open()
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "SYNTHETIC PENDING LINK")
+        self.assertEqual(self.writes.count("update_card"), 0)
+        self.assertEqual(self.writes.count("link_card_to_client"), 0)
+        self.assertFalse(self.stored_card(card_id)["client_id"])
+        self.assertIn("НЕ ПОДТВЕРЖДЕНЫ", self.page.locator("#statusLine").inner_text())
 
     def test_408_and_429_remain_uncertain(self):
         for status in (408, 429):

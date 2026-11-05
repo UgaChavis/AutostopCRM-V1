@@ -330,7 +330,9 @@ class RepairOrderIsoBaselineBrowserTests(UiBrowserTestCase):
         self.assertTrue(
             self.page.locator("#repairOrderDate").evaluate("input => input.validationMessage")
         )
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator('#repairOrderModal [data-close="repair-order"]').click()
+        self.assertTrue(self.page.locator("#repairOrderModal").is_hidden())
         self.page.locator(f'#repairOrdersList [data-open-repair-order-card="{second}"]').click()
         self.page.wait_for_function(
             "id => state.activeCard?.id === id && state.repairOrderWriteReady", arg=second
@@ -388,7 +390,9 @@ class RepairOrderIsoBaselineBrowserTests(UiBrowserTestCase):
             before,
         )
         self.assertFalse(self.page.locator("#repairOrderPrintModal").is_visible())
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator('#repairOrderModal [data-close="repair-order"]').click()
+        self.assertTrue(self.page.locator("#repairOrderModal").is_hidden())
         self.page.evaluate("id => openCardWorkspace(id)", card)
         self.page.wait_for_function(
             "id => state.activeCard?.id === id && state.activeCardIsFull", arg=card
@@ -506,6 +510,7 @@ class RepairOrderIsoBaselineBrowserTests(UiBrowserTestCase):
                 self.load_board()
                 self.page.locator("#repairOrdersButton").click()
                 row = self.page.locator(f'#repairOrdersList [data-open-repair-order-card="{card}"]')
+                row.scroll_into_view_if_needed()
                 self.assertEqual(row.locator(".repair-orders-row__opened").inner_text(), "04.11.26")
                 row.click()
                 self.page.wait_for_function(

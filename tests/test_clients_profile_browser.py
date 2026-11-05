@@ -237,6 +237,8 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         ]
         self.load_board()
         self.page.locator("#clientsButton").click()
+        self.page.locator("#clientsSearchInput").fill("SYNTHETIC UPDATE")
+        self.page.locator(f'#clientsList [data-client-id="{second}"]').wait_for()
         self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=first
@@ -257,6 +259,7 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         self.save_profile()
         self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 1)
         self.page.unroute("**/api/get_client?**")
+        self.page.once("dialog", lambda dialog: dialog.accept())
         self.page.locator(f'#clientsList [data-client-id="{second}"]').click()
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=second

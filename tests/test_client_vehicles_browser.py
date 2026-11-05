@@ -246,8 +246,8 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         source = self.runtime.service.create_card(
             {
                 "title": "SYNTHETIC OTHER CARD",
-                "client_id": "uncertain-owner-b",
-                "client_vehicle_id": "shared-uncertain",
+                "client_id": "uncertain-owner-a",
+                "vehicle": "MODEL B",
             }
         )["card"]
         self.load_board()
@@ -271,6 +271,11 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             source["id"],
         )
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
+        marker = self.page.evaluate(
+            "id => sessionStorage.getItem('autostop:client-vehicle:' + JSON.stringify(['uncertain-owner-a', id]))",
+            source["id"],
+        )
+        self.assertEqual(marker, "1")
         candidate_row = self.page.locator("#clientVehiclesList .client-mini--vehicle").nth(1)
         candidate_row.locator("[data-client-vehicle-edit]").click()
         self.page.locator('[data-client-vehicle-field="vehicle"]').fill("UNSAVED CHANGE")
@@ -293,6 +298,28 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         self.page.wait_for_function(
             "state.clientsActiveProfile?.client?.id === 'uncertain-owner-a'"
         )
+        self.assertEqual(
+            self.page.evaluate(
+                "id => sessionStorage.getItem('autostop:client-vehicle:' + JSON.stringify(['uncertain-owner-a', id]))",
+                source["id"],
+            ),
+            "1",
+        )
+        candidate = self.page.evaluate(
+            "id => state.clientsActiveProfile.vehicles.find(item => item.card_id === id)",
+            source["id"],
+        )
+        self.assertIsNotNone(candidate, self.page.evaluate("state.clientsActiveProfile.vehicles"))
+        retry = self.page.evaluate(
+            """async id => {
+              const candidate = state.clientsActiveProfile.vehicles.find(item => item.card_id === id);
+              try { beginCandidateVehicleCreation('uncertain-owner-a', candidate); return ''; }
+              catch (error) { return error.message; }
+            }""",
+            source["id"],
+        )
+        self.assertIn("НЕ ПОДТВЕРЖДЁН", retry)
+        self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         candidate_row = self.page.locator("#clientVehiclesList .client-mini--vehicle").filter(
             has_text="MODEL B CHANGED"
         )
@@ -412,27 +439,30 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
             "state.clientsActiveProfile?.client?.id === 'synthetic-owner-a'"
         )
         items = self.page.locator("#clientVehiclesList .client-mini--vehicle")
-        self.assertEqual(items.count(), 2)
+        self.assertEqual(items.count(), 1)
         self.assertIn("MODEL A", items.nth(0).inner_text())
-        self.assertIn("MODEL B", items.nth(1).inner_text())
-        self.assertIn("из связанной карточки", items.nth(1).inner_text().lower())
-        self.assertTrue(items.nth(1).locator("button", has_text="УДАЛИТЬ").is_disabled())
-        items.nth(1).locator("[data-client-vehicle-edit]").click()
-        self.assertEqual(self.page.locator("[data-client-vehicle-editor]").count(), 1)
-        self.assertEqual(
-            self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(), "MODEL B"
+        self.assertNotIn("MODEL B", self.page.locator("#clientVehiclesList").inner_text())
+        self.assertFalse(
+            self.page.evaluate(
+                "id => state.clientsActiveProfile.vehicles.some(vehicle => vehicle.card_id === id)",
+                card["id"],
+            )
         )
-        self.page.locator('[data-client-vehicle-field="vehicle"]').fill("MODEL B COPY")
-        with self.page.expect_request("**/api/upsert_client_vehicle") as outgoing:
-            self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
-        self.assertNotIn("client_vehicle_id", outgoing.value.post_data_json)
-        owner = self.runtime.service.get_client(
-            {"client_id": "synthetic-owner-a", "strict_client_links": True}
-        )
-        stored = {vehicle["id"]: vehicle["vehicle"] for vehicle in owner["client"]["vehicles"]}
-        self.assertEqual(stored["shared-vehicle"], "MODEL A")
-        self.assertIn("MODEL B COPY", stored.values())
+        awaitable = """async id => {
+          await deleteClientVehicle('c:' + id);
+          await saveClientVehicleFromEditor('c:' + id);
+        }"""
+        self.page.evaluate(awaitable, card["id"])
+        self.assertEqual(self.writes.count("upsert_client_vehicle"), 0)
+        self.assertEqual(self.writes.count("delete_client_vehicle"), 0)
+        for client_id, expected in (
+            ("synthetic-owner-a", "MODEL A"),
+            ("synthetic-owner-b", "MODEL B"),
+        ):
+            owner = self.runtime.service.get_client(
+                {"client_id": client_id, "strict_client_links": True}
+            )
+            self.assertEqual(owner["client"]["vehicles"][0]["vehicle"], expected)
         self.assertEqual(
             self.runtime.service.get_card({"card_id": card["id"]})["card"]["client_id"],
             "synthetic-owner-b",

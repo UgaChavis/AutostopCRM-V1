@@ -167,7 +167,7 @@ class ClientsCreationBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.writes.count("create_client"), 1)
 
     def test_closed_popup_cannot_receive_old_result_or_close_new_draft(self) -> None:
-        self.open_creation("Old client popup")
+        card_id = self.open_creation("Old client popup")
         held = []
         self.page.route("**/api/create_client", lambda route: held.append(route))
         self.page.locator("#cardClientCreateSaveButton").click()
@@ -175,11 +175,32 @@ class ClientsCreationBrowserTests(UiBrowserTestCase):
         self.wait_for_intercepted_creation(held)
         self.page.locator('[data-close="card-client-create"]').first.click()
         self.page.evaluate("openCardClientCreateModal()")
+        self.assertTrue(self.page.locator("#cardClientCreateNameInput").is_disabled())
+        self.assertEqual(
+            self.page.locator("#cardClientCreateNameInput").input_value(), "Old client popup"
+        )
+        self.page.evaluate("resetViewerScopedState()")
+        self.page.evaluate("id => openCardById(id)", card_id)
+        self.page.wait_for_function(
+            "id => state.editingId === id && state.activeCardIsFull", arg=card_id
+        )
+        self.page.evaluate("openCardClientCreateModal()")
         self.page.locator("#cardClientCreateNameInput").fill("New client popup draft")
-        held.pop().continue_()
+        with self.page.expect_response("**/api/create_client"):
+            held.pop().continue_()
         self.page.wait_for_timeout(180)
         self.assertTrue(self.page.locator("#cardClientCreateModal.is-open").is_visible())
         self.assertEqual(
             self.page.locator("#cardClientCreateNameInput").input_value(), "New client popup draft"
         )
         self.assertEqual(self.writes.count("link_card_to_client"), 0)
+        self.assertEqual(
+            self.page.evaluate("sessionStorage.getItem('autostop:card-client-create-pending')"), "1"
+        )
+        self.page.locator("#cardClientCreateSaveButton").click()
+        self.page.wait_for_function("state.cardClientCreateSaving === false")
+        self.assertEqual(self.writes.count("create_client"), 1)
+        self.assertEqual(self.writes.count("link_card_to_client"), 0)
+        self.assertEqual(
+            self.page.locator("#cardClientCreateNameInput").input_value(), "New client popup draft"
+        )
