@@ -288,7 +288,9 @@ parallel in the manual final run. Its `quality` job requires every full gate to 
 when a dependency was cancelled or skipped. Pip, Chromium and Docker layers
 are cached; the Docker candidate is loaded only for tests, never pushed.
 All discovered browser regressions run once under runtime branch coverage,
-with the existing per-class process isolation and timeout. The runtime runner
+with up to two isolated browser class processes, private temporary directories,
+and the existing 300-second timeout per class. The hosted unit job has a
+60-minute overall timeout; the other checks keep their 30-minute timeout. The runtime runner
 requires current-run receipts matching every planned and executed browser ID,
 with no skipped cases, and exports `browser-coverage-*.json` with the coverage
 evidence. The browser/performance job retains mandatory core smoke and performance

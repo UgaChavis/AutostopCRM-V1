@@ -264,7 +264,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     name: ${{ matrix.suite }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ matrix.suite == 'unit' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:

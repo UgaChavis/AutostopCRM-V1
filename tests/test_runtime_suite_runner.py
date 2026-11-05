@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tests.runtime_suite_runner import (
     RuntimePlan,
@@ -16,6 +18,7 @@ from tests.runtime_suite_runner import (
     complete_browser_coverage,
     iter_cases,
     load_selected,
+    run_browser_groups,
     run_plan,
 )
 
@@ -66,6 +69,32 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
             self.assertFalse(
                 complete_browser_coverage(groups, output=Path(temporary), run_id="current")
             )
+
+    def test_parallel_browser_receipts_must_cover_every_group_once(self):
+        groups = (("browser.one",), ("browser.two", "browser.three"))
+
+        def receipt(group):
+            return {
+                "browser_run_id": "parallel",
+                "selected_ids": list(group),
+                "executed_ids": list(group),
+                "successful": True,
+                "exact_identity_coverage": True,
+                "run": len(group),
+                "skipped": [],
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            (output / "runtime-suite-first.json").write_text(json.dumps(receipt(groups[0])))
+            self.assertFalse(complete_browser_coverage(groups, output=output, run_id="parallel"))
+            (output / "runtime-suite-second.json").write_text(json.dumps(receipt(groups[1])))
+            self.assertTrue(complete_browser_coverage(groups, output=output, run_id="parallel"))
+            summary = json.loads((output / "browser-coverage-parallel.json").read_text())
+            self.assertEqual(summary["planned_ids"], summary["passed_ids"])
+            self.assertEqual(summary["groups"], 2)
+            (output / "runtime-suite-duplicate.json").write_text(json.dumps(receipt(groups[1])))
+            self.assertFalse(complete_browser_coverage(groups, output=output, run_id="parallel"))
 
     def test_module_level_platform_skip_keeps_real_reason_and_exact_discovered_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -119,27 +148,75 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         self.assertEqual(plan.browser_groups, ((item.id(),),))
 
     def test_child_failure_propagates_without_retry_or_later_groups(self):
-        plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
+        plan = RuntimePlan(
+            ("native.test",), (("browser.one",), ("browser.two",), ("browser.three",))
+        )
+        failed, running = Mock(), Mock()
+        failed.poll.return_value = 7
+        running.poll.return_value = None
         with (
             patch("tests.runtime_suite_runner.run_core", return_value=0),
-            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch(
+                "tests.runtime_suite_runner.subprocess.Popen", side_effect=[failed, running]
+            ) as run,
+            patch("tests.runtime_suite_runner._stop_owned") as stop,
         ):
-            run.return_value = subprocess.CompletedProcess([], 7)
             self.assertEqual(run_plan(plan), 7)
-            self.assertEqual(run.call_count, 1)
+            self.assertEqual(run.call_count, 2)
+            stop.assert_called_once_with([running])
         with (
             patch("tests.runtime_suite_runner.run_core", return_value=124),
-            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.subprocess.Popen") as run,
         ):
             self.assertEqual(run_plan(plan), 124)
             run.assert_not_called()
         with (
             patch("tests.runtime_suite_runner.run_core", return_value=0),
-            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.subprocess.Popen") as run,
             patch("tests.runtime_suite_runner.complete_browser_coverage", return_value=False),
         ):
-            run.return_value = subprocess.CompletedProcess([], 0)
+            run.side_effect = lambda *args, **kwargs: Mock(poll=Mock(return_value=0))
             self.assertEqual(run_plan(plan), 1)
+
+    def test_browser_timeout_propagates_and_stops_other_controller(self):
+        timed_out, running = Mock(), Mock()
+        timed_out.poll.return_value = 124
+        running.poll.return_value = None
+        plan = RuntimePlan(
+            ("native.test",), (("browser.one",), ("browser.two",), ("browser.three",))
+        )
+        with (
+            patch("tests.runtime_suite_runner.run_core", return_value=0),
+            patch(
+                "tests.runtime_suite_runner.subprocess.Popen", side_effect=[timed_out, running]
+            ) as run,
+            patch("tests.runtime_suite_runner._stop_owned") as stop,
+            patch("tests.runtime_suite_runner.complete_browser_coverage") as proof,
+        ):
+            self.assertEqual(run_plan(plan), 124)
+            self.assertEqual(run.call_count, 2)
+            stop.assert_called_once_with([running])
+            proof.assert_not_called()
+
+    def test_spawn_error_stops_existing_controller_and_restores_handlers(self):
+        running = Mock()
+        previous = signal.getsignal(signal.SIGTERM)
+        with (
+            patch(
+                "tests.runtime_suite_runner.subprocess.Popen",
+                side_effect=[running, OSError("spawn")],
+            ) as run,
+            patch("tests.runtime_suite_runner._stop_owned") as stop,
+        ):
+            with self.assertRaisesRegex(OSError, "spawn"):
+                run_browser_groups(
+                    [[sys.executable, "-c", "pass"]] * 2,
+                    root=Path.cwd(),
+                    environment=dict(os.environ),
+                )
+            stop.assert_called_once_with([running])
+            self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+            self.assertFalse(Path(run.call_args_list[0].kwargs["env"]["TEMP"]).exists())
 
     def test_success_uses_parallel_coverage_for_all_groups_and_preserves_environment(self):
         plan = RuntimePlan(("native.test",), (("browser.one", "browser.two"),))
@@ -148,12 +225,12 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
                 os.environ, {"COVERAGE_FILE": "isolated-coverage", "PYTHONPATH": "existing"}
             ),
             patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
-            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.subprocess.Popen") as run,
             patch(
                 "tests.runtime_suite_runner.complete_browser_coverage", return_value=True
             ) as proof,
         ):
-            run.return_value = subprocess.CompletedProcess([], 0)
+            run.return_value = Mock(poll=Mock(return_value=0))
             self.assertEqual(run_plan(plan, root=Path.cwd()), 0)
             self.assertEqual(run.call_count, 1)
             second = run.call_args
@@ -163,6 +240,8 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
                 ["tests.runtime_suite_runner", "--browser-group", "browser.one", "browser.two"],
             )
             self.assertEqual(second.kwargs["env"]["COVERAGE_FILE"], "isolated-coverage")
+            self.assertEqual(second.kwargs["env"]["TEMP"], second.kwargs["env"]["TMP"])
+            self.assertEqual(second.kwargs["env"]["TEMP"], second.kwargs["env"]["TMPDIR"])
             self.assertEqual(core.call_args.kwargs["budget"], 1800)
             self.assertEqual(core.call_args.kwargs["environment"]["PYTHONUTF8"], "1")
             self.assertEqual(proof.call_args.args[0], plan.browser_groups)
@@ -179,10 +258,10 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         plan = RuntimePlan(("native.test",), (("browser.one",), ("browser.two",)))
         with (
             patch("tests.runtime_suite_runner.run_core", return_value=0) as core,
-            patch("tests.runtime_suite_runner.subprocess.run") as run,
+            patch("tests.runtime_suite_runner.subprocess.Popen") as run,
             patch("tests.runtime_suite_runner.complete_browser_coverage", return_value=True),
         ):
-            run.return_value = subprocess.CompletedProcess([], 0)
+            run.side_effect = lambda *args, **kwargs: Mock(poll=Mock(return_value=0))
             self.assertEqual(run_plan(plan), 0)
             self.assertEqual(2, run.call_count)
             self.assertEqual(core.call_args.kwargs["budget"], 1800)
@@ -190,7 +269,102 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
                 command = call.args[0]
                 self.assertEqual("tests.runtime_process", command[2])
                 self.assertEqual(str(budget), command[command.index("--timeout-seconds") + 1])
-                self.assertEqual("--", command[command.index("--label") + 2])
+                self.assertEqual("--", command[command.index("--diagnostics-dir") + 2])
+
+    def test_two_browser_controllers_overlap_with_private_temporaries(self):
+        with tempfile.TemporaryDirectory(prefix="browser-parallel-test-") as name:
+            root = Path(name)
+            source = """
+import json, os, pathlib, tempfile, time
+root = pathlib.Path(ROOT)
+(root / ('ready-' + INDEX)).write_text('ready')
+deadline = time.monotonic() + 15
+while not all((root / ('ready-' + str(i))).exists() for i in range(2)):
+    if time.monotonic() >= deadline: raise RuntimeError('controllers did not overlap')
+    time.sleep(0.02)
+(root / ('result-' + INDEX)).write_text(json.dumps({
+    'pid': os.getpid(), 'temporary': tempfile.gettempdir(),
+    'temp': os.environ['TEMP'], 'tmp': os.environ['TMP'], 'tmpdir': os.environ['TMPDIR'],
+}))
+"""
+            commands = [
+                [sys.executable, "-c", f"ROOT={str(root)!r}; INDEX={str(index)!r}\n" + source]
+                for index in range(2)
+            ]
+            environment = {**os.environ, "AUTOSTOP_REHEARSAL_RECEIPT_DIR": str(root / "receipts")}
+            self.assertEqual(
+                run_browser_groups(commands, root=Path.cwd(), environment=environment), 0
+            )
+            results = [json.loads((root / f"result-{index}").read_text()) for index in range(2)]
+            self.assertEqual(len({item["pid"] for item in results}), 2)
+            self.assertEqual(len({item["temporary"] for item in results}), 2)
+            for item in results:
+                self.assertEqual(item["temporary"], item["temp"])
+                self.assertEqual(item["temp"], item["tmp"])
+                self.assertEqual(item["temp"], item["tmpdir"])
+                self.assertFalse(Path(item["temp"]).exists())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux owned-process check")
+    def test_failure_stops_running_sibling_without_starting_next_group(self):
+        with tempfile.TemporaryDirectory(prefix="browser-parallel-failure-") as name:
+            root = Path(name)
+            ready = root / "sibling-ready"
+            later = root / "later-started"
+            sleeper = f"from pathlib import Path; import os,time; Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(60)"
+            failure = f"""
+from pathlib import Path
+import sys,time
+ready=Path({str(ready)!r}); deadline=time.monotonic()+15
+while not ready.exists():
+    if time.monotonic()>=deadline: raise RuntimeError('sibling did not start')
+    time.sleep(0.02)
+sys.exit(7)
+"""
+            later_code = f"from pathlib import Path; Path({str(later)!r}).touch()"
+            commands = [[sys.executable, "-c", code] for code in (failure, sleeper, later_code)]
+            environment = {**os.environ, "AUTOSTOP_REHEARSAL_RECEIPT_DIR": str(root / "receipts")}
+            self.assertEqual(
+                run_browser_groups(commands, root=Path.cwd(), environment=environment), 7
+            )
+            self.assertFalse(later.exists())
+            self.assertFalse(Path("/proc", ready.read_text()).exists())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux signal/owned-process check")
+    def test_termination_stops_both_browser_controllers_and_children(self):
+        with tempfile.TemporaryDirectory(prefix="browser-parallel-cancel-") as name:
+            root = Path(name)
+            child = """
+from pathlib import Path
+import os,time
+Path(READY).write_text(str(os.getpid()))
+time.sleep(60)
+"""
+            commands = [
+                [sys.executable, "-c", f"READY={str(root / f'ready-{index}')!r}\n" + child]
+                for index in range(2)
+            ]
+            coordinator = f"""
+import os
+from pathlib import Path
+from tests.runtime_suite_runner import run_browser_groups
+environment={{**os.environ, 'AUTOSTOP_REHEARSAL_RECEIPT_DIR': {str(root / "receipts")!r}}}
+raise SystemExit(run_browser_groups({commands!r}, root=Path({str(Path.cwd())!r}), environment=environment))
+"""
+            process = subprocess.Popen([sys.executable, "-c", coordinator], cwd=Path.cwd())
+            try:
+                deadline = time.monotonic() + 20
+                paths = [root / f"ready-{index}" for index in range(2)]
+                while not all(path.exists() for path in paths) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(all(path.exists() for path in paths), "both children must start")
+                pids = [path.read_text() for path in paths]
+                process.terminate()
+                self.assertEqual(process.wait(timeout=20), 128 + 15)
+                self.assertTrue(all(not Path("/proc", pid).exists() for pid in pids))
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=20)
 
     def test_ci_entrypoints_keep_required_budgets_and_failure_diagnostics(self):
         root = Path(__file__).resolve().parents[1]
@@ -215,6 +389,7 @@ class RuntimeSuiteRunnerTests(unittest.TestCase):
         )
         self.assertNotIn("Isolated Windows runtime coverage", profile)
         self.assertIn("python -m tests.runtime_suite_runner", workflow)
+        self.assertIn("timeout-minutes: ${{ matrix.suite == 'unit' && 60 || 30 }}", workflow)
         self.assertNotIn("--label core -- python -m coverage run -m unittest discover", workflow)
         for name, seconds in (
             ("Release backup and restore branch coverage", "1800"),

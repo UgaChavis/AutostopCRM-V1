@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,13 +17,14 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.runtime_core_cohorts import load_plan, run_core, write_new
+from tests.runtime_core_cohorts import _stop_owned, load_plan, run_core, write_new
 from tests.runtime_skip_contract import unexpected_skips
 from tests.runtime_test_result import ImmediateTracebackResult
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_TIMEOUT_SECONDS = 30 * 60
 BROWSER_TIMEOUT_SECONDS = 5 * 60
+BROWSER_WORKERS = 2
 
 
 def iter_cases(suite: unittest.TestSuite):
@@ -130,6 +132,88 @@ def complete_browser_coverage(groups, *, output: Path, run_id: str) -> bool:
     return True
 
 
+def run_browser_groups(commands, *, root: Path, environment: dict[str, str]) -> int:
+    """Run at most two owned class controllers, each with its own temp directory."""
+    cancelled = None
+
+    def cancel(number, _frame):
+        nonlocal cancelled
+        if cancelled is None:
+            cancelled = number
+
+    signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        signals.append(signal.SIGBREAK)
+    previous = {number: signal.signal(number, cancel) for number in signals}
+    active = []
+    result = 0
+    try:
+        temporary_parent = (
+            Path(environment.get("RUNNER_TEMP", tempfile.gettempdir())).resolve(strict=True)
+            if os.name == "nt"
+            else Path("/tmp")
+        )
+        with tempfile.TemporaryDirectory(prefix="ab-", dir=temporary_parent) as temporary:
+            try:
+                index = 0
+                while index < len(commands) or active:
+                    if cancelled is not None:
+                        break
+                    for process in active[:]:
+                        status = process.poll()
+                        if status is not None:
+                            active.remove(process)
+                            if status:
+                                result = status
+                                break
+                    if result:
+                        break
+                    while index < len(commands) and len(active) < BROWSER_WORKERS:
+                        if cancelled is not None:
+                            break
+                        private = Path(temporary, str(index)).resolve()
+                        private.mkdir(mode=0o700)
+                        controlled = [
+                            sys.executable,
+                            "-m",
+                            "tests.runtime_process",
+                            "--timeout-seconds",
+                            str(BROWSER_TIMEOUT_SECONDS),
+                            "--label",
+                            f"browser-{index + 1}",
+                            "--diagnostics-dir",
+                            str(
+                                environment.get("AUTOSTOP_REHEARSAL_RECEIPT_DIR")
+                                or root / "output/runtime-process"
+                            ),
+                            "--",
+                            *commands[index],
+                        ]
+                        process = subprocess.Popen(
+                            controlled,
+                            cwd=root,
+                            env={
+                                **environment,
+                                "TEMP": str(private),
+                                "TMP": str(private),
+                                "TMPDIR": str(private),
+                            },
+                            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                            if os.name == "nt"
+                            else 0,
+                        )
+                        active.append(process)
+                        index += 1
+                    if active and cancelled is None:
+                        time.sleep(0.05)
+            finally:
+                _stop_owned(active)
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+    return 128 + cancelled if cancelled is not None else result
+
+
 def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     environment = os.environ.copy()
     previous = environment.get("PYTHONPATH", "")
@@ -157,21 +241,9 @@ def run_plan(plan: RuntimePlan, *, root: Path = ROOT) -> int:
     )
     if core_result:
         return core_result
-    for index, command in enumerate(commands, 1):
-        controlled = [
-            sys.executable,
-            "-m",
-            "tests.runtime_process",
-            "--timeout-seconds",
-            str(BROWSER_TIMEOUT_SECONDS),
-            "--label",
-            f"browser-{index}",
-            "--",
-            *command,
-        ]
-        result = subprocess.run(controlled, cwd=root, env=environment, check=False)
-        if result.returncode:
-            return result.returncode
+    browser_result = run_browser_groups(commands, root=root, environment=environment)
+    if browser_result:
+        return browser_result
     if not complete_browser_coverage(
         plan.browser_groups,
         output=output,
