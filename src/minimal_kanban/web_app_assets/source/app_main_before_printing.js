@@ -10145,7 +10145,8 @@
     function splitVehicleDisplayName(value, productionYear = null) {
       let text = String(value || '').trim().replace(/\s+/g, ' ');
       const year = finiteNumber(productionYear);
-      if (year && text.endsWith(String(year))) text = text.slice(0, -String(year).length).trim();
+      const yearSuffix = ' ' + year;
+      if (year && text.endsWith(yearSuffix)) text = text.slice(0, -yearSuffix.length).trim();
       if (!text) return { make_display: '', model_display: '' };
       const parts = text.split(/\s+/, 2);
       return {

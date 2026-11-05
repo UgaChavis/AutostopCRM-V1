@@ -329,7 +329,7 @@ def split_vehicle_display_alias(value, production_year: int | None = None) -> tu
     if not text:
         return "", ""
     if production_year:
-        year_suffix = str(production_year)
+        year_suffix = f" {production_year}"
         if text.endswith(year_suffix):
             text = text[: -len(year_suffix)].strip()
     parts = text.split(maxsplit=1)
