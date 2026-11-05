@@ -4387,7 +4387,8 @@
         && 'client_type last_name first_name middle_name display_name phone email comment legal_name short_name inn kpp ogrn checking_account bank_name bik correspondent_account legal_address actual_address contact_person contact_position created_at updated_at'.split(' ').every((key) => typeof client[key] === 'string')
         && Array.isArray(client.phones) && client.phones.every((value) => typeof value === 'string')
         && Array.isArray(client.emails) && client.emails.every((value) => typeof value === 'string')
-        && Array.isArray(client.vehicles) && Array.isArray(data.vehicles) && Array.isArray(data.repair_orders)
+        && [client.vehicles, data.vehicles, data.repair_orders].every((items) => Array.isArray(items)
+          && items.every((item) => item && typeof item === 'object' && !Array.isArray(item)))
         && meta && typeof meta === 'object' && !Array.isArray(meta) && meta.order_limit === orderLimit
         && [meta.repair_orders_total, meta.repair_orders_returned, meta.vehicles_total].every((value) => Number.isSafeInteger(value) && value >= 0)
         && meta.vehicles_total === data.vehicles.length && meta.repair_orders_returned === data.repair_orders.length
