@@ -4210,6 +4210,15 @@
         ? ' · ЧАСТЬ СВЯЗЕЙ НЕ ПОДТВЕРЖДЕНА' : '';
     }
 
+    function clientOrderTotalText(value) {
+      const match = typeof value === 'string' ? value.match(/^(-?)(\d+)(?:\.(\d{1,2}))?$/) : null;
+      if (!match) return 'НЕТ ДАННЫХ';
+      const digits = match[2].replace(/^0+(?=\d)/, ''), groups = [];
+      for (let end = digits.length; end > 0; end -= 3) groups.push(digits.slice(Math.max(0, end - 3), end));
+      const fraction = (match[3] || '').padEnd(2, '0');
+      return match[1] + groups.reverse().join('\u00a0') + (fraction === '00' ? '' : ',' + fraction) + ' ₽';
+    }
+
     function renderClientProfile(data) {
       const client = data?.client || {};
       state.clientsActiveProfile = data || null;
@@ -4232,7 +4241,7 @@
         ? orders.map((order) => {
           const statusKey = normalizeRepairOrderStatus(order?.status);
           const statusLabel = repairOrderStatusLabel(statusKey);
-          const totalLabel = repairOrderFormatMoney(order?.grand_total ?? 0);
+          const totalLabel = clientOrderTotalText(order?.grand_total);
           const orderMeta = [clientLastVisit(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
           return '<button class="client-mini client-mini--order" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '">' +
             '<div class="client-mini__order-head"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><span class="client-mini__order-status" data-status="' + escapeHtml(statusKey) + '">' + escapeHtml(statusLabel.toUpperCase()) + '</span></div>' +
@@ -7950,7 +7959,7 @@
           return '<' + tagName + ' class="mobile-client-mini" type="button" data-mobile-client-order-card="' + escapeHtml(cardId) + '">'
             + '<strong>№ ' + escapeHtml(order?.number || '-') + ' · ' + escapeHtml(statusLabel) + '</strong>'
             + '<span>' + escapeHtml(mobileClientOrderMeta(order)) + '</span>'
-            + '<span>' + escapeHtml(repairOrderFormatMoney(order?.grand_total ?? 0)) + '</span>'
+            + '<span>' + escapeHtml(clientOrderTotalText(order?.grand_total)) + '</span>'
           + '</' + tagName + '>';
         }).join('') + clientProfileTruncation(Math.min(orders.length, 5), profile.meta.repair_orders_total, profile.meta, 'mobile-client-detail__empty')
         : '<div class="mobile-client-detail__empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
