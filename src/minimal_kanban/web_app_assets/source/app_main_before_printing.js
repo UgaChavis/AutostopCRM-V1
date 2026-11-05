@@ -3710,7 +3710,8 @@
       for (const raw of rawItems) {
         const phone = String(raw || '').replace(/\s+/g, ' ').trim();
         if (!phone && !preserveEmpty) continue;
-        const key = phone.replace(/\D+/g, '') || phone.toLowerCase();
+        const key = phone && (/[^\x00-\x7f]/.test(phone)
+          ? 'u:' + phone : 'a:' + (phone.replace(/\D+/g, '') || phone.toLowerCase()));
         if (key && seen.has(key)) continue;
         if (key) seen.add(key);
         phones.push(phone);

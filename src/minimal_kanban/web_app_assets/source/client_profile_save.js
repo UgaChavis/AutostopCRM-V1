@@ -13,7 +13,7 @@
         if (Array.isArray(value)) {
           // Readback reflects native phone deduplication; the submitted body stays unchanged.
           const seen = new Set();
-          const expected = key === 'phones' ? value.filter((phone) => {
+          const expected = key === 'phones' && !value.some((phone) => /[^\x00-\x7f]/.test(String(phone))) ? value.filter((phone) => {
             const digits = String(phone).replace(/\D+/g, '');
             const identity = digits.length >= 10 ? '7' + digits.slice(-10) : digits || String(phone).toLowerCase();
             if (seen.has(identity)) return false;
