@@ -4322,6 +4322,9 @@
       background: rgba(167, 178, 132, 0.05);
       transform: translateY(-1px);
     }
+    .repair-orders-row:not(.repair-orders-row--full-number) {
+      content-visibility: auto;
+    }
     .repair-orders-row__cell {
       min-width: 0;
       display: grid;
