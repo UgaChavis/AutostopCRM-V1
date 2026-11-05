@@ -125,7 +125,10 @@ class CardServiceRepairOrderSearchMixin:
             if search_field == "summary":
                 haystack_tokens = haystack.split()
                 matched = all(
-                    any(token in word or word in token for word in haystack_tokens)
+                    any(
+                        token in word or (len(word) >= 4 and word in token)
+                        for word in haystack_tokens
+                    )
                     for token in tokens
                 )
             else:
