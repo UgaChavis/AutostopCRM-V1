@@ -325,6 +325,8 @@ let fetches=0;
 async function api() {fetches++; return {card:{id:'archive',updated_at:'new'}};}
 function applyCardSeenSuppression(card) {return card;}
 function repairOrderNeedsVerification() {return false;}
+// This harness checks cache ownership; full response validation has separate browser tests.
+function mobileCardHasRequiredFields(card) {return Boolean(card?.id);}
 """
             + cache
             + """

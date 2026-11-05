@@ -593,6 +593,8 @@ assert.ok(statuses.at(-1).message.includes('ПОДТВЕРЖДЕНА ПОВТО�
             definitions,
             r"""
 state.repairOrderPaymentVerificationPending='A';
+// This harness tests pending-payment cache bypass with a minimal synthetic card.
+function mobileCardHasRequiredFields(card){return Boolean(card?.id);}
 const stale={id:'A',updated_at:'r0',repair_order:{revision:'stale-cache',status:'open',payments:[]}};
 state.fullCardCache.set('A',stale);state.snapshot.cards=[{id:'A',updated_at:'r0'}];
 let orderMode='fail';

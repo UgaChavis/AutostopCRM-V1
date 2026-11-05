@@ -14965,10 +14965,11 @@
     async function fetchFullCard(cardId, expectedUpdatedAt = '') {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return null;
+      const isFullCard = (card) => card?.id === normalizedCardId && mobileCardHasRequiredFields(card);
       const cachedCard = state.fullCardCache.get(normalizedCardId);
       const normalizedExpectedUpdatedAt = String(expectedUpdatedAt || '').trim();
       if (!repairOrderNeedsVerification(normalizedCardId)
-        && cachedCard && normalizedExpectedUpdatedAt
+        && isFullCard(cachedCard) && normalizedExpectedUpdatedAt
         && String(cachedCard.updated_at || '').trim() === normalizedExpectedUpdatedAt) return cacheFullCard(cachedCard);
       const pending = repairOrderNeedsVerification(normalizedCardId)
         ? null
@@ -14984,12 +14985,11 @@
       request = api('/api/get_card?include_attachment_status=0&card_id=' + encodeURIComponent(normalizedCardId))
         .then((data) => {
           if (viewerStateGeneration !== state.viewerStateGeneration) return null;
-          if (!data?.card) return null;
-          if (data.card.id !== normalizedCardId) {
+          if (!isFullCard(data?.card)) {
             const newer = state.cardFetchInFlight.get(normalizedCardId);
             if (newer && newer !== request) return newer;
             const current = state.fullCardCache.get(normalizedCardId);
-            if (newer !== request && current && current !== cachedCard && current.id === normalizedCardId) return current;
+            if (newer !== request && current && current !== cachedCard && isFullCard(current)) return current;
             throw new Error('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ КАРТОЧКУ.');
           }
           const card = applyCardSeenSuppression({
@@ -14999,7 +14999,11 @@
           if (newer === request) return cacheFullCard(card);
           if (newer) return newer;
           const current = state.fullCardCache.get(normalizedCardId);
-          return current && current !== cachedCard ? current : card;
+          if (current && current !== cachedCard) {
+            if (!isFullCard(current)) throw new Error('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ КАРТОЧКУ.');
+            return current;
+          }
+          return card;
         })
         .finally(() => {
           if (state.cardFetchInFlight.get(normalizedCardId) === request) {

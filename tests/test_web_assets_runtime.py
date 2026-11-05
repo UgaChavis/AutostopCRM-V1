@@ -1899,6 +1899,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             function applyCardSeenSuppression(card) {{ return card; }}
             function repairOrderPaymentNeedsVerification() {{ return false; }}
             function repairOrderNeedsVerification() {{ return false; }}
+            // This harness tests viewer ownership with deliberately minimal cards.
+            function mobileCardHasRequiredFields(card) {{ return Boolean(card?.id); }}
             function cacheFullCard(card) {{
               state.fullCardCache.set(card.id, card);
               return card;
