@@ -230,6 +230,10 @@ const uploadFile={name:'upload.txt',type:'text/plain',arrayBuffer(){return uploa
 const blockedFile={name:'blocked.txt',type:'text/plain',arrayBuffer(){throw new Error('blocked upload read its file');}};
 let payloadReads=0;const saveResult=deferred();
 function currentCardPayload(){payloadReads++;return {title:'Card A'};}
+function cardVehicleNumbersCanSave(){return true;}
+function cardVehicleTextCanSave(){return true;}
+function cardDescriptionCanSave(){return true;}
+function cardMileageCanSave(){return true;}
 function clearCardOpenSideEffectTimer(){}
 function cancelDeferredCardSeen(){return false;}
 function syncCardSaveDirtyState(){}

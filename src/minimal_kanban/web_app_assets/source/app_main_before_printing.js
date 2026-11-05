@@ -5170,7 +5170,7 @@
     async function chooseClientSuggestion(clientId, vehicleKey = '', { createNewVehicle = false } = {}) {
       const client = state.clientSuggestions.find((item) => item.id === clientId);
       if (!client) return;
-      if (!cardVehicleNumbersCanSave()) return;
+      if (!cardVehicleNumbersCanSave() || !cardVehicleTextCanSave()) return;
       const context = beginCardScopedRequest('cardClientMutationRequest', { allowNew: true });
       if (!context) return;
       setCardSaveInteractionLocked(true);
@@ -6561,7 +6561,7 @@
       if (state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) return setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', true);
       if (mobileCardDesktopWorkspaceBlocked()) return;
       if (!isNewCard && state.mobileCardWriteVerificationPending.has(cardId)) return setStatus('РЕЗУЛЬТАТ СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ ЗАНОВО.', true);
-      if (!cardVehicleNumbersCanSave(true)) return;
+      if (!cardVehicleNumbersCanSave(true) || !cardVehicleTextCanSave(true)) return;
       const payload = readMobileCardDraft();
       if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
       if (!cardMileageCanSave(payload.vehicle_profile)) return;
@@ -10277,6 +10277,19 @@
       return true;
     }
 
+    function cardVehicleTextCanSave(mobile = false) {
+      const fields = [
+        ['customer_name', 'ФИО КЛИЕНТА'], ['registration_plate', 'ГОС НОМЕР'],
+        ['engine_model', 'МОДЕЛЬ ДВИГАТЕЛЯ'], ['gearbox_model', 'МОДЕЛЬ КПП'], ['drivetrain', 'ПРИВОД'],
+      ].map(([name, label]) => [mobile
+        ? els.mobileCardVehicleProfile?.querySelector('[data-mobile-vehicle-field="' + name + '"]')
+        : getVehicleFieldInput(name), label, null, 120]);
+      return repairOrderTextWithinLimits(fields, (field) => {
+        if (mobile) setMobileCardTab('vehicle');
+        field.focus({ preventScroll: true });
+      });
+    }
+
     function cardMileageCanSave(profile) {
       if (profile?.mileage !== 0) return true;
       setStatus('НУЛЕВОЙ ПРОБЕГ НЕ СОХРАНЯЕТСЯ. УКАЖИТЕ ПОЛОЖИТЕЛЬНОЕ ЗНАЧЕНИЕ ИЛИ ОСТАВЬТЕ ПОЛЕ ПУСТЫМ.', true);
@@ -11793,7 +11806,7 @@
     async function ensureRepairOrderCard() {
       if (state.editingId && state.activeCard?.id) return state.activeCard;
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
-      if (!cardVehicleNumbersCanSave()) return null;
+      if (!cardVehicleNumbersCanSave() || !cardVehicleTextCanSave()) return null;
       const isCurrent = captureCardSaveWorkspace();
       const payload = currentCardPayload();
       if (!cardDescriptionCanSave(payload.description)) return null;

@@ -28,6 +28,7 @@ function renderInventoryMovements() {} function renderMobileInventoryMovements()
 function renderRepairOrderInventoryPanel() {}
 function inventoryStatus(...args) {statuses.push(args);} function setStatus(...args) {statuses.push(args);}
 function cardVehicleNumbersCanSave() {return true;}
+function cardVehicleTextCanSave() {return true;}
 function cardDescriptionCanSave() {return true;}
 function cardMileageCanSave() {return true;}
 function repairOrderIsoFieldsValid() {return true;}
@@ -377,7 +378,11 @@ function currentCardPayload(){return {title:'draft'};}
 function applyCardModalState(card){state.activeCard=card;state.editingId=card.id;}
 async function refreshSnapshot(){} async function refreshRepairOrdersListAfterMutation(){}
 async function loadInventoryItems(){return {items:[]};}function repairOrderCardRequiredMessage(){return 'missing';}
-api=async function(path,options){calls.push({path,options});return path==='/api/write_off_inventory_item'?inventoryMaterialResponse('created-A'):{card:{id:'created-A'}};};
+async function cardLinkWrite(body,_before,isCurrent){
+ assert.equal(isCurrent(),true);calls.push({path:'/api/link_card_to_client',options:{body}});
+ return {card:{id:'created-A',client_id:body.client_id,client_vehicle_id:'',updated_at:'revision-2'}};
+}
+api=async function(path,options){calls.push({path,options});return path==='/api/write_off_inventory_item'?inventoryMaterialResponse('created-A'):{card:{id:'created-A',client_id:'',client_vehicle_id:'',updated_at:'revision-1'}};};
 await writeOffInventoryItem();
 assert.deepEqual(calls.map(call=>call.path),['/api/create_card','/api/link_card_to_client','/api/write_off_inventory_item']);
 assert.equal(calls[1].options.body.client_id,'client-A');assert.equal(calls[2].options.body.card_id,'created-A');

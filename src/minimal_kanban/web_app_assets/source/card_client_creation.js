@@ -115,7 +115,7 @@
           }
           checkpoint = null;
         }
-        if ((context.cardId || shouldCreateVehicle) && !cardVehicleNumbersCanSave()) return null;
+        if ((context.cardId || shouldCreateVehicle) && (!cardVehicleNumbersCanSave() || !cardVehicleTextCanSave())) return null;
         if (!context.cardId && shouldCreateVehicle && !cardMileageCanSave(sourceProfile)) return null;
         if (!String(request.display_name || '').trim() && !String(request.phone || '').trim()) {
           setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);

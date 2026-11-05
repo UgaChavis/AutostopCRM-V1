@@ -375,6 +375,14 @@ Search or suggest before creating a client. Cards link by confirmed
 Deletion, unlinking, and overwriting card fields require explicit owner intent.
 Do not infer identity from a partial phone, name, or vehicle match.
 
+The card editor checks the visible customer name, registration plate, engine
+model, gearbox model and drivetrain against the 120-character normalized
+vehicle-profile limit before writing. This is a UI safeguard; direct API
+normalization and its existing replay behavior are unchanged. A linked client
+can have a name longer than that limit: the link response can contain the full
+name even though the stored vehicle profile is normalized to 120 characters.
+Read the card back before treating the full name as stored there.
+
 ## Repair Orders And Documents
 
 Repair-order numbers are assigned once and are immutable. The retained
