@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # Includes draft protection and duplicate-client recovery guards.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 973_500)
+        # Includes draft protection and client identity guards.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 974_000)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
