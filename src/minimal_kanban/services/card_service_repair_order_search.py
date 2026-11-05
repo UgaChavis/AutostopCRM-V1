@@ -33,8 +33,8 @@ class CardServiceRepairOrderSearchMixin:
         normalized_query = self._normalize_search_text(query)
         if not normalized_query:
             return list(cards)
-        tokens = normalized_query.split()
         if search_field == "all":
+            tokens = normalized_query.replace("ё", "е").split()
             filtered: list[Card] = []
             for card in cards:
                 haystack = " ".join(
@@ -42,7 +42,7 @@ class CardServiceRepairOrderSearchMixin:
                         None,
                         map(self._normalize_search_text, self._repair_order_search_values(card)),
                     )
-                )
+                ).replace("ё", "е")
                 if haystack and all(token in haystack for token in tokens):
                     filtered.append(card)
             return filtered
