@@ -336,3 +336,47 @@ class CardFileUploadGuardBrowserTests(UiBrowserTestCase):
             ),
             "1",
         )
+
+    def test_partial_upload_unknown_file_not_reposted_after_stale_read(self):
+        card = self.create_card("SYNTHETIC PARTIAL UPLOAD")
+        self.load_board()
+        self.open_card(card)
+        self.page.locator("#cardTitle").fill("SYNTHETIC DRAFT")
+        self.page.locator('#cardModal [data-tab="files"]').click()
+        stale = {}
+        calls = []
+
+        def upload(route):
+            name = route.request.post_data_json["file_name"]
+            calls.append(name)
+            if name == "b.png" and calls.count("b.png") == 1:
+                stale["card"] = self.runtime.service.get_card({"card_id": card})["card"]
+                response = route.fetch()
+                self.assertEqual(response.status, 200)
+                route.abort("failed")
+            else:
+                route.continue_()
+
+        def stale_read(route):
+            if stale:
+                route.fulfill(json={"ok": True, "data": {"card": stale["card"]}})
+            else:
+                route.continue_()
+
+        self.page.route("**/api/add_card_attachment", upload)
+        self.page.route("**/api/get_card?card_id=*", stale_read)
+        directory = tempfile.TemporaryDirectory(prefix="crm-ui-unknown-files-")
+        self.addCleanup(directory.cleanup)
+        file_a, file_b = Path(directory.name) / "a.png", Path(directory.name) / "b.png"
+        file_a.write_bytes(PNG_1X1_BYTES)
+        file_b.write_bytes(PNG_1X1_BYTES)
+        self.page.locator("#fileInput").set_input_files([file_a, file_b])
+        self.page.wait_for_function("!state.cardFilesMutationRequest")
+        self.assertEqual(calls, ["a.png", "b.png"])
+        self.assertTrue(self.page.evaluate("state.cardFileUploadCheckpoint.uncertain"))
+        self.assertEqual(len(self.stored_card(card)["attachments"]), 2)
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "SYNTHETIC DRAFT")
+        self.page.locator("#fileInput").set_input_files(file_b)
+        self.page.wait_for_function("!state.cardFilesMutationRequest")
+        self.assertEqual(calls.count("b.png"), 1, "Unknown B must not be sent again")
+        self.assertEqual(len(self.stored_card(card)["attachments"]), 2)

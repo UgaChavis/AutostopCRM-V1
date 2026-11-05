@@ -91,6 +91,8 @@ const CARD_TITLE_REQUIRED_MESSAGE='TITLE REQUIRED';
             "app_main_before_printing.js",
             "beginCardFilesMutation",
             "finishCardFilesMutation",
+            "attachmentRemovalConfirmed",
+            "attachmentRemovalRejected",
             *names,
         )
 
@@ -184,7 +186,7 @@ api=async(path,options)=>{
   calls.push({path,options});
   if(path==='/api/remove_card_attachment')throw new Error('remove response lost');
   if(path.startsWith('/api/get_card?')){
-    if(mode==='confirmed')return {card:{id:'A',attachments:[]}};
+    if(mode==='confirmed')return {card:{id:'A',attachments:[{id:'gone',removed:true}]}};
     throw new Error('readback unavailable');
   }
   throw new Error('unexpected path '+path);
@@ -192,11 +194,11 @@ api=async(path,options)=>{
 
 state.activeCard={id:'A',attachments:[{id:'gone'}]};
 const confirmed=await removeActiveCardAttachment('gone');
-assert.deepEqual(confirmed,{id:'A',attachments:[],read_warnings:[]});
+assert.deepEqual(confirmed,{id:'A',attachments:[{id:'gone',removed:true}],read_warnings:[]});
 assert.equal(calls.filter(call=>call.path==='/api/remove_card_attachment').length,1);
 assert.equal(calls.filter(call=>call.path.startsWith('/api/get_card?')).length,1);
 assert.equal(statuses.at(-1).isError,false);
-assert.match(statuses.at(-1).message,/ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ/);
+assert.match(statuses.at(-1).message,/ПРИ ПРОВЕРКЕ ФАЙЛ ОТМЕЧЕН УДАЛЁННЫМ/);
 assert.equal(state.cardFilesMutationRequest,null);
 
 mode='unavailable';statuses.length=0;
@@ -207,7 +209,7 @@ assert.equal(calls.filter(call=>call.path==='/api/remove_card_attachment').lengt
 assert.equal(calls.filter(call=>call.path.startsWith('/api/get_card?')).length,2,'ambiguous remove used more than one readback');
 assert.equal(statuses.length,1);assert.equal(statuses[0].isError,true);
 assert.match(statuses[0].message,/РЕЗУЛЬТАТ УДАЛЕНИЯ НЕ ОПРЕДЕЛЕН/);
-assert.match(statuses[0].message,/НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ/);
+assert.match(statuses[0].message,/ОБНОВИТЕ КАРТОЧКУ/);
 assert.doesNotMatch(statuses[0].message,/ФАЙЛ УДАЛЕН/);
 assert.equal(state.cardFilesMutationRequest,null);
 """,

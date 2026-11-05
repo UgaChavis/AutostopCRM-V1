@@ -6057,13 +6057,16 @@
       const isCurrent = () => state.mobileCardFilesRequest === filesRequest && context.isCurrent();
       state.mobileCardFilesBusy = true;
       renderMobileCardFiles(currentMobileCard() || {});
+      const readContext = { cardId, isCurrent, filesReadbackMatches: (card) => attachmentRemovalConfirmed(card, normalizedAttachmentId) };
+      let writeAccepted = false;
       try {
         await api('/api/remove_card_attachment', {
           method: 'POST',
           body: { card_id: cardId, attachment_id: normalizedAttachmentId, actor_name: context.actorName, source: 'ui' },
         });
+        writeAccepted = true;
         if (!isCurrent()) return null;
-        await refreshMobileCardFiles({ cardId, isCurrent });
+        await refreshMobileCardFiles(readContext);
         if (!isCurrent()) return null;
         await refreshSnapshot(true);
         if (!isCurrent()) return null;
@@ -6073,21 +6076,21 @@
         if (!isCurrent()) return null;
         let updatedCard = null;
         try {
-          updatedCard = await refreshMobileCardFiles({ cardId, isCurrent });
+          updatedCard = await refreshMobileCardFiles(readContext);
           if (isCurrent()) await refreshSnapshot(true);
         } catch (_) {
           updatedCard = null;
         }
         if (!isCurrent()) return null;
-        const attachmentStillPresent = Array.isArray(updatedCard?.attachments)
-          && updatedCard.attachments.some((item) => String(item?.id || '').trim() === normalizedAttachmentId && !item?.removed);
-        if (updatedCard && !attachmentStillPresent) {
-          setStatus('ФАЙЛ УДАЛЁН; РЕЗУЛЬТАТ ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.', false);
+        if (!writeAccepted && attachmentRemovalRejected(error)) {
+          setStatus(error.message, true);
+          return null;
+        }
+        if (updatedCard && attachmentRemovalConfirmed(updatedCard, normalizedAttachmentId)) {
+          setStatus('ПРИ ПРОВЕРКЕ ФАЙЛ ОТМЕЧЕН УДАЛЁННЫМ.', false);
           return true;
         }
-        setStatus(error.message + (updatedCard
-          ? ' СПИСОК ОБНОВЛЕН; ФАЙЛ ОСТАЛСЯ.'
-          : ' ПРОВЕРЬТЕ СПИСОК ПЕРЕД ПОВТОРНЫМ УДАЛЕНИЕМ.'), true);
+        setStatus('РЕЗУЛЬТАТ УДАЛЕНИЯ НЕ ОПРЕДЕЛЕН. ОБНОВИТЕ КАРТОЧКУ.', true);
         return null;
       } finally {
         if (state.mobileCardFilesRequest === filesRequest && context.isCurrent()) {
@@ -13257,6 +13260,17 @@
       return attachments.find((item) => String(item?.id || '').trim() === targetId && !item?.removed) || null;
     }
 
+    function attachmentRemovalConfirmed(card, attachmentId) {
+      const matches = Array.isArray(card?.attachments) ? card.attachments.filter((item) => item?.id === attachmentId) : [];
+      return matches.length === 1 && matches[0].removed === true;
+    }
+
+    function attachmentRemovalRejected(error) {
+      return (error?.status === 400 && error.code === 'validation_error')
+        || (error?.status === 404 && error.code === 'not_found')
+        || (error?.status === 409 && ['archived_card', 'state_write_conflict'].includes(error.code));
+    }
+
     function attachmentExistsOnDisk(attachment) {
       if (!attachment || typeof attachment !== 'object' || attachment.removed) return false;
       return attachment.exists_on_disk !== false;
@@ -13566,6 +13580,8 @@
       }
       const context = beginCardFilesMutation({ attachmentId: normalizedAttachmentId });
       if (!context) return null;
+      context.filesReadbackMatches = (card) => attachmentRemovalConfirmed(card, normalizedAttachmentId);
+      let writeAccepted = false;
       try {
         await cardFilesApi('/api/remove_card_attachment', {
           method: 'POST',
@@ -13576,8 +13592,8 @@
             source: 'ui',
           },
         });
+        writeAccepted = true;
         if (!context.isCurrent()) return null;
-        context.filesReadbackMatches = (card) => !findCardAttachment(card, normalizedAttachmentId);
         const card = await refreshActiveCardFiles(context);
         if (!card || !context.isCurrent()) return null;
         state.cardJournalLoadedFor = '';
@@ -13593,14 +13609,15 @@
           readback = null;
         }
         if (!context.isCurrent()) return null;
-        const confirmed = Boolean(readback) && !findCardAttachment(readback, normalizedAttachmentId);
-        const knownUnchanged = Boolean(readback) && Boolean(findCardAttachment(readback, normalizedAttachmentId));
+        if (!writeAccepted && attachmentRemovalRejected(error)) {
+          setStatus(String(error?.message || 'НЕ УДАЛОСЬ УДАЛИТЬ ФАЙЛ.'), true);
+          return null;
+        }
+        const confirmed = attachmentRemovalConfirmed(readback, normalizedAttachmentId);
         setStatus(
           confirmed
-            ? 'ФАЙЛ УДАЛЕН; РЕЗУЛЬТАТ ПОДТВЕРЖДЕН ПОВТОРНЫМ ЧТЕНИЕМ.'
-            : (knownUnchanged
-              ? String(error?.message || 'НЕ УДАЛОСЬ УДАЛИТЬ ФАЙЛ.')
-              : 'РЕЗУЛЬТАТ УДАЛЕНИЯ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ОПЕРАЦИЮ ДО ОБНОВЛЕНИЯ КАРТОЧКИ.'),
+            ? 'ПРИ ПРОВЕРКЕ ФАЙЛ ОТМЕЧЕН УДАЛЁННЫМ.'
+            : 'РЕЗУЛЬТАТ УДАЛЕНИЯ НЕ ОПРЕДЕЛЕН. ОБНОВИТЕ КАРТОЧКУ.',
           !confirmed,
         );
         return confirmed ? readback : null;
