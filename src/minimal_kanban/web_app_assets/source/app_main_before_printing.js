@@ -5935,6 +5935,7 @@
       if (!context.isCurrent()) return null;
       const card = data?.card ? { ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [] } : null;
       if (!mobileCardHasRequiredFields(card) || card.id !== cardId || !Array.isArray(card.attachments)) throw new Error('НЕ ПОДТВЕРЖДЕНО СОСТОЯНИЕ КАРТОЧКИ.');
+      if (context.filesReadbackMatches && (card.attachments.some(a => typeof a.id !== 'string' || !a.id || a.id !== a.id.trim() || typeof a.removed !== 'boolean') || !context.filesReadbackMatches(card))) throw new Error('СПИСОК ФАЙЛОВ НЕ ПОДТВЕРЖДЕН.');
       const previous = currentMobileCard();
       let updatedCard;
       if (!mobileCardEditableFieldsMatch(previous, card)) {
@@ -5974,14 +5975,20 @@
       renderMobileCardFiles(currentMobileCard() || {});
       let attemptedWrites = 0;
       let completedWrites = 0;
+      let effect = null, guard = null;
+      const receipts = [];
       try {
+        guard = await ensureBoardModule('card_save');
+        if (!isCurrent()) return null;
+        const initialIds = guard.cardFileUploadInitialIds(currentMobileCard(), cardId);
         const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
         for (const file of normalizedFiles) {
           const buffer = await file.arrayBuffer();
           if (!isCurrent()) return null;
           const base64 = arrayBufferToBase64(buffer);
+          if (!effect) effect = guard.beginCardFileUpload(cardId);
           attemptedWrites += 1;
-          await api('/api/add_card_attachment', {
+          const data = await api('/api/add_card_attachment', {
             method: 'POST',
             body: {
               card_id: cardId,
@@ -5992,19 +5999,24 @@
               content_base64: base64,
             },
           });
+          const receipt = guard.cardFileUploadReceipt(data, cardId, initialIds, receipts);
+          if (!receipt) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ ФАЙЛА.');
           if (!isCurrent()) return null;
+          receipts.push(receipt);
           completedWrites += 1;
         }
-        await refreshMobileCardFiles({ cardId, isCurrent });
+        await refreshMobileCardFiles({ cardId, isCurrent, filesReadbackMatches: (card) => receipts.every((id) => findCardAttachment(card, id)?.removed === false) });
         if (!isCurrent()) return null;
+        if (!guard.finishCardFileUpload(effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ ЗАГРУЗКИ. ПОВТОР ОСТАНОВЛЕН.');
         await refreshSnapshot(true);
         if (!isCurrent()) return null;
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
         return normalizedFiles.length;
       } catch (error) {
         if (!isCurrent()) return null;
+        if (effect && !completedWrites && guard.cardFileUploadErrorIsDefinite(error)) guard.finishCardFileUpload(effect);
         let reconciled = false;
-        if (attemptedWrites) {
+        if (attemptedWrites && !guard.cardFileUploadIsActive(effect)) {
           try {
             reconciled = Boolean(await refreshMobileCardFiles({ cardId, isCurrent }));
             if (isCurrent()) await refreshSnapshot(true);
@@ -6016,11 +6028,9 @@
         const progress = completedWrites
           ? (' СОХРАНЕНО: ' + completedWrites + ' ИЗ ' + selectedFiles.length + '.')
           : '';
-        const retryWarning = attemptedWrites
-          ? (reconciled
-            ? ' СПИСОК ОБНОВЛЕН; ПОВТОРЯЙТЕ ТОЛЬКО ОТСУТСТВУЮЩИЕ ФАЙЛЫ.'
-            : ' ПРОВЕРЬТЕ СПИСОК ПЕРЕД ПОВТОРНОЙ ЗАГРУЗКОЙ.')
-          : '';
+        const retryWarning = guard?.cardFileUploadIsActive(effect)
+          ? ' ПРОВЕРЬТЕ ФАЙЛЫ; ПОВТОР ОСТАНОВЛЕН.'
+          : (attemptedWrites && !reconciled ? ' ПРОВЕРЬТЕ СПИСОК ПЕРЕД ПОВТОРНОЙ ЗАГРУЗКОЙ.' : '');
         setStatus(error.message + progress + retryWarning, true);
         return null;
       } finally {
@@ -16810,6 +16820,11 @@
       const signature = JSON.stringify(selectedFiles.map((file) => [file.name, file.size, file.type, file.lastModified]));
       let checkpoint = state.cardFileUploadCheckpoint;
       if (!checkpoint || checkpoint.ownerKey !== ownerKey || checkpoint.signature !== signature) {
+        if (checkpoint?.effect) {
+          setStatus('ПРЕДЫДУЩАЯ ЗАГРУЗКА НЕ ПОДТВЕРЖДЕНА. ПОВТОР ОСТАНОВЛЕН.', true);
+          finishCardFilesMutation(context);
+          return null;
+        }
         checkpoint = { ownerKey, signature, receipts: [], uncertain: false };
         state.cardFileUploadCheckpoint = checkpoint;
       }
@@ -16818,10 +16833,14 @@
       let completedWrites = checkpoint.receipts.filter(Boolean).length;
       let readback = null;
       try {
+        const guard = await ensureBoardModule('card_save');
+        if (!context.isCurrent()) return null;
         if (checkpoint.uncertain) {
           readback = await refreshActiveCardFiles(context);
           throw new Error('РЕЗУЛЬТАТ ПОСЛЕДНЕЙ ЗАГРУЗКИ НЕ ПОДТВЕРЖДЁН. ПОВТОР ОСТАНОВЛЕН; ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.');
         }
+        if (!checkpoint.initialIds) checkpoint.initialIds = guard.cardFileUploadInitialIds(state.activeCard, context.cardId);
+        if (checkpoint.effect) guard.beginCardFileUpload(context.cardId, checkpoint.effect);
         const normalizedFiles = selectedFiles.map((file) => normalizeUploadableAttachmentFile(file));
         for (let index = 0; index < normalizedFiles.length; index += 1) {
           const file = normalizedFiles[index];
@@ -16840,6 +16859,7 @@
             continue;
           }
           const base64 = arrayBufferToBase64(buffer);
+          checkpoint.effect = guard.beginCardFileUpload(context.cardId, checkpoint.effect);
           attemptedWrites += 1;
           let data;
           try {
@@ -16854,9 +16874,10 @@
                 content_base64: base64,
               },
             });
-            if (!data?.attachment?.id) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ ФАЙЛА.');
+            if (!guard.cardFileUploadReceipt(data, context.cardId, checkpoint.initialIds, checkpoint.receipts)) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ СОХРАНЕНИЕ ФАЙЛА.');
           } catch (error) {
-            if (!(error?.status >= 400 && error.status < 500 && error.code !== 'invalid_json')) checkpoint.uncertain = true;
+            if (!guard.cardFileUploadErrorIsDefinite(error)) checkpoint.uncertain = true;
+            else if (!completedWrites && guard.finishCardFileUpload(checkpoint.effect)) checkpoint.effect = null;
             throw error;
           }
           if (!context.isCurrent()) return null;
@@ -16865,6 +16886,7 @@
         }
         const card = await refreshActiveCardFiles(context);
         if (!card || !context.isCurrent()) return null;
+        if (checkpoint.effect && !guard.finishCardFileUpload(checkpoint.effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ ЗАГРУЗКИ. ПОВТОР ОСТАНОВЛЕН.');
         state.cardJournalLoadedFor = '';
         state.cardFileUploadCheckpoint = null;
         setStatus(normalizedFiles.length > 1 ? 'ФАЙЛЫ ЗАГРУЖЕНЫ.' : 'ФАЙЛ ЗАГРУЖЕН.', false);
@@ -16882,9 +16904,9 @@
         if (!context.isCurrent()) return null;
         const progress = completedWrites ? (' СОХРАНЕНО: ' + completedWrites + ' ИЗ ' + selectedFiles.length + '.') : '';
         const retryWarning = attemptedWrites
-          ? (readback
-            ? ' СПИСОК ОБНОВЛЕН; ПОВТОРЯЙТЕ ТОЛЬКО ОТСУТСТВУЮЩИЕ ФАЙЛЫ.'
-            : ' РЕЗУЛЬТАТ ПОСЛЕДНЕЙ ЗАПИСИ НЕ ОПРЕДЕЛЕН. НЕ ПОВТОРЯЙТЕ ЕЕ ДО ОБНОВЛЕНИЯ КАРТОЧКИ.')
+          ? (checkpoint.uncertain
+            ? ' РЕЗУЛЬТАТ ЗАПИСИ НЕ ОПРЕДЕЛЕН. ПОВТОР ОСТАНОВЛЕН.'
+            : (readback ? ' ПОВТОРИТЕ С ТЕМ ЖЕ НАБОРОМ ФАЙЛОВ.' : ' ПРОВЕРЬТЕ СПИСОК ФАЙЛОВ.'))
           : '';
         setStatus(String(error?.message || 'НЕ УДАЛОСЬ ЗАГРУЗИТЬ ФАЙЛ.') + progress + retryWarning, true);
         return null;

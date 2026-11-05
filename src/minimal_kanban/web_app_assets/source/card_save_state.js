@@ -1,5 +1,68 @@
     // @include card_save_controls.js
 
+    const cardFileUploadEffects = new Map();
+
+    function beginCardFileUpload(cardId, previous = null) {
+      const key = 'autostop:card-file-upload:' + JSON.stringify(cardId);
+      const blocked = 'РЕЗУЛЬТАТ ЗАГРУЗКИ НЕ ПОДТВЕРЖДЁН. ПРОВЕРЬТЕ ФАЙЛЫ; ПОВТОР ОСТАНОВЛЕН.';
+      let stored;
+      try { stored = window.sessionStorage.getItem(key); }
+      catch (_) { throw new Error('НЕВОЗМОЖНО ПРОВЕРИТЬ ЗАЩИТУ ЗАГРУЗКИ. ПОВТОР ОСТАНОВЛЕН.'); }
+      const current = cardFileUploadEffects.get(key);
+      if (current && current === previous && stored === '1') return current;
+      if (current || stored !== null) throw new Error(blocked);
+      const effect = { key };
+      cardFileUploadEffects.set(key, effect);
+      try {
+        window.sessionStorage.setItem(key, '1');
+        if (window.sessionStorage.getItem(key) !== '1') throw new Error('storage');
+      } catch (_) {
+        cardFileUploadEffects.delete(key); // No POST started; any stored marker remains blocking.
+        throw new Error('НЕВОЗМОЖНО СОХРАНИТЬ ЗАЩИТУ ЗАГРУЗКИ. ПОВТОР ОСТАНОВЛЕН.');
+      }
+      return effect;
+    }
+
+    function finishCardFileUpload(effect) {
+      if (!effect || cardFileUploadEffects.get(effect.key) !== effect) return false;
+      try {
+        window.sessionStorage.removeItem(effect.key);
+        if (window.sessionStorage.getItem(effect.key) !== null) return false;
+      } catch (_) {
+        try { window.sessionStorage.setItem(effect.key, '1'); } catch (_) { /* Retain the in-memory block. */ }
+        return false;
+      }
+      cardFileUploadEffects.delete(effect.key);
+      return true;
+    }
+
+    function cardFileUploadInitialIds(card, cardId) {
+      if (!mobileCardHasRequiredFields(card) || card.id !== cardId) throw new Error('СПИСОК ФАЙЛОВ НЕ ПОДТВЕРЖДЕН.');
+      const ids = new Set();
+      for (const item of card.attachments) {
+        if (typeof item.id !== 'string' || !item.id || item.id !== item.id.trim() || typeof item.removed !== 'boolean' || ids.has(item.id)) throw new Error('СПИСОК ФАЙЛОВ НЕ ПОДТВЕРЖДЕН.');
+        ids.add(item.id);
+      }
+      return ids;
+    }
+
+    function cardFileUploadReceipt(data, cardId, initialIds, receipts) {
+      const id = data?.attachment?.id;
+      return typeof id === 'string' && id && id === id.trim() && data.attachment.removed === false
+        && !initialIds.has(id) && !receipts.includes(id)
+        && mobileCardHasRequiredFields(data.card) && data.card.id === cardId && data.card.attachments.filter((item) => item.id === id).length === 1
+        && findCardAttachment(data.card, id)?.removed === false ? id : '';
+    }
+
+    function cardFileUploadErrorIsDefinite(error) {
+      return error?.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)
+        && ['validation_error', 'not_found', 'archived_card', 'state_write_conflict'].includes(error.code);
+    }
+
+    function cardFileUploadIsActive(effect) {
+      return Boolean(effect && cardFileUploadEffects.get(effect.key) === effect);
+    }
+
     function cardPersistPayloadKey(payload) {
       const { expected_updated_at, deadline, ...content } = payload;
       return JSON.stringify(content);

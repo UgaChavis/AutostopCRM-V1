@@ -57,6 +57,13 @@ function attachmentExtension(){return 'txt';}
 function cacheFullCard(card){cached.push(card);}
 function renderFiles(card){rendered.push(card);}
 function mobileCardHasRequiredFields(card){return Boolean(card && typeof card==='object');}
+async function ensureBoardModule(){return {
+  beginCardFileUpload:(id,previous)=>previous||{key:id},
+  cardFileUploadInitialIds:()=>new Set(),
+  finishCardFileUpload:()=>true,
+  cardFileUploadReceipt:data=>data?.attachment?.id||'',
+  cardFileUploadErrorIsDefinite:()=>false,
+};}
 // This harness tests file operation ownership with deliberately minimal card fixtures.
 function mobileCardEditableFieldsMatch(before,after){return Boolean(before?.id && before.id===after?.id);}
 async function refreshSnapshot(){snapshotRefreshes++;}

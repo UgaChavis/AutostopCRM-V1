@@ -252,7 +252,13 @@ class CardFilesBrowserTests(UiBrowserTestCase):
                     status=422,
                     content_type="application/json",
                     body=json.dumps(
-                        {"ok": False, "error": {"message": "Synthetic upload failure"}}
+                        {
+                            "ok": False,
+                            "error": {
+                                "code": "validation_error",
+                                "message": "Synthetic upload failure",
+                            },
+                        }
                     ),
                 )
             else:
