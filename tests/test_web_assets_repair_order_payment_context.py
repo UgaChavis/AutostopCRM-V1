@@ -85,6 +85,7 @@ let employeesLoader=()=>Promise.resolve({employees:[]});
 function loadEmployeesReference(){return employeesLoader();}
 function setStatus(message,isError){statuses.push({message:String(message),isError:Boolean(isError)});}
 function repairOrderIsoFieldsValid(){return true;}
+function desktopRepairOrderTextWithinLimits(){return true;}
 function repairOrderModalHasUnsavedChanges(){return false;}
 function repairOrderPaymentHasDraft(){return false;}
 function repairOrderOpenResponseValid(data,id){return data?.card_id===id&&data?.card?.id===id;}

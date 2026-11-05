@@ -50,6 +50,82 @@ class RepairOrderInputApiTests(unittest.TestCase):
             status, result = self.request("/api/" + route, payload)
             self.assertEqual(status, 200, result)
 
+    def test_overlong_client_vehicle_and_catalog_are_rejected_without_write(self):
+        card_id = self._card()
+        cases = []
+        aliases = ("catalog_number", "catalogNumber", "part_number", "partNumber", "catalog")
+        for value in ("X" * 161, "🚗" * 161, "A\u2003" * 81):
+            for route in ("update_card", "update_repair_order"):
+                for field in ("client", "vehicle"):
+                    cases.append((route, {"title": "UNSAVED", "repair_order": {field: value}}))
+                for section in ("works", "materials"):
+                    for alias in aliases:
+                        cases.append(
+                            (
+                                route,
+                                {"repair_order": {section: [{"name": "Synthetic", alias: value}]}},
+                            )
+                        )
+            for alias in aliases:
+                cases.append(
+                    (
+                        "replace_repair_order_materials",
+                        {"rows": [{"name": "Synthetic", alias: value}]},
+                    )
+                )
+        self._assert_rejected(card_id, cases)
+
+    def test_field_limits_preserve_alias_priority_whitespace_and_partial_patch(self):
+        card_id = self._card()
+        client = "🚗" * 160
+        vehicle = "  " + "Y\u00a0" * 80 + "  "
+        catalog = "⚙" * 160
+        status, result = self.request(
+            "/api/update_repair_order",
+            {
+                "card_id": card_id,
+                "repair_order": {
+                    "client": client,
+                    "vehicle": vehicle,
+                    "materials": [{"name": "Synthetic", "partNumber": catalog}],
+                },
+            },
+        )
+        self.assertEqual(status, 200, result)
+        order = result["data"]["repair_order"]
+        self.assertEqual(order["client"], client)
+        self.assertEqual(order["vehicle"], " ".join(vehicle.split()))
+        self.assertEqual(order["materials"][0]["catalog_number"], catalog)
+
+        status, result = self.request(
+            "/api/update_repair_order",
+            {"card_id": card_id, "repair_order": {"comment": "Synthetic partial update"}},
+        )
+        self.assertEqual(status, 200, result)
+        updated = result["data"]["repair_order"]
+        for field in ("client", "vehicle", "materials"):
+            self.assertEqual(updated[field], order[field])
+
+        for alias in ("catalog_number", "catalogNumber", "part_number", "partNumber", "catalog"):
+            with self.subTest(alias=alias):
+                status, result = self.request(
+                    "/api/replace_repair_order_materials",
+                    {"card_id": card_id, "rows": [{"name": "Synthetic", alias: catalog}]},
+                )
+                self.assertEqual(status, 200, result)
+                self.assertEqual(
+                    result["data"]["repair_order"]["materials"][0]["catalog_number"], catalog
+                )
+        status, result = self.request(
+            "/api/replace_repair_order_materials",
+            {
+                "card_id": card_id,
+                "rows": [{"name": "Synthetic", "catalog_number": "", "partNumber": "X" * 161}],
+            },
+        )
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["data"]["repair_order"]["materials"][0]["catalog_number"], "")
+
     def test_invalid_rows_cannot_corrupt_state_or_crash_any_public_mutation(self):
         card_id = self._card()
         cases = []
