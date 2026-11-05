@@ -9649,9 +9649,7 @@ class CardService(
         previous_display = previous_profile.display_name()
         if not current_vehicle.strip():
             return self._resolved_card_vehicle_label("", next_profile)
-        if previous_display and current_vehicle.strip() == self._validated_vehicle(
-            previous_display
-        ):
+        if previous_display and current_vehicle.strip() == previous_display:
             return self._resolved_card_vehicle_label("", next_profile)
         return self._validated_vehicle(current_vehicle)
 

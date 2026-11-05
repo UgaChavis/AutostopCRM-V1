@@ -73,7 +73,11 @@ class VehicleProfileService:
             "make_display" in raw
             and "model_display" in raw
             and bool(name_without_year)
-            and display_name in {name_without_year, current_display}
+            and normalize_vehicle_text(
+                raw.get("display_name"),
+                limit=max(len(name_without_year), len(current_display)) + 1,
+            )
+            in {name_without_year, current_display}
         )
         if consistent_parts:
             raw.pop("display_name", None)
