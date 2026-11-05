@@ -13531,6 +13531,7 @@
       const isCurrent = context?.isCurrent || (() => editingContext() && String(state.editingId || '').trim() === cardId);
       const data = await cardFilesApi('/api/get_card?card_id=' + encodeURIComponent(cardId));
       if (!isCurrent() || (!context && state.activeCard?.updated_at !== version)) return null;
+      if (!mobileCardHasRequiredFields(data?.card) || data.card.id !== cardId || data.card.attachments.some(a => typeof a.id !== 'string' || !a.id || a.id !== a.id.trim() || typeof a.removed !== 'boolean')) throw new Error('КАРТОЧКА НЕ ПОДТВЕРЖДЕНА.');
       state.activeCard = data.card;
       state.activeCardIsFull = true;
       cacheFullCard(data.card);

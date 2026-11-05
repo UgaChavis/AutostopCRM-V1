@@ -13,6 +13,166 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class CardFilesBrowserTests(UiBrowserTestCase):
+    def test_partial_file_read_preserves_card_and_draft_for_both_roles(self) -> None:
+        card_id = self.create_card(
+            "Synthetic file read",
+            vehicle_profile={"make_display": "Land Rover", "model_display": "Range Rover"},
+        )
+        self.add_image(card_id, "synthetic-file-read.png")
+        created = self.context.request.post(
+            self.runtime.base_url + "/api/save_operator_user",
+            headers={"X-Operator-Session": self.session_token},
+            data={
+                "username": "synthetic-file-operator",
+                "password": "synthetic-file-password",
+                "role": "operator",
+                "permissions": [],
+                "expected_permissions": [],
+            },
+        )
+        self.assertEqual(created.status, 200)
+        login = self.context.request.post(
+            self.runtime.base_url + "/api/login_operator",
+            data={"username": "synthetic-file-operator", "password": "synthetic-file-password"},
+        )
+        self.assertEqual(login.status, 200)
+        operator_token = login.json()["data"]["session"]["token"]
+        for token in (self.session_token, operator_token):
+            context = self.browser.new_context(
+                viewport={"width": 1440, "height": 960},
+                extra_http_headers=self.runtime.auth_headers,
+            )
+            self.addCleanup(context.close)
+            context.add_init_script(
+                "localStorage.setItem('kanban-operator-session', " + json.dumps(token) + ");"
+            )
+            page = context.new_page()
+            page.goto(self.runtime.browser_url)
+            page.wait_for_function(
+                "state.snapshot && state.operatorProfile && window.__AUTOSTOP_UI_BOUND__"
+            )
+            page.evaluate("stopSnapshotPolling()")
+            page.locator(f'.card[data-card-id="{card_id}"]:not([data-virtual-card="true"])').click()
+            page.wait_for_function("state.activeCardIsFull")
+            page.evaluate("clearCardOpenSideEffectTimer(); cancelDeferredCardSeen(state.editingId)")
+            page.locator("#cardTitle").fill("Synthetic unsaved title")
+            for damage in ("partial", "foreign"):
+
+                def corrupt(route):
+                    payload = route.fetch().json()
+                    if damage == "partial":
+                        del payload["data"]["card"]["vehicle_profile"]
+                    else:
+                        payload["data"]["card"]["id"] = "synthetic-foreign"
+                    route.fulfill(json=payload)
+
+                page.route("**/api/get_card?card_id=*", corrupt)
+                page.locator('#cardModal [data-tab="files"]').click()
+                page.wait_for_function("!state.cardFilesRenderedFor")
+                self.assertIn("КАРТОЧКА НЕ ПОДТВЕРЖДЕНА", page.locator("#statusLine").inner_text())
+                self.assertEqual(page.evaluate("state.activeCard.id"), card_id)
+                self.assertEqual(
+                    page.evaluate("state.activeCard.vehicle_profile.make_display"), "Land Rover"
+                )
+                self.assertEqual(
+                    page.evaluate(
+                        "id => state.fullCardCache.get(id).vehicle_profile.model_display", card_id
+                    ),
+                    "Range Rover",
+                )
+                self.assertEqual(
+                    page.locator("#cardTitle").input_value(), "Synthetic unsaved title"
+                )
+                page.unroute("**/api/get_card?card_id=*", corrupt)
+                page.locator('#cardModal [data-tab="overview"]').click()
+            page.locator('#cardModal [data-tab="files"]').click()
+            page.locator("#fileList [data-preview-file]").first.wait_for()
+            context.close()
+
+    def test_confirmed_upload_with_partial_readback_keeps_receipt_and_draft(self) -> None:
+        card_id = self.create_card("Synthetic file receipt")
+        self.load_board()
+        self.open_card(card_id)
+        self.page.locator("#cardTitle").fill("Synthetic unsaved upload")
+        self.page.locator('#cardModal [data-tab="files"]').click()
+
+        def partial(route):
+            payload = route.fetch().json()
+            del payload["data"]["card"]["vehicle_profile"]
+            route.fulfill(json=payload)
+
+        self.page.route("**/api/get_card?card_id=*", partial)
+        directory = tempfile.TemporaryDirectory(prefix="crm-ui-attachment-receipt-")
+        self.addCleanup(directory.cleanup)
+        upload = Path(directory.name) / "receipt.png"
+        upload.write_bytes(PNG_1X1_BYTES)
+        self.page.locator("#fileInput").set_input_files(upload)
+        self.page.wait_for_function("!state.cardFilesMutationRequest")
+        self.assertEqual(self.writes.count("add_card_attachment"), 1)
+        self.assertTrue(self.page.evaluate("Boolean(state.cardFileUploadCheckpoint?.receipts[0])"))
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic unsaved upload")
+        self.assertEqual(self.page.evaluate("state.activeCard.id"), card_id)
+        self.page.locator("#fileInput").set_input_files(upload)
+        self.page.wait_for_function("!state.cardFilesMutationRequest")
+        self.assertEqual(self.writes.count("add_card_attachment"), 1)
+        self.assertEqual(len(self.stored_card(card_id)["attachments"]), 1)
+
+    def test_confirmed_delete_with_partial_readback_does_not_report_success(self) -> None:
+        card_id = self.create_card("Synthetic file deletion")
+        attachment_id = self.add_image(card_id, "synthetic-delete.png")
+        self.load_board()
+        self.open_card(card_id)
+        self.page.locator("#cardTitle").fill("Synthetic unsaved delete")
+        self.page.locator('#cardModal [data-tab="files"]').click()
+        self.page.locator("#fileList [data-preview-file]").first.wait_for()
+
+        def partial(route):
+            payload = route.fetch().json()
+            del payload["data"]["card"]["vehicle_profile"]
+            route.fulfill(json=payload)
+
+        self.page.route("**/api/get_card?card_id=*", partial)
+        self.page.locator(f'#fileList [data-remove-file="{attachment_id}"]').click()
+        self.page.wait_for_function("!state.cardFilesMutationRequest")
+        self.assertTrue(self.stored_card(card_id)["attachments"][0]["removed"])
+        self.assertEqual(self.writes.count("remove_card_attachment"), 1)
+        self.assertIn("НЕ ОПРЕДЕЛЕН", self.page.locator("#statusLine").inner_text())
+        self.assertEqual(self.page.evaluate("state.activeCard.id"), card_id)
+        self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic unsaved delete")
+
+    def test_ambiguous_delete_rejects_malformed_attachment_readback(self) -> None:
+        card_id = self.create_card("Synthetic ambiguous deletion")
+        attachment_id = self.add_image(card_id, "synthetic-still-present.png")
+        self.load_board()
+        self.open_card(card_id)
+        self.page.locator("#cardTitle").fill("Synthetic unsaved deletion")
+        self.page.locator('#cardModal [data-tab="files"]').click()
+        self.page.locator("#fileList [data-preview-file]").first.wait_for()
+
+        def reject_delete(route):
+            route.fulfill(status=503, json={"ok": False, "error": {"message": "Synthetic"}})
+
+        self.page.route("**/api/remove_card_attachment", reject_delete)
+        for malformed in ({}, {"id": attachment_id, "removed": "false"}):
+
+            def malformed_read(route):
+                payload = route.fetch().json()
+                payload["data"]["card"]["attachments"] = [malformed]
+                route.fulfill(json=payload)
+
+            self.page.route("**/api/get_card?card_id=*", malformed_read)
+            self.page.locator(f'#fileList [data-remove-file="{attachment_id}"]').click()
+            self.page.wait_for_function("!state.cardFilesMutationRequest")
+            self.assertIn("НЕ ОПРЕДЕЛЕН", self.page.locator("#statusLine").inner_text())
+            self.assertFalse(self.stored_card(card_id)["attachments"][0]["removed"])
+            self.assertEqual(
+                self.page.evaluate("state.activeCard.attachments[0].id"), attachment_id
+            )
+            self.assertEqual(
+                self.page.locator("#cardTitle").input_value(), "Synthetic unsaved deletion"
+            )
+            self.page.unroute("**/api/get_card?card_id=*", malformed_read)
+
     def test_lost_upload_reply_keeps_one_attachment_and_stops_blind_repeat(self) -> None:
         card_id = self.create_card("Attachment uncertain write")
         self.load_board()

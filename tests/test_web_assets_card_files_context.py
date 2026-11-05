@@ -56,6 +56,7 @@ function attachmentMimeTypeFromExtension(){return '';}
 function attachmentExtension(){return 'txt';}
 function cacheFullCard(card){cached.push(card);}
 function renderFiles(card){rendered.push(card);}
+function mobileCardHasRequiredFields(card){return Boolean(card && typeof card==='object');}
 async function refreshSnapshot(){snapshotRefreshes++;}
 function setStatus(message,isError){statuses.push({message,isError});return false;}
 const CARD_TITLE_REQUIRED_MESSAGE='TITLE REQUIRED';
@@ -227,7 +228,7 @@ function deferCardSeen(){}
 api=async(path,options)=>{
   calls.push({path,options});
   if(path==='/api/add_card_attachment')return {attachment:{id:'uploaded'}};
-  if(path.startsWith('/api/get_card?'))return {card:{id:'A',attachments:[{id:'uploaded'}]}};
+  if(path.startsWith('/api/get_card?'))return {card:{id:'A',attachments:[{id:'uploaded',removed:false}]}};
   throw new Error('unexpected mutation '+path);
 };
 
