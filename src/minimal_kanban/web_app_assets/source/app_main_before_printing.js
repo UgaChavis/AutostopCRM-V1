@@ -3532,6 +3532,10 @@
           }
         });
       }
+      if (closingKeys.has('card-client-create') && state.cardClientCreateSaving) {
+        state.cardClientCreateGeneration += 1;
+        setCardClientCreateSaving(false);
+      }
       state.modalStack = (Array.isArray(state.modalStack) ? state.modalStack : []).filter((entry) => {
         const key = String(entry?.key || '').trim();
         if (!closingKeys.has(key)) return true;
@@ -3585,6 +3589,15 @@
 
     function closeNamedModal(closeKey) {
       const key = String(closeKey || '').trim();
+      if (state.cardClientCreateSaving) {
+        let ancestor = 'card-client-create';
+        const seen = new Set();
+        while (ancestor && !seen.has(ancestor)) {
+          if (ancestor === key) { setStatus('ДОЖДИТЕСЬ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
+          seen.add(ancestor);
+          ancestor = (state.modalStack || []).find((entry) => entry?.key === ancestor)?.parentKey || '';
+        }
+      }
       if (state.operatorDeleteRequest && key === 'operator-admin') return false;
       if (state.cashboxMoneyRequest && ['cashboxes', 'cashbox-transfer'].includes(key)) return false;
       if ((state.employeeMoneyMutationOperation || state.employeeSalaryResetPending || state.employeeEditOperation) && ['employees', 'employeeSalary'].includes(key)) return false;
@@ -6267,6 +6280,7 @@
     }
 
     function prepareDesktopCardWorkspace() {
+      if (state.cardClientCreateSaving) { setStatus('ДОЖДИТЕСЬ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
       if (state.mobileCardSaving || state.mobileCardFilesBusy || state.mobileRepairOrderLoading || state.mobileRepairOrderSaving) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ СОХРАНЕНИЯ ИЛИ ОПЕРАЦИИ С ФАЙЛАМИ.', true);
         return false;
@@ -10510,6 +10524,7 @@
     }
 
     function openCardClientCreateModal() {
+      if (state.cardClientCreateSaving) { setStatus('ДОЖДИТЕСЬ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
       state.cardClientCreateGeneration += 1;
       const profile = readVehicleProfileForm();
       resetCardClientCreateForm(profile);
@@ -10523,10 +10538,20 @@
       }, 0);
     }
 
-    function closeCardClientCreateModal() {
+    function closeCardClientCreateModal({ completed = false } = {}) {
+      if (state.cardClientCreateSaving && !completed) { setStatus('ДОЖДИТЕСЬ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
+      const checkpoint = state.cardClientCreateCheckpoint;
+      const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, state.cardEditingGeneration || 0, String(state.editingId || state.activeCard?.id || '').trim(), state.cardClientCreateGeneration]);
+      if (!completed && els.cardClientCreateModal?.classList.contains('is-open') && checkpoint?.ownerKey === ownerKey
+          && checkpoint.clientId && !checkpoint.uncertain && checkpoint.linkRejected && checkpoint.effect) {
+        if (!boardModuleRecords.get('card_save')?.exports?.finishCardClientCreate(checkpoint.effect)) { setStatus('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
+        state.cardClientCreateCheckpoint = null;
+        setStatus(checkpoint.clientCreated ? 'КЛИЕНТ СОЗДАН. НАЙДИТЕ ЕГО В СПИСКЕ КЛИЕНТОВ.' : 'КЛИЕНТ НАЙДЕН. ПРОВЕРЬТЕ СПИСОК КЛИЕНТОВ.', false);
+      }
       state.cardClientCreateGeneration += 1;
       setCardClientCreateSaving(false);
       popModal('card-client-create');
+      return true;
     }
 
     function readCardClientCreatePayload() {
@@ -10566,7 +10591,7 @@
       try {
         const created = await createClientForCard(profile, payload, { createVehicleFromCard, creationGeneration, isCurrent });
         if (!created || !isCurrent()) return;
-        closeCardClientCreateModal();
+        closeCardClientCreateModal({ completed: true });
         setStatus(state.editingId ? 'КЛИЕНТ СОЗДАН И ПРИВЯЗАН К КАРТОЧКЕ.' : 'КЛИЕНТ СОЗДАН И БУДЕТ ПРИВЯЗАН ПОСЛЕ СОХРАНЕНИЯ КАРТОЧКИ.', false);
       } catch (error) {
         if (isCurrent()) setStatus(error.message, true);
@@ -14807,6 +14832,7 @@
     }
 
     function closeCardModal() {
+      if (state.cardClientCreateSaving) { setStatus('ДОЖДИТЕСЬ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
       if (state.repairOrderMutationRequest || state.inventoryMaterialSaving) {
         setStatus('ДОЖДИТЕСЬ ЗАВЕРШЕНИЯ ОПЕРАЦИИ С ЗАКАЗ-НАРЯДОМ.', false);
         return false;
@@ -14820,7 +14846,7 @@
         return false;
       }
       if (!closeRepairOrderModal()) return false;
-      closeCardClientCreateModal();
+      if (!closeCardClientCreateModal()) return false;
       clearFilePreview({ sync: false });
       popModal('card');
       resetCardModalState();

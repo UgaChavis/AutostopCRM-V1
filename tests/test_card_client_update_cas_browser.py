@@ -114,7 +114,7 @@ class CardClientUpdateCasBrowserTests(UiBrowserTestCase):
         )
         self.assertEqual(self.writes.count("create_client"), 1)
 
-    def test_own_vehicle_change_does_not_silently_rebase_version(self):
+    def test_parallel_vehicle_change_after_rejected_link_preserves_client_cas(self):
         card = self.create_card("SYNTHETIC CARD", vehicle="Toyota")
         self.load_board()
         self.open_card(card)
@@ -124,27 +124,37 @@ class CardClientUpdateCasBrowserTests(UiBrowserTestCase):
         self.page.locator("#cardClientCreateNameInput").fill("SYNTHETIC ORIGINAL")
         self.page.locator("#cardClientCreateVehicleInput").check()
 
-        def lost_link(route):
-            self.assertEqual(route.fetch().status, 200)
-            route.abort("failed")
-
-        def fail_card_read(route):
+        def reject_link_after_parallel_vehicle(route):
+            self.runtime.service.upsert_client_vehicle(
+                {
+                    "client_id": route.request.post_data_json["client_id"],
+                    "vehicle": {"vehicle": "SYNTHETIC PARALLEL VEHICLE", "vin": "VIN123"},
+                }
+            )
             route.fulfill(
-                status=503, json={"ok": False, "error": {"message": "SYNTHETIC READ FAILURE"}}
+                status=400,
+                json={
+                    "ok": False,
+                    "error": {"code": "validation_error", "message": "SYNTHETIC LINK REJECTION"},
+                },
             )
 
-        self.page.route("**/api/link_card_to_client", lost_link)
-        self.page.route("**/api/get_card?**", fail_card_read)
+        self.page.route("**/api/link_card_to_client", reject_link_after_parallel_vehicle)
         self.save()
-        self.assertEqual(self.page.evaluate("state.cardClientCreateCheckpoint.uncertain"), "link")
+        self.assertEqual(self.page.evaluate("state.cardClientCreateCheckpoint.uncertain"), "")
         checkpoint = self.page.evaluate("state.cardClientCreateCheckpoint")
         latest = self.runtime.service.get_client({"client_id": checkpoint["clientId"]})["client"]
         self.assertNotEqual(latest["updated_at"], checkpoint["client"]["updated_at"])
         self.assertEqual(len(latest["vehicles"]), 1)
-        self.page.unroute("**/api/link_card_to_client", lost_link)
-        self.page.unroute("**/api/get_card?**", fail_card_read)
+        self.page.unroute("**/api/link_card_to_client", reject_link_after_parallel_vehicle)
         self.page.locator("#cardClientCreateNameInput").fill("SYNTHETIC EDIT")
-        self.save()
+        with self.page.expect_response("**/api/update_client") as update_response:
+            self.save()
+        self.assertEqual(update_response.value.status, 409)
+        self.assertEqual(
+            update_response.value.request.post_data_json["expected_updated_at"],
+            checkpoint["client"]["updated_at"],
+        )
         current = self.runtime.service.get_client({"client_id": checkpoint["clientId"]})["client"]
         self.assertEqual(current["display_name"], "SYNTHETIC ORIGINAL")
         self.assertEqual(len(current["vehicles"]), 1)
