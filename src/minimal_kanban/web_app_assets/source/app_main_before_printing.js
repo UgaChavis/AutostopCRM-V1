@@ -3852,6 +3852,18 @@
       els.clientProfilePane?.classList.toggle('is-empty', empty);
     }
 
+    function syncClientsListSelection() {
+      if (!state.clientsLoaded || state.clientsLoadError || !state.clientsMetaState || !els.clientsList || !Array.isArray(state.clients)) return false;
+      const rows = Array.from(els.clientsList.children);
+      if (rows.length !== state.clients.length || rows.some((row, index) =>
+        !row.classList.contains('client-row') || row.dataset.clientId !== state.clients[index]?.id)) return false;
+      renderClientsMeta(state.clients);
+      rows.forEach((row) => {
+        row.classList.toggle('is-active', row.dataset.clientId === state.clientsActiveId);
+      });
+      return true;
+    }
+
     function renderClientProfileEmptyState(preserveList = false) {
       state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
       state.mobileClientProfileLoading = false;
@@ -3867,10 +3879,7 @@
       fillClientForm({ client_type: 'person', phones: [] });
       renderClientVehiclesList([]);
       if (els.clientOrdersList) els.clientOrdersList.innerHTML = '<div class="empty">ВЫБЕРИТЕ КЛИЕНТА, ЧТОБЫ УВИДЕТЬ ЗАКАЗ-НАРЯДЫ.</div>';
-      if (preserveList && state.clientsLoaded && !state.clientsLoadError) {
-        renderClientsMeta(Array.isArray(state.clients) ? state.clients : []);
-        els.clientsList?.querySelectorAll('.client-row.is-active').forEach((row) => row.classList.remove('is-active'));
-      } else renderClientsList();
+      if (!preserveList || !syncClientsListSelection()) renderClientsList();
     }
 
     function renderClientsMeta(clients) {
@@ -4457,7 +4466,7 @@
         if (!clientProfileReadValid(data, normalizedId)) throw new Error('ПРОФИЛЬ КЛИЕНТА НЕ ПОДТВЕРЖДЁН.');
         state.clientVehicleEditor = null;
         renderClientProfile(data);
-        renderClientsList();
+        if (!syncClientsListSelection()) renderClientsList();
       } catch (error) {
         if (isCurrent()) {
           if (els.clientProfileTitle) els.clientProfileTitle.textContent = 'ПРОФИЛЬ НЕ ЗАГРУЖЕН';

@@ -25,7 +25,7 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         }""")
         return ids
 
-    def test_selection_renders_once_and_late_response_cannot_change_it(self):
+    def test_selection_preserves_rows_and_late_response_cannot_change_it(self):
         first, delayed, latest = self.open_clients()
         self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
         self.page.wait_for_function(
@@ -63,7 +63,13 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=latest
         )
-        self.assertEqual(self.page.evaluate("window.clientListRenders"), 1)
+        self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
+        self.assertTrue(
+            self.page.evaluate(
+                "window.firstClientRow === document.querySelector('#clientsList [data-client-id]')"
+            )
+        )
+        self.assertEqual(self.page.evaluate("document.activeElement?.dataset.clientId"), latest)
         self.assertEqual(
             self.page.locator("#clientsList .client-row.is-active").get_attribute("data-client-id"),
             latest,
@@ -75,10 +81,10 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         )
         held.pop().continue_()
         self.page.wait_for_timeout(150)
-        self.assertEqual(self.page.evaluate("window.clientListRenders"), 1)
+        self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
         self.assertEqual(self.page.evaluate("state.clientsActiveProfile.client.id"), latest)
 
-    def test_failed_profile_retains_list_and_successful_retry_renders_once(self):
+    def test_failed_profile_retains_list_and_successful_retry_preserves_rows(self):
         first, _, _ = self.open_clients()
         self.page.route(
             "**/api/get_client?**",
@@ -97,7 +103,7 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         self.page.wait_for_function(
             "id => state.clientsActiveProfile?.client?.id === id", arg=first
         )
-        self.assertEqual(self.page.evaluate("window.clientListRenders"), 1)
+        self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
         self.assertEqual(
             self.page.locator("#clientsList .client-row.is-active").get_attribute("data-client-id"),
             first,
@@ -128,3 +134,108 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         )
         self.assertEqual(self.page.locator("#clientsMeta").inner_text(), expected_meta)
         self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
+
+    def test_35_and_50_rows_keep_identity_and_focus_with_one_profile_request(self):
+        first, _, _ = self.open_clients()
+        for count in (35, 50):
+            self.page.evaluate(
+                """({id, count}) => {
+                  const original = state.clients.find(client => client.id === id);
+                  state.clients = [original, ...Array.from({length: count - 1}, (_, i) => ({
+                    ...original, id: 'synthetic-list-' + i, name: 'SYNTHETIC ' + i
+                  }))];
+                  state.clientsQuery = count === 50 ? 'SYNTHETIC' : '';
+                  state.clientsMetaState = {total: count, returned: count, has_more: false};
+                  state.clientsLoaded = true;
+                  state.clientsLoadError = false;
+                  renderClientsList();
+                  window.clientListRenders = 0;
+                  window.savedRows = [...els.clientsList.children];
+                }""",
+                {"id": first, "count": count},
+            )
+            requests = []
+
+            def track(request):
+                if "/api/get_client?" in request.url:
+                    requests.append(request.url)
+
+            self.page.on("request", track)
+            row = self.page.locator(f'#clientsList [data-client-id="{first}"]')
+            row.click()
+            self.page.wait_for_function(
+                "id => state.clientsActiveProfile?.client?.id === id && !state.clientsProfileSelectionRequest",
+                arg=first,
+            )
+            self.page.remove_listener("request", track)
+            self.assertEqual(len(requests), 1)
+            self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
+            self.assertTrue(
+                self.page.evaluate(
+                    "window.savedRows.every((row, i) => row === els.clientsList.children[i])"
+                )
+            )
+            self.assertEqual(self.page.evaluate("document.activeElement?.dataset.clientId"), first)
+            self.assertEqual(self.page.locator("#clientsList .client-row.is-active").count(), 1)
+            self.assertTrue(row.evaluate("element => element.classList.contains('is-active')"))
+
+    def test_missing_metadata_or_unexpected_list_falls_back_to_render(self):
+        first, _, _ = self.open_clients()
+        for variant in ("missing_meta", "unexpected_dom"):
+            held = []
+            self.page.route("**/api/get_client?**", lambda route: held.append(route), times=1)
+            self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+            self.assertEqual(len(held), 1)
+            self.page.evaluate(
+                """variant => {
+                  if (variant === 'missing_meta') state.clientsMetaState = null;
+                  else els.clientsList.innerHTML = '<div class="empty">ЗАГРУЗКА</div>';
+                  window.clientListRenders = 0;
+                }""",
+                variant,
+            )
+            held.pop().continue_()
+            self.page.wait_for_function(
+                "id => state.clientsActiveProfile?.client?.id === id && !state.clientsProfileSelectionRequest",
+                arg=first,
+            )
+            self.assertEqual(self.page.evaluate("window.clientListRenders"), 1)
+            self.assertEqual(
+                self.page.locator("#clientsList .client-row.is-active").get_attribute(
+                    "data-client-id"
+                ),
+                first,
+            )
+            self.page.evaluate(
+                "state.clientsMetaState = {total: state.clients.length, returned: state.clients.length, has_more: false}"
+            )
+
+    def test_search_success_before_profile_keeps_new_search_rows(self):
+        first, second, _ = self.open_clients()
+        held = []
+        self.page.route("**/api/get_client?**", lambda route: held.append(route), times=1)
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.assertEqual(len(held), 1)
+        self.page.locator("#clientsSearchInput").fill("SYNTHETIC BETA")
+        self.page.wait_for_function(
+            "id => state.clientsLoaded && state.clients.length === 1 && state.clients[0].id === id",
+            arg=second,
+        )
+        self.page.evaluate("""() => {
+          window.savedSearchRow = els.clientsList.firstElementChild;
+          window.clientListRenders = 0;
+        }""")
+        held.pop().continue_()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id && !state.clientsProfileSelectionRequest",
+            arg=first,
+        )
+        self.assertEqual(self.page.evaluate("window.clientListRenders"), 0)
+        self.assertTrue(
+            self.page.evaluate("window.savedSearchRow === els.clientsList.firstElementChild")
+        )
+        self.assertEqual(
+            self.page.locator("#clientsList [data-client-id]").get_attribute("data-client-id"),
+            second,
+        )
+        self.assertEqual(self.page.locator("#clientsList .client-row.is-active").count(), 0)
