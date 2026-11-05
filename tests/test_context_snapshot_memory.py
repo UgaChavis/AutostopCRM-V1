@@ -109,6 +109,92 @@ class ContextSnapshotMemoryTests(CardServiceCase):
             [client.to_storage_dict() for client in clients],
         )
 
+    def test_client_search_models_detach_nested_mutable_fields(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        client = next(item for item in state["clients"] if item["id"] == self.client_id)
+        client["phones"] = ["123"]
+        client["emails"] = ["synthetic@example.test"]
+        client["deleted_vehicle_keys"] = ["synthetic-deleted"]
+        client["vehicles"][0].update(
+            {
+                "manual_fields": ["vin"],
+                "autofilled_fields": ["model"],
+                "tentative_fields": ["model"],
+                "field_sources": {"vin": "synthetic"},
+                "source_links_or_refs": ["synthetic-ref"],
+            }
+        )
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.state_file.read_bytes()
+        search = self.store._read_context_bundle_snapshot(domains=("clients", "client_search"))
+        other = self.store._read_context_bundle_snapshot(domains=("clients",))
+        original_raw = deepcopy(self.store._context_snapshot_state)
+        original_other = [item.to_storage_dict() for item in other["clients"]]
+
+        profile = next(item for item in search["clients"] if item.id == self.client_id)
+        profile.phones.append("456")
+        profile.emails.append("changed@example.test")
+        profile.deleted_vehicle_keys.append("changed")
+        vehicle = profile.vehicles[0]
+        vehicle.manual_fields.append("brand")
+        vehicle.autofilled_fields.append("brand")
+        vehicle.tentative_fields.append("brand")
+        vehicle.field_sources["vin"] = "changed"
+        vehicle.source_links_or_refs.append("changed")
+
+        self.assertEqual(self.store._context_snapshot_state, original_raw)
+        self.assertEqual([item.to_storage_dict() for item in other["clients"]], original_other)
+        self.assertEqual(self.state_file.read_bytes(), before)
+
+    def test_client_list_checks_all_identities_and_sort_keys_before_limit(self):
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        template = state["clients"][0]
+        clients = []
+        for client_id, name in (
+            ("synthetic-c", "Zulu"),
+            ("synthetic-a", "Alpha"),
+            ("synthetic-b", "Beta"),
+        ):
+            row = deepcopy(template)
+            row.update(
+                id=client_id,
+                client_type="person",
+                last_name="",
+                first_name="",
+                middle_name="",
+                display_name=name,
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+            clients.append(row)
+        state["clients"] = clients
+
+        def write_state():
+            replacement = self.state_file.with_suffix(".replacement")
+            replacement.write_text(json.dumps(state), encoding="utf-8")
+            replacement.replace(self.state_file)
+
+        write_state()
+        result = self.service.list_clients({"limit": 2, "include_stats": False})
+        self.assertEqual([row["id"] for row in result["clients"]], ["synthetic-a", "synthetic-b"])
+        self.assertEqual(
+            result["meta"], {"total": 3, "returned": 2, "has_more": True, "include_stats": False}
+        )
+
+        for field, value in (
+            ("id", None),
+            ("id", "synthetic-a"),
+            ("created_at", ""),
+            ("phones", 7),
+        ):
+            with self.subTest(field=field, value=value):
+                state["clients"] = deepcopy(clients)
+                state["clients"][0][field] = value
+                write_state()
+                before = self.state_file.read_bytes()
+                with self.assertRaises(StateFileCorruptedError):
+                    self.service.list_clients({"limit": 2, "include_stats": False})
+                self.assertEqual(self.state_file.read_bytes(), before)
+
     def test_normalized_event_details_are_detached_from_other_variants_and_raw_records(self):
         events, _, full, _ = self.snapshots()
         raw = deepcopy(self.store._context_snapshot_state)

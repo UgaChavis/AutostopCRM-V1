@@ -402,7 +402,8 @@ def build_context_snapshot(store, state, domains):
     profile_clients = None
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
-        clients = _search_clients(deepcopy(raw_clients))
+        # ClientProfile.from_dict builds detached models, including vehicle metadata.
+        clients = _search_clients(raw_clients)
     if "client_search_cards" in domains:
         _require_raw_search_identities(raw_cards, unique=False)
         # Capture collisions from the unnormalized source, including entries that
