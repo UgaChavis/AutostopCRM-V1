@@ -35,10 +35,6 @@ class MobileWorkspaceContextRegressionTests(unittest.TestCase):
             "    function closeNamedModal(",
             "    async function loadModalData(",
         )
-        self.assertIn(
-            "'repair-orders': () => {\n          invalidateRepairOrdersRequests();",
-            close_named_modal,
-        )
         action = (
             section(
                 close_named_modal,
@@ -52,16 +48,26 @@ class MobileWorkspaceContextRegressionTests(unittest.TestCase):
         self.run_node(
             """
 const assert = require('node:assert/strict');
-const calls = [], state = {repairOrdersLoadTimer: 123};
+const calls = [], state = {repairOrdersLoadTimer: 123, repairOrderParentLayer: 'repair-orders', repairOrdersSearchLoading: true};
 const window = {clearTimeout(id) {calls.push(['clear', id]);}};
+let allowClose = false;
+function closeRepairOrderModal() {calls.push(['child']); return allowClose;}
 function invalidateRepairOrdersRequests() {calls.push(['invalidate']);}
+function invalidateRepairOrdersListCache() {calls.push(['invalidate-cache']);}
 function popModal(key) {calls.push(['close', key]);}
 const close = """
             + action
             + """;
+assert.equal(close(), false);
+assert.deepEqual(calls, [['child']]);
+assert.equal(state.repairOrdersLoadTimer, 123);
+calls.length = 0; allowClose = true;
 close();
-assert.deepEqual(calls, [['invalidate'], ['clear', 123], ['close', 'repair-orders']]);
+assert.deepEqual(calls, [['child'], ['invalidate'], ['clear', 123], ['invalidate-cache'], ['close', 'repair-orders']]);
 assert.equal(state.repairOrdersLoadTimer, null);
+calls.length = 0; state.repairOrderParentLayer = 'card'; state.repairOrdersSearchLoading = false;
+close();
+assert.deepEqual(calls, [['invalidate'], ['close', 'repair-orders']]);
 """
         )
 

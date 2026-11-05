@@ -284,6 +284,7 @@ function beginCardClientCreate(previous=null){
 }
 function finishCardClientCreate(effect){if(!effect || effect!==createOwner)return false;createOwner=null;return true;}
 function cloneVehicleProfile(profile){return {...profile};}
+function getVehicleFieldInput(){return {value:'',validity:{badInput:false},focus(){}};}
 function readVehicleProfileForm(){return {};}
 function normalizedCardClientCreatePayload(payload){return {...payload};}
 function profileHasVehicleIdentity(){return false;}
@@ -295,6 +296,12 @@ function setStatus(message,isError){statuses.push({message,isError});}
 global.window={setTimeout,clearTimeout};
 """
             + request_context
+            + functions(
+                "app_main_before_printing.js",
+                "cardVehicleNumbersCanSave",
+                "cardVehicleTextCanSave",
+                "repairOrderTextWithinLimits",
+            )
             + create_client
             + link_client
             + """
@@ -695,6 +702,7 @@ const assert=require('node:assert/strict');
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};}
 const calls=[],profiles=[],statuses=[];
 const state={viewerStateGeneration:1,clientsProfileRequestSeq:0,clientsActiveId:'',clientVehicleEditor:null};
+const els={clientProfileTitle:{textContent:''},clientProfilePhone:{textContent:''}};
 function api(path){const task=deferred();calls.push({path,...task});return task.promise;}
 function renderClientProfileEmptyState(){}
 function renderClientProfile(data){profiles.push({id:data.client.id,revision:data.client.revision});}
@@ -702,6 +710,7 @@ function renderClientsList(){}
 function setStatus(message,isError){statuses.push({message,isError});}
 function clientProfileReadValid(data,id){return data?.client?.id===id;}
 """
+            + functions("app_main_before_printing.js", "syncClientsListSelection")
             + select_client
             + """
 (async()=>{
@@ -743,7 +752,7 @@ const els={};
 const window={setTimeout,clearTimeout};
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',apiToken:'api-A',actor:'actor-A',
-  clientsActiveId:'A',clientsDesktopProfile:{client:{id:'A'}},clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__'},
+  clientsActiveId:'A',clientsDesktopProfile:{client:{id:'A',updated_at:'A-r1'}},clientsProfileRequestSeq:1,clientMutationRequest:null,clientVehicleEditor:{key:'__new__',expectedClientUpdatedAt:'A-r1'},
   clientCandidateVehicleEffects:new Map(),
 };
 state.clientsActiveProfile=state.clientsDesktopProfile;
@@ -769,21 +778,23 @@ function finishCandidateVehicleCreation(effect){if(effect)state.clientCandidateV
 (async()=>{
   const staleA=saveClientVehicleFromEditor('__new__');
   assert.equal(calls[0].options.body.client_id,'A');
+  assert.equal(calls[0].options.body.expected_client_updated_at,'A-r1');
   state.clientsActiveId='B';state.clientsProfileRequestSeq++;
   calls[0].resolve({client:{id:'A'},vehicle:{id:'vehicle-A'}});await staleA;
   assert.deepEqual(selected,[]);assert.deepEqual(statuses,[]);
-  assert.deepEqual(state.clientVehicleEditor,{key:'__new__'});
+  assert.deepEqual(state.clientVehicleEditor,{key:'__new__',expectedClientUpdatedAt:'A-r1'});
 
   // Start a separate scenario after the first result has been handled by the operator.
   state.clientVehicleMutationCheckpoint=null;
-  state.clientsActiveId='same';state.clientsDesktopProfile={client:{id:'same'}};state.clientsActiveProfile=state.clientsDesktopProfile;state.clientsProfileRequestSeq=10;state.clientMutationRequest=null;
-  state.clientVehicleEditor={key:'__new__'};
+  state.clientsActiveId='same';state.clientsDesktopProfile={client:{id:'same',updated_at:'same-r1'}};state.clientsActiveProfile=state.clientsDesktopProfile;state.clientsProfileRequestSeq=10;state.clientMutationRequest=null;
+  state.clientVehicleEditor={key:'__new__',expectedClientUpdatedAt:'same-r1'};
   const oldSame=saveClientVehicleFromEditor('__new__');
+  assert.equal(calls[1].options.body.expected_client_updated_at,'same-r1');
   state.clientsActiveId='away';state.clientsProfileRequestSeq=11;
   state.clientsActiveId='same';state.clientsProfileRequestSeq=12;
   calls[1].resolve({client:{id:'same'},vehicle:{id:'same-old'}});await oldSame;
   assert.deepEqual(selected,[]);assert.deepEqual(statuses,[]);
-  assert.deepEqual(state.clientVehicleEditor,{key:'__new__'});
+  assert.deepEqual(state.clientVehicleEditor,{key:'__new__',expectedClientUpdatedAt:'same-r1'});
   assert.equal(state.clientMutationRequest,null);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """

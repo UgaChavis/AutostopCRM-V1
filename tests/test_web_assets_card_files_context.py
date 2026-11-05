@@ -300,9 +300,9 @@ assert.equal(calls[0].options.body.response_mode,'compact');
         self.run_node(
             definitions,
             """
-let confirmations=0,resets=0,pops=0,clientCloses=0,orderCloses=0,previewClears=0,pollStops=0;
+let confirmations=0,resets=0,pops=0,clientCloses=0,orderCloses=0,previewClears=0,pollStops=0,allowClientClose=true;
 global.window={confirm(){confirmations++;throw new Error('dirty card close requested confirmation');}};
-function closeCardClientCreateModal(){clientCloses++;}
+function closeCardClientCreateModal(){clientCloses++;return allowClientClose;}
 function closeRepairOrderModal(){orderCloses++;return true;}
 function clearFilePreview(){previewClears++;}
 function popModal(key){assert.equal(key,'card');pops++;}
@@ -317,6 +317,11 @@ assert.deepEqual(
   {resets,pops,clientCloses,orderCloses,previewClears,pollStops},
   {resets:1,pops:1,clientCloses:1,orderCloses:1,previewClears:1,pollStops:1}
 );
+
+allowClientClose=false;
+assert.equal(closeCardModal(),false);
+assert.equal(resets,1);assert.equal(pops,1);
+assert.equal(clientCloses,2);assert.equal(orderCloses,2);
 
 state.cardSaveInFlight=true;
 assert.equal(closeCardModal(),false);

@@ -2,6 +2,7 @@
 
 # The fixture selects this checkout before importing application modules.
 # ruff: noqa: I001
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -162,11 +163,15 @@ class ClientVehicleIdLengthTests(CardServiceCase):
                 "display_name": "SYNTHETIC COLLISION",
                 "vehicles": [
                     {"id": first_id, "vehicle": "FIRST VEHICLE"},
-                    {"id": second_id, "vehicle": "SECOND VEHICLE"},
                 ],
             }
         )["client"]
         client_id = client["id"]
+        # Recreate a legacy collision that current write validation rejects.
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        stored = next(item for item in state["clients"] if item["id"] == client_id)
+        stored["vehicles"].append({"id": second_id, "vehicle": "SECOND VEHICLE"})
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         result = self.service.upsert_client_vehicle(
             {
                 "client_id": client_id,

@@ -433,6 +433,8 @@ jobs:
 
       - name: Unit tests with runtime branch coverage
         if: ${{ matrix.suite == 'unit' }}
+        env:
+          AUTOSTOPCRM_DOCKER_CONTEXT_TESTS: "1"
         run: |
           coverage erase
           # Includes every discovered browser test and requires exact unskipped receipts.
