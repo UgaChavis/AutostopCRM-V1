@@ -550,16 +550,41 @@ class ClientVehicle:
         )
         self.drivetrain = normalize_text(self.drivetrain, default="", limit=CLIENT_FIELD_LIMIT)
         self.notes = normalize_text(self.notes, default="", limit=CLIENT_NOTE_LIMIT)
-        metadata = VehicleProfile.from_dict(self.source_metadata())
-        if metadata.tentative_fields:
-            metadata.autofilled_fields = sorted(
-                set(metadata.autofilled_fields) | set(metadata.tentative_fields)
+        empty_lists = (
+            "manual_fields",
+            "autofilled_fields",
+            "tentative_fields",
+            "source_links_or_refs",
+        )
+        if (
+            type(self) is ClientVehicle
+            and all(
+                type(getattr(self, name)) is list and not getattr(self, name)
+                for name in empty_lists
             )
-            metadata.manual_fields = sorted(
-                set(metadata.manual_fields) - set(metadata.tentative_fields)
-            )
-        for name in CLIENT_VEHICLE_METADATA_FIELDS:
-            setattr(self, name, getattr(metadata, name))
+            and type(self.field_sources) is dict
+            and not self.field_sources
+            and type(self.source_summary) is str
+            and not self.source_summary
+            and type(self.source_confidence) is float
+            and self.source_confidence == 0.0
+        ):
+            # Preserve detached collections without constructing an empty VehicleProfile.
+            for name in empty_lists:
+                setattr(self, name, [])
+            self.field_sources = {}
+            self.source_confidence = 0.0
+        else:
+            metadata = VehicleProfile.from_dict(self.source_metadata())
+            if metadata.tentative_fields:
+                metadata.autofilled_fields = sorted(
+                    set(metadata.autofilled_fields) | set(metadata.tentative_fields)
+                )
+                metadata.manual_fields = sorted(
+                    set(metadata.manual_fields) - set(metadata.tentative_fields)
+                )
+            for name in CLIENT_VEHICLE_METADATA_FIELDS:
+                setattr(self, name, getattr(metadata, name))
 
     def source_metadata(self) -> dict[str, Any]:
         """Use VehicleProfile field names for provenance on both representations."""
