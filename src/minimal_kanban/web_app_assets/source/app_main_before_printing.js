@@ -7359,6 +7359,30 @@
       }), works, materials };
     }
 
+    function mobileRepairOrderTextWithinLimits() {
+      const root = els.mobileRepairOrderDetail;
+      const fields = [
+        [root?.querySelector('[data-mobile-repair-order-field="client"]'), 'КЛИЕНТ', 'client'],
+        [root?.querySelector('[data-mobile-repair-order-field="vehicle"]'), 'АВТОМОБИЛЬ', 'client'],
+        ...Array.from(root?.querySelectorAll('[data-mobile-repair-row-field="catalog_number"]') || [],
+          (field) => [field, 'АРТИКУЛ', 'materials']),
+      ];
+      for (const [field, label, tab] of fields) {
+        if (!field) continue;
+        // Match Python str.split() after the form's existing JavaScript trim.
+        const text = String(field.value ?? '').trim()
+          .replace(/[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, ' ')
+          .replace(/^ | $/g, '');
+        if (Array.from(text).length > 160) {
+          setMobileRepairOrderTab(tab);
+          field.focus({ preventScroll: true });
+          setStatus('ПОЛЕ «' + label + '»: НЕ БОЛЕЕ 160 СИМВОЛОВ.', true);
+          return false;
+        }
+      }
+      return true;
+    }
+
     function mobileRepairOrderDraftSnapshot() {
       const fields = els.mobileRepairOrderDetail?.querySelectorAll('[data-mobile-repair-order-field], [data-mobile-repair-row-field]') || [];
       const rows = els.mobileRepairOrderDetail?.querySelectorAll('[data-mobile-repair-order-row]') || [];
@@ -7585,6 +7609,7 @@
       if (!mobileRepairOrderRowsHaveSafeIds()) {
         return setStatus('НЕ УДАЛОСЬ ПРОВЕРИТЬ СТРОКИ ЗАКАЗ-НАРЯДА. ОБНОВИТЕ ЗАКАЗ-НАРЯД.', true);
       }
+      if (!mobileRepairOrderTextWithinLimits()) return null;
       const repairOrder = readMobileRepairOrderDraft();
       const currentOrder = currentMobileRepairOrderDraft();
       const requestedStatus = normalizeRepairOrderStatus(

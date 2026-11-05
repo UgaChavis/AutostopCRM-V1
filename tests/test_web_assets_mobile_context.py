@@ -406,6 +406,7 @@ function confirmMobileRepairOrderDiscard(){return true;}
 function clearMobileRepairOrderDetailDom(){}
 function mobileRepairOrderDraftSnapshot(){return '';}
 function mobileRepairOrderRowsHaveSafeIds(){return true;}
+function mobileRepairOrderTextWithinLimits(){return true;}
 function setMobileView(view){state.mobileView=view;return true;}
 function lockMobileRepairOrderEditor(){}
 function renderMobileShell(){}

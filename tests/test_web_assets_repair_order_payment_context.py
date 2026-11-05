@@ -532,7 +532,12 @@ assert.equal(calls.length,2,'unconfirmed payment was submitted twice');
         )
 
     def test_mobile_correction_add_preserves_old_payment_and_verifies_cash(self) -> None:
-        definitions = self.payment_functions("saveMobileRepairOrder")
+        definitions = self.payment_functions(
+            "mobileRepairOrderExactMoney",
+            "mobileRepairOrderPaymentRecorded",
+            "mobileRepairOrderReadbackMatches",
+            "saveMobileRepairOrder",
+        )
         self.run_node(
             definitions,
             r"""
@@ -540,17 +545,23 @@ const oldPayment={id:'old-card',amount:'25400.00',paid_at:'15.09.2026 16:07',not
   payment_method:'card',actor_name:'MARIA',cashbox_id:'card-box',cashbox_name:'Карта Мария',cash_transaction_id:'old-transaction'};
 const newPayment={id:'mobile-payment-1000',amount:'69890',paid_at:'24.09.2026 12:00',note:'',
   payment_method:'cash',actor_name:'MARIA',cashbox_id:'cashbox-A',cashbox_name:'Наличные',cash_transaction_id:''};
-const savedOrder={status:'ready',active_correction:{id:'correction-1'},payments:[oldPayment]};
+const savedOrder={status:'ready',active_correction:{id:'correction-1'},prepayment:'25400',
+  payment_method:'cash',tags:[],works:[],materials:[],payments:[oldPayment]};
 state.mobileRepairOrderCardId='A';state.mobileRepairOrderLoading=false;state.mobileRepairOrderSaving=false;
 state.mobileRepairOrderCard={id:'A',updated_at:'r0',repair_order:savedOrder};
 state.activeCard=state.mobileRepairOrderCard;
 els.mobileRepairOrderSaveButton={disabled:false,textContent:''};
 els.mobileRepairOrderStatusSelect={value:'ready'};
 function currentMobileRepairOrderDraft(){return savedOrder;}
-function readMobileRepairOrderDraft(){return {...savedOrder,payments:[{...oldPayment,amount:'25400'},newPayment]};}
+function readMobileRepairOrderDraft(){return {...savedOrder,prepayment:'95290',payments:[{...oldPayment,amount:'25400'},newPayment]};}
+function mobileRepairOrderTextWithinLimits(){return true;}
+function mobileRepairOrderRowsHaveSafeIds(){return true;}
+function mobileCardDesktopWorkspaceBlocked(){return false;}
+function normalizeRepairOrder(order){return order;}
 function captureMobileRepairOrderContext(){return {cardId:'A',actorName:'actor-A',isCurrent:()=>true};}
 function lockMobileRepairOrderEditor(){}
 function renderMobileRepairOrderDetail(){}
+function mobileRepairOrderDraftSnapshot(){return 'saved-draft';}
 function applyMobileRepairOrderCard(card){state.mobileRepairOrderCard=card;state.activeCard=card;return card;}
 let savedCard=null;
 api=async(path,options)=>{
@@ -561,7 +572,7 @@ api=async(path,options)=>{
     assert.equal(sent[0].amount,'25400.00');
     assert.equal(sent[0].cash_transaction_id,'old-transaction');
     assert.equal(sent[1].cashbox_id,'cashbox-A');
-    savedCard={id:'A',updated_at:'r1',repair_order:{...savedOrder,payments:[sent[0],
+    savedCard={id:'A',updated_at:'r1',repair_order:{...savedOrder,prepayment:'95290',payments:[sent[0],
       {...sent[1],cash_transaction_id:'new-transaction'}]}};
     return {card:savedCard};
   }
