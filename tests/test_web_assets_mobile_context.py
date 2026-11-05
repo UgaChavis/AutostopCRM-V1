@@ -321,13 +321,21 @@ const upload={name:'one.txt',type:'text/plain',arrayBuffer:async()=>new Uint8Arr
 const state={
   viewerStateGeneration:1,operatorSessionToken:'session-A',actor:'A',mobileCardContextGeneration:1,
   mobileCardId:'A',mobileCard:{id:'A'},mobileCardCreating:false,mobileCardLoading:false,
-  mobileCardFilesBusy:false,mobileCardFilesRequest:null,fullCardCache:new Map(),
+  mobileCardFilesBusy:false,mobileCardFilesRequest:null,mobileCardWriteVerificationPending:new Set(),fullCardCache:new Map(),
   activeCard:null,activeCardIsFull:false,editingId:null,pendingCardClientId:'',
 };
 const els={mobileCardFileInput:{files:[upload],value:'old-selection'},mobileCardFileAddButton:{},mobileCardFileMeta:{}};
 const calls=[],statuses=[];
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function currentMobileCard(){return state.mobileCard;}
+async function ensureBoardModule(name){
+  assert.equal(name,'card_save');
+  return {
+    cardFileUploadInitialIds:(card,id)=>{assert.equal(card.id,id);return new Set();},
+    beginCardFileUpload:id=>({key:id}),
+    cardFileUploadReceipt:()=> 'synthetic-receipt',
+  };
+}
 function renderMobileCardFiles(){}
 function normalizeUploadableAttachmentFile(file){return file;}
 function arrayBufferToBase64(){return 'AQ==';}
