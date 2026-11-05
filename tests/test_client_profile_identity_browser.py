@@ -92,8 +92,11 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
             route.fulfill(json=payload)
 
         self.page.route("**/api/update_client", wrong)
-        self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        with self.page.expect_request("**/api/update_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function(
+            "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
+        )
         self.assertEqual(self.page.evaluate("state.clientsActiveId"), first)
         self.assertTrue(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
         self.assertEqual(self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC EDIT")
@@ -102,7 +105,8 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
             "SYNTHETIC CLIENT B",
         )
         self.page.unroute("**/api/update_client", wrong)
-        self.page.locator("#clientSaveButton").click()
+        with self.page.expect_response("**/api/get_client?**"):
+            self.page.locator("#clientSaveButton").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(writes), 1)
         self.assertFalse(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
@@ -129,18 +133,23 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
 
         self.page.route("**/api/update_client", lose)
         self.page.route("**/api/get_client?**", wrong)
-        self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        with self.page.expect_request("**/api/update_client"):
+            self.page.locator("#clientSaveButton").click()
+        self.page.wait_for_function(
+            "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
+        )
         self.assertTrue(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
         self.assertEqual(
             self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC UNCERTAIN"
         )
-        self.page.locator("#clientSaveButton").click()
+        with self.page.expect_response("**/api/get_client?**"):
+            self.page.locator("#clientSaveButton").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(writes), 1)
         self.assertTrue(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
         self.page.unroute("**/api/get_client?**", wrong)
-        self.page.locator("#clientSaveButton").click()
+        with self.page.expect_response("**/api/get_client?**"):
+            self.page.locator("#clientSaveButton").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertFalse(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
         self.assertEqual(len(writes), 1)
@@ -171,19 +180,24 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
 
         self.page.route("**/api/upsert_client_vehicle", lose)
         self.page.route("**/api/get_client?**", wrong)
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        with self.page.expect_request("**/api/upsert_client_vehicle"):
+            self.page.locator("[data-client-vehicle-save]").click()
+        self.page.wait_for_function(
+            "state.clientVehicleMutationCheckpoint?.uncertain && !state.clientMutationRequest"
+        )
         self.assertTrue(self.page.evaluate("state.clientVehicleMutationCheckpoint.uncertain"))
         self.assertEqual(
             self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
             "SYNTHETIC CAR EDIT",
         )
-        self.page.locator("[data-client-vehicle-save]").click()
+        with self.page.expect_response("**/api/get_client?**"):
+            self.page.locator("[data-client-vehicle-save]").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(writes), 1)
         self.assertTrue(self.page.evaluate("state.clientVehicleMutationCheckpoint.uncertain"))
         self.page.unroute("**/api/get_client?**", wrong)
-        self.page.locator("[data-client-vehicle-save]").click()
+        with self.page.expect_response("**/api/get_client?**"):
+            self.page.locator("[data-client-vehicle-save]").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertFalse(self.page.evaluate("state.clientVehicleMutationCheckpoint.uncertain"))
         self.assertEqual(len(writes), 1)
