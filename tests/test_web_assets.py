@@ -62,8 +62,8 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # Includes draft protection, vehicle identity checks and accessible order rows.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 982_000)
+        # Includes draft protection, vehicle identity checks and client selection updates.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 982_500)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -659,7 +659,7 @@ class WebAssetsTests(unittest.TestCase):
         ):
             self.assertIn(element_id, BOARD_WEB_APP_HTML)
         self.assertIn("function openMobileClientsPanel()", BOARD_WEB_APP_HTML)
-        self.assertIn("function renderMobileClientsPanel()", BOARD_WEB_APP_HTML)
+        self.assertIn("function renderMobileClientsPanel(preserveList = false)", BOARD_WEB_APP_HTML)
         self.assertIn("function loadMobileClients(", BOARD_WEB_APP_HTML)
         self.assertIn("function loadMobileClientProfile(clientId)", BOARD_WEB_APP_HTML)
         self.assertIn("data-mobile-client-id", BOARD_WEB_APP_HTML)

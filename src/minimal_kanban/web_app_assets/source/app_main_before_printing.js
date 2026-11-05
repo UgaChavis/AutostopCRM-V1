@@ -3865,15 +3865,16 @@
       els.clientProfilePane?.classList.toggle('is-empty', empty);
     }
 
-    function syncClientsListSelection() {
-      if (!state.clientsLoaded || state.clientsLoadError || !els.clientsList || !Array.isArray(state.clients)) return false;
-      const rows = Array.from(els.clientsList.children);
+    function syncClientsListSelection(mobile = false) {
+      const list = mobile ? els.mobileClientsList : els.clientsList;
+      if (!state.clientsLoaded || state.clientsLoadError || (mobile && state.mobileClientsLoading) || !list || !Array.isArray(state.clients)) return false;
+      const rows = Array.from(list.children);
+      const key = mobile ? 'mobileClientId' : 'clientId';
+      const rowClass = mobile ? 'mobile-client-row' : 'client-row';
       if (rows.length !== state.clients.length || rows.some((row, index) =>
-        !row.classList.contains('client-row') || row.dataset.clientId !== state.clients[index]?.id)) return false;
-      renderClientsMeta(state.clients);
-      rows.forEach((row) => {
-        row.classList.toggle('is-active', row.dataset.clientId === state.clientsActiveId);
-      });
+        !row.classList.contains(rowClass) || row.dataset[key] !== state.clients[index]?.id)) return false;
+      if (!mobile) renderClientsMeta(state.clients);
+      rows.forEach((row) => row.classList.toggle('is-active', row.dataset[key] === state.clientsActiveId));
       return true;
     }
 
@@ -8073,7 +8074,7 @@
       if (els.mobileMoreRefreshButton) els.mobileMoreRefreshButton.hidden = hasPanel;
     }
 
-    function renderMobileClientsPanel() {
+    function renderMobileClientsPanel(preserveList = false) {
       const isOpen = state.mobileMorePanel === 'clients';
       if (els.mobileClientsPanel) els.mobileClientsPanel.hidden = !isOpen;
       syncMobileMorePanelChrome();
@@ -8101,7 +8102,7 @@
           els.mobileClientsMeta.textContent = clients.length ? ('КЛИЕНТОВ: ' + clients.length) : 'КЛИЕНТОВ ПОКА НЕТ';
         }
       }
-      renderMobileClientsList();
+      if (!preserveList || !syncClientsListSelection(true)) renderMobileClientsList();
       renderMobileClientDetail();
     }
 
@@ -8146,7 +8147,7 @@
       const request = beginClientProfileSelection(normalizedId, 8, requestSeq);
       const isCurrent = request.isCurrent;
       state.mobileClientProfileLoading = true;
-      renderMobileClientsPanel();
+      renderMobileClientsPanel(true);
       try {
         const data = await api('/api/get_client?client_id=' + encodeURIComponent(normalizedId) + '&order_limit=8');
         if (!isCurrent()) return;
@@ -8157,7 +8158,7 @@
       } finally {
         if (request.owns()) {
           state.mobileClientProfileLoading = false;
-          renderMobileClientsPanel();
+          renderMobileClientsPanel(true);
         }
         if (state.clientsProfileSelectionRequest === request) state.clientsProfileSelectionRequest = null;
       }
