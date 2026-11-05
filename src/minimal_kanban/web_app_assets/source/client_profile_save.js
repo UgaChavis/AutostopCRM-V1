@@ -147,6 +147,7 @@
         if (!context.isCurrent()) return;
         const savedClientId = typeof data?.client?.id === 'string' ? data.client.id : '';
         if (!savedClientId || savedClientId !== savedClientId.trim() || (context.clientId && savedClientId !== context.clientId)
+            || (!wasExisting && data?.meta?.created === false && (data.meta.duplicate !== true || data.meta.duplicate_of !== savedClientId))
             || (!wasExisting && (!clientProfileHasRevision(data.client) || (!checkpoint.clientId && typeof data.meta?.created !== 'boolean')
               || !Object.entries(payload).every(([key, value]) => Array.isArray(value) ? Array.isArray(data.client[key]) : typeof data.client[key] === 'string')))) { checkpoint.uncertain = true; state.clientProfileUncertainEffects.set(effectKey, checkpoint); throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ КЛИЕНТА. ЧЕРНОВИК ОСТАЛСЯ В ФОРМЕ.'); }
         checkpoint.clientId = savedClientId;
