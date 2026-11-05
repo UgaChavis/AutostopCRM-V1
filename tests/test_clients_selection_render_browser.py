@@ -1,13 +1,23 @@
 """Selecting a client keeps the loaded list until the profile is ready."""
 
+import hashlib
+
 from tests.browser_ui_support import UiBrowserTestCase
 
 
 class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
     def open_clients(self):
+        suffix = (
+            hashlib.sha256(self._testMethodName.encode())
+            .hexdigest()[:12]
+            .translate(str.maketrans("0123456789", "ghijklmnop"))
+        )
+        self.client_prefix = f"SYNTHETIC {suffix}"
         ids = [
-            self.runtime.service.create_client({"display_name": name})["client"]["id"]
-            for name in ("SYNTHETIC ALPHA", "SYNTHETIC BETA", "SYNTHETIC GAMMA")
+            self.runtime.service.create_client({"display_name": f"{self.client_prefix}{name}"})[
+                "client"
+            ]["id"]
+            for name in ("ALPHA", "BETA", "GAMMA")
         ]
         self.load_board()
         self.page.locator("#clientsButton").click()
@@ -179,7 +189,7 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
             self.assertEqual(self.page.locator("#clientsList .client-row.is-active").count(), 1)
             self.assertTrue(row.evaluate("element => element.classList.contains('is-active')"))
 
-    def test_missing_metadata_or_unexpected_list_falls_back_to_render(self):
+    def test_missing_metadata_keeps_rows_but_unexpected_list_is_rendered(self):
         first, _, _ = self.open_clients()
         for variant in ("missing_meta", "unexpected_dom"):
             held = []
@@ -199,7 +209,10 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
                 "id => state.clientsActiveProfile?.client?.id === id && !state.clientsProfileSelectionRequest",
                 arg=first,
             )
-            self.assertEqual(self.page.evaluate("window.clientListRenders"), 1)
+            self.assertEqual(
+                self.page.evaluate("window.clientListRenders"),
+                0 if variant == "missing_meta" else 1,
+            )
             self.assertEqual(
                 self.page.locator("#clientsList .client-row.is-active").get_attribute(
                     "data-client-id"
@@ -216,7 +229,7 @@ class ClientSelectionRenderBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/get_client?**", lambda route: held.append(route), times=1)
         self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
         self.assertEqual(len(held), 1)
-        self.page.locator("#clientsSearchInput").fill("SYNTHETIC BETA")
+        self.page.locator("#clientsSearchInput").fill(f"{self.client_prefix}BETA")
         self.page.wait_for_function(
             "id => state.clientsLoaded && state.clients.length === 1 && state.clients[0].id === id",
             arg=second,

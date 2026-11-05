@@ -3866,7 +3866,7 @@
     }
 
     function syncClientsListSelection() {
-      if (!state.clientsLoaded || state.clientsLoadError || !state.clientsMetaState || !els.clientsList || !Array.isArray(state.clients)) return false;
+      if (!state.clientsLoaded || state.clientsLoadError || !els.clientsList || !Array.isArray(state.clients)) return false;
       const rows = Array.from(els.clientsList.children);
       if (rows.length !== state.clients.length || rows.some((row, index) =>
         !row.classList.contains('client-row') || row.dataset.clientId !== state.clients[index]?.id)) return false;
@@ -4384,10 +4384,11 @@
                   && typeof client.stats.last_visit === 'string')))) {
             throw new Error('СПИСОК КЛИЕНТОВ НЕ ПОДТВЕРЖДЁН.');
           }
+          const sameClients = state.clientsLoaded && JSON.stringify(state.clients) === JSON.stringify(clients);
           state.clientsMetaState = meta;
           state.clients = clients;
           state.clientsLoaded = true;
-          renderClientsList();
+          if (!sameClients || !syncClientsListSelection()) renderClientsList();
         },
         onError: (error) => {
           state.clientsLoaded = false;
