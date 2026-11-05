@@ -10568,6 +10568,9 @@
           profile.field_sources = fieldSources;
         }
       }
+      // Keep the first create payload consistent with the confirmed empty identity.
+      if (profile.make_display == null) profile.make_display = '';
+      if (profile.model_display == null) profile.model_display = '';
       const warnings = Array.isArray(profile.warnings) ? profile.warnings.filter((item) => item !== 'VIN требует ручной проверки.') : [];
       if (vinLooksSuspicious(profile.vin)) warnings.push('VIN требует ручной проверки.');
       profile.warnings = warnings;
