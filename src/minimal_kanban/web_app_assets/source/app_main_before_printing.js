@@ -5806,7 +5806,7 @@
           fieldSources[fieldName] = 'mobile_ui';
         }
       });
-      profile.customer_phones = normalizePhoneList([profile.customer_phone]);
+      profile.customer_phones = normalizePhoneList([profile.customer_phone, ...baseProfile.customer_phones.slice(1)]);
       profile.customer_phone = profile.customer_phones[0] || '';
       const displayName = String(profile.display_name || '').trim();
       if (displayName) {
