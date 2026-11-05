@@ -416,6 +416,11 @@ def build_context_snapshot(store, state, domains):
             # can remove one side of a collision.
             cards = _search_cards_before_retention(deepcopy(raw_cards), columns)
             search_cards_need_retention = True
+        elif tuple(domains) == ("client_profile",):
+            # Card models own their data except nested order history.
+            cards, _ = store._normalize_cards(
+                {"cards": raw_cards}, columns, detach_order_history=True
+            )
         else:
             cards, _ = store._normalize_cards({"cards": deepcopy(raw_cards)}, columns)
     else:

@@ -1697,7 +1697,12 @@ class JsonStore:
         return normalized
 
     def _normalize_cards(
-        self, state: dict, columns: list[Column], *, _repair_orders: list[RepairOrder] | None = None
+        self,
+        state: dict,
+        columns: list[Column],
+        *,
+        _repair_orders: list[RepairOrder] | None = None,
+        detach_order_history: bool = False,
     ) -> tuple[list[Card], bool]:
         raw_cards = state.get("cards", [])
         repaired = False
@@ -1728,6 +1733,11 @@ class JsonStore:
                 fallback_position=index,
                 **order_arg,
             )
+            if detach_order_history:
+                order = card.repair_order
+                order.cycles = deepcopy(order.cycles)
+                order.payroll_postings = deepcopy(order.payroll_postings)
+                order.active_correction = deepcopy(order.active_correction)
             cards.append(card)
             if item != card.to_storage_dict():
                 repaired = True
