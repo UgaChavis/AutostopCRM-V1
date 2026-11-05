@@ -869,6 +869,7 @@
       if (state.editingId && !state.activeCardIsFull) return setStatus('ДОЖДИТЕСЬ ЗАГРУЗКИ КАРТОЧКИ.', true);
       const payload = currentCardPayload();
       if (!payload.title) return setStatus(CARD_TITLE_REQUIRED_MESSAGE, true);
+      if (!cardDescriptionCanSave(payload.description)) return;
       if (!cardMileageCanSave(payload.vehicle_profile)) return;
       const request = {};
       const generation = state.viewerStateGeneration;

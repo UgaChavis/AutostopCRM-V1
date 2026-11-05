@@ -2519,9 +2519,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("const request = fetchFullCard(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("const fullCard = await request.catch", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "setCardDescriptionValue(currentCard?.description || '');", BOARD_WEB_APP_HTML
-        )
+        self.assertIn("setCardDescriptionValue(currentCard?.description);", BOARD_WEB_APP_HTML)
         self.assertIn("recordCardOpenSideEffects(normalizedCardId);", BOARD_WEB_APP_HTML)
         self.assertIn("function recordCardOpenSideEffects(cardId)", BOARD_WEB_APP_HTML)
         self.assertIn("CARD_OPEN_SIDE_EFFECT_DELAY_MS = 700", BOARD_WEB_APP_HTML)

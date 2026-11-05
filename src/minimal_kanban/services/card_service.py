@@ -6307,6 +6307,8 @@ class CardService(
         actor_name: str,
         source: str,
     ) -> bool:
+        if isinstance(value, str) and value == card.description:
+            return False
         description = self._validated_description(value)
         if description == card.description:
             return False

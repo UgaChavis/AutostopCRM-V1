@@ -1351,17 +1351,23 @@
 
     function syncCardDescriptionSourceFromEditor() {
       if (!els.cardDescription || !els.cardDescriptionEditor) return;
-      const maxLength = Math.max(0, finiteNumber(els.cardDescription.maxLength, DESCRIPTION_MAX_LENGTH));
-      els.cardDescription.value = descriptionEditorToMarkdown(els.cardDescriptionEditor).slice(0, maxLength);
+      const baseline = state.cardDescriptionBaseline;
+      const value = baseline && baseline.html === els.cardDescriptionEditor.innerHTML
+        ? baseline.raw : descriptionEditorToMarkdown(els.cardDescriptionEditor);
+      els.cardDescription.value = value;
+      return value;
     }
 
     function setCardDescriptionValue(value) {
-      const maxLength = Math.max(0, finiteNumber(els.cardDescription?.maxLength, DESCRIPTION_MAX_LENGTH));
-      const nextValue = String(value || '').slice(0, maxLength);
+      const nextValue = String(value || '');
+      state.cardDescriptionBaseline = null;
       if (els.cardDescription) els.cardDescription.value = nextValue;
       state.cardDescriptionLoading = false;
       if (els.cardDescriptionEditor) {
         els.cardDescriptionEditor.innerHTML = descriptionMarkdownToHtml(nextValue);
+        if (typeof value === 'string') {
+          state.cardDescriptionBaseline = { raw: value, html: els.cardDescriptionEditor.innerHTML };
+        }
         els.cardDescriptionEditor.contentEditable = 'true';
         els.cardDescriptionEditor.classList.remove('is-loading');
         els.cardDescriptionEditor.removeAttribute('aria-busy');
@@ -1374,8 +1380,14 @@
     }
 
     function getCardDescriptionValue() {
-      syncCardDescriptionSourceFromEditor();
-      return String(els.cardDescription?.value || '');
+      return syncCardDescriptionSourceFromEditor() ?? String(els.cardDescription?.value || '');
+    }
+
+    function cardDescriptionCanSave(value) {
+      if (Array.from(value).length <= DESCRIPTION_MAX_LENGTH) return true;
+      setStatus('ОПИСАНИЕ КАРТОЧКИ: НЕ БОЛЕЕ 20000 СИМВОЛОВ.', true);
+      els.cardDescriptionEditor?.focus();
+      return false;
     }
 
     function handleCardDescriptionInput() {
@@ -11763,6 +11775,7 @@
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
       const isCurrent = captureCardSaveWorkspace();
       const payload = currentCardPayload();
+      if (!cardDescriptionCanSave(payload.description)) return null;
       if (!cardMileageCanSave(payload.vehicle_profile)) return null;
       if (!payload.title) {
         const repairOrder = readRepairOrderFromForm();
@@ -13118,7 +13131,7 @@
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
       renderLogs([]);
-      setCardDescriptionValue(currentCard?.description || '');
+      setCardDescriptionValue(currentCard?.description);
       if (!currentCard?.id) {
         renderFiles(currentCard);
       } else if (state.currentTab === 'files') {
@@ -13169,6 +13182,7 @@
       setCardSaveInteractionLocked(false);
       state.cardInitialPayloadKey = '';
       state.cardDescriptionLoading = false;
+      state.cardDescriptionBaseline = null;
       state.cardJournalLoadedFor = '';
       state.cardJournalRequest = null;
       state.cardJournalLimit = CARD_JOURNAL_INITIAL_LIMIT;
