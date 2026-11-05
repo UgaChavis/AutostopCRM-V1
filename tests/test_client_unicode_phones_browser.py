@@ -110,16 +110,12 @@ class ClientUnicodePhonesBrowserTests(UiBrowserTestCase):
             self.runtime.service.get_client({"client_id": client["id"]})["client"]["phones"],
             self.phones,
         )
-        self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function(
-            "!state.clientMutationRequest && state.clientProfileSaveCheckpoint?.uncertain"
-        )
+        self.page.evaluate("async () => { await saveClientProfile(); }")
+        self.assertTrue(self.page.evaluate("state.clientProfileSaveCheckpoint?.uncertain"))
         self.assertEqual(self.writes.count("update_client"), 1)
         self.page.unroute("**/api/get_client?**", partial_readback)
-        self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function(
-            "!state.clientMutationRequest && !state.clientProfileSaveCheckpoint?.uncertain"
-        )
+        self.page.evaluate("async () => { await saveClientProfile(); }")
+        self.assertFalse(self.page.evaluate("state.clientProfileSaveCheckpoint?.uncertain"))
         self.assertEqual(self.writes.count("update_client"), 1)
 
     def test_ascii_dedup_unicode_identity_and_limit(self):

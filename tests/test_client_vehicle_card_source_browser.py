@@ -1,6 +1,7 @@
 """Editing a card-derived vehicle must not silently create a separate copy."""
 
 from tests.browser_ui_support import UiBrowserTestCase
+from tests.client_vehicle_browser_support import await_client_vehicle_action
 
 
 class ClientVehicleCardSourceBrowserTests(UiBrowserTestCase):
@@ -65,7 +66,7 @@ class ClientVehicleCardSourceBrowserTests(UiBrowserTestCase):
 
     def test_candidate_edit_preserves_input_without_write(self):
         client, card, _ = self.open_candidate()
-        self.page.locator("[data-client-vehicle-save]").click()
+        await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 0)
         self.assertEqual(
             self.page.locator('[data-client-vehicle-field="license_plate"]').input_value(),
@@ -87,8 +88,7 @@ class ClientVehicleCardSourceBrowserTests(UiBrowserTestCase):
         self.start_previous_write(card["id"], uncertain=True)
         self.assertTrue(self.page.evaluate("state.clientVehicleMutationCheckpoint.uncertain"))
         with self.page.expect_response("**/api/get_client?**"):
-            self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+            await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertTrue(self.page.evaluate("state.clientVehicleMutationCheckpoint.uncertain"))
         self.assertEqual(
@@ -104,8 +104,7 @@ class ClientVehicleCardSourceBrowserTests(UiBrowserTestCase):
             self.page.evaluate("Boolean(state.clientVehicleMutationCheckpoint.confirmedResult)")
         )
         with self.page.expect_response("**/api/get_client?**"):
-            self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+            await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertIsNone(self.page.evaluate("state.clientVehicleEditor"))
         self.assertEqual(
@@ -127,8 +126,7 @@ class ClientVehicleCardSourceBrowserTests(UiBrowserTestCase):
                 reads.append(request.url) if "/api/get_client?" in request.url else None
             ),
         )
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertEqual(reads, [])
         self.assertEqual(

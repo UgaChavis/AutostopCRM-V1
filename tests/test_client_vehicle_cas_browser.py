@@ -1,6 +1,7 @@
 """Client vehicle writes use the version of the profile shown to the operator."""
 
 from tests.browser_ui_support import UiBrowserTestCase
+from tests.client_vehicle_browser_support import await_client_vehicle_action
 
 
 class ClientVehicleCasBrowserTests(UiBrowserTestCase):
@@ -161,8 +162,7 @@ class ClientVehicleCasBrowserTests(UiBrowserTestCase):
         self.page.evaluate("state.clientsDesktopProfile.client.updated_at = ''")
         self.page.click("#clientVehicleAddButton")
         self.page.locator('[data-client-vehicle-field="vehicle"]').fill("SYNTHETIC NO VERSION")
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 0)
         self.assertEqual(self.page.evaluate("state.clientCandidateVehicleEffects.size"), 0)
         self.assertEqual(

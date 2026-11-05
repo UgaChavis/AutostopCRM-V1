@@ -30,10 +30,32 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         )
 
     def save_profile(self) -> None:
-        self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function(
-            "state.clientProfileSaveCheckpoint !== null && !state.clientMutationRequest"
+        self.page.evaluate("async () => { await saveClientProfile(); }")
+
+    def test_pending_lazy_profile_save_is_not_already_complete(self) -> None:
+        self.open_new_profile("Synthetic delayed profile module")
+        self.page.evaluate(
+            """() => {
+              boardModuleRecords.delete('card_save');
+              state.clientProfileSaveCheckpoint = {effectKey: 'previous', uncertain: true};
+            }"""
         )
+        path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+        held = []
+        self.page.route("**" + path, lambda route: held.append(route))
+        with self.page.expect_request("**" + path):
+            self.page.locator("#clientSaveButton").click()
+        self.assertTrue(
+            self.page.evaluate(
+                "state.clientProfileSaveCheckpoint !== null && !state.clientMutationRequest"
+            )
+        )
+        self.assertEqual(self.writes.count("create_client"), 0)
+        self.assertEqual(len(held), 1)
+        with self.page.expect_response("**/api/create_client"):
+            held.pop().continue_()
+        self.page.wait_for_function("!state.clientMutationRequest && state.clientsActiveId")
+        self.assertEqual(self.writes.count("create_client"), 1)
 
     def test_lost_update_reply_verifies_normalized_data_without_repeating_write(self) -> None:
         self.create_client_and_open("Client profile update once")
@@ -97,7 +119,8 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
             "Client profile validation draft",
         )
         self.page.unroute("**/api/create_client")
-        self.page.locator("#clientSaveButton").click()
+        with self.page.expect_response("**/api/create_client"):
+            self.page.locator("#clientSaveButton").click()
         self.page.wait_for_function("!state.clientMutationRequest && state.clientsActiveId")
         self.assertEqual(self.writes.count("create_client"), 2)
 

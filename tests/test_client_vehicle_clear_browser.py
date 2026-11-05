@@ -1,6 +1,7 @@
 """Unsupported vehicle field clearing must not be reported as saved."""
 
 from tests.browser_ui_support import UiBrowserTestCase
+from tests.client_vehicle_browser_support import await_client_vehicle_action
 
 
 class ClientVehicleClearBrowserTests(UiBrowserTestCase):
@@ -35,7 +36,7 @@ class ClientVehicleClearBrowserTests(UiBrowserTestCase):
                 selector = f'[data-client-vehicle-field="{field}"]'
                 original = self.page.locator(selector).input_value()
                 self.page.locator(selector).fill("")
-                self.page.locator("[data-client-vehicle-save]").click()
+                await_client_vehicle_action(self.page)
                 self.assertEqual(self.page.locator(selector).input_value(), "")
                 self.assertIn(
                     "ОЧИСТКА ПОЛЕЙ АВТОМОБИЛЯ ПОКА НЕДОСТУПНА",
@@ -53,18 +54,16 @@ class ClientVehicleClearBrowserTests(UiBrowserTestCase):
         client, vehicle = self.open_vehicle()
         self.page.locator('[data-client-vehicle-field="license_plate"]').fill("В234ВВ77")
         with self.page.expect_response("**/api/upsert_client_vehicle") as response:
-            self.page.locator("[data-client-vehicle-save]").click()
+            await_client_vehicle_action(self.page)
         self.assertEqual(response.value.status, 200)
-        self.page.wait_for_function("!state.clientMutationRequest")
         current = self.runtime.service.get_client({"client_id": client["id"]})["client"]["vehicles"]
         self.assertEqual(current[0]["id"], vehicle["id"])
         self.assertNotEqual(current[0]["license_plate"], vehicle["license_plate"])
         self.page.click("#clientVehicleAddButton")
         self.page.locator('[data-client-vehicle-field="vehicle"]').fill("SYNTHETIC NEW CAR")
         with self.page.expect_response("**/api/upsert_client_vehicle") as response:
-            self.page.locator("[data-client-vehicle-save]").click()
+            await_client_vehicle_action(self.page)
         self.assertEqual(response.value.status, 200)
-        self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(
             len(self.runtime.service.get_client({"client_id": client["id"]})["client"]["vehicles"]),
             2,
@@ -93,8 +92,7 @@ class ClientVehicleClearBrowserTests(UiBrowserTestCase):
         for field in ("vehicle", "vin", "license_plate"):
             self.page.locator(f'[data-client-vehicle-field="{field}"]').fill("")
         with self.page.expect_response("**/api/get_client?**"):
-            self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+            await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertTrue(
             self.page.evaluate("Boolean(state.clientVehicleMutationCheckpoint.confirmedResult)")

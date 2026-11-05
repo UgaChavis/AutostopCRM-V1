@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from tests.browser_ui_support import UiBrowserTestCase
+from tests.client_vehicle_browser_support import await_client_vehicle_action
 
 
 class ClientVehiclesBrowserTests(UiBrowserTestCase):
@@ -279,8 +280,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         candidate_row = self.page.locator("#clientVehiclesList .client-mini--vehicle").nth(1)
         candidate_row.locator("[data-client-vehicle-edit]").click()
         self.page.locator('[data-client-vehicle-field="vehicle"]').fill("UNSAVED CHANGE")
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertEqual(
             self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
@@ -325,8 +325,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         )
         candidate_row.locator("[data-client-vehicle-edit]").click()
         self.page.locator('[data-client-vehicle-field="vehicle"]').fill("CHANGED AFTER RELOAD")
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        await_client_vehicle_action(self.page)
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 1)
         self.assertEqual(
             self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
@@ -476,11 +475,29 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         self.page.locator('[data-client-vehicle-field="license_plate"]').fill("a 123 aa 24")
         return client_id
 
-    def save_vehicle(self) -> None:
-        self.page.locator("[data-client-vehicle-save]").click()
-        self.page.wait_for_function(
-            "state.clientVehicleMutationCheckpoint !== null && !state.clientMutationRequest"
+    def test_cold_vehicle_save_does_not_start_mutation_before_module_load(self) -> None:
+        client_id = self.open_new_vehicle("Cold vehicle action")
+        module = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
+        self.assertFalse(
+            self.page.evaluate("Boolean(boardModuleRecords.get('card_save')?.exports)")
         )
+        held = []
+        self.page.route("**" + module, lambda route: held.append(route))
+        with self.page.expect_request("**" + module):
+            self.page.locator("[data-client-vehicle-save]").click()
+        self.page.wait_for_timeout(100)
+        self.assertEqual(len(held), 1)
+        self.assertFalse(self.page.evaluate("Boolean(state.clientMutationRequest)"))
+        self.assertNotIn("upsert_client_vehicle", self.writes)
+        with self.page.expect_response("**/api/upsert_client_vehicle") as response:
+            held.pop().continue_()
+        self.assertEqual(response.value.status, 200)
+        self.page.wait_for_function("!state.clientMutationRequest && !state.clientVehicleEditor")
+        vehicles = self.runtime.service.get_client({"client_id": client_id})["client"]["vehicles"]
+        self.assertEqual([vehicle["vehicle"] for vehicle in vehicles], ["Toyota synthetic"])
+
+    def save_vehicle(self) -> None:
+        await_client_vehicle_action(self.page)
 
     def test_lost_existing_vehicle_reply_confirms_same_id_without_second_update(self) -> None:
         client_id = self.open_new_vehicle("Client vehicle lost edit")
@@ -580,8 +597,7 @@ class ClientVehiclesBrowserTests(UiBrowserTestCase):
         self.assertEqual(vehicle["vin"], "JTM12345678901234")
         self.assertEqual(vehicle["license_plate"], "a 123 aa 24")
         self.page.once("dialog", lambda dialog: dialog.accept())
-        self.page.locator(f'[data-client-vehicle-delete="{vehicle_key}"]').click()
-        self.page.wait_for_function("!state.clientMutationRequest")
+        await_client_vehicle_action(self.page, f'[data-client-vehicle-delete="{vehicle_key}"]')
         self.assertEqual(self.runtime.service.get_client({"client_id": client_id})["vehicles"], [])
         self.assertEqual(self.writes.count("upsert_client_vehicle"), 2)
         self.assertEqual(self.writes.count("delete_client_vehicle"), 1)

@@ -10,6 +10,10 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
             "id => state.clientsDesktopProfile?.client?.id === id", arg=client_id
         )
 
+    def save_client_profile(self):
+        self.page.wait_for_function("els.clientSaveButton && !els.clientSaveButton.disabled")
+        self.page.evaluate("async () => { await saveClientProfile(); }")
+
     def test_conflict_keeps_draft_and_does_not_repeat(self):
         other = self.runtime.service.create_client({"display_name": "SYNTHETIC OTHER CLIENT"})[
             "client"
@@ -30,7 +34,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
 
         self.page.route("**/api/update_client", reject)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC UNSAVED")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(attempts), 1)
         self.assertEqual(attempts[0]["client_id"], client_id)
@@ -62,7 +66,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
             route.fulfill(status=422, json={"ok": False, "error": {"message": "SYNTHETIC"}})
 
         self.page.route("**/api/create_client", reject)
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(attempts), 1)
         self.assertNotIn("expected_updated_at", attempts[0])
@@ -74,7 +78,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.create_client_and_open("SYNTHETIC MISSING VERSION")
         self.page.evaluate("state.clientsDraftRevision.version = ''")
         self.page.locator("#clientCommentInput").fill("SYNTHETIC DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertNotIn("update_client", self.writes)
         self.assertEqual(self.page.locator("#clientCommentInput").input_value(), "SYNTHETIC DRAFT")
@@ -105,7 +109,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/update_client", fail_write)
         self.page.route("**/api/get_client?**", fail_read)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC UNKNOWN")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
         )
@@ -118,7 +122,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.open_client(second)
         self.open_client(first)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC UNKNOWN")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(attempts), 1)
         self.assertEqual(attempts[0]["expected_updated_at"], original)
@@ -157,7 +161,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/update_client", lose_write)
         self.page.route("**/api/get_client?**", fail_read)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC FIRST DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
         )
@@ -166,7 +170,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
 
         self.page.unroute("**/api/get_client?**", fail_read)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC SECOND DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "!state.clientProfileSaveCheckpoint.uncertain && !state.clientMutationRequest"
         )
@@ -188,7 +192,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
 
         self.page.unroute("**/api/update_client", lose_write)
         with self.page.expect_request("**/api/update_client") as request:
-            self.page.locator("#clientSaveButton").click()
+            self.save_client_profile()
         self.assertEqual(request.value.post_data_json["expected_updated_at"], confirmed_versions[0])
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(
@@ -213,12 +217,12 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/update_client", lose_write)
         self.page.route("**/api/get_client?**", omit_version)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC FIRST DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
         )
         self.page.locator("#clientCommentInput").fill("SYNTHETIC SECOND DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertTrue(self.page.evaluate("state.clientProfileSaveCheckpoint.uncertain"))
         self.assertEqual(len(attempts), 1)
@@ -241,14 +245,14 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.page.route("**/api/update_client", lose_write)
         self.page.route("**/api/get_client?**", fail_read)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC FIRST DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "state.clientProfileSaveCheckpoint?.uncertain && !state.clientMutationRequest"
         )
 
         self.page.unroute("**/api/get_client?**", fail_read)
         self.page.locator("#clientCommentInput").fill("SYNTHETIC SECOND DRAFT")
-        self.page.locator("#clientSaveButton").click()
+        self.save_client_profile()
         self.page.wait_for_function(
             "!state.clientProfileSaveCheckpoint.uncertain && !state.clientMutationRequest"
         )
@@ -261,7 +265,7 @@ class ClientProfileCasBrowserTests(UiBrowserTestCase):
         self.assertNotEqual(remote["updated_at"], rebased_version)
         self.page.unroute("**/api/update_client", lose_write)
         with self.page.expect_response("**/api/update_client") as response:
-            self.page.locator("#clientSaveButton").click()
+            self.save_client_profile()
         self.assertEqual(response.value.status, 409)
         self.assertEqual(
             response.value.request.post_data_json["expected_updated_at"], rebased_version
