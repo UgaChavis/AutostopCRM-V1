@@ -208,7 +208,10 @@ assert.equal(state.cardFilesMutationRequest,null);
 
     def test_save_and_file_mutations_are_mutually_exclusive(self) -> None:
         definitions = self.card_file_functions(
-            "refreshActiveCardFiles", "removeActiveCardAttachment", "uploadProvidedFiles"
+            "findCardAttachment",
+            "refreshActiveCardFiles",
+            "removeActiveCardAttachment",
+            "uploadProvidedFiles",
         ) + functions("app_main_after_printing.js", "saveCard")
         self.run_node(
             definitions,

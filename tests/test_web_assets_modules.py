@@ -194,8 +194,8 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # Includes draft protection and revision checks for card file readback.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 966_200)
+        # Includes draft protection and verification of file readback and card revision.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 966_600)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]

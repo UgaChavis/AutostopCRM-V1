@@ -13532,6 +13532,7 @@
       const data = await cardFilesApi('/api/get_card?card_id=' + encodeURIComponent(cardId));
       if (!isCurrent() || (!context && state.activeCard?.updated_at !== version)) return null;
       if (!mobileCardHasRequiredFields(data?.card) || data.card.id !== cardId || data.card.attachments.some(a => typeof a.id !== 'string' || !a.id || a.id !== a.id.trim() || typeof a.removed !== 'boolean')) throw new Error('КАРТОЧКА НЕ ПОДТВЕРЖДЕНА.');
+      if (context?.filesReadbackMatches && !context.filesReadbackMatches(data.card)) throw new Error('СПИСОК ФАЙЛОВ НЕ ПОДТВЕРЖДЕН.');
       const previous = state.activeCard;
       const readWarnings = Array.from(new Set([...(Array.isArray(previous?.read_warnings) ? previous.read_warnings : []), ...(Array.isArray(data.read_warnings) ? data.read_warnings : [])]));
       if (mobileCardEditableFieldsMatch(previous, data.card)) {
@@ -13566,6 +13567,7 @@
           },
         });
         if (!context.isCurrent()) return null;
+        context.filesReadbackMatches = (card) => !findCardAttachment(card, normalizedAttachmentId);
         const card = await refreshActiveCardFiles(context);
         if (!card || !context.isCurrent()) return null;
         state.cardJournalLoadedFor = '';
@@ -16811,6 +16813,7 @@
         checkpoint = { ownerKey, signature, receipts: [], uncertain: false };
         state.cardFileUploadCheckpoint = checkpoint;
       }
+      context.filesReadbackMatches = (card) => checkpoint.receipts.filter(Boolean).every((id) => findCardAttachment(card, id));
       let attemptedWrites = 0;
       let completedWrites = checkpoint.receipts.filter(Boolean).length;
       let readback = null;
