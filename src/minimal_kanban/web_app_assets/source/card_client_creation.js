@@ -95,6 +95,11 @@
       const context = { ...parent, writeRequest: cardPersistWrite,
         isCurrent: () => parent.isCurrent() && (!requestGuard || requestGuard()) };
       const sourceProfile = cloneVehicleProfile(profile && typeof profile === 'object' ? profile : readVehicleProfileForm());
+      const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
+      if (!context.cardId && shouldCreateVehicle && !cardMileageCanSave(sourceProfile)) {
+        finishCardScopedRequest(parent);
+        return null;
+      }
       const request = normalizedCardClientCreatePayload(payload);
       if (!String(request.display_name || '').trim() && !String(request.phone || '').trim()) {
         setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
@@ -142,7 +147,6 @@
           }
         }
         if (!context.isCurrent()) return null;
-        const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
         if (context.cardId && !checkpoint.linked) {
           checkpoint.createVehicle = shouldCreateVehicle;
           checkpoint.linkRejected = false;

@@ -5791,8 +5791,7 @@
     }
 
     function mobileVehicleNumberFieldValue(fieldName, value) {
-      if (fieldName === 'production_year') return normalizeVehicleNumber(value, { integer: true });
-      if (fieldName === 'mileage') return normalizeVehicleNumber(value, { integer: true });
+      if (fieldName === 'production_year' || fieldName === 'mileage') return normalizeVehicleNumber(value, { integer: true });
       return value === null || value === undefined ? '' : String(value).trim();
     }
 
@@ -5801,7 +5800,7 @@
       const profile = cloneVehicleProfile(card?.vehicle_profile || {});
       els.mobileCardVehicleProfile.querySelectorAll('[data-mobile-vehicle-field]').forEach((field) => {
         const fieldName = field.getAttribute('data-mobile-vehicle-field');
-        const value = fieldName === 'customer_phone' ? profile.customer_phone : profile[fieldName];
+        const value = profile[fieldName];
         field.value = value === null || value === undefined ? '' : String(value);
       });
     }
@@ -5817,7 +5816,7 @@
         const fieldName = field.getAttribute('data-mobile-vehicle-field');
         const rawValue = field.value;
         const nextValue = mobileVehicleNumberFieldValue(fieldName, rawValue);
-        const previousValue = fieldName === 'customer_phone' ? baseProfile.customer_phone : baseProfile[fieldName];
+        const previousValue = baseProfile[fieldName];
         profile[fieldName] = nextValue;
         if (String(nextValue ?? '') !== String(previousValue ?? '')) {
           manualFields.add(fieldName);
@@ -6508,6 +6507,7 @@
       if (!isNewCard && state.mobileCardWriteVerificationPending.has(cardId)) return setStatus('РЕЗУЛЬТАТ СОХРАНЕНИЯ НЕ ПОДТВЕРЖДЁН. ЗАКРОЙТЕ И ОТКРОЙТЕ КАРТОЧКУ ЗАНОВО.', true);
       const payload = readMobileCardDraft();
       if (!payload.title) return setStatus(MOBILE_CARD_TITLE_REQUIRED_MESSAGE, true);
+      if (!cardMileageCanSave(payload.vehicle_profile)) return;
       if (!isNewCard && !payload.expected_updated_at) return setStatus('НЕ ПОДТВЕРЖДЕНА ВЕРСИЯ КАРТОЧКИ. ОТКРОЙТЕ ЕЁ ЗАНОВО.', true);
       if (isNewCard) {
         const error = beginMobileCardCreate();
@@ -10155,6 +10155,12 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function cardMileageCanSave(profile) {
+      if (profile?.mileage !== 0) return true;
+      setStatus('НУЛЕВОЙ ПРОБЕГ НЕ СОХРАНЯЕТСЯ. УКАЖИТЕ ПОЛОЖИТЕЛЬНОЕ ЗНАЧЕНИЕ ИЛИ ОСТАВЬТЕ ПОЛЕ ПУСТЫМ.', true);
+      return false;
+    }
+
     function normalizeVehicleLinksInput(rawValue) {
       if (Array.isArray(rawValue)) return rawValue.map((item) => String(item || '').trim()).filter(Boolean);
       return String(rawValue || '')
@@ -11666,6 +11672,7 @@
       if (state.editingId) return { id: state.editingId, repair_order: state.activeCard?.repair_order || {} };
       const isCurrent = captureCardSaveWorkspace();
       const payload = currentCardPayload();
+      if (!cardMileageCanSave(payload.vehicle_profile)) return null;
       if (!payload.title) {
         const repairOrder = readRepairOrderFromForm();
         payload.title = repairOrder.reason || repairOrder.vehicle || 'Заказ-наряд';
