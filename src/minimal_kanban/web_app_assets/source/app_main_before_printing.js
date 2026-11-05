@@ -14417,7 +14417,8 @@
       const items = filterRepairOrdersItems(state.repairOrdersItems);
       syncRepairOrdersControls();
       if (state.repairOrdersLoadError && !state.repairOrdersSearchLoading) return;
-      const warning = state.repairOrdersSearchLoading ? '' : repairOrdersHiddenWarning();
+      const meta = state.repairOrdersMetaState;
+      const warning = state.repairOrdersSearchLoading ? '' : [repairOrdersHiddenWarning(), meta?.has_more ? `ПО ФИЛЬТРУ И ПОИСКУ: ПОКАЗАНО ${meta.returned} ИЗ ${meta.total} ЗАКАЗ-НАРЯДОВ.` : ''].filter(Boolean).join(' ');
       els.repairOrdersMeta.textContent = warning;
       els.repairOrdersMeta.hidden = !warning;
       els.repairOrdersMeta.setAttribute('aria-hidden', String(!warning));
