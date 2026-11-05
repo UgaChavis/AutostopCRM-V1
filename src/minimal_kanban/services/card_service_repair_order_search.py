@@ -112,17 +112,27 @@ class CardServiceRepairOrderSearchMixin:
                     order.vehicle or card.vehicle,
                     order.client,
                 ]
-            haystack = " ".join(
+            normalized_values = [
                 normalized
                 for normalized in (
                     self._normalize_search_text(value).replace("ё", "е") for value in values
                 )
                 if normalized
-            )
+            ]
+            haystack = " ".join(normalized_values)
             if not haystack:
                 continue
 
-            if search_field == "summary":
+            if search_field == "license_plate":
+                matched = any(
+                    normalized_query in value
+                    or (
+                        bool(compact_query)
+                        and compact_query in SEARCH_SEPARATOR_PATTERN.sub("", value)
+                    )
+                    for value in normalized_values
+                )
+            elif search_field == "summary":
                 haystack_tokens = haystack.split()
                 matched = all(
                     any(
