@@ -152,7 +152,11 @@ class ContextLinkAndTextSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
     async def test_raw_and_gateway_client_use_only_exact_links_with_matching_totals(self):
         before = self.snapshot()
         ui = self.service.get_client({"client_id": self.client_a["id"]})
-        self.assertEqual(ui["meta"]["repair_orders_total"], 3)
+        self.assertEqual(ui["meta"]["repair_orders_total"], 2)
+        self.assertEqual(
+            {item["card_id"] for item in ui["repair_orders"]}, {self.cards[0], self.cards[2]}
+        )
+        self.assertIn("related_card_client_match_unverified", ui["meta"]["read_warnings"])
         for raw, name, arguments in (
             (True, "get_client", {"client_id": self.client_a["id"]}),
             (

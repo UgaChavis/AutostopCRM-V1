@@ -150,7 +150,12 @@ assert.match(els.mobileInventoryItemsList.innerHTML,/СКЛАД ЗАГРУЖАЕ
 
     def test_mobile_inventory_entry_refreshes_form_after_material_selection(self) -> None:
         self.run_node(
-            functions("app_main_before_printing.js", "renderMobileShell", "setMobileView")
+            functions(
+                "app_main_before_printing.js",
+                "renderMobileShell",
+                "clearMobileRepairOrdersSearch",
+                "setMobileView",
+            )
             + functions(
                 "inventory_workspace.js",
                 "inventoryItemId",

@@ -245,10 +245,16 @@ assert.notEqual(renderBoardCardHtml(card),renderBoardCardHtml({...card,title:'Ch
             "    async function loadMobileClientProfile(",
             "    function openMobileClientsPanel(",
         )
+        selection = section(
+            source,
+            "    function syncClientsListSelection(",
+            "    function renderClientProfileEmptyState(",
+        )
         self.run_node(
             """
 const assert = require('node:assert/strict');
 const state = {viewerStateGeneration: 0, clientsProfileRequestSeq: 0};
+const els = {clientProfileTitle: {textContent: ''}, clientProfilePhone: {textContent: ''}};
 const pending = new Map(), errors = [];
 function api(path) { return new Promise((resolve,reject) => pending.set(path.match(/client_id=([^&]*)/)[1], {resolve,reject})); }
 function renderClientProfile(data) { state.clientsActiveProfile = data; }
@@ -257,6 +263,7 @@ function renderMobileClientsPanel() {}
 function setStatus(message) { errors.push(message); }
 function clientProfileReadValid(data,id) { return data?.client?.id === id; }
 """
+            + selection
             + desktop
             + mobile
             + """

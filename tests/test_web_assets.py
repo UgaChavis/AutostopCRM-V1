@@ -877,7 +877,7 @@ class WebAssetsTests(unittest.TestCase):
         )
         self.assertIn("vehicle_profile: readMobileCardVehicleProfile(card),", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "profile.customer_phones = normalizePhoneList([profile.customer_phone]);",
+            "profile.customer_phones = normalizePhoneList([profile.customer_phone, ...baseProfile.customer_phones.slice(1)]);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("profile.make_display = displayParts.make_display;", BOARD_WEB_APP_HTML)
@@ -3503,7 +3503,17 @@ class WebAssetsTests(unittest.TestCase):
         # Session storage contains only markers for uncertain creates, never session data.
         self.assertEqual(
             re.findall(r"\bsessionStorage\.setItem\(([^)]*)\)", BOARD_WEB_APP_HTML),
-            ["key, '1'", "effect.key, '1'", "MOBILE_CARD_CREATE_PENDING_KEY, '1'"],
+            [
+                "key, '1'",
+                "effect.key, '1'",
+                "cardClientCreatePendingKey, '1'",
+                "cardClientCreatePendingKey, '1'",
+                "MOBILE_CARD_CREATE_PENDING_KEY, '1'",
+                "key, '1'",
+                "effect.key, '1'",
+                "key, '1'",
+                "key, '1'",
+            ],
         )
         self.assertIn("'X-Operator-Session'", BOARD_WEB_APP_HTML)
         self.assertIn('id="operatorProfileModal"', BOARD_WEB_APP_HTML)

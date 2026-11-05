@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ else:
 
 ensure_source_path()
 
+from minimal_kanban.models import Card  # noqa: E402
 from minimal_kanban.web_assets import (  # noqa: E402
     BOARD_WEB_APP_CONTRACT_TEXT as BOARD_WEB_APP_HTML,
 )
@@ -445,6 +447,10 @@ class CardWorkspaceContextTests(unittest.TestCase):
             section(source, start, end)
             for start, end in (
                 (
+                    "    function mobileCardHasRequiredFields(",
+                    "    function closeMobileCardDetail(",
+                ),
+                (
                     "    async function openCardWorkspace(",
                     "    function updateRepairOrdersTabs(",
                 ),
@@ -456,6 +462,16 @@ class CardWorkspaceContextTests(unittest.TestCase):
                 ("    async function openCardById(", "    function clearCardDropState("),
             )
         )
+        cls.full_card_template = Card(
+            id="synthetic",
+            title="SYNTHETIC CARD",
+            description="synthetic",
+            column="new",
+            archived=False,
+            created_at="2025-01-01T00:00:00+00:00",
+            updated_at="2025-01-01T00:00:00+00:00",
+            deadline_timestamp="2025-01-01T00:00:00+00:00",
+        ).to_dict()
 
     def run_node(self, body: str) -> None:
         harness = r"""
@@ -517,8 +533,8 @@ async function openRepairOrderModal({preloadedRepairOrderData = null} = {}) {
 function api(path, options) {
   return new Promise((resolve, reject) => requests.push({path, options, resolve, reject}));
 }
-function full(id) { return {id, updated_at: 'revision', description: 'full-' + id, read_warnings: []}; }
-function summary(id) { return {id, updated_at: 'revision'}; }
+function full(id) { return {...JSON.parse(JSON.stringify(fullCardTemplate)), id, description: 'full-' + id, read_warnings: []}; }
+function summary(id) { return {id, updated_at: fullCardTemplate.updated_at}; }
 function repairOrderResponse(id) {
   return {card_id: id, card: {...full(id), client_id: 'client-' + id}, repair_order: {number: 'RO-' + id}};
 }
@@ -544,8 +560,12 @@ function visibleState() {
         result = subprocess.run(
             [NODE],
             input=harness
+            + "\nconst fullCardTemplate = "
+            + json.dumps(self.full_card_template, ensure_ascii=False)
+            + ";\n"
             + self.functions
             + "\n(async () => {\n"
+            + "assert.equal(mobileCardHasRequiredFields(full('synthetic')), true);\n"
             + body
             + "\n})().catch(error => { console.error(error); process.exitCode = 1; });\n",
             text=True,

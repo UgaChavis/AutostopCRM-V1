@@ -79,6 +79,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const rendered = [];
             const sideEffects = [];
             function perfMeasureAsync(_name, callback) {{ return callback(); }}
+            function prepareDesktopCardWorkspace() {{ return true; }}
             function snapshotCardById() {{ return card; }}
             function openCardModal(value, options) {{ state.editingId = value.id; rendered.push(options); }}
             async function fetchFullCard() {{ fetches++; return card; }}
@@ -831,6 +832,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             global.window = {{ clearTimeout, setTimeout }};
             const state = {{
               viewerStateGeneration: 0,
+              clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
               snapshot: null,
               lastSnapshotRevision: '',
               refreshInFlight: null,
@@ -905,6 +907,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               const staleSuccess = loadArchive(false, {{ force: true }});
               const staleSuccessRequest = requests[0];
               resetViewerScopedState();
+              assert.equal(state.clientProfileUncertainEffects.size, 0);
               const currentSuccess = loadArchive(false, {{ force: true }});
               const currentSuccessRequest = requests[1];
               assert.ok(currentSuccessRequest, 'new viewer did not start its own archive request');
@@ -1070,6 +1073,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             global.window = {{ clearTimeout, setTimeout }};
             const state = {{
               viewerStateGeneration: 0,
+              clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
               snapshot: null,
               lastSnapshotRevision: '',
               refreshInFlight: null,
@@ -1137,6 +1141,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               const staleEmployeeRequest = requests[0];
 
               resetViewerScopedState();
+              assert.equal(state.clientProfileUncertainEffects.size, 0);
               const currentWorkspace = loadEmployeesWorkspaceData('2026-01');
               const employeeRequests = requests.filter((request) =>
                 request.url === '/api/list_employees?month=2026-01'
