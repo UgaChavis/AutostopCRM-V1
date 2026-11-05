@@ -277,6 +277,12 @@ const state={
 function api(path,options){const task=deferred();calls.push({path,options,...task});return task.promise;}
 function requireCardLinkSettled(){}
 function cardLinkWrite(body){return api('/api/link_card_to_client',{method:'POST',body});}
+let createOwner=null;
+function beginCardClientCreate(previous=null){
+  if(createOwner && createOwner!==previous)throw new Error('create already pending');
+  return createOwner ||= {};
+}
+function finishCardClientCreate(effect){if(!effect || effect!==createOwner)return false;createOwner=null;return true;}
 function cloneVehicleProfile(profile){return {...profile};}
 function readVehicleProfileForm(){return {};}
 function normalizedCardClientCreatePayload(payload){return {...payload};}
@@ -301,7 +307,10 @@ global.window={setTimeout,clearTimeout};
   calls[0].resolve({client:{id:'created-A'}});assert.equal(await staleCreate,null);
   assert.equal(calls.length,1,'stale create issued a link write');
   assert.equal(state.pendingCardClientId,'current-B');assert.deepEqual(applied,[]);assert.deepEqual(statuses,[]);
+  assert.ok(createOwner,'stale create retains its marker');
 
+  // Isolate the second race from the unresolved first create.
+  createOwner=null;
   const currentThenStaleLink=createClientForCard({}, {display_name:'client-B'}, {createVehicleFromCard:false});
   calls[1].resolve({client:{id:'created-B'}});
   for(let index=0;index<5&&calls.length<3;index++)await Promise.resolve();
@@ -315,6 +324,7 @@ global.window={setTimeout,clearTimeout};
   assert.equal(await currentThenStaleLink,null);
   assert.equal(state.activeCard.id,'C');assert.equal(state.pendingCardClientId,'current-C');
   assert.deepEqual(applied,[]);assert.deepEqual(refreshes,[]);assert.deepEqual(statuses,[]);
+  assert.ok(createOwner,'stale link retains its create marker');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )
