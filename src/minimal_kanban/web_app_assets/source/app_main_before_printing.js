@@ -4408,6 +4408,16 @@
         && data.vehicles.every((vehicle) => validId(vehicle.id) && validId(vehicle.card_id)
           && Boolean(vehicle.id || vehicle.card_id))
         && new Set(data.vehicles.map(clientProfileVehicleKey)).size === data.vehicles.length
+        && (() => {
+          const stored = new Map(client.vehicles.map((vehicle) => [vehicle.id, vehicle]));
+          return data.vehicles.every((vehicle) => {
+            if (vehicle.card_id) return true;
+            const source = stored.get(vehicle.id);
+            return source && ['vehicle', 'vin', 'license_plate', 'brand', 'model', 'year']
+              .every((field) => typeof vehicle[field] === 'string' && vehicle[field] === source[field])
+              && (!vehicle.registration_plate || vehicle.registration_plate === vehicle.license_plate);
+          });
+        })()
         && meta && typeof meta === 'object' && !Array.isArray(meta) && meta.order_limit === orderLimit
         && [meta.repair_orders_total, meta.repair_orders_returned, meta.vehicles_total].every((value) => Number.isSafeInteger(value) && value >= 0)
         && meta.vehicles_total === data.vehicles.length && meta.repair_orders_returned === data.repair_orders.length
