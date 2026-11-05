@@ -12729,6 +12729,7 @@
     }
 
     function invalidateRepairOrdersListCache() {
+      invalidateRepairOrdersRequests();
       if (state.repairOrdersLoadTimer) {
         window.clearTimeout(state.repairOrdersLoadTimer);
         state.repairOrdersLoadTimer = null;
@@ -12741,6 +12742,10 @@
     async function refreshRepairOrdersListAfterMutation() {
       if (repairOrdersModalIsOpen()) {
         await loadRepairOrders(false);
+        return;
+      }
+      if (state.mobileLite && state.mobileView === 'repair-orders') {
+        loadRepairOrders(false);
         return;
       }
       invalidateRepairOrdersListCache();
