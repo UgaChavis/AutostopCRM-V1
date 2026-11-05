@@ -1,5 +1,6 @@
 """Independent context-read models with checks against unsaved legacy identities."""
 
+import sys
 from copy import deepcopy
 
 import orjson
@@ -36,6 +37,48 @@ def _require_raw_search_identities(rows, *, unique):
         ):
             raise StateFileCorruptedError("Недостоверный идентификатор в исходных данных поиска.")
         seen.add(raw_id)
+
+
+def _safe_to_detach_shallow_json(value):
+    """Use the fast path only when deepcopy has ample recursion headroom."""
+    if (
+        sys.implementation.name != "cpython"
+        or sys.version_info[:2] != (3, 12)
+        or sys.getrecursionlimit() < 1000
+        or sys.gettrace() is not None
+        or sys.getprofile() is not None
+    ):
+        return False
+    try:
+        sys._getframe(128)
+    except ValueError:
+        pass
+    else:
+        return False
+    root_type = type(value)
+    if root_type is not dict and root_type is not list:
+        return root_type in (str, int, float, bool, type(None))
+    seen = set()
+    pending = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        kind = type(item)
+        if depth > 32 or id(item) in seen:
+            return False
+        seen.add(id(item))
+        if kind is dict:
+            if any(type(key) is not str for key in item):
+                return False
+            children = item.values()
+        else:
+            children = item
+        for child in children:
+            child_type = type(child)
+            if child_type is dict or child_type is list:
+                pending.append((child, depth + 1))
+            elif child_type not in (str, int, float, bool, type(None)):
+                return False
+    return True
 
 
 def _search_clients(raw_clients):
@@ -402,8 +445,9 @@ def build_context_snapshot(store, state, domains):
     profile_clients = None
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
-        # ClientProfile.from_dict builds detached models, including vehicle metadata.
-        clients = _search_clients(raw_clients)
+        # Deep or unusual input retains the original deepcopy and its failures.
+        source = raw_clients if _safe_to_detach_shallow_json(raw_clients) else deepcopy(raw_clients)
+        clients = _search_clients(source)
     if "client_search_cards" in domains:
         _require_raw_search_identities(raw_cards, unique=False)
         # Capture collisions from the unnormalized source, including entries that
@@ -416,7 +460,7 @@ def build_context_snapshot(store, state, domains):
             # can remove one side of a collision.
             cards = _search_cards_before_retention(deepcopy(raw_cards), columns)
             search_cards_need_retention = True
-        elif tuple(domains) == ("client_profile",):
+        elif tuple(domains) == ("client_profile",) and _safe_to_detach_shallow_json(raw_cards):
             # Card models own their data except nested order history.
             cards, _ = store._normalize_cards(
                 {"cards": raw_cards}, columns, detach_order_history=True
