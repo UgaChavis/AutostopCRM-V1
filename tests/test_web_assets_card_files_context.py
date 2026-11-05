@@ -57,6 +57,8 @@ function attachmentExtension(){return 'txt';}
 function cacheFullCard(card){cached.push(card);}
 function renderFiles(card){rendered.push(card);}
 function mobileCardHasRequiredFields(card){return Boolean(card && typeof card==='object');}
+// This harness tests file operation ownership with deliberately minimal card fixtures.
+function mobileCardEditableFieldsMatch(before,after){return Boolean(before?.id && before.id===after?.id);}
 async function refreshSnapshot(){snapshotRefreshes++;}
 function setStatus(message,isError){statuses.push({message,isError});return false;}
 const CARD_TITLE_REQUIRED_MESSAGE='TITLE REQUIRED';
@@ -183,7 +185,7 @@ api=async(path,options)=>{
 
 state.activeCard={id:'A',attachments:[{id:'gone'}]};
 const confirmed=await removeActiveCardAttachment('gone');
-assert.deepEqual(confirmed,{id:'A',attachments:[]});
+assert.deepEqual(confirmed,{id:'A',attachments:[],read_warnings:[]});
 assert.equal(calls.filter(call=>call.path==='/api/remove_card_attachment').length,1);
 assert.equal(calls.filter(call=>call.path.startsWith('/api/get_card?')).length,1);
 assert.equal(statuses.at(-1).isError,false);

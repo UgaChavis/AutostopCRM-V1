@@ -13532,11 +13532,18 @@
       const data = await cardFilesApi('/api/get_card?card_id=' + encodeURIComponent(cardId));
       if (!isCurrent() || (!context && state.activeCard?.updated_at !== version)) return null;
       if (!mobileCardHasRequiredFields(data?.card) || data.card.id !== cardId || data.card.attachments.some(a => typeof a.id !== 'string' || !a.id || a.id !== a.id.trim() || typeof a.removed !== 'boolean')) throw new Error('КАРТОЧКА НЕ ПОДТВЕРЖДЕНА.');
-      state.activeCard = data.card;
+      const previous = state.activeCard;
+      const readWarnings = Array.from(new Set([...(Array.isArray(previous?.read_warnings) ? previous.read_warnings : []), ...(Array.isArray(data.read_warnings) ? data.read_warnings : [])]));
+      if (mobileCardEditableFieldsMatch(previous, data.card)) {
+        state.activeCard = { ...data.card, read_warnings: readWarnings };
+        cacheFullCard(state.activeCard);
+      } else {
+        state.activeCard = { ...previous, attachments: data.card.attachments, read_warnings: readWarnings };
+        state.fullCardCache.delete(cardId);
+      }
       state.activeCardIsFull = true;
-      cacheFullCard(data.card);
-      renderFiles(data.card);
-      return data.card;
+      renderFiles(state.activeCard);
+      return state.activeCard;
     }
 
     async function removeActiveCardAttachment(attachmentId) {
