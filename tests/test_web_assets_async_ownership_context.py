@@ -310,9 +310,9 @@ global.window={setTimeout,clearTimeout};
   assert.ok(createOwner,'stale create retains its marker');
 
   // Isolate the second race from the unresolved first create.
-  createOwner=null;
+  createOwner=null;state.cardClientCreateCheckpoint=null;
   const currentThenStaleLink=createClientForCard({}, {display_name:'client-B'}, {createVehicleFromCard:false});
-  calls[1].resolve({client:{id:'created-B'}});
+  calls[1].resolve({client:{id:'created-B'},meta:{created:true}});
   for(let index=0;index<5&&calls.length<3;index++)await Promise.resolve();
   assert.equal(calls[2].path,'/api/link_card_to_client');
   assert.equal(calls[2].options.body.card_id,'B');assert.equal(calls[2].options.body.client_id,'created-B');

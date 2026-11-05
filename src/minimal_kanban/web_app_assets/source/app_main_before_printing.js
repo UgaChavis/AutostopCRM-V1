@@ -10554,7 +10554,7 @@
       const checkpoint = state.cardClientCreateCheckpoint;
       const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, state.cardEditingGeneration || 0, String(state.editingId || state.activeCard?.id || '').trim(), state.cardClientCreateGeneration]);
       if (!completed && els.cardClientCreateModal?.classList.contains('is-open') && checkpoint?.ownerKey === ownerKey
-          && checkpoint.clientId && !checkpoint.uncertain && checkpoint.linkRejected && checkpoint.effect) {
+          && checkpoint.clientId && !checkpoint.uncertain && (checkpoint.linkRejected || checkpoint.receipt?.meta?.created === false) && checkpoint.effect) {
         if (!boardModuleRecords.get('card_save')?.exports?.finishCardClientCreate(checkpoint.effect)) { setStatus('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА.', true); return false; }
         state.cardClientCreateCheckpoint = null;
         setStatus(checkpoint.clientCreated ? 'КЛИЕНТ СОЗДАН. НАЙДИТЕ ЕГО В СПИСКЕ КЛИЕНТОВ.' : 'КЛИЕНТ НАЙДЕН. ПРОВЕРЬТЕ СПИСОК КЛИЕНТОВ.', false);

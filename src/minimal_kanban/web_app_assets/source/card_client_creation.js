@@ -96,23 +96,34 @@
         isCurrent: () => parent.isCurrent() && (!requestGuard || requestGuard()) };
       const sourceProfile = cloneVehicleProfile(profile && typeof profile === 'object' ? profile : readVehicleProfileForm());
       const shouldCreateVehicle = Boolean(createVehicleFromCard && profileHasVehicleIdentity(sourceProfile));
-      if (!context.cardId && shouldCreateVehicle && !cardMileageCanSave(sourceProfile)) {
-        finishCardScopedRequest(parent);
-        return null;
-      }
       const request = normalizedCardClientCreatePayload(payload);
-      if (!String(request.display_name || '').trim() && !String(request.phone || '').trim()) {
-        setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
-        finishCardScopedRequest(parent);
-        return null;
-      }
       const ownerKey = JSON.stringify([state.viewerStateGeneration, state.operatorSessionToken, state.cardEditingGeneration || 0, context.cardId, creationGeneration]);
       let checkpoint = state.cardClientCreateCheckpoint;
-      if (!checkpoint || checkpoint.ownerKey !== ownerKey) {
-        checkpoint = { ownerKey, clientId: '', client: null, vehicleId: '', payload: request, key: '', uncertain: '', createVehicle: false, linked: false };
-        state.cardClientCreateCheckpoint = checkpoint;
-      }
       try {
+        if (checkpoint?.effect && checkpoint.ownerKey !== ownerKey) throw new Error('ПРЕДЫДУЩЕЕ СОЗДАНИЕ КЛИЕНТА НЕ ЗАВЕРШЕНО. ПРОВЕРЬТЕ ПРОФИЛЬ; ПОВТОР ОСТАНОВЛЕН.');
+        if (checkpoint?.ownerKey === ownerKey && checkpoint.receipt?.meta?.created === false) {
+          if (checkpoint.effect) {
+            beginCardClientCreate(checkpoint.effect);
+            if (!finishCardClientCreate(checkpoint.effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА. ПОВТОР ОСТАНОВЛЕН.');
+            checkpoint.effect = null;
+            setStatus('НАЙДЕН СУЩЕСТВУЮЩИЙ КЛИЕНТ. ВВЕДЁННЫЕ ДАННЫЕ НЕ СОХРАНЕНЫ; ПРОВЕРЬТЕ ПРОФИЛЬ.', true);
+            return null;
+          }
+          if (clientProfileDuplicateIdentity(checkpoint.payload) === clientProfileDuplicateIdentity(request)) {
+            setStatus('НАЙДЕН СУЩЕСТВУЮЩИЙ КЛИЕНТ. ВВЕДЁННЫЕ ДАННЫЕ НЕ СОХРАНЕНЫ; ПРОВЕРЬТЕ ПРОФИЛЬ.', true);
+            return null;
+          }
+          checkpoint = null;
+        }
+        if (!context.cardId && shouldCreateVehicle && !cardMileageCanSave(sourceProfile)) return null;
+        if (!String(request.display_name || '').trim() && !String(request.phone || '').trim()) {
+          setStatus('УКАЖИТЕ ИМЯ ИЛИ ТЕЛЕФОН КЛИЕНТА.', true);
+          return null;
+        }
+        if (!checkpoint || checkpoint.ownerKey !== ownerKey) {
+          checkpoint = { ownerKey, clientId: '', client: null, vehicleId: '', payload: request, key: '', uncertain: '', createVehicle: false, linked: false };
+          state.cardClientCreateCheckpoint = checkpoint;
+        }
         if (context.cardId) requireCardLinkSettled(context.cardId);
         if (checkpoint.effect) beginCardClientCreate(checkpoint.effect);
         if (checkpoint.uncertain) await reconcileCreatedClient(checkpoint, context);
@@ -132,11 +143,14 @@
             if (!context.isCurrent()) return null;
             const client = data?.client;
             if (typeof client?.id !== 'string' || !client.id.trim() || client.id !== client.id.trim()
-                || (checkpoint.clientId && client.id !== checkpoint.clientId)) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ ID КЛИЕНТА.');
+                || (checkpoint.clientId && client.id !== checkpoint.clientId)
+                || (creatingClient && (typeof data?.meta?.created !== 'boolean'
+                  || (data.meta.created === false && (data.meta.duplicate !== true || data.meta.duplicate_of !== client.id
+                    || !clientProfileHasRevision(client) || !Object.entries(request).every(([key, value]) => Array.isArray(value) ? Array.isArray(client[key]) : typeof client[key] === 'string')))))) throw new Error('СЕРВЕР НЕ ПОДТВЕРДИЛ КЛИЕНТА.');
             checkpoint.client = client;
             checkpoint.clientId = client.id;
             checkpoint.key = key;
-            if (creatingClient) checkpoint.clientCreated = data?.meta?.created === true;
+            if (creatingClient) { checkpoint.clientCreated = data.meta.created; checkpoint.receipt = data; }
           } catch (error) {
             if (!context.isCurrent()) return null;
             if (creatingClient && cardClientCreateRejected(error) && finishCardClientCreate(checkpoint.effect)) checkpoint.effect = null;
@@ -147,6 +161,12 @@
           }
         }
         if (!context.isCurrent()) return null;
+        if (checkpoint.receipt?.meta?.created === false) {
+          if (!finishCardClientCreate(checkpoint.effect)) throw new Error('НЕ УДАЛОСЬ СНЯТЬ ЗАЩИТУ СОЗДАНИЯ КЛИЕНТА. ПОВТОР ОСТАНОВЛЕН.');
+          checkpoint.effect = null;
+          setStatus('НАЙДЕН СУЩЕСТВУЮЩИЙ КЛИЕНТ. ВВЕДЁННЫЕ ДАННЫЕ НЕ СОХРАНЕНЫ; ПРОВЕРЬТЕ ПРОФИЛЬ.', true);
+          return null;
+        }
         if (context.cardId && !checkpoint.linked) {
           checkpoint.createVehicle = shouldCreateVehicle;
           checkpoint.linkRejected = false;
