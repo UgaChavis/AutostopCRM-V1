@@ -66,6 +66,7 @@ class CardServiceRepairOrderSearchMixin:
         filtered: list[Card] = []
         for card in cards:
             order = card.repair_order
+            full_date_part = ""
             if search_field == "date":
                 opened_at = order.opened_at or self._repair_order_card_datetime(card.created_at)
                 opened_at = opened_at or card.created_at or order.date or card.updated_at
@@ -75,6 +76,8 @@ class CardServiceRepairOrderSearchMixin:
                 date_part = display_date.split(" ", 1)[0]
                 date_parts = date_part.split(".")
                 if len(date_parts) == 3 and len(date_parts[2]) == 4:
+                    if all(part.isdigit() for part in date_parts):
+                        full_date_part = date_part
                     date_part = ".".join((*date_parts[:2], date_parts[2][-2:]))
                 values = [date_part]
             elif search_field == "client":
@@ -118,6 +121,17 @@ class CardServiceRepairOrderSearchMixin:
                 compact_haystack = SEARCH_SEPARATOR_PATTERN.sub("", haystack)
                 matched = normalized_query in haystack or (
                     bool(compact_query) and compact_query in compact_haystack
+                )
+            if (
+                search_field == "date"
+                and not matched
+                and full_date_part
+                and full_date_part[-4:] in normalized_query
+            ):
+                normalized_date = self._normalize_search_text(full_date_part).replace("ё", "е")
+                compact_date = SEARCH_SEPARATOR_PATTERN.sub("", normalized_date)
+                matched = normalized_query in normalized_date or (
+                    bool(compact_query) and compact_query in compact_date
                 )
             if matched:
                 filtered.append(card)
