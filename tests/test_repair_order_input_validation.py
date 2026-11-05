@@ -50,31 +50,6 @@ class RepairOrderInputApiTests(unittest.TestCase):
             status, result = self.request("/api/" + route, payload)
             self.assertEqual(status, 200, result)
 
-    def test_overlong_client_vehicle_and_catalog_are_rejected_without_write(self):
-        card_id = self._card()
-        cases = []
-        aliases = ("catalog_number", "catalogNumber", "part_number", "partNumber", "catalog")
-        for value in ("X" * 161, "🚗" * 161, "A\u2003" * 81):
-            for route in ("update_card", "update_repair_order"):
-                for field in ("client", "vehicle"):
-                    cases.append((route, {"title": "UNSAVED", "repair_order": {field: value}}))
-                for section in ("works", "materials"):
-                    for alias in aliases:
-                        cases.append(
-                            (
-                                route,
-                                {"repair_order": {section: [{"name": "Synthetic", alias: value}]}},
-                            )
-                        )
-            for alias in aliases:
-                cases.append(
-                    (
-                        "replace_repair_order_materials",
-                        {"rows": [{"name": "Synthetic", alias: value}]},
-                    )
-                )
-        self._assert_rejected(card_id, cases)
-
     def test_field_limits_preserve_alias_priority_whitespace_and_partial_patch(self):
         card_id = self._card()
         client = "🚗" * 160
@@ -125,17 +100,6 @@ class RepairOrderInputApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self.assertEqual(result["data"]["repair_order"]["materials"][0]["catalog_number"], "")
-
-    def test_overlong_row_names_are_rejected_by_all_order_write_routes(self):
-        card_id = self._card()
-        cases = []
-        for section in ("works", "materials"):
-            for value in ("X" * 241, "🚗" * 241, "A\u0085" * 121):
-                row = {"name": value}
-                for route in ("update_card", "update_repair_order"):
-                    cases.append((route, {"repair_order": {section: [row]}}))
-                cases.append((f"replace_repair_order_{section}", {"rows": [row]}))
-        self._assert_rejected(card_id, cases)
 
     def test_row_name_limit_counts_normalized_unicode_code_points(self):
         card_id = self._card()

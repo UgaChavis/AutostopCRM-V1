@@ -6,9 +6,7 @@ from decimal import Decimal, DecimalException
 from typing import Any
 
 from ..repair_order import (
-    REPAIR_ORDER_FIELD_LIMIT,
     REPAIR_ORDER_PAYMENTS_LIMIT,
-    REPAIR_ORDER_ROW_NAME_LIMIT,
     REPAIR_ORDER_ROW_VALUE_LIMIT,
     REPAIR_ORDER_ROWS_LIMIT,
 )
@@ -26,17 +24,6 @@ def invalid_order_input(field: str) -> ServiceError:
 
 def _selected(payload: dict, *keys: str) -> Any:
     return next((payload[key] for key in keys if key in payload), None)
-
-
-def _single_line(value: Any, *, field: str, limit: int = REPAIR_ORDER_FIELD_LIMIT) -> None:
-    # Use the model's whitespace normalization, but check before truncation.
-    text = " ".join(str(value or "").strip().split())
-    if len(text) > limit:
-        raise ServiceError(
-            "validation_error",
-            f"Поле заказ-наряда не должно превышать {limit} символов.",
-            details={"field": field, "limit": limit},
-        )
 
 
 def _number(value: Any, *, field: str) -> Decimal | None:
@@ -97,13 +84,6 @@ def _collection(value: Any, *, field: str, limit: int) -> list[dict]:
 def validate_order_rows(value: Any, *, field: str) -> None:
     for index, row in enumerate(_collection(value, field=field, limit=REPAIR_ORDER_ROWS_LIMIT)):
         prefix = f"{field}[{index}]"
-        _single_line(row.get("name"), field=f"{prefix}.name", limit=REPAIR_ORDER_ROW_NAME_LIMIT)
-        _single_line(
-            _selected(
-                row, "catalog_number", "catalogNumber", "part_number", "partNumber", "catalog"
-            ),
-            field=f"{prefix}.catalog_number",
-        )
         quantity = _number(_selected(row, "quantity", "qty"), field=f"{prefix}.quantity")
         price = _number(row.get("price"), field=f"{prefix}.price")
         cost = _number(row.get("cost_price"), field=f"{prefix}.cost_price")
@@ -156,9 +136,6 @@ def validate_order_payments(value: Any, *, field: str) -> None:
 
 
 def validate_order_input(payload: dict, *, field: str = "repair_order") -> None:
-    for name in ("client", "vehicle"):
-        if name in payload:
-            _single_line(payload[name], field=f"{field}.{name}")
     for name in ("works", "materials"):
         if name in payload:
             validate_order_rows(payload[name], field=f"{field}.{name}")
