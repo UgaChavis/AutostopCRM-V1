@@ -8,6 +8,7 @@ from typing import Any
 from ..repair_order import (
     REPAIR_ORDER_FIELD_LIMIT,
     REPAIR_ORDER_PAYMENTS_LIMIT,
+    REPAIR_ORDER_ROW_NAME_LIMIT,
     REPAIR_ORDER_ROW_VALUE_LIMIT,
     REPAIR_ORDER_ROWS_LIMIT,
 )
@@ -27,14 +28,14 @@ def _selected(payload: dict, *keys: str) -> Any:
     return next((payload[key] for key in keys if key in payload), None)
 
 
-def _single_line(value: Any, *, field: str) -> None:
+def _single_line(value: Any, *, field: str, limit: int = REPAIR_ORDER_FIELD_LIMIT) -> None:
     # Use the model's whitespace normalization, but check before truncation.
     text = " ".join(str(value or "").strip().split())
-    if len(text) > REPAIR_ORDER_FIELD_LIMIT:
+    if len(text) > limit:
         raise ServiceError(
             "validation_error",
-            f"Поле заказ-наряда не должно превышать {REPAIR_ORDER_FIELD_LIMIT} символов.",
-            details={"field": field, "limit": REPAIR_ORDER_FIELD_LIMIT},
+            f"Поле заказ-наряда не должно превышать {limit} символов.",
+            details={"field": field, "limit": limit},
         )
 
 
@@ -96,6 +97,7 @@ def _collection(value: Any, *, field: str, limit: int) -> list[dict]:
 def validate_order_rows(value: Any, *, field: str) -> None:
     for index, row in enumerate(_collection(value, field=field, limit=REPAIR_ORDER_ROWS_LIMIT)):
         prefix = f"{field}[{index}]"
+        _single_line(row.get("name"), field=f"{prefix}.name", limit=REPAIR_ORDER_ROW_NAME_LIMIT)
         _single_line(
             _selected(
                 row, "catalog_number", "catalogNumber", "part_number", "partNumber", "catalog"

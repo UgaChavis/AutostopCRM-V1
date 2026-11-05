@@ -126,6 +126,32 @@ class RepairOrderInputApiTests(unittest.TestCase):
         self.assertEqual(status, 200, result)
         self.assertEqual(result["data"]["repair_order"]["materials"][0]["catalog_number"], "")
 
+    def test_overlong_row_names_are_rejected_by_all_order_write_routes(self):
+        card_id = self._card()
+        cases = []
+        for section in ("works", "materials"):
+            for value in ("X" * 241, "🚗" * 241, "A\u0085" * 121):
+                row = {"name": value}
+                for route in ("update_card", "update_repair_order"):
+                    cases.append((route, {"repair_order": {section: [row]}}))
+                cases.append((f"replace_repair_order_{section}", {"rows": [row]}))
+        self._assert_rejected(card_id, cases)
+
+    def test_row_name_limit_counts_normalized_unicode_code_points(self):
+        card_id = self._card()
+        for section in ("works", "materials"):
+            for value in ("X" * 240, "🚗" * 240, "X" * 230 + "\u0085" * 20 + "Y" * 9):
+                with self.subTest(section=section, value=repr(value)):
+                    status, result = self.request(
+                        "/api/replace_repair_order_" + section,
+                        {"card_id": card_id, "rows": [{"name": value}]},
+                    )
+                    self.assertEqual(status, 200, result)
+                    self.assertEqual(
+                        result["data"]["repair_order"][section][0]["name"],
+                        " ".join(value.split()),
+                    )
+
     def test_invalid_rows_cannot_corrupt_state_or_crash_any_public_mutation(self):
         card_id = self._card()
         cases = []

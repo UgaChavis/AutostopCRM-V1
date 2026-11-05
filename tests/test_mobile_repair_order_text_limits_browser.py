@@ -130,3 +130,25 @@ class MobileRepairOrderTextLimitsBrowserTests(UiBrowserTestCase):
         )["repair_order"]
         self.assertEqual(result["status"], "open")
         self.assertEqual(result["payments"], [])
+
+    def test_overlong_row_name_focuses_its_own_tab_without_write(self):
+        self.open_order()
+        for section in ("works", "materials"):
+            with self.subTest(section=section):
+                self.page.locator(f'[data-mobile-repair-order-tab="{section}"]').click()
+                self.page.locator(f'[data-mobile-repair-order-add-row="{section}"]').click()
+                field = self.page.locator(
+                    f'#mobileRepairOrder{section.title()} [data-mobile-repair-row-field="name"]'
+                ).last
+                # Imported/previously populated values can exceed the input's maxlength.
+                field.evaluate(
+                    "field => {field.value = 'X'.repeat(241); field.dispatchEvent(new Event('input', {bubbles:true}));}"
+                )
+                self.page.locator('[data-mobile-repair-order-tab="client"]').click()
+                before = list(self.writes)
+                self.save()
+                self.assertEqual(self.writes, before)
+                self.assertEqual(field.input_value(), "X" * 241)
+                self.assertEqual(self.page.evaluate("state.mobileRepairOrderTab"), section)
+                self.assertIn("240", self.page.locator("#mobileStatusLine").inner_text())
+                field.fill("SYNTHETIC")

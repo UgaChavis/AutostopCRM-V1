@@ -109,3 +109,73 @@ class DesktopRepairOrderTextLimitsBrowserTests(UiBrowserTestCase):
         )["repair_order"]
         self.assertEqual(stored["payments"], [])
         self.assertEqual(stored["status"], "open")
+
+    def test_row_names_at_ascii_and_unicode_boundaries(self):
+        card_id = self.open_order()
+        for section in ("works", "materials"):
+            selector = f'#repairOrder{section.title()}Body [data-repair-order-cell="name"]'
+            for good, bad in (("A" * 240, "A" * 241), ("A" * 238 + "😀" * 2, "A" * 239 + "😀" * 2)):
+                with self.subTest(section=section, unicode="😀" in good):
+                    self.page.locator(selector).first.fill(good)
+                    with self.page.expect_response("**/api/update_repair_order") as response:
+                        self.page.locator("#repairOrderSaveButton").click()
+                    self.assertEqual(response.value.status, 200)
+                    self.page.wait_for_function("!state.repairOrderMutationRequest")
+                    stored = self.runtime.service.get_repair_order(
+                        {"card_id": card_id, "create_if_missing": False}
+                    )["repair_order"]
+                    self.assertEqual(stored[section][0]["name"], good)
+                    self.page.locator(selector).first.fill(bad)
+                    before = list(self.writes)
+                    self.page.locator("#repairOrderSaveButton").click()
+                    self.assertEqual(self.writes, before)
+                    self.assertEqual(self.page.locator(selector).first.input_value(), bad)
+                    self.assertIn("НАИМЕНОВАНИЕ", self.page.locator("#statusLine").inner_text())
+                    self.assertIn("240", self.page.locator("#statusLine").inner_text())
+                    self.page.locator(selector).first.fill(good)
+
+        selector = '#repairOrderWorksBody [data-repair-order-cell="name"]'
+        value = "A" * 230 + "\u0085" * 20 + "B" * 9
+        self.page.locator(selector).first.fill(value)
+        with self.page.expect_response("**/api/update_repair_order") as response:
+            self.page.locator("#repairOrderSaveButton").click()
+        self.assertEqual(response.value.status, 200)
+        self.page.wait_for_function("!state.repairOrderMutationRequest")
+        stored = self.runtime.service.get_repair_order(
+            {"card_id": card_id, "create_if_missing": False}
+        )["repair_order"]
+        self.assertEqual(stored["works"][0]["name"], "A" * 230 + " " + "B" * 9)
+        invalid = "A" * 239 + "\ufeff" + "B"
+        self.page.locator(selector).first.fill(invalid)
+        before = list(self.writes)
+        self.page.locator("#repairOrderSaveButton").click()
+        self.assertEqual(self.writes, before)
+        self.assertEqual(self.page.locator(selector).first.input_value(), invalid)
+
+    def test_overlong_work_name_preserves_payment_and_close_draft(self):
+        card_id = self.open_order()
+        selector = '#repairOrderWorksBody [data-repair-order-cell="name"]'
+        self.page.locator(selector).first.fill("X" * 241)
+        self.page.locator("#repairOrderClient").fill("SYNTHETIC UNSAVED")
+        self.page.locator("#repairOrderPaymentsButton").click()
+        self.page.locator("#repairOrderPaymentsModal.is-open").wait_for()
+        self.page.locator("#repairOrderPaymentCashbox").select_option(self.runtime.cashbox_id)
+        self.page.locator("#repairOrderPaymentAmount").fill("3")
+        before = list(self.writes)
+        self.page.locator("#repairOrderPaymentAddButton").click()
+        self.assertEqual(self.writes, before)
+        self.assertEqual(self.page.locator(selector).first.input_value(), "X" * 241)
+        self.assertEqual(self.page.locator("#repairOrderClient").input_value(), "SYNTHETIC UNSAVED")
+        self.assertEqual(self.page.locator("#repairOrderPaymentAmount").input_value(), "3")
+        self.assertIn("240", self.page.locator("#repairOrderPaymentsMeta").inner_text())
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.locator('#repairOrderPaymentsModal [data-close="repair-order-payments"]').click()
+        before = list(self.writes)
+        self.page.locator("#repairOrderCloseButton").click()
+        self.assertEqual(self.writes, before)
+        self.assertEqual(self.page.locator(selector).first.input_value(), "X" * 241)
+        stored = self.runtime.service.get_repair_order(
+            {"card_id": card_id, "create_if_missing": False}
+        )["repair_order"]
+        self.assertEqual(stored["payments"], [])
+        self.assertEqual(stored["status"], "open")

@@ -7360,14 +7360,14 @@
     }
 
     function repairOrderTextWithinLimits(fields, onInvalid = () => {}) {
-      for (const [field, label, tab] of fields) {
+      for (const [field, label, tab, limit = 160] of fields) {
         if (!field) continue;
         // Match Python str.split() after the form's existing JavaScript trim.
         const text = String(field.value ?? '').trim()
           .replace(/[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, ' ')
           .replace(/^ | $/g, '');
-        if (Array.from(text).length > 160) {
-          const message = 'ПОЛЕ «' + label + '»: НЕ БОЛЕЕ 160 СИМВОЛОВ.';
+        if (Array.from(text).length > limit) {
+          const message = 'ПОЛЕ «' + label + '»: НЕ БОЛЕЕ ' + limit + ' СИМВОЛОВ.';
           onInvalid(field, tab, message);
           setStatus(message, true);
           return false;
@@ -7383,6 +7383,8 @@
         [root?.querySelector('[data-mobile-repair-order-field="vehicle"]'), 'АВТОМОБИЛЬ', 'client'],
         ...Array.from(root?.querySelectorAll('[data-mobile-repair-row-field="catalog_number"]') || [],
           (field) => [field, 'АРТИКУЛ', 'materials']),
+        ...Array.from(root?.querySelectorAll('[data-mobile-repair-row-field="name"]') || [],
+          (field) => [field, 'НАИМЕНОВАНИЕ', field.closest('[data-mobile-repair-order-row]')?.dataset.mobileRepairOrderSection, 240]),
       ], (field, tab) => {
         setMobileRepairOrderTab(tab);
         field.focus({ preventScroll: true });
@@ -7395,6 +7397,8 @@
         [els.repairOrderVehicle, 'АВТОМОБИЛЬ'],
         ...Array.from(els.repairOrderModal?.querySelectorAll('[data-repair-order-cell="catalog_number"]') || [],
           (field) => [field, 'АРТИКУЛ']),
+        ...Array.from(els.repairOrderModal?.querySelectorAll('[data-repair-order-cell="name"]') || [],
+          (field) => [field, 'НАИМЕНОВАНИЕ', null, 240]),
       ], (field, _tab, message) => {
         if (els.repairOrderPaymentsModal?.classList?.contains('is-open') && els.repairOrderPaymentsMeta) {
           els.repairOrderPaymentsMeta.textContent = message + ' ВЕРНИТЕСЬ К ЗАКАЗ-НАРЯДУ.';
