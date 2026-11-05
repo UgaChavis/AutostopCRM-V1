@@ -14976,6 +14976,13 @@
         .then((data) => {
           if (viewerStateGeneration !== state.viewerStateGeneration) return null;
           if (!data?.card) return null;
+          if (data.card.id !== normalizedCardId) {
+            const newer = state.cardFetchInFlight.get(normalizedCardId);
+            if (newer && newer !== request) return newer;
+            const current = state.fullCardCache.get(normalizedCardId);
+            if (newer !== request && current && current !== cachedCard && current.id === normalizedCardId) return current;
+            throw new Error('НЕ УДАЛОСЬ ПОДТВЕРДИТЬ КАРТОЧКУ.');
+          }
           const card = applyCardSeenSuppression({
             ...data.card, read_warnings: Array.isArray(data.read_warnings) ? data.read_warnings.slice() : [],
           });
