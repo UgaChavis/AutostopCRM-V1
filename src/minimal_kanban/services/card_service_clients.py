@@ -1908,6 +1908,15 @@ class CardServiceClientsMixin:
             else self._client_related_cards(client, cards)
         )
         order_cards = [card for card in related_cards if self._card_has_repair_order(card)]
+
+        def order_sort_key(card: Card) -> tuple[datetime, datetime, str]:
+            updated_at = parse_datetime(card.updated_at)
+            created_at = parse_datetime(card.created_at)
+            if updated_at is None or created_at is None:
+                raise StateFileCorruptedError("Недостоверная версия карточки в снимке состояния.")
+            return updated_at, created_at, card.id
+
+        order_cards.sort(key=order_sort_key, reverse=True)
         orders = [
             self._serialize_repair_order_list_item(card, materialize=False)
             for card in order_cards[:order_limit]
