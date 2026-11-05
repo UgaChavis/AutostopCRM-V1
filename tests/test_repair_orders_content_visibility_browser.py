@@ -107,6 +107,83 @@ class RepairOrdersContentVisibilityBrowserTests(UiBrowserTestCase):
     def test_mixed_rows_narrow_desktop(self):
         self.check_mixed_desktop_rows(1024)
 
+    def test_accessible_names_for_visible_and_offscreen_rows(self):
+        self.load_board()
+        self.page.click("#repairOrdersButton")
+        self.page.wait_for_function(
+            "state.repairOrdersMetaState && !state.repairOrdersSearchLoading"
+        )
+        self.page.evaluate(
+            """async () => {
+              state.repairOrdersRequestSeq++;
+              state.repairOrdersFilter = 'open';
+              state.repairOrdersSearchLoading = false;
+              state.repairOrdersLoadError = false;
+              state.repairOrdersMetaState = {total: 300, returned: 300, has_more: false, inconsistent_total: 0};
+              state.repairOrdersItems = Array.from({length: 300}, (_, i) => ({
+                card_id: 'synthetic-ax-' + i,
+                number: i === 0 ? 'LONG-<2026>&\"' : String(i + 1),
+                status: 'open', client: 'CLIENT <&\"' + i, phone: '+79990000000',
+                vehicle: 'CAR <&\"' + i, summary: 'WORK <&\"' + i,
+                opened_at: '2026-11-05', grand_total: '12500.00', paid_total: '1000.00',
+                payment_status: i === 0 ? 'paid' : 'unpaid',
+                tags: [{label:'FIRST <&\"',color:'green'}, {label:'SECOND',color:'green'},
+                  {label:'THIRD',color:'green'}, {label:'HIDDEN',color:'green'}]
+              }));
+              renderRepairOrdersView(true);
+              els.repairOrdersList.closest('.repair-orders-body-scroll').scrollTop = 0;
+              await new Promise(requestAnimationFrame);
+              await new Promise(requestAnimationFrame);
+            }"""
+        )
+        last = self.page.locator(
+            '#repairOrdersList [data-open-repair-order-card="synthetic-ax-299"]'
+        )
+        self.assertTrue(
+            last.evaluate(
+                "row => row.getBoundingClientRect().top > row.closest('.repair-orders-body-scroll').getBoundingClientRect().bottom"
+            )
+        )
+        cdp = self.page.context.new_cdp_session(self.page)
+        root = cdp.send("DOM.getDocument")["root"]["nodeId"]
+        names = []
+        for index in (0, 299):
+            node = cdp.send(
+                "DOM.querySelector",
+                {
+                    "nodeId": root,
+                    "selector": f'#repairOrdersList [data-open-repair-order-card="synthetic-ax-{index}"]',
+                },
+            )["nodeId"]
+            ax = cdp.send(
+                "Accessibility.getPartialAXTree", {"nodeId": node, "fetchRelatives": False}
+            )
+            buttons = [
+                item for item in ax["nodes"] if item.get("role", {}).get("value") == "button"
+            ]
+            self.assertEqual(len(buttons), 1)
+            names.append(buttons[0]["name"]["value"])
+        for index, name in zip((0, 299), names, strict=True):
+            for text in (
+                'CLIENT <&"' + str(index),
+                'CAR <&"' + str(index),
+                'WORK <&"' + str(index),
+                'FIRST <&"',
+                "SECOND",
+                "THIRD",
+                "ещё 1",
+                "+79990000000",
+                "1000.00",
+                "12500.00",
+                "05.11.26",
+            ):
+                self.assertIn(text, name)
+            self.assertNotIn("HIDDEN", name)
+        self.assertIn('LONG-<2026>&"', names[0])
+        self.assertIn("Оплата: Оплачен", names[0])
+        self.assertIn("Заказ-наряд № 300", names[1])
+        self.assertIn("Оплата: Не оплачен", names[1])
+
     def test_mobile_rows_do_not_receive_desktop_visibility_rule(self):
         card = self.create_card("SYNTHETIC MOBILE ORDER")
         self.runtime.service.get_repair_order({"card_id": card, "create_if_missing": True})

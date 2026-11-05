@@ -14487,10 +14487,17 @@
       const allTags = normalizeRepairOrderTags(item.tags || []);
       const previewTags = allTags.slice(0, 3);
       const extraTags = allTags.length - previewTags.length;
+        const rowLabel = [
+          'Заказ-наряд № ' + number, 'Дата: ' + displayedDate, 'Оплата: ' + paymentStatusLabel,
+          'Клиент: ' + clientText, 'Телефон: ' + phoneText, 'Автомобиль: ' + vehicle,
+          'Описание: ' + heading,
+          ...(previewTags.length ? ['Метки: ' + previewTags.map((tag) => tag.label).join(', ') + (extraTags ? ', ещё ' + extraTags : '')] : []),
+          'Внесено: ' + paidTotal, 'Сумма: ' + total,
+        ].join('. ');
         const tagsHtml = previewTags.length
           ? '<div class="repair-orders-row__tags">' + previewTags.map((tag) => '<span class="tag" data-tag-color="' + escapeHtml(tag.color) + '"><span class="tag__dot"></span>' + escapeHtml(tag.label) + '</span>').join('') + (extraTags > 0 ? '<span class="tag">+' + extraTags + '</span>' : '') + '</div>'
           : '';
-          return '<div class="archive-row repair-orders-row' + (/^\d{1,4}$/.test(number) ? '' : ' repair-orders-row--full-number') + '" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" title="Open repair order">'
+          return '<div class="archive-row repair-orders-row' + (/^\d{1,4}$/.test(number) ? '' : ' repair-orders-row--full-number') + '" role="button" tabindex="0" data-open-repair-order-card="' + escapeHtml(item.card_id) + '" aria-label="' + escapeHtml(rowLabel) + '" title="Open repair order">'
             + '<div class="repair-orders-row__cell"><div class="repair-orders-row__number">' + escapeHtml(number) + '</div></div>'
             + '<div class="repair-orders-row__cell"><div class="repair-orders-row__dates"><div class="repair-orders-row__opened">' + escapeHtml(displayedDate) + '</div></div></div>'
             + '<div class="repair-orders-row__cell repair-orders-row__payment-cell"><div class="repair-orders-row__payment-status" data-payment-status="' + escapeHtml(paymentStatus) + '">' + escapeHtml(paymentStatusLabel) + '</div></div>'
