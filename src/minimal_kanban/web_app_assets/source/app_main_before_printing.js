@@ -4232,7 +4232,7 @@
         ? orders.map((order) => {
           const statusKey = normalizeRepairOrderStatus(order?.status);
           const statusLabel = repairOrderStatusLabel(statusKey);
-          const totalLabel = repairOrderFormatRubles(order?.grand_total ?? 0);
+          const totalLabel = repairOrderFormatMoney(order?.grand_total ?? 0);
           const orderMeta = [clientLastVisit(order.opened_at || order.date), order.vehicle].filter(Boolean).join(' · ') || 'ДАННЫЕ О ЗАКАЗ-НАРЯДЕ ОТСУТСТВУЮТ';
           return '<button class="client-mini client-mini--order" type="button" data-open-repair-order-card="' + escapeHtml(order.card_id || '') + '">' +
             '<div class="client-mini__order-head"><strong class="client-mini__order-number">№ ' + escapeHtml(order.number || '-') + '</strong><span class="client-mini__order-status" data-status="' + escapeHtml(statusKey) + '">' + escapeHtml(statusLabel.toUpperCase()) + '</span></div>' +
@@ -6922,7 +6922,7 @@
       const normalized = normalizeRepairOrderRow(row);
       const isMaterials = section === 'materials';
       const totalValue = repairOrderResolvedRowTotalValue(normalized);
-      const totalText = repairOrderFormatRubles(totalValue ?? 0);
+      const totalText = repairOrderFormatMoney(totalValue ?? 0);
       const label = (isMaterials ? 'МАТЕРИАЛ ' : 'РАБОТА ') + String(index + 1);
       const materialsFields = isMaterials
         ? '<div class="mobile-repair-order-line__fields mobile-repair-order-line__fields--materials">'
@@ -7002,7 +7002,7 @@
           });
           const total = repairOrderResolvedRowTotalValue(row);
           const totalElement = rowElement.querySelector('[data-mobile-repair-row-total]');
-          if (totalElement) totalElement.textContent = repairOrderFormatRubles(total ?? 0);
+          if (totalElement) totalElement.textContent = repairOrderFormatMoney(total ?? 0);
         });
       });
     }
@@ -7086,7 +7086,7 @@
           + ' data-mobile-repair-order-payment-cashbox-name="' + escapeHtml(normalized.cashbox_name) + '"'
           + ' data-mobile-repair-order-payment-cash-transaction-id="' + escapeHtml(normalized.cash_transaction_id) + '">'
         + '<div class="mobile-repair-order-payment-row__body">'
-          + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatRubles(normalized.amount ?? 0)) + '</strong></div>'
+          + '<div class="mobile-repair-order-payment-row__line"><span>' + escapeHtml(note) + '</span><strong>' + escapeHtml(repairOrderFormatMoney(normalized.amount ?? 0)) + '</strong></div>'
           + '<div class="mobile-repair-order-payment-row__meta">' + escapeHtml(method + ' · ' + cashboxName + ' · ' + paidAt) + '</div>'
         + '</div>'
         + '<button class="mobile-action mobile-action--ghost mobile-repair-order-payment-remove" type="button" data-mobile-repair-order-payment-remove="' + escapeHtml(paymentId) + '" title="Удалить оплату"' + removeDisabled + '>×</button>'
@@ -7939,7 +7939,7 @@
           return '<' + tagName + ' class="mobile-client-mini" type="button" data-mobile-client-order-card="' + escapeHtml(cardId) + '">'
             + '<strong>№ ' + escapeHtml(order?.number || '-') + ' · ' + escapeHtml(statusLabel) + '</strong>'
             + '<span>' + escapeHtml(mobileClientOrderMeta(order)) + '</span>'
-            + '<span>' + escapeHtml(repairOrderFormatRubles(order?.grand_total ?? 0)) + '</span>'
+            + '<span>' + escapeHtml(repairOrderFormatMoney(order?.grand_total ?? 0)) + '</span>'
           + '</' + tagName + '>';
         }).join('') + clientProfileTruncation(Math.min(orders.length, 5), profile.meta.repair_orders_total, profile.meta, 'mobile-client-detail__empty')
         : '<div class="mobile-client-detail__empty">ЗАКАЗ-НАРЯДОВ ПОКА НЕТ.</div>';
@@ -11791,7 +11791,7 @@
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('quantity', normalized.quantity) + '</td>' +
         materialCostCell +
         '<td class="repair-order-table__numeric">' + repairOrderRowInputHtml('price', normalized.price) + '</td>' +
-        '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatRubles(totalValue ?? normalized.total) : '-') + '</div></td>' +
+        '<td class="repair-order-table__numeric"><div class="repair-order-cell-total" data-repair-order-row-total data-empty="' + (hasDisplayTotal ? 'false' : 'true') + '">' + escapeHtml(hasDisplayTotal ? repairOrderFormatMoney(totalValue ?? normalized.total) : '-') + '</div></td>' +
         '<td class="repair-order-table__action"><button class="btn btn--ghost repair-order-row-remove" type="button" data-remove-repair-order-row="' + escapeHtml(section) + '" data-row-index="' + escapeHtml(index) + '">&times;</button></td>' +
         '</tr>';
     }
@@ -12034,14 +12034,14 @@
         row.dataset.repairOrderTotalRaw = normalized.total;
         const totalCell = row.querySelector('[data-repair-order-row-total]');
         if (totalCell) {
-          totalCell.textContent = hasDisplayTotal ? repairOrderFormatRubles(totalValue ?? normalized.total) : '-';
+          totalCell.textContent = hasDisplayTotal ? repairOrderFormatMoney(totalValue ?? normalized.total) : '-';
           totalCell.dataset.empty = hasDisplayTotal ? 'false' : 'true';
         }
         subtotal += totalValue ?? (repairOrderParseNumber(normalized.total) ?? 0);
       });
       const roundedSubtotal = repairOrderRoundMoney(subtotal);
       document.querySelectorAll('[data-repair-order-total="' + section + '"]').forEach((node) => {
-        node.textContent = repairOrderFormatRubles(roundedSubtotal);
+        node.textContent = repairOrderFormatMoney(roundedSubtotal);
       });
       return roundedSubtotal;
     }
