@@ -65,7 +65,19 @@ class VehicleProfileService:
             normalize_vehicle_text(raw.get("model_display")),
             normalize_vehicle_int(raw.get("production_year")),
         )
-        if display_name_present and (display_name_manual or display_name != current_display):
+        name_without_year = build_vehicle_display(
+            normalize_vehicle_text(raw.get("make_display")),
+            normalize_vehicle_text(raw.get("model_display")),
+        )
+        consistent_parts = (
+            "make_display" in raw
+            and "model_display" in raw
+            and bool(name_without_year)
+            and display_name in {name_without_year, current_display}
+        )
+        if consistent_parts:
+            raw.pop("display_name", None)
+        elif display_name_present and (display_name_manual or display_name != current_display):
             make_display, model_display = split_vehicle_display_alias(
                 display_name, normalize_vehicle_int(raw.get("production_year"))
             )

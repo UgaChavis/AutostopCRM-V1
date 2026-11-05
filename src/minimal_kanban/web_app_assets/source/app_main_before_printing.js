@@ -5809,7 +5809,10 @@
       profile.customer_phones = normalizePhoneList([profile.customer_phone, ...baseProfile.customer_phones.slice(1)]);
       profile.customer_phone = profile.customer_phones[0] || '';
       const displayName = String(profile.display_name || '').trim();
-      if (displayName) {
+      const unchangedDisplayName = Boolean(card?.id) && displayName === String(baseProfile.display_name || '').trim();
+      if (unchangedDisplayName) {
+        profile.display_name = [baseProfile.make_display, baseProfile.model_display].filter(Boolean).join(' ').trim();
+      } else if (displayName) {
         const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
         profile.make_display = displayParts.make_display;
         profile.model_display = displayParts.model_display;
@@ -10365,7 +10368,12 @@
       profile.customer_phones = readVehicleCustomerPhoneFields();
       profile.customer_phone = profile.customer_phones[0] || '';
       const displayName = String(profile.display_name || '').trim();
-      if (displayName) {
+      const baseProfile = state.editingId && state.activeCard?.id === state.editingId ? state.activeCard.vehicle_profile : null;
+      const unchangedDisplayName = baseProfile && displayName === vehicleDisplayNameInputValue(baseProfile);
+      if (unchangedDisplayName) {
+        profile.make_display = baseProfile.make_display;
+        profile.model_display = baseProfile.model_display;
+      } else if (displayName) {
         const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
         profile.make_display = displayParts.make_display;
         profile.model_display = displayParts.model_display;
