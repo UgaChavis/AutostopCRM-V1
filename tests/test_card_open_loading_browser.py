@@ -134,12 +134,16 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
           window.independentCardRead = 'pending';
           fetchFullCard(id).then(card => { window.independentCardRead = card?.title || 'missing'; });
           window.mobileCardRead = 'pending';
-          openMobileCardDetail(id).then(card => { window.mobileCardRead = card?.title || 'missing'; });
+          openMobileCardDetail(id).then(card => { window.mobileCardRead = card; });
         }""",
             card_id,
         )
         self.page.wait_for_timeout(100)
         self.assertEqual(len(held), 1, "Independent consumer must share the pending GET")
+        self.assertIsNone(self.page.evaluate("window.mobileCardRead"))
+        self.assertEqual(self.page.evaluate("state.mobileCardId"), "")
+        self.assertFalse(self.page.evaluate("state.mobileCardLoading"))
+        self.assertIn("НА ДРУГОМ ЭКРАНЕ", self.page.locator("#statusLine").inner_text())
         self.page.keyboard.press("Escape")
         self.runtime.service.update_card(
             {"card_id": card_id, "title": "Synthetic after", "actor_name": "other"}
@@ -157,10 +161,8 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
             route.fulfill(response=response)
         old_response.value.body()
         self.page.wait_for_function("window.independentCardRead !== 'pending'")
-        self.page.wait_for_function("window.mobileCardRead !== 'pending'")
         self.assertEqual(self.page.evaluate("window.independentCardRead"), "Synthetic after")
-        self.assertEqual(self.page.evaluate("window.mobileCardRead"), "Synthetic after")
-        self.assertEqual(self.page.evaluate("state.mobileCard.title"), "Synthetic after")
+        self.assertIsNone(self.page.evaluate("state.mobileCard"))
         self.assertEqual(self.page.locator("#cardTitle").input_value(), "Synthetic after")
         self.assertEqual(
             self.page.evaluate("id => state.fullCardCache.get(id)?.title", card_id),
@@ -246,12 +248,17 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
             """id => {
           window.independentCardRead = 'pending';
           fetchFullCard(id).then(card => { window.independentCardRead = card; });
-          void openMobileCardDetail(id);
+          window.mobileCardRead = 'pending';
+          openMobileCardDetail(id).then(card => { window.mobileCardRead = card; });
         }""",
             card_id,
         )
         self.page.wait_for_timeout(100)
         self.assertEqual(len(held), 1)
+        self.assertIsNone(self.page.evaluate("window.mobileCardRead"))
+        self.assertEqual(self.page.evaluate("state.mobileCardId"), "")
+        self.assertFalse(self.page.evaluate("state.mobileCardLoading"))
+        self.assertIn("НА ДРУГОМ ЭКРАНЕ", self.page.locator("#statusLine").inner_text())
         self.page.keyboard.press("Escape")
         tile.click()
         self.page.locator('#cardModal[data-card-loading="true"]').wait_for()
@@ -263,7 +270,7 @@ class CardOpenLoadingBrowserTests(UiBrowserTestCase):
         old_response.value.body()
         self.page.wait_for_timeout(100)
         self.assertEqual(self.page.evaluate("window.independentCardRead"), "pending")
-        self.assertTrue(self.page.evaluate("state.mobileCardLoading"))
+        self.assertFalse(self.page.evaluate("state.mobileCardLoading"))
         self.page.evaluate("clearOperatorSession()")
         route, response = held.pop(0)
         route.fulfill(response=response)
