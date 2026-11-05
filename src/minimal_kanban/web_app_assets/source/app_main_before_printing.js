@@ -193,6 +193,7 @@
       cardOpenSideEffectCardId: '',
       currentTab: 'overview',
       vehicleProfileDraft: null,
+      vehicleSelectedNameBaseline: null,
       draftTags: [],
       draftTagColor: 'green',
       pollHandle: null,
@@ -5062,6 +5063,12 @@
         if (selectedVehicle.drivetrain) profile.drivetrain = selectedVehicle.drivetrain;
       }
       applyVehicleProfileToForm(profile, { preserveStatus: true });
+      if (!state.editingId && (vehicle || createNewVehicle)) {
+        const name = String(state.vehicleProfileDraft?.display_name || '').trim();
+        const make = String(vehicle?.brand || '').trim(), model = String(vehicle?.model || '').trim();
+        state.vehicleSelectedNameBaseline = !createNewVehicle && name && name === [make, model].filter(Boolean).join(' ')
+          ? { name, make, model } : null;
+      }
     }
 
     async function loadClientSuggestionVehicles(clientId, operationContext = null) {
@@ -10370,9 +10377,13 @@
       const displayName = String(profile.display_name || '').trim();
       const baseProfile = state.editingId && state.activeCard?.id === state.editingId ? state.activeCard.vehicle_profile : null;
       const unchangedDisplayName = baseProfile && displayName === vehicleDisplayNameInputValue(baseProfile);
+      const selectedName = !state.editingId && state.vehicleSelectedNameBaseline;
       if (unchangedDisplayName) {
         profile.make_display = baseProfile.make_display;
         profile.model_display = baseProfile.model_display;
+      } else if (selectedName && displayName === selectedName.name) {
+        profile.make_display = selectedName.make;
+        profile.model_display = selectedName.model;
       } else if (displayName) {
         const displayParts = splitVehicleDisplayName(displayName, profile.production_year);
         profile.make_display = displayParts.make_display;
@@ -12931,6 +12942,7 @@
 
     function applyCardModalState(card, { cardIsFull = true } = {}) {
       const perfToken = perfStart('hydrateCard');
+      state.vehicleSelectedNameBaseline = null;
       const currentCard = card || null;
       const nextCardId = String(currentCard?.id || '').trim();
       state.activeCard = currentCard;
@@ -13022,6 +13034,7 @@
       state.cardFilesRenderedFor = '';
       clearCardOpenSideEffectTimer();
       state.vehicleProfileDraft = null;
+      state.vehicleSelectedNameBaseline = null;
       state.pendingCardClientId = '';
       state.pendingCardClientVehicleId = '';
       state.pendingCreateClientVehicleFromCard = false;
