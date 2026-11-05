@@ -4606,6 +4606,7 @@
     }
     .repair-orders-list {
       display: grid;
+      grid-auto-rows: max-content;
       gap: 6px;
       min-height: 72px;
       padding-bottom: 14px;
