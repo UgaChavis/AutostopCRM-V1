@@ -79,9 +79,14 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         self.page.route(
             "**/api/create_client",
             lambda route: route.fulfill(
-                status=422,
+                status=400,
                 content_type="application/json",
-                body=json.dumps({"ok": False, "error": {"message": "Synthetic validation"}}),
+                body=json.dumps(
+                    {
+                        "ok": False,
+                        "error": {"code": "validation_error", "message": "Synthetic validation"},
+                    }
+                ),
             ),
         )
         self.save_profile()
@@ -219,10 +224,8 @@ class ClientsProfileBrowserTests(UiBrowserTestCase):
         self.page.locator("#clientNewButton").click()
         self.page.locator("#clientTypeInput").select_option("company")
         self.page.locator("#clientDisplayNameInput").fill("Synthetic different body")
-        with self.page.expect_request("**/api/create_client"):
-            self.page.locator("#clientSaveButton").click()
-        self.page.wait_for_function("() => !state.clientMutationRequest && state.clientsActiveId")
-        self.assertEqual(self.writes.count("create_client"), 2)
+        self.save_profile()
+        self.assertEqual(self.writes.count("create_client"), 1)
         self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 1)
         self.page.evaluate("clearOperatorSession()")
         self.assertEqual(self.page.evaluate("state.clientProfileUncertainEffects.size"), 0)
