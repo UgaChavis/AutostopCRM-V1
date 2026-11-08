@@ -421,33 +421,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertTrue(all(method == "GET" for method in requests), requests)
         self.assertEqual(self.errors, [])
 
-    def test_role_jobs_show_state_without_generic_controls_for_admin(self) -> None:
+    def test_read_only_jobs_show_state_without_generic_controls_for_admin(self) -> None:
         self.login()
         state = {
             "can_manage": True,
             "controller": {"state": "healthy"},
             "jobs": [
                 {
-                    "job_id": "auto_role_m1",
-                    "name": "M1 — директор",
-                    "template_id": "m1_duty_v1",
+                    "job_id": "read-only",
+                    "name": "Задание только для просмотра",
                     "control_mode": "read_only",
-                    "source_role": "M1",
                     "desired_state": "on",
                     "actual_state": "running",
                     "revision": 2,
-                    "next_run_at": "2026-10-28T10:00:00Z",
-                },
-                {
-                    "job_id": "auto_role_m2",
-                    "name": "M2 — инженер",
-                    "template_id": "m2_duty_v1",
-                    "control_mode": "read_only",
-                    "source_role": "M2",
-                    "desired_state": "off",
-                    "actual_state": "error",
-                    "error_code": "role_launch_unknown",
-                    "revision": 3,
+                    "next_run_at": "2026-11-08T10:00:00Z",
                 },
                 {
                     "job_id": "ordinary",
@@ -469,22 +456,13 @@ class ManagerMapBrowserTests(unittest.TestCase):
 
         self.page.route("**/api/automation_center/**", route_status)
         self.select_node("G1")
-        for role in ("m1", "m2"):
-            card = self.page.locator(f'.automation-card[data-job-id="auto_role_{role}"]')
-            card.wait_for()
-            self.assertEqual(card.locator('[role="switch"]').count(), 0)
-            self.assertEqual(card.locator(".automation-actions, .schedule-form").count(), 0)
-            card.locator(".automation-parameters summary").click()
-            self.assertIn(role.upper(), card.locator(".timer-lock").inner_text())
-        self.assertEqual(
-            self.page.locator('[data-job-id="auto_role_m1"] .actual-lamp').get_attribute(
-                "data-state"
-            ),
-            "on",
-        )
-        self.assertIn(
-            "role_launch_unknown", self.page.locator('[data-job-id="auto_role_m2"]').inner_text()
-        )
+        card = self.page.locator('.automation-card[data-job-id="read-only"]')
+        card.wait_for()
+        self.assertEqual(card.locator('[role="switch"]').count(), 0)
+        self.assertEqual(card.locator(".automation-actions, .schedule-form").count(), 0)
+        card.locator(".automation-parameters summary").click()
+        self.assertEqual(card.locator(".timer-lock").inner_text(), "Только чтение.")
+        self.assertEqual(card.locator(".actual-lamp").get_attribute("data-state"), "on")
         self.assertFalse(
             self.page.locator('[data-job-id="ordinary"] [role="switch"]').is_disabled()
         )

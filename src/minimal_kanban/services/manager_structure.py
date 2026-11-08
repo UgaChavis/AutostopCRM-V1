@@ -731,7 +731,9 @@ class ManagerStructureService:
                 else:
                     text_only = (
                         operation == "upsert_element"
-                        and {"id"} < set(item) <= {"id", "instruction", "description", "lines"}
+                        and {"id"}
+                        < set(item)
+                        <= {"id", "title", "instruction", "description", "lines"}
                     ) or (
                         operation == "upsert_relation"
                         and set(item)

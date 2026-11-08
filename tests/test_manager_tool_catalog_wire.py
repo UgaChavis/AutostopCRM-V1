@@ -76,7 +76,11 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
             set(role_action["required"]), {"operation", "role", "actor", "idempotency_key"}
         )
         self.assertEqual(role_action["properties"]["role"]["enum"], ["M1", "M2"])
-        self.assertIn("reconcile_turn", role_action["properties"]["operation"]["enum"])
+        operations = set(role_action["properties"]["operation"]["enum"])
+        self.assertIn("task_claim", operations)
+        self.assertTrue(
+            operations.isdisjoint({"bind", "start", "stop", "stop_all", "sleep", "reconcile_turn"})
+        )
 
     def test_full_pinned_bundle_roundtrips_get_and_post_without_schema_or_card_truncation(self):
         for method in ("GET", "POST"):

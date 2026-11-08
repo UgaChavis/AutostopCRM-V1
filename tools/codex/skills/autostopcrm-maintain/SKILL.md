@@ -14,5 +14,6 @@ branch link or an installed skill copy does not select the Manager version.
 
 CRM-specific checks and versioned installation are in the runbook. For shared
 server update and rollback, follow its Deploy locator to the selected Manager
-root's M2 procedure. Publishing source changes does not install this skill or
-start duties.
+root's M2 procedure. M1/M2 instructions apply in the user's selected chat;
+goal mode is enabled by the user. Publishing source changes does not install
+this skill or authorize an application restart.

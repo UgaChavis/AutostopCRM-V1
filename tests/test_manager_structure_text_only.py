@@ -87,11 +87,17 @@ class ManagerStructureTextOnlyTests(unittest.TestCase):
 
     def test_text_fields_preserve_manual_paths_with_preview_and_guards(self) -> None:
         cases = (
+            {"title": "New role title"},
             {"instruction": "New instruction"},
             {"description": "New description"},
             {"instruction": "Both instruction", "description": "Both description"},
             {"lines": ["New summary", "Second line"]},
-            {"instruction": "New role", "description": "New role summary", "lines": ["Duty"]},
+            {
+                "title": "Manual role",
+                "instruction": "New role",
+                "description": "New role summary",
+                "lines": ["Tasks"],
+            },
         )
         for index, fields in enumerate(cases):
             with self.subTest(fields=fields):
@@ -190,16 +196,20 @@ class ManagerStructureTextOnlyTests(unittest.TestCase):
             1,
             "blocked-text-prev",
             "upsert_element",
-            element={"id": "A", "description": "Updated"},
+            element={"id": "A", "title": "Manual role", "description": "Updated"},
             preview=True,
         )
         self.assertEqual(preview["diagram"]["relations"], before["relations"])
         self.apply(
-            1, "blocked-text-apply", "upsert_element", element={"id": "A", "description": "Updated"}
+            1,
+            "blocked-text-apply",
+            "upsert_element",
+            element={"id": "A", "title": "Manual role", "description": "Updated"},
         )
         after = self.service.read()
         self.assertEqual(after["relations"], before["relations"])
-        for index, fields in enumerate(({"x": 110}, {"title": "Renamed"}, {})):
+        self.assertEqual(after["elements"][0]["title"], "Manual role")
+        for index, fields in enumerate(({"x": 110}, {})):
             with (
                 self.subTest(fields=fields),
                 self.assertRaisesRegex(ServiceError, "постороннюю карточку"),

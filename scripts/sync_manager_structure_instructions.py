@@ -78,7 +78,7 @@ def _validated_text_updates(graph: dict, updates: dict | None) -> dict:
     if not isinstance(updates, dict) or set(updates) - {"elements", "relations"}:
         raise ValueError("Text updates must contain elements or relations")
     for field, allowed in (
-        ("elements", {"description", "lines"}),
+        ("elements", {"title", "description", "lines"}),
         ("relations", {"description", "protocol"}),
     ):
         entries = updates.setdefault(field, {})

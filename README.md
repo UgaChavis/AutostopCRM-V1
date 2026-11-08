@@ -187,13 +187,21 @@ Pass `--bundle` to require parity with the already exported immutable package.
 An optional `--patch-output` outside the repository prepares text-only
 preview/write request bodies for a later authorized release, never sends them.
 `--text-updates` accepts a JSON object with optional `elements` and `relations`
-maps keyed by existing IDs. Node updates allow only `description` and `lines`;
+maps keyed by existing IDs. Node updates allow only `title`, `description` and `lines`;
 relation updates allow only `description` and `protocol`. Instructions always
 come from canonical Manager docs. The patch includes the text scope and a digest
 of the remaining graph, including its geometry and commissioning marks.
 Fresh full readback and current version guards are required before application.
 The retained L30/L36 route conflict is preserved; instruction refresh does not
 reroute the owner's graph.
+
+M1 and M2 are role instructions for the user's chosen Codex chat. They have no
+fixed chat or model, scheduled duty, or automatic goal. The user enables goal
+mode when needed. Their manual task, question, approval and knowledge registry
+remains available through Manager; registry operations never wake an agent.
+The Automation Center displays actual automations and system timers, without
+M1/M2 duty jobs. Its saved instructions and the immutable tool catalog must match
+the selected Manager release.
 
 ## Local Development
 

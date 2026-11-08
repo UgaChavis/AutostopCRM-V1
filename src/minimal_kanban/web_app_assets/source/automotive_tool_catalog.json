@@ -1,5 +1,5 @@
 {
-  "content_hash": "52c90a853ccd63d7485b8f78770203473594ff16806da73d0de51a663f306a2c",
+  "content_hash": "3d3a7f342252196e7b28ca99f3d736cce110bf3db3229d6baa3ce2e1882215c5",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -3268,11 +3268,6 @@
         },
         "operation": {
           "enum": [
-            "bind",
-            "start",
-            "stop",
-            "stop_all",
-            "sleep",
             "checkpoint",
             "task_create",
             "task_claim",
@@ -3287,8 +3282,7 @@
             "approval_consume",
             "note",
             "learn",
-            "permission_record",
-            "reconcile_turn"
+            "permission_record"
           ],
           "title": "Operation",
           "type": "string"
@@ -5262,7 +5256,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "a66bd3b1ad22960edc856c0c498c2daf68dd67bb",
+  "source_revision": "a84a1796f1e8dad150caf35a47fce43664cdabed",
   "tools": [
     {
       "also_used_in": [],
@@ -12418,9 +12412,9 @@
         "limit"
       ],
       "input_schema_ref": "manager_roles",
-      "instruction_hash": "54c2019b8e0691e064edda689fab63b84a9e6f7a3f027e0695e443d84a2ca885",
+      "instruction_hash": "187df91e5caaa0135dc732296583680ff34083c29531c6b9515e6ff7d27be72b",
       "instruction_ref": "docs/agent/references/manager-manager_roles.md",
-      "instruction_text": "# manager.manager_roles — manager_roles\n\nСостояние кабинетов M1/M2, задачи, согласования и рабочие знания\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_roles`.\n\nВходы: `operation`, `role`, `reference_id`, `limit`.\nDefaults: `{\"limit\":30,\"operation\":\"status\",\"reference_id\":\"\",\"role\":\"M1\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Обе роли после установки OFF; чтение не запускает дежурство.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "instruction_text": "# manager.manager_roles — manager_roles\n\nРучной реестр задач, вопросов, согласований и знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_roles`.\n\nВходы: `operation`, `role`, `reference_id`, `limit`.\nDefaults: `{\"limit\":30,\"operation\":\"status\",\"reference_id\":\"\",\"role\":\"M1\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
       "invalid_example": {
         "operation": "__invalid__"
       },
@@ -12431,7 +12425,7 @@
       "limitations": [
         "Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.",
         "Рабочие знания и наблюдения не расширяют полномочия.",
-        "Обе роли после установки OFF; чтение не запускает дежурство."
+        "Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу."
       ],
       "outputs": [
         "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
@@ -12439,7 +12433,7 @@
       "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
       "primary_module": "outside",
       "provider_id": "manager",
-      "purpose": "Состояние кабинетов M1/M2, задачи, согласования и рабочие знания",
+      "purpose": "Ручной реестр задач, вопросов, согласований и знаний M1/M2",
       "reference": "docs/agent/references/manager-roles.md",
       "title": "manager_roles",
       "tool_id": "manager.manager_roles"
@@ -12476,9 +12470,9 @@
         "expected_revision"
       ],
       "input_schema_ref": "manager_role_action",
-      "instruction_hash": "c66022b2cbed9198d02de50c352492c4e41d651ed47b0037f9de61cd6eeb40d0",
+      "instruction_hash": "4d316a0f66d67759ee9a9a681d05f07cd46c457351d6818d7d20f291192f9b59",
       "instruction_ref": "docs/agent/references/manager-manager_role_action.md",
-      "instruction_text": "# manager.manager_role_action — manager_role_action\n\nУправление дежурствами, поручениями M1/M2 и конкретными согласованиями владельца\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_role_action`.\n\nВходы: `operation`, `role`, `actor`, `idempotency_key`, `payload`, `expected_revision`.\nDefaults: `{\"expected_revision\":null,\"payload\":null}`.\nОбязательные facade поля: `operation`, `role`, `actor`, `idempotency_key`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"actor\":\"M1\",\"idempotency_key\":\"synthetic-note-1\",\"operation\":\"note\",\"payload\":{\"kind\":\"idea\",\"source_ref\":\"test:1\",\"text\":\"Synthetic operational idea\"},\"role\":\"M1\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Обе роли после установки OFF; чтение не запускает дежурство.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "instruction_text": "# manager.manager_role_action — manager_role_action\n\nРучное ведение задач, решений и рабочих знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_role_action`.\n\nВходы: `operation`, `role`, `actor`, `idempotency_key`, `payload`, `expected_revision`.\nDefaults: `{\"expected_revision\":null,\"payload\":null}`.\nОбязательные facade поля: `operation`, `role`, `actor`, `idempotency_key`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"actor\":\"M1\",\"idempotency_key\":\"synthetic-note-1\",\"operation\":\"note\",\"payload\":{\"kind\":\"idea\",\"source_ref\":\"test:1\",\"text\":\"Synthetic operational idea\"},\"role\":\"M1\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
       "invalid_example": {
         "operation": "__invalid__"
       },
@@ -12489,7 +12483,7 @@
       "limitations": [
         "Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.",
         "Рабочие знания и наблюдения не расширяют полномочия.",
-        "Обе роли после установки OFF; чтение не запускает дежурство."
+        "Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу."
       ],
       "outputs": [
         "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
@@ -12497,7 +12491,7 @@
       "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
       "primary_module": "outside",
       "provider_id": "manager",
-      "purpose": "Управление дежурствами, поручениями M1/M2 и конкретными согласованиями владельца",
+      "purpose": "Ручное ведение задач, решений и рабочих знаний M1/M2",
       "reference": "docs/agent/references/manager-roles.md",
       "title": "manager_role_action",
       "tool_id": "manager.manager_role_action"

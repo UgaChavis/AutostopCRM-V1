@@ -159,13 +159,13 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
         with patch.object(
             self.service, "_prepare_manual_routes", wraps=self.service._prepare_manual_routes
         ) as prepare_routes:
-            for extra in ({"title": "Заголовок"}, {"x": 500}, {"parent": "E1"}):
+            for extra in ({"x": 500}, {"parent": "E1"}):
                 self.service.apply(
                     self.request(
                         preview=True, element={"id": "E2", "instruction": "Новое", **extra}
                     )
                 )
-        self.assertEqual(prepare_routes.call_count, 3)
+        self.assertEqual(prepare_routes.call_count, 2)
 
     def test_retained_baseline_conflict_allows_text_only_and_keeps_normal_geometry_gate(self):
         graph = json.loads(
@@ -188,7 +188,11 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
                 self.request(
                     expected_version=8,
                     idempotency_key="instruction-normal-002",
-                    element={"id": "E2", "instruction": "More", "title": "Same geometry"},
+                    element={
+                        "id": "E2",
+                        "instruction": "More",
+                        "x": next(node for node in graph["elements"] if node["id"] == "E2")["x"],
+                    },
                 )
             )
         verify_routes.assert_called_once()
@@ -265,7 +269,13 @@ class ManagerInstructionRefreshTests(unittest.TestCase):
 
     def test_offline_role_text_patch_applies_without_touching_geometry_or_private_state(self):
         updates = {
-            "elements": {"E1": {"description": "Director", "lines": ["Duty", "Experience"]}},
+            "elements": {
+                "E1": {
+                    "title": "Director",
+                    "description": "Manual role",
+                    "lines": ["Tasks", "Experience"],
+                }
+            },
             "relations": {"L1": {"description": "Task and acceptance", "protocol": "Role queue"}},
         }
         result = prepare(
