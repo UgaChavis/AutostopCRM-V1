@@ -233,10 +233,10 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 85)
-        self.assertEqual(len(set(identifiers)), 85)
-        self.assertEqual(self.page.locator(".node").count(), 48)
-        self.assertEqual(self.page.locator(".edge").count(), 37)
+        self.assertEqual(len(identifiers), 87)
+        self.assertEqual(len(set(identifiers)), 87)
+        self.assertEqual(self.page.locator(".node").count(), 49)
+        self.assertEqual(self.page.locator(".edge").count(), 38)
         self.assertEqual(
             self.page.locator("[data-edge-owner][data-id],[data-edge-owner][tabindex]").count(), 0
         )
@@ -1022,7 +1022,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 85)
+        self.assertEqual(self.page.locator("[data-id]").count(), 87)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -1031,7 +1031,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 85)
+                self.assertEqual(self.page.locator("[data-id]").count(), 87)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -1046,7 +1046,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 85)
+        self.assertEqual(self.page.locator("[data-id]").count(), 87)
         self.assertEqual(self.errors, [])
 
 

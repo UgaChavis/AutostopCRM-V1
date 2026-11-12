@@ -859,7 +859,7 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(svg_errors, [])
         self.assertEqual(self.page.locator(".edge path.hit[d*='Q']").count(), 0)
         reference_ids = {edge["id"] for edge in reference["relations"]}
-        self.assertEqual(len(reference_ids), 37)
+        self.assertEqual(len(reference_ids), 38)
         self.assertCountEqual(
             self.page.locator(".edge").evaluate_all("nodes => nodes.map(node => node.dataset.id)"),
             reference_ids,
