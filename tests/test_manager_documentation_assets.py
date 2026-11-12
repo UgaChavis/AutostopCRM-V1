@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
 import unittest
 from html.parser import HTMLParser
 from importlib import resources
@@ -29,6 +31,55 @@ class _Scripts(HTMLParser):
 
 
 class ManagerDocumentationAssetsTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_website_module_links_use_canonical_pinned_source_and_keep_custom_guard(self):
+        source = resources.files("minimal_kanban.web_app_assets").joinpath("source")
+        dialog = source.joinpath("manager_tool_dialog.js").read_text(encoding="utf-8")
+        declarations = "\n".join(
+            line
+            for line in dialog.splitlines()
+            if line.startswith(("function moduleDocumentRef(", "function textElement("))
+        )
+        script = (
+            "const assert=require('node:assert/strict');\n"
+            "const window={markdownit:require("
+            + json.dumps(str(source.joinpath("markdown_it.js")))
+            + ")};\n"
+            + """
+function element(tag){return {tagName:tag.toUpperCase(),children:[],textContent:'',
+  append(...nodes){this.children.push(...nodes)},
+  replaceChildren(...nodes){this.children=nodes}}}
+const document={createElement:element,createTextNode:text=>({textContent:text})};
+function hrefs(node){return [...(node.href?[node.href]:[]),
+  ...(node.children||[]).flatMap(hrefs)]}
+"""
+            + declarations
+            + "\n"
+            + source.joinpath("manager_documentation.js").read_text(encoding="utf-8")
+            + """
+const revision='a'.repeat(40),base=`https://github.com/UgaChavis/AutostopManager/blob/${revision}/`;
+const reference=moduleDocumentRef('K1');
+assert.equal(reference,'docs/agent/modules/K1.md');
+assert.equal(documentLink('K1',reference,revision).href,base+reference);
+const target=element('div');
+instructionLinks(target,'[M2](M2.md) [Root](../../../AGENTS.md) '+
+  '[Website runtime](../references/website-runtime.md) [Site](https://autostop24.ru/)',
+  reference,revision);
+assert.deepEqual(hrefs(target),[base+'docs/agent/modules/M2.md',base+'AGENTS.md',
+  base+'docs/agent/references/website-runtime.md','https://autostop24.ru/']);
+assert.equal(moduleDocumentRef('K10'),'');
+assert.equal(moduleDocumentRef('CUSTOM1'),'');
+const custom=element('div');
+instructionLinks(custom,'[Sibling](M2.md) [Public](https://autostop24.ru/) '+
+  '[Local](file:///etc/passwd)',moduleDocumentRef('CUSTOM1'),revision);
+assert.deepEqual(hrefs(custom),['https://autostop24.ru/']);
+"""
+        )
+        result = subprocess.run(
+            [shutil.which("node"), "-e", script], capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_pinned_vendor_checksum_and_complete_notices(self):
         source = resources.files("minimal_kanban.web_app_assets").joinpath("source")
         manifest = json.loads(
