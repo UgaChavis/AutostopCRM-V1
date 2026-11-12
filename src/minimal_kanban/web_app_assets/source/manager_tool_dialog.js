@@ -10,7 +10,7 @@ toolCatalogRetry.addEventListener('click',retryToolDialog);
 function sessionIdentity(){try{return localStorage.getItem('kanban-operator-session')||''}catch(_error){return ''}}
 function textElement(tag,text,className=''){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element}
     // @include manager_documentation.js
-function moduleDocumentRef(id){return id==='A2'?'AGENTS.md':/^(?:A[1-5]|B[1-4]|C[2-7]|D[1-5]|E(?:[1-9]|1[0-5])|F[1-5]|G1|H[12]|I[12]|J1|M[12])$/.test(id)?`docs/agent/modules/${id}.md`:''}
+function moduleDocumentRef(id){return id==='A2'?'AGENTS.md':/^(?:A[1-5]|B[1-4]|C[2-7]|D[1-5]|E(?:[1-9]|1[0-5])|F[1-5]|G1|H[12]|I[12]|J1|K1|M[12])$/.test(id)?`docs/agent/modules/${id}.md`:''}
 function instructionMetadata(target,reference,bundle){target.replaceChildren(documentLink(reference,reference,bundle.source_revision),document.createTextNode(` · Manager ${bundle.source_revision.slice(0,12)} · каталог ${bundle.content_hash.slice(0,12)}`));target.title=`Manager ${bundle.source_revision} · ${bundle.content_hash}`}
 function cardMessage(card,message,error=false){card.error.textContent=message;card.error.classList.toggle('is-error',error)}
 function toolDialogMessage(message){$('toolCatalogMessage').textContent=message;$('toolCatalogMessage').hidden=!message}
