@@ -31,7 +31,9 @@ from tests.manager_tool_catalog_fixture import fixture_bundle
 class RetainedGraphShapeTests(unittest.TestCase):
     def setUp(self):
         self.graph = json.loads(
-            (Path(__file__).resolve().parents[1] / "templates/manager_structure.json").read_text()
+            (Path(__file__).resolve().parents[1] / "templates/manager_structure.json").read_text(
+                encoding="utf-8"
+            )
         )
         self.graph["elements"] = [n for n in self.graph["elements"] if n["id"] != "K1"]
         self.graph["relations"] = [
