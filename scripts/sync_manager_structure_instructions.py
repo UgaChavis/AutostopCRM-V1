@@ -184,6 +184,46 @@ def prepare(
     }
 
 
+def retained_graph_shape(graph: dict) -> bool:
+    """Accept the retained module map and its single additive website module."""
+    elements, relations = graph["elements"], graph["relations"]
+    core_ids = {
+        *(f"A{i}" for i in range(1, 6)),
+        *(f"B{i}" for i in range(1, 5)),
+        *(f"C{i}" for i in range(2, 8)),
+        *(f"D{i}" for i in range(1, 6)),
+        *(f"E{i}" for i in range(1, 16)),
+        *(f"F{i}" for i in range(1, 6)),
+        "G1",
+        "H1",
+        "H2",
+        "I1",
+        "I2",
+        "J1",
+        "M1",
+        "M2",
+    }
+    website = [node for node in elements if node["id"] == "K1"]
+    expected_ids = core_ids | ({"K1"} if website else set())
+    website_edges = [edge for edge in relations if "K1" in (edge["from"], edge["to"])]
+    return (
+        {node["id"] for node in elements} == expected_ids
+        and len(elements) == len(expected_ids)
+        and len(relations) == 37 + len(website)
+        and {node["id"] for node in elements if node.get("parent") == "E1"}
+        == {f"E{i}" for i in range(2, 16)}
+        and (
+            not website
+            or (
+                not website[0].get("parent")
+                and len(website_edges) == 1
+                and website_edges[0]["from"] == "M2"
+                and website_edges[0]["to"] == "K1"
+            )
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--graph", type=Path, required=True, help="Fresh full technical graph JSON")
@@ -207,10 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Prepared patch must stay outside the repository")
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     children = {n["id"] for n in graph["elements"] if n.get("parent") == "E1"}
-    if (len(graph["elements"]), len(graph["relations"])) != (48, 37) or children != {
-        f"E{i}" for i in range(2, 16)
-    }:
-        parser.error("Expected retained 48-node/37-relation graph and E2–E15 children")
+    if not retained_graph_shape(graph):
+        parser.error("Expected retained core, E2–E15 children and optional M2→K1 website module")
     bundle = json.loads(args.bundle.read_text(encoding="utf-8")) if args.bundle else None
     instructions = canonical_instructions(graph, args.manager_root, bundle)
     previous = json.loads(args.blueprint.read_text(encoding="utf-8"))

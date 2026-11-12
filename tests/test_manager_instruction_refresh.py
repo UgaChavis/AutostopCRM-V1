@@ -18,6 +18,7 @@ from sync_manager_structure_instructions import (
     A5_POINTER,
     canonical_instructions,
     prepare,
+    retained_graph_shape,
     unchanged_scope_digest,
 )
 from sync_manager_structure_instructions import main as sync_main
@@ -25,6 +26,46 @@ from sync_manager_structure_instructions import main as sync_main
 from minimal_kanban.services.errors import ServiceError
 from minimal_kanban.services.manager_structure import SCHEMA, ManagerStructureService
 from tests.manager_tool_catalog_fixture import fixture_bundle
+
+
+class RetainedGraphShapeTests(unittest.TestCase):
+    def setUp(self):
+        self.graph = json.loads(
+            (Path(__file__).resolve().parents[1] / "templates/manager_structure.json").read_text()
+        )
+        self.graph["elements"] = [n for n in self.graph["elements"] if n["id"] != "K1"]
+        self.graph["relations"] = [
+            edge for edge in self.graph["relations"] if "K1" not in (edge["from"], edge["to"])
+        ]
+
+    def with_website(self):
+        graph = copy.deepcopy(self.graph)
+        graph["elements"].append({"id": "K1"})
+        graph["relations"].append({"id": "website", "from": "M2", "to": "K1"})
+        return graph
+
+    def test_accepts_retained_map_and_additive_website(self):
+        self.assertTrue(retained_graph_shape(self.graph))
+        self.assertTrue(retained_graph_shape(self.with_website()))
+
+    def test_rejects_missing_core_and_changed_automotive_parent(self):
+        graph = copy.deepcopy(self.graph)
+        graph["elements"][0]["id"] = "UNEXPECTED"
+        self.assertFalse(retained_graph_shape(graph))
+        graph = copy.deepcopy(self.graph)
+        next(node for node in graph["elements"] if node["id"] == "E2")["parent"] = "K1"
+        self.assertFalse(retained_graph_shape(graph))
+
+    def test_rejects_website_with_wrong_parent_or_connection(self):
+        graph = self.with_website()
+        graph["elements"][-1]["parent"] = "E1"
+        self.assertFalse(retained_graph_shape(graph))
+        graph = self.with_website()
+        graph["relations"][-1]["from"] = "E1"
+        self.assertFalse(retained_graph_shape(graph))
+        graph = self.with_website()
+        graph["relations"].pop()
+        self.assertFalse(retained_graph_shape(graph))
 
 
 def graph_fixture() -> dict:
