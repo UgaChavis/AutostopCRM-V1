@@ -1899,7 +1899,7 @@ def register_agent_gateway_v2(
         name="get_runtime_status",
         description=(
             "Return CRM runtime diagnostics without Store access by default. "
-            "Set include_store_context=true only after separate permission for a live Store check."
+            "Set include_store_context=true to add a bounded live Store readiness check."
         ),
         annotations=_read_annotations("Runtime Status"),
     )
@@ -1929,7 +1929,7 @@ def register_agent_gateway_v2(
         name="agent_bootstrap",
         description=(
             "Optional compact CRM context; Store is excluded by default, including for a query or intent. "
-            "Set include_store_context=true only after separate permission for this case to add bounded Store matches."
+            "Set include_store_context=true to add bounded Store matches when relevant."
         ),
         annotations=_read_annotations("Agent Bootstrap v2"),
     )
@@ -2009,7 +2009,7 @@ def register_agent_gateway_v2(
             },
             warnings=list(dict.fromkeys(warnings)),
             next_actions=[
-                "choose relevant CRM or workflow context; Store requires separate permission for this case"
+                "choose relevant CRM or workflow context; include Store context when useful"
             ],
             meta={"tool_count": len(getattr(tool_manager, "_tools", {}))},
         )
