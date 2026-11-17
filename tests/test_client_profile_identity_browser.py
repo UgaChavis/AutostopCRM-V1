@@ -459,10 +459,63 @@ class ClientProfileIdentityBrowserTests(UiBrowserTestCase):
         self.page.locator("[data-client-vehicle-save]").click()
         self.page.wait_for_function("!state.clientMutationRequest")
         self.assertEqual(len(writes), 1)
-        self.assertIn("ПОВТОР ОСТАНОВЛЕН", self.page.locator("#statusLine").text_content())
+        warning = self.page.locator('[data-client-vehicle-feedback][role="alert"]')
+        warning.wait_for(state="visible")
+        self.assertIn("ПОВТОР ОСТАНОВЛЕН", warning.text_content())
+        self.assertTrue(
+            self.page.evaluate(
+                "id => sessionStorage.getItem('autostop:client-vehicle:' + JSON.stringify([id, ''])) === '1'",
+                first,
+            )
+        )
+        # Complete a board read after the error: connectivity status may change,
+        # but the blocked editor must retain its own explanation.
+        self.page.evaluate("async () => { await refreshSnapshot(true); }")
+        self.assertTrue(warning.is_visible())
+        self.assertIn("ПОВТОР ОСТАНОВЛЕН", warning.text_content())
+        self.assertEqual(
+            self.page.locator('[data-client-vehicle-field="vehicle"]').input_value(),
+            "SYNTHETIC RELOAD VEHICLE",
+        )
+        self.assertEqual(len(writes), 1)
         self.assertEqual(
             len(self.runtime.service.get_client({"client_id": first})["client"]["vehicles"]), 1
         )
+
+    def test_vehicle_late_error_does_not_change_another_client_editor_feedback(self):
+        first, other = self.clients()
+        self.page.locator("#clientsButton").click()
+        self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
+        self.page.wait_for_function(
+            "id => state.clientsActiveProfile?.client?.id === id", arg=first
+        )
+        self.page.locator("#clientVehicleAddButton").click()
+        self.page.locator('[data-client-vehicle-field="vehicle"]').fill("SYNTHETIC OLD REQUEST")
+        pending = []
+        self.page.route("**/api/upsert_client_vehicle", lambda route: pending.append(route))
+        with self.page.expect_request("**/api/upsert_client_vehicle"):
+            self.page.locator("[data-client-vehicle-save]").click()
+        self.page.wait_for_function("Boolean(state.clientMutationRequest)")
+        replacement = self.runtime.service.get_client({"client_id": other})
+        self.page.evaluate(
+            "data => { state.clientsActiveId = data.client.id; state.clientsProfileRequestSeq += 1; "
+            "renderClientProfile(data); startClientVehicleEditor('__new__'); }",
+            replacement,
+        )
+        feedback = self.page.locator('[data-client-vehicle-feedback][role="alert"]')
+        self.assertFalse(feedback.is_visible())
+        self.assertEqual(len(pending), 1)
+        pending[0].fulfill(
+            status=409,
+            json={
+                "ok": False,
+                "error": {"code": "client_update_conflict", "message": "SYNTHETIC OLD ERROR"},
+            },
+        )
+        self.page.wait_for_function("!state.clientMutationRequest")
+        self.assertFalse(feedback.is_visible())
+        self.assertEqual(feedback.text_content(), "")
+        self.assertEqual(self.page.evaluate("state.clientsActiveProfile.client.id"), other)
 
     def test_new_vehicle_requires_session_storage_before_write(self):
         first, _ = self.clients()

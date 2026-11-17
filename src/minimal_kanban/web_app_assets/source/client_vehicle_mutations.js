@@ -144,6 +144,13 @@
       if (currentVehicle?.id && !currentVehicle?.card_id) body.client_vehicle_id = currentVehicle.id;
       const context = beginClientMutation();
       if (!context) return;
+      const feedback = Array.from(els.clientVehiclesList?.querySelectorAll('[data-client-vehicle-editor]') || [])
+        .find((form) => form.getAttribute('data-client-vehicle-editor') === normalizedKey)
+        ?.querySelector('[data-client-vehicle-feedback]');
+      if (context.isCurrent() && feedback) {
+        feedback.textContent = '';
+        feedback.hidden = true;
+      }
       body.client_id = context.clientId;
       let effect = null, created = false;
       try {
@@ -172,7 +179,13 @@
           if (effect && state.clientCandidateVehicleEffects.get(effect.key) === effect
               && state.clientVehicleMutationCheckpoint?.effect === effect) state.clientVehicleMutationCheckpoint.uncertain = true;
         }
-        if (context.isCurrent()) setStatus(error.message, true);
+        if (context.isCurrent()) {
+          setStatus(error.message, true);
+          if (feedback?.isConnected) {
+            feedback.textContent = error.message;
+            feedback.hidden = false;
+          }
+        }
       } finally {
         finishClientMutation(context);
       }

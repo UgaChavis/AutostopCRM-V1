@@ -4172,6 +4172,7 @@
         + '<div class="field field--compact"><label>МОДЕЛЬ / НАЗВАНИЕ</label><input data-client-vehicle-field="vehicle" type="text" maxlength="160" value="' + escapeHtml(vehicle.vehicle || '') + '"></div>'
         + '<div class="field field--compact"><label>VIN</label><input data-client-vehicle-field="vin" type="text" maxlength="80" value="' + escapeHtml(vehicle.vin || '') + '"></div>'
         + '<div class="field field--compact"><label>ГОСНОМЕР</label><input data-client-vehicle-field="license_plate" type="text" maxlength="80" value="' + escapeHtml(vehicle.license_plate || vehicle.registration_plate || '') + '"></div>'
+        + '<div data-client-vehicle-feedback role="alert" hidden></div>'
         + '<div class="client-vehicle-form__actions">'
         + '<button class="btn btn--ghost" type="button" data-client-vehicle-cancel="' + escapeHtml(key) + '">ОТМЕНА</button>'
         + '<button class="btn btn--accent" type="button" data-client-vehicle-save="' + escapeHtml(key) + '">СОХРАНИТЬ</button>'
