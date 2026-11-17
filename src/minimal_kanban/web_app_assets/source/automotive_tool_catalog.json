@@ -1,5 +1,5 @@
 {
-  "content_hash": "3d3a7f342252196e7b28ca99f3d736cce110bf3db3229d6baa3ce2e1882215c5",
+  "content_hash": "5d712a328412e2297eefc8dc90127cfe69664efe400e8cd81d320233162ceadb",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -265,11 +265,11 @@
         "Ручной цвет сообщает ввод в работу, а пригодность ответа проверяется отдельно."
       ],
       "input_notes": [
-        "Номер+бренд; Store offer ID/context и observed_at нужны для точного предложения."
+        "Номер+бренд; для точного предложения Store нужны offer ID/context и observed_at."
       ],
-      "instruction_hash": "40f37284d5af03c0a59b88f3031ff0a2390b2eab2b9fb6b8183330239cb9717f",
+      "instruction_hash": "c7a7caf609d822234e5e36ed65b212c0c2e867ca7a24d161071dd10d1cfa5843",
       "instruction_ref": "docs/agent/modules/E9.md",
-      "instruction_text": "# E9 — Новые детали и предложения\n\nПредложения, остатки и доставка\nРодитель: [E1](E1.md). Устойчивый ключ: `new_parts_offers`.\n\n## Входы\n\nНомер+бренд; для отдельно разрешённого Store-кейса Store offer ID/context и observed_at нужны для точного предложения.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Публичная цена Exist](../tools/manager-exist-price-lookup.md) | exist · network_read · implemented | `exist_price_lookup` |\n| [Поиск сущностей Store](../tools/manager-store-search.md) | store · network_read · implemented | `store_search` |\n| [Точный контекст сущности Store](../tools/manager-store-entity-context.md) | store · network_read · implemented | `store_entity_context` |\n\n## Достаточность и границы\n\n- Exist public_retail_reference не procurement; article не остаток.\n\n## Следующий выбор\n\nПри отдельном разрешении на Store позицию и партию проверяй по его текущему контексту. Для `store_sourcing_offer` используй повторный поиск: отдельного entity context у этого типа нет, как описано в [F3](F3.md). Без разрешения используй допустимые публичные источники и передавай предварительную заявку через CRM только с явного согласия клиента по клиентскому скиллу. Рыночный ориентир — [E11](E11.md), применимость — [E6](E6.md). Оформление предложения регулируют [F4](F4.md) и [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md).\n\nПодробный контракт: [справочник](../references/store-api.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E9 — Новые детали и предложения\n\nПредложения, остатки и доставка\nРодитель: [E1](E1.md). Устойчивый ключ: `new_parts_offers`.\n\n## Входы\n\nНомер+бренд; для точного предложения Store нужны offer ID/context и observed_at.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [getPartWeight](../tools/partsapi-get-part-weight.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=getPartWeight` |\n| [Публичная цена Exist](../tools/manager-exist-price-lookup.md) | exist · network_read · implemented | `exist_price_lookup` |\n| [Поиск сущностей Store](../tools/manager-store-search.md) | store · network_read · implemented | `store_search` |\n| [Точный контекст сущности Store](../tools/manager-store-entity-context.md) | store · network_read · implemented | `store_entity_context` |\n\n## Достаточность и границы\n\n- Exist public_retail_reference не procurement; article не остаток.\n\n## Следующий выбор\n\nПозицию и партию Store проверяй по его текущему контексту. Для `store_sourcing_offer` используй повторный поиск: отдельного entity context у этого типа нет, как описано в [F3](F3.md). Предварительную заявку через CRM передавай только с явного согласия клиента по клиентскому скиллу. Рыночный ориентир — [E11](E11.md), применимость — [E6](E6.md). Оформление предложения регулируют [F4](F4.md) и [клиентский скилл](../../../.agents/skills/manage-autostop-client/SKILL.md).\n\nПодробный контракт: [справочник](../references/store-api.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "new_parts_offers",
       "parent": "E1",
       "purpose": "Предложения, остатки и доставка",
@@ -5256,7 +5256,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "f861715c24a71565604e7ce40644dbf2dd3240eb",
+  "source_revision": "8d2f6e91c8c6ba31f723b3d9c2356fcaa6f573ef",
   "tools": [
     {
       "also_used_in": [],

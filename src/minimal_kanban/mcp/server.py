@@ -539,14 +539,14 @@ def create_mcp_server(
             f"{_single_board_rule_text()} "
             "Use relevant connected CRM and conversation context in whatever order helps the "
             "customer goal; bootstrap, digest, search, and workflows are optional aids, not a protocol. "
-            "Store access requires separate permission for the current case. agent_bootstrap excludes Store "
-            "by default: use include_store_context=true only after that permission; a query or intent is not permission. "
+            "agent_bootstrap excludes Store by default: use include_store_context=true when Store context is needed; "
+            "a query or intent does not enable it automatically. "
             "A VIN, part number, photo, part name, or short customer reply can indicate a quote request: "
             "collect exposed facts first and ask only for a real blocker. Native guarded actions remain "
             "mandatory for money, a published customer price, an order, deletion, a new external recipient, "
             "deployment, or secrets. Use raw discovery only when a focused supported tool is insufficient. "
             "If auth or runtime state is unclear, call get_runtime_status; it is CRM-only by default. "
-            "Set include_store_context=true there only after separate permission for a live Store check. "
+            "Set include_store_context=true there to add a bounded live Store check. "
             "If the user asks about some other kanban product or board, do not use this connector."
         ),
         host=resolved_host,
