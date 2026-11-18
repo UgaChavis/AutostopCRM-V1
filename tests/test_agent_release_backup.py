@@ -136,6 +136,25 @@ class AgentReleaseBackupTests(unittest.TestCase):
             (crm_data / self.module.CHANGE_FEED_BACKUP_NAME).unlink()
             original = self._cashbox_receipt_fixture(crm_data, "synthetic-owner", "SYNTHETIC-1")
             empty = self._cashbox_receipt_fixture(crm_data, "synthetic-empty", "")
+            scoped = json.loads(original.read_text(encoding="utf-8"))
+            scoped.update(
+                schema_version=2,
+                registration_seq=1,
+                by_cashbox={
+                    f"cashbox-{i}": {
+                        "transaction_id": f"movement-{i}",
+                        "registration_seq": i + 1,
+                        "created_at": "2026-11-01T01:00:00+00:00",
+                    }
+                    for i in range(1900)
+                },
+            )
+            serialized = json.dumps(scoped, separators=(",", ":")).encode("utf-8")
+            self.assertLess(len(serialized), self.module.CASHBOX_RECEIPT_MAX_BYTES)
+            self.assertGreater(
+                len(json.dumps(scoped, indent=2)), self.module.CASHBOX_RECEIPT_MAX_BYTES
+            )
+            original.write_bytes(serialized)
             original_rows = {
                 path.name: json.loads(path.read_text(encoding="utf-8"))
                 for path in (original, empty)

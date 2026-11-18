@@ -8,7 +8,7 @@ import os
 import re
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import AbstractContextManager, nullcontext
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -24,8 +24,10 @@ from .file_lock import ProcessFileLock
 from .limited_io import read_text_limited
 
 CASHBOX_NOTIFICATION_SEEN_SETTING_KEY = "_cashbox_notification_seen_by_users"
-CASHBOX_RECEIPT_MAX_BYTES = 4096
+CASHBOX_RECEIPT_MAX_BYTES = 256 * 1024
 _ROW_FIELDS = {"schema_version", "actor_key", "transaction_id", "created_at"}
+_POSITION_FIELDS = {"transaction_id", "created_at", "registration_seq"}
+_EMPTY_TIME = datetime.min.replace(tzinfo=UTC)
 CASHBOX_RECEIPT_FILE_RE = re.compile(r"[0-9a-f]{64}\.json")
 CASHBOX_RECEIPT_TRANSIENT_RE = re.compile(
     r"(?:[0-9a-f]{64}\.lock|\.[0-9a-f]{64}\.[0-9a-f]{32}\.tmp)"
@@ -52,12 +54,15 @@ def _cashbox_receipt_time(value: str) -> datetime | None:
         return None
 
 
-def cashbox_receipt_key(receipt: Mapping[str, str] | None) -> tuple[datetime, str]:
+def cashbox_receipt_key(receipt: Mapping[str, Any] | None) -> tuple[int, datetime, str]:
     raw = receipt or {}
+    seq = raw.get("registration_seq", 0)
+    if seq:
+        return seq, _EMPTY_TIME, raw["transaction_id"]
     timestamp = _cashbox_receipt_time(normalize_text(raw.get("created_at"), limit=80))
     if timestamp is None:
         timestamp = datetime.min.replace(tzinfo=business_timezone())
-    return timestamp, normalize_text(raw.get("transaction_id"), limit=128)
+    return 0, timestamp, normalize_text(raw.get("transaction_id"), limit=128)
 
 
 def normalize_legacy_cashbox_receipts(settings: Mapping[str, Any]) -> dict[str, dict[str, str]]:
@@ -79,37 +84,66 @@ def normalize_legacy_cashbox_receipts(settings: Mapping[str, Any]) -> dict[str, 
 
 
 def newer_cashbox_receipt(
-    legacy: dict[str, str] | None, private: dict[str, Any] | None
+    legacy: dict[str, Any] | None, private: dict[str, Any] | None
 ) -> dict[str, Any] | None:
     if private is None:
         return legacy
     if legacy is None or cashbox_receipt_key(private) >= cashbox_receipt_key(legacy):
         return private
-    return legacy
+    # The old global boundary may advance while a newer client has also
+    # recorded positions for individual cashboxes. Keep both kinds of evidence.
+    return {**private, **legacy, "registration_seq": legacy.get("registration_seq", 0)}
+
+
+def _valid_position(position: dict) -> bool:
+    tx_id, date = position["transaction_id"], position["created_at"]
+    seq = position.get("registration_seq", 0)
+    return (
+        isinstance(tx_id, str)
+        and len(tx_id) <= 128
+        and isinstance(date, str)
+        and len(date) <= 80
+        and (not date or _cashbox_receipt_time(date) is not None)
+        and type(seq) is int
+        and seq >= 0
+        and (not seq or bool(tx_id and date))
+    )
 
 
 def validate_cashbox_receipt_row(payload: object, filename: str) -> dict[str, Any]:
-    if not isinstance(payload, dict) or set(payload) != _ROW_FIELDS:
+    if not isinstance(payload, dict):
+        raise CashboxReceiptStoreError("Invalid cashbox receipt record.")
+    version = payload.get("schema_version")
+    fields = _ROW_FIELDS | {"registration_seq", "by_cashbox"} if version == 2 else _ROW_FIELDS
+    if type(version) is not int or version not in (1, 2) or set(payload) != fields:
         raise CashboxReceiptStoreError("Invalid cashbox receipt record.")
     actor_key = payload["actor_key"]
     if (
-        type(payload["schema_version"]) is not int
-        or payload["schema_version"] != 1
-        or not isinstance(actor_key, str)
+        not isinstance(actor_key, str)
         or not actor_key.strip()
         or len(actor_key) > ACTOR_NAME_LIMIT * 3
         or actor_key != actor_key.casefold()
-        or not isinstance(payload["transaction_id"], str)
-        or len(payload["transaction_id"]) > 128
-        or not isinstance(payload["created_at"], str)
-        or len(payload["created_at"]) > 80
-        or (bool(payload["created_at"]) and _cashbox_receipt_time(payload["created_at"]) is None)
+        or not _valid_position(payload)
     ):
         raise CashboxReceiptStoreError("Invalid cashbox receipt record.")
+    by_cashbox = payload.get("by_cashbox", {})
+    if not isinstance(by_cashbox, dict) or any(
+        not isinstance(box, str)
+        or not box.strip()
+        or len(box) > 128
+        or not isinstance(pos, dict)
+        or set(pos) != _POSITION_FIELDS
+        or not _valid_position(pos)
+        for box, pos in by_cashbox.items()
+    ):
+        raise CashboxReceiptStoreError("Invalid per-cashbox receipt.")
     try:
         valid_filename = cashbox_receipt_filename(actor_key)
-        payload["transaction_id"].encode("utf-8")
-        payload["created_at"].encode("utf-8")
+        for pos in (payload, *by_cashbox.values()):
+            pos["transaction_id"].encode("utf-8")
+            pos["created_at"].encode("utf-8")
+        for box in by_cashbox:
+            box.encode("utf-8")
     except UnicodeError as exc:
         raise CashboxReceiptStoreError("Invalid cashbox receipt record.") from exc
     if valid_filename != filename or not CASHBOX_RECEIPT_FILE_RE.fullmatch(filename):
@@ -198,44 +232,77 @@ class CashboxReceiptStore:
     def advance(
         self,
         actor_key: str,
-        receipt: Mapping[str, str],
+        receipt: Mapping[str, Any],
         *,
-        legacy_receipt: dict[str, str] | None = None,
+        legacy_receipt: dict[str, Any] | None = None,
+        cashbox_id: str = "",
         initialize_only: bool = False,
+        resolve_legacy: Callable[[dict], dict] | None = None,
         publish_fence: Callable[[], AbstractContextManager] = nullcontext,
     ) -> tuple[bool, dict[str, Any]]:
         try:
             path = self._path(actor_key)
-            row = validate_cashbox_receipt_row(
-                {
-                    "schema_version": 1,
-                    "actor_key": actor_key,
-                    "transaction_id": receipt["transaction_id"],
-                    "created_at": receipt["created_at"],
-                },
-                path.name,
-            )
+            position = {
+                "transaction_id": receipt["transaction_id"],
+                "created_at": receipt["created_at"],
+                "registration_seq": receipt.get("registration_seq", 0),
+            }
+            if not _valid_position(position):
+                raise CashboxReceiptStoreError("Invalid cashbox receipt position.")
             if legacy_receipt is not None and (
-                initialize_only or cashbox_receipt_key(row) <= cashbox_receipt_key(legacy_receipt)
+                initialize_only
+                or cashbox_receipt_key(position) <= cashbox_receipt_key(legacy_receipt)
             ):
                 private = self.read(actor_key)
+                if private and private["schema_version"] == 1 and resolve_legacy:
+                    private = resolve_legacy(private)
                 effective = newer_cashbox_receipt(legacy_receipt, private)
                 assert effective is not None
-                if effective is private:
+                if private is not None:
                     self._sync_directory(self._directory)
                 return False, effective
             self._directory.mkdir(mode=0o700, exist_ok=True)
             with self._actor_lock(path).acquire():
                 private = self._read_current(path)
+                if private and private["schema_version"] == 1 and resolve_legacy:
+                    private = resolve_legacy(private)
                 current = newer_cashbox_receipt(legacy_receipt, private)
+                scoped = (current or {}).get("by_cashbox", {})
+                threshold = max(
+                    cashbox_receipt_key(current), cashbox_receipt_key(scoped.get(cashbox_id))
+                )
                 if current is not None and (
-                    initialize_only or cashbox_receipt_key(row) <= cashbox_receipt_key(current)
+                    initialize_only or cashbox_receipt_key(position) <= threshold
                 ):
                     # A previous replace may have succeeded even if its directory
                     # sync failed, so confirm durability before a no-op succeeds.
-                    if current is private:
+                    if private is not None:
                         self._sync_directory(self._directory)
                     return False, current
+                if cashbox_id:
+                    baseline = current or {}
+                    global_position = {
+                        "transaction_id": baseline.get("transaction_id", ""),
+                        "created_at": baseline.get("created_at", ""),
+                        "registration_seq": baseline.get("registration_seq", 0),
+                    }
+                    scoped = {**scoped, cashbox_id: position}
+                else:
+                    global_position = position
+                row = {
+                    "schema_version": 2,
+                    "actor_key": actor_key,
+                    **global_position,
+                    "by_cashbox": scoped,
+                }
+                if not scoped and not global_position["registration_seq"]:
+                    row = {
+                        "schema_version": 1,
+                        "actor_key": actor_key,
+                        "transaction_id": position["transaction_id"],
+                        "created_at": position["created_at"],
+                    }
+                validate_cashbox_receipt_row(row, path.name)
                 self._register_directory()
                 self._publish(path, row, publish_fence)
                 return True, row

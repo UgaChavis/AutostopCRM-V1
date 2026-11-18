@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
+from contextlib import closing
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 # The fixture import sets up the source path.
 # ruff: noqa: I001
 from tests.services_case import CardServiceCase
+from minimal_kanban.models import CASH_REGISTRATION_SEQUENCE_SETTING
+from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.errors import ServiceError
+from minimal_kanban.storage.json_store import JsonStore
 
 
 class CashboxRevisionIntegrityTests(CardServiceCase):
@@ -65,6 +70,35 @@ class CashboxRevisionIntegrityTests(CardServiceCase):
         self.assertEqual(new["transactions"][0]["created_at"], new["transactions"][1]["created_at"])
         self.assertNotEqual(old["cashbox"]["updated_at"], new["cashbox"]["updated_at"])
         self._assert_stale_write_rejected(old["cashbox"]["updated_at"])
+
+    def test_registration_survives_backdating_removal_restart_and_legacy_rows(self):
+        movement = {"cashbox_id": self.cashbox, "amount_minor": 125}
+        legacy_id = self.service.create_cash_transaction(movement)["transaction"]["id"]
+        legacy_state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        del legacy_state["cash_transactions"][0]["registration_seq"]
+        del legacy_state["settings"][CASH_REGISTRATION_SEQUENCE_SETTING]
+        replacement = self.state_file.with_suffix(".tmp")
+        replacement.write_text(json.dumps(legacy_state), encoding="utf-8")
+        replacement.replace(self.state_file)
+
+        regular = self.service.create_cash_transaction(movement)["transaction"]["id"]
+        order = self._update_payments([self._payment("backdated")])["repair_order"]
+        paid = order["payments"][0]["cash_transaction_id"]
+        rows = {row.id: row for row in self.store.read_cash_transactions()}
+        self.assertEqual(rows[legacy_id].registration_seq, 0)
+        self.assertNotIn("registration_seq", rows[legacy_id].to_storage_dict())
+        self.assertEqual(rows[paid].registration_seq, rows[regular].registration_seq + 1)
+        self.assertGreater(rows[regular].registration_seq, 0)
+        self.assertEqual(datetime.fromisoformat(rows[paid].created_at).month, 10)
+        self._update_payments([])
+
+        with closing(JsonStore(self.state_file, self.logger)) as reopened:
+            after = CardService(reopened, self.logger).create_cash_transaction(movement)
+            next_id = after["transaction"]["id"]
+            persisted = {row.id: row for row in reopened.read_cash_transactions()}
+            self.assertNotIn(paid, persisted)
+            self.assertGreater(persisted[next_id].registration_seq, rows[paid].registration_seq)
+            self.assertEqual(persisted[regular].registration_seq, rows[regular].registration_seq)
 
     def test_deleting_latest_transaction_never_reuses_an_old_revision(self):
         self.service.create_cash_transaction(

@@ -51,6 +51,11 @@ class FinanceReadCore:
         cashboxes = service._ordered_cashboxes(snapshot.cashboxes)
         transactions = snapshot.transactions
         serialized = service._serialize_cashboxes(cashboxes[:limit], transactions)
+        active_revision = {}
+        if active_id := payload.get("cashbox_id"):
+            active_revision["active_cashbox_updated_at"] = next(
+                (box.updated_at for box in cashboxes if box.id == active_id), None
+            )
         return {
             "cashboxes": serialized,
             "notification": notification,
@@ -60,6 +65,7 @@ class FinanceReadCore:
                 "limit": limit,
                 "returned": len(serialized),
                 "has_more": len(cashboxes) > len(serialized),
+                **active_revision,
                 **({"notification_unavailable": True} if notification is None else {}),
             },
         }
@@ -78,7 +84,12 @@ class FinanceReadCore:
                     break
                 after = store.cashbox_receipts.read(actor_key) if actor_key else None
                 if before == after:
-                    receipt = newer_cashbox_receipt(snapshot.legacy_receipts.get(actor_key), after)
+                    receipt = newer_cashbox_receipt(
+                        service._registered_cashbox_receipt(
+                            snapshot.transactions, snapshot.legacy_receipts.get(actor_key)
+                        ),
+                        service._registered_cashbox_receipt(snapshot.transactions, after),
+                    )
                     return snapshot, service._cashbox_notification_summary(
                         snapshot.transactions, actor_key, receipt
                     )

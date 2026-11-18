@@ -1,4 +1,4 @@
-"""Check new cash amounts before permissive storage normalization clamps them."""
+"""Cash amount validation, cashbox revisions and movement registration order."""
 
 from __future__ import annotations
 
@@ -6,8 +6,32 @@ from datetime import timedelta
 from decimal import Decimal, DecimalException, localcontext
 
 from .. import models as model_helpers
-from ..models import MONEY_MINOR_ABS_MAX, CashBox, _parse_money_minor_value, parse_datetime
+from ..models import (
+    CASH_REGISTRATION_SEQUENCE_SETTING,
+    MONEY_MINOR_ABS_MAX,
+    CashBox,
+    CashTransaction,
+    _parse_money_minor_value,
+    parse_datetime,
+)
 from .errors import ServiceError
+
+
+def next_cash_registration_seq(settings: dict, transactions: list[CashTransaction]) -> int:
+    """Reserve the next position in the same detached state write as the new movement."""
+    key = CASH_REGISTRATION_SEQUENCE_SETTING
+    if key in settings:
+        previous = settings[key]
+        if type(previous) is not int or previous < 0:
+            raise ServiceError(
+                "cash_registration_unavailable",
+                "Повреждён счётчик кассовых движений.",
+                status_code=503,
+            )
+    else:
+        previous = max((row.registration_seq for row in transactions), default=0)
+    settings[key] = previous + 1
+    return previous + 1
 
 
 def advance_cashbox_revision(cashbox: CashBox) -> None:

@@ -109,6 +109,7 @@ class CardServiceCashboxCancellationMixin:
                 )
             cancellation = self._append_cash_transaction(
                 transactions=transactions,
+                settings=settings,
                 cashbox=cashbox,
                 direction="expense" if transaction.direction == "income" else "income",
                 amount_minor=transaction.amount_minor,
@@ -388,6 +389,7 @@ class CardServiceCashboxCancellationMixin:
         )
         cancellation = self._append_cash_transaction(
             transactions=transactions,
+            settings=bundle["settings"],
             cashbox=cashbox,
             direction="expense" if transaction.direction == "income" else "income",
             amount_minor=transaction.amount_minor,
@@ -401,6 +403,7 @@ class CardServiceCashboxCancellationMixin:
         )
         related_cancellation = self._append_cash_transaction(
             transactions=transactions,
+            settings=bundle["settings"],
             cashbox=related_cashbox,
             direction="expense" if related_transaction.direction == "income" else "income",
             amount_minor=related_transaction.amount_minor,

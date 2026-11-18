@@ -885,13 +885,28 @@ unrelated password or employee-binding changes do not conflict.
   The legacy `cancel_last_cash_transaction` still removes an ordinary latest
   movement, but rejects cancelled movements and reversal rows. Internal
   transfers and their reversals stay excluded from external journal turnover.
-- `get_cashbox` accepts `transaction_limit` and `transaction_offset`; use
-  `meta.has_more` for pagination.
+- `get_cashbox` accepts `transaction_limit` and `transaction_offset`. Use
+  `meta.has_more` for pagination. Append pages only when their cashbox
+  `updated_at` values match. If the revision changes, reload the first page.
+  An authorized `list_cashboxes` poll can include the open `cashbox_id`
+  to receive `meta.active_cashbox_updated_at`, even outside the list limit.
+  Its value is null if the requested box is missing.
 - A cashbox's `updated_at` is a change revision: ledger changes advance it even
   when transaction business dates are backdated or movements are removed. Use
   a freshly read revision for guarded writes; transaction dates are unchanged.
-- `list_cashboxes` returns the current operator's compact `notification`
-  summary. Its `needs_ack` field indicates whether initializing or advancing
+- `list_cashboxes` returns the current operator's `notification` summary.
+  `notification.by_cashbox[id]` contains a boundary, `needs_ack`,
+  `unread_count` and up to 100 `unread_transaction_ids`, oldest registration
+  first. New movements follow their registration order for notifications.
+  The journal still sorts payments by their business dates. A transfer counts
+  as one aggregate unread event until both sides have been seen.
+  To acknowledge one cashbox, send its `cashbox_id`, `exact_boundary: true`
+  and the last ID in the contiguous prefix of unread movements displayed to
+  the operator. Use the next summary for further batches. A movement from a
+  different cashbox cannot be acknowledged this way. Existing global
+  positions remain a floor for every cashbox. Omitting `cashbox_id` retains
+  the global acknowledgement contract.
+  The aggregate `needs_ack` field indicates whether initializing or advancing
   the receipt to the returned boundary would change its position, including
   after the operator's own movement. `/api/mark_cashbox_notifications_seen`
   advances the receipt through the supplied `through_transaction_id`.

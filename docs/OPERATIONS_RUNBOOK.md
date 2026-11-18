@@ -161,15 +161,16 @@ restore procedure, use the selected Manager root's M2 instruction; see [Deploy](
 
 ### Cashbox viewing receipts
 
-The CRM stores each operator's cashbox viewing position in a private JSON
-record under `state.cashbox_receipts/` next to `state.json`. Include this
+The CRM stores each operator's viewing positions for individual cashboxes in
+one private JSON record under `state.cashbox_receipts/` next to `state.json`. Include this
 directory in the same recovery point as CRM state. The CRM release backup
 helper's v6 manifest includes these records. Restore a historical snapshot
 with the writers stopped, then reopen the CRM. An older backup without this
 artifact supplies its viewing positions through its own `state.json`.
 
-Existing profiles can start the new version directly. It reads both formats
-and retains the furthest confirmed position for each operator. After all
+Existing profiles can start the new version directly. It reads the legacy
+state setting and private v1 records as a common starting position for every
+cashbox. Per-cashbox acknowledgements use private v2 records. After all
 writers have upgraded and the recovery copy has been verified, the offline
 migration can move inactive operators' positions and remove the legacy key.
 Run against the intended file with all CRM writers stopped. On Linux, use the
@@ -181,13 +182,24 @@ for a read-only preview.
 .\.venv\Scripts\python.exe scripts\migrate_cashbox_receipts.py --state-file PATH\state.json --direction to-private --apply
 ```
 
-To return to an older CRM binary **with current business data**, run the
-same command with `--direction to-legacy` before starting the old writer.
-It merges private positions into the current state and keeps the private
-records for a subsequent upgrade. Both directions can resume after an
-interruption. Use a verified recovery copy for the affected profile. Reopen
-the restored profile under the service account and confirm its cashbox
-balance and viewing positions before resuming operator traffic.
+To return to an older CRM binary **with current business data**, use the
+migration script from the newer release. Stop the writers and run the same
+command with `--direction to-legacy` before starting the older version.
+The script writes positions readable by that version. A previously viewed
+movement can show up again when one global position has to cover two cashboxes.
+If the script creates `state.cashbox_rollback.json`, keep this private file
+with the state and receipt directory for the entire downgrade. It preserves per-cashbox positions
+and the registration order. Include it separately in any recovery copy made
+during this interval. Release backups do not package this temporary file.
+
+Before restarting the newer version, stop the older writers and run
+`--direction to-private --apply` as the CRM service user. It restores the
+saved positions and registration order. Remaining movements created during
+the downgrade receive new numbers above the previous maximum in business-date
+order, with ID as the tie-breaker. Movements viewed in the older version can
+reappear as unread after the return. Both directions can resume after
+interruption. Reopen the profile under the service account and confirm the
+cashbox balance and unread movements before resuming operator traffic.
 
 Desktop integration settings live in the compatibility data directory's
 `settings.json`. Initial creation and load-time normalization hold the same

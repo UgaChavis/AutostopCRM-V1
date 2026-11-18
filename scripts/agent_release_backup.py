@@ -186,16 +186,27 @@ def _apply_restore_metadata(path: Path, metadata: dict[str, int]) -> None:
 
 
 def _write_json_atomic(
-    path: Path, payload: dict[str, Any], *, restore_metadata: dict[str, int] | None = None
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    restore_metadata: dict[str, int] | None = None,
+    compact: bool = False,
 ) -> None:
     temp_path = path.with_name(f".{path.stem}.{uuid4().hex}.tmp")
     descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(
-                payload, handle, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
+                payload,
+                handle,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+                indent=None if compact else 2,
+                separators=(",", ":") if compact else None,
             )
-            handle.write("\n")
+            if not compact:
+                handle.write("\n")
         if restore_metadata is not None:
             _apply_restore_metadata(temp_path, restore_metadata)
         _fsync_file(temp_path)
@@ -416,7 +427,7 @@ def _load_cashbox_receipt_backup(
         for name, row in rows.items():
             validate_cashbox_receipt_row(row, name)
             if (
-                len(json.dumps(row, ensure_ascii=False, indent=2).encode("utf-8")) + 1
+                len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
                 > CASHBOX_RECEIPT_MAX_BYTES
             ):
                 raise ValueError("Cashbox receipt row is too large")
@@ -450,7 +461,7 @@ def _restore_cashbox_receipt_store(
             if existing != row or (
                 os.name != "nt" and not _restore_metadata_matches(path, row_metadata)
             ):
-                _write_json_atomic(path, row, restore_metadata=row_metadata)
+                _write_json_atomic(path, row, restore_metadata=row_metadata, compact=True)
                 changed = True
     for name, path in paths.items():
         if name not in rows:
@@ -715,7 +726,7 @@ def create_backup(
             if receipt_metadata["mode"] != 0o700:
                 raise BackupError("Cashbox receipt store permissions are not private")
             receipts_destination = temp_dir / CASHBOX_RECEIPTS_BACKUP_NAME
-            _write_json_atomic(receipts_destination, receipt_rows)
+            _write_json_atomic(receipts_destination, receipt_rows, compact=True)
             if receipts_destination.stat().st_size > CASHBOX_RECEIPTS_MAX_BYTES:
                 raise BackupError("Cashbox receipt backup exceeds the bounded size")
             artifacts["cashbox_receipts"] = _artifact(

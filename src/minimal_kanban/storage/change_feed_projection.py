@@ -8,8 +8,12 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
+from ..models import CASH_REGISTRATION_SEQUENCE_SETTING
+
 _TECHNICAL_ID_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}\Z")
-_PRIVATE_VIEWER_SETTING_KEYS = frozenset({"_cashbox_notification_seen_by_users"})
+_INTERNAL_SETTING_KEYS = frozenset(
+    {"_cashbox_notification_seen_by_users", CASH_REGISTRATION_SEQUENCE_SETTING}
+)
 OPERATOR_USER_PROJECTION_VERSION = "2"
 _SOURCE_DIGEST_CACHE_MAX_ENTRIES = 8192
 _SOURCE_DIGEST_CACHE_MAX_CHARS = 512
@@ -336,7 +340,7 @@ def _project_settings(
             *collection_keys,
             "ready_column_id",
             "telegram_agent_behavior",
-            *_PRIVATE_VIEWER_SETTING_KEYS,
+            *_INTERNAL_SETTING_KEYS,
         }
     }
     if _selected(sources, "board_settings", "board"):
@@ -622,7 +626,7 @@ def project_crm_source_signatures(state: Mapping[str, Any] | object) -> dict[Sou
             "employee_salary_balance_resets",
             "ready_column_id",
             "telegram_agent_behavior",
-            *_PRIVATE_VIEWER_SETTING_KEYS,
+            *_INTERNAL_SETTING_KEYS,
         }
     }
     signatures[("board_settings", "board")] = _digest(board_settings)

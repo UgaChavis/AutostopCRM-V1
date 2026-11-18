@@ -71,6 +71,7 @@ STICKY_DEFAULT_TOTAL_SECONDS = 24 * 3600
 ACTOR_NAME_LIMIT = 40
 ATTACHMENT_FILE_NAME_LIMIT = 240
 CASHBOX_NAME_LIMIT = 80
+CASH_REGISTRATION_SEQUENCE_SETTING = "_cash_transaction_registration_seq"
 CASHTRANSACTION_NOTE_LIMIT = 240
 INVENTORY_ITEM_NAME_LIMIT = 180
 INVENTORY_CATALOG_NUMBER_LIMIT = 120
@@ -1345,6 +1346,7 @@ class CashTransaction:
     transaction_kind: str = ""
     transfer_group_id: str = ""
     related_transaction_id: str = ""
+    registration_seq: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1369,6 +1371,7 @@ class CashTransaction:
         return {
             "id": self.id,
             "cashbox_id": self.cashbox_id,
+            **({"registration_seq": self.registration_seq} if self.registration_seq else {}),
             "direction": self.direction,
             "amount_minor": self.amount_minor,
             "note": self.note,
@@ -1405,6 +1408,7 @@ class CashTransaction:
             transfer_group_id=normalize_text(
                 payload.get("transfer_group_id"), default="", limit=128
             ),
+            registration_seq=payload.get("registration_seq", 0),
             related_transaction_id=normalize_text(
                 payload.get("related_transaction_id"), default="", limit=128
             ),

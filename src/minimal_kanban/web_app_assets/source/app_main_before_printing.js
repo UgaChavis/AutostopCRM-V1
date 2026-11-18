@@ -6923,7 +6923,7 @@
       } else {
         const stats = state.activeCashbox?.statistics || activeCashbox.statistics || {};
         const balanceMinor = finiteNumber(stats.balance_minor ?? activeCashbox?.statistics?.balance_minor);
-        const transactions = filteredCashboxTransactions().slice(0, MOBILE_CASHBOX_TRANSACTION_LIMIT);
+        const transactions = visibleCashboxTransactions();
         const transactionHtml = transactions.length
           ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
               const transactionId = String(item?.id || '').trim();
@@ -6951,7 +6951,9 @@
             + '<div class="mobile-cashbox-stat"><span>Списание</span><strong>' + escapeHtml(stats.expense_total_display || cashboxFormatMinorAmount(stats.expense_total_minor ?? 0)) + '</strong></div>'
             + '<div class="mobile-cashbox-stat"><span>Операции</span><strong>' + escapeHtml(String(stats.transactions_total ?? transactions.length ?? 0)) + '</strong></div>'
           + '</div>'
-          + transactionHtml;
+          + transactionHtml
+          + (state.activeCashbox?.meta?.has_more || transactions.length < filteredCashboxTransactions().length
+            ? '<button class="mobile-action mobile-action--ghost" type="button" data-mobile-cashbox-load-more>ПОКАЗАТЬ ЕЩЁ</button>' : '');
       }
       [els.mobileCashboxIncomeButton, els.mobileCashboxExpenseButton, els.mobileCashboxTransferButton].forEach((button) => {
         if (button) button.disabled = !hasCashbox;
@@ -8505,6 +8507,7 @@
       const button = event.target instanceof HTMLElement ? event.target.closest('[data-mobile-cashbox-id]') : null;
       const cashboxId = String(button?.getAttribute('data-mobile-cashbox-id') || '').trim();
       if (!cashboxId) return;
+      const notification = state.activeCashboxId !== cashboxId ? state.cashboxNotification : null;
       state.activeCashboxId = cashboxId;
       const summaryCashbox = (Array.isArray(state.cashboxes) ? state.cashboxes : []).find((item) => item.id === cashboxId) || null;
       state.activeCashbox = {
@@ -8514,7 +8517,7 @@
         statistics: summaryCashbox?.statistics || {},
       };
       renderMobileCashboxes();
-      loadCashboxDetail(cashboxId, { openModal: false });
+      loadCashboxDetail(cashboxId, { notification });
     }
 
     function beginCashboxMoneyRequest() {
@@ -8589,6 +8592,9 @@
       els.mobileCardDetail?.addEventListener('change', handleMobileCardDetailInput);
       els.mobileCashboxRefreshButton?.addEventListener('click', () => loadCashboxes(false, { deferDetail: true, consumeNotifications: true }));
       els.mobileCashboxList?.addEventListener('click', handleMobileCashboxListClick);
+      els.mobileCashboxDetail?.addEventListener('click', (event) => {
+        if (event.target.closest?.('[data-mobile-cashbox-load-more]')) void loadMoreCashboxTransactions();
+      });
       els.mobileCashboxIncomeButton?.addEventListener('click', () => setMobileCashboxAction('income'));
       els.mobileCashboxExpenseButton?.addEventListener('click', () => setMobileCashboxAction('expense'));
       els.mobileCashboxTransferButton?.addEventListener('click', () => setMobileCashboxAction('transfer'));
@@ -16171,6 +16177,11 @@
       return Array.isArray(state.activeCashbox?.transactions) ? state.activeCashbox.transactions : [];
     }
 
+    function visibleCashboxTransactions() {
+      const rows = filteredCashboxTransactions();
+      return state.mobileLite && !state.activeCashbox?.mobileExpanded ? rows.slice(0, MOBILE_CASHBOX_TRANSACTION_LIMIT) : rows;
+    }
+
     function cashboxCancelledTransactionIds() {
       const ids = new Set();
       filteredCashboxTransactions().forEach((item) => {
@@ -16268,6 +16279,14 @@
 
     function cashboxWorkspaceIsOpen() {
       return cashboxesModalIsOpen() || (state.mobileLite && state.mobileView === 'cashboxes');
+    }
+
+    function cashboxDetailIsExposed() {
+      const top = state.modalStack?.at(-1)?.key;
+      return !document.hidden && cashboxWorkspaceIsOpen() && (!top || top === 'cashboxes')
+        && (!state.mobileLite || state.mobileView === 'cashboxes')
+        && !state.cashboxMoneyRequest && !state.cashboxCancelTransactionId
+        && !(state.mobileLite && state.mobileCashboxAction);
     }
 
     function cashboxMutationPath(path) {
@@ -16388,16 +16407,17 @@
     }
 
     function acknowledgeCashboxNotifications(notification, options = {}) {
-      const { isCurrent = () => true, applyResult = () => true, onSend = () => {}, initializeOnly = false } = options;
+      const { isCurrent = () => true, applyResult = () => true, onSend = () => {}, initializeOnly = false, cashboxId = '' } = options;
       const isViewerCurrent = cashboxNotificationViewerGuard();
       const actor = state.actor;
-      const revision = state.cashboxNotificationRevision;
       const throughTransactionId = String(notification?.through_transaction_id || '').trim();
       const previous = state.cashboxNotificationSeenPromise;
       const canSend = () => isViewerCurrent() && isCurrent() && operatorCanAccessEmployeesCashboxes();
       const request = (async () => {
         if (previous) await previous.catch(() => {});
         if (!canSend()) return null;
+        // Earlier queued receipts may have updated the indicator before this write starts.
+        const revision = state.cashboxNotificationRevision;
         onSend();
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS);
@@ -16408,6 +16428,7 @@
             body: {
               through_transaction_id: throughTransactionId,
               exact_boundary: true,
+              ...(cashboxId ? { cashbox_id: cashboxId } : {}),
               ...(initializeOnly ? { initialize_only: true } : {}),
               actor_name: actor,
               source: 'ui',
@@ -16429,55 +16450,82 @@
       return request;
     }
 
+    function paintedCashboxBoundary(notification, cashboxId) {
+      const scope = notification?.by_cashbox?.[cashboxId];
+      if (!scope?.needs_ack || state.activeCashboxId !== cashboxId) return '';
+      const shown = new Set(visibleCashboxTransactions().map((row) => row.id));
+      const latest = scope.through_transaction_id;
+      // A new operator starts at the opening boundary of this cashbox only.
+      if (notification.initialized === false && shown.has(latest)) return latest;
+      const unread = scope.unread_transaction_ids || [];
+      let through = '';
+      for (const id of unread) {
+        if (!shown.has(id)) return through;
+        through = id;
+      }
+      // The server bounds this oldest-first prefix. Never jump over unseen rows.
+      if (unread.length === scope.unread_count && shown.has(latest)) return latest;
+      return through;
+    }
+
     function scheduleCashboxNotificationAcknowledgement(loadContext, cashboxId) {
       const pending = state.cashboxNotificationForOpen;
-      if (!pending || pending.scheduledLoad === loadContext) return;
+      if (!pending || pending.cashboxId !== cashboxId || pending.scheduledLoad === loadContext) return;
       pending.scheduledLoad = loadContext;
       const sameOpen = () => isCurrentCashboxesLoadIntent(loadContext)
-        && cashboxWorkspaceIsOpen() && state.activeCashboxId === cashboxId;
+        && cashboxDetailIsExposed() && state.activeCashboxId === cashboxId;
       const isCurrent = () => state.cashboxNotificationForOpen === pending
         && pending.scheduledLoad === loadContext && sameOpen();
-      const releaseScheduledLoad = () => {
+      const release = () => {
         if (pending.scheduledLoad === loadContext) pending.scheduledLoad = null;
       };
       const viewerIsCurrent = cashboxNotificationViewerGuard();
       const readBack = async () => {
         await state.cashboxNotificationRefreshPromise;
-        return viewerIsCurrent() ? refreshCashboxNotification({ initialize: false }) : null;
+        return viewerIsCurrent() ? refreshCashboxNotification({ initialize: false, refreshOpen: false }) : null;
       };
-      // Wait until the movements or the empty cashbox state have been painted.
-      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (!isCurrent()) {
-          releaseScheduledLoad();
-          return;
-        }
-        acknowledgeCashboxNotifications(pending.notification, {
-          isCurrent,
-          applyResult: () => pending.revision === state.cashboxNotificationRevision,
-          onSend: () => { state.cashboxNotificationForOpen = null; },
-        }).catch(async (error) => {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(async () => {
+        let through;
+        try {
+          if (!isCurrent()) return;
+          through = paintedCashboxBoundary(pending.notification, cashboxId);
+          if (!through) return;
+          const data = await acknowledgeCashboxNotifications({ through_transaction_id: through }, {
+            cashboxId,
+            isCurrent: () => isCurrent() && paintedCashboxBoundary(pending.notification, cashboxId) === through,
+            onSend: () => { state.cashboxNotificationForOpen = null; },
+          });
+          const previous = pending.notification.by_cashbox[cashboxId];
+          const next = data?.notification;
+          // Continue a truncated prefix only after a confirmed advance at the same opening boundary.
+          if (data?.meta?.changed && sameOpen() && next === state.cashboxNotification
+            && previous.unread_count > previous.unread_transaction_ids.length
+            && through === previous.unread_transaction_ids.at(-1)
+            && previous.through_transaction_id === next?.by_cashbox?.[cashboxId]?.through_transaction_id) {
+            state.cashboxNotificationForOpen = { cashboxId, notification: next };
+            scheduleCashboxNotificationAcknowledgement(loadContext, cashboxId);
+          }
+        } catch (error) {
           const current = await readBack();
-          // A version conflict is returned before the server publishes the receipt.
-          // Retry once only when the readback still owes the exact painted boundary.
-          if (error.status !== 409 || error.code !== 'state_write_conflict' || !current?.needs_ack
-            || current.through_transaction_id !== pending.notification.through_transaction_id) return;
-          const canRetry = () => {
-            if (!sameOpen() || document.hidden || state.cashboxNotification !== current) return false;
-            const rows = filteredCashboxTransactions();
-            const visibleRows = state.mobileLite ? rows.slice(0, MOBILE_CASHBOX_TRANSACTION_LIMIT) : rows;
-            return current.through_transaction_id
-              ? visibleRows.some((row) => row.id === current.through_transaction_id) : !visibleRows.length;
-          };
+          const scope = current?.by_cashbox?.[cashboxId];
+          if (error.status !== 409 || error.code !== 'state_write_conflict' || !through || !scope?.needs_ack
+            || scope.through_transaction_id !== pending.notification.by_cashbox[cashboxId].through_transaction_id) return;
+          const canRetry = () => sameOpen() && state.cashboxNotification === current
+            && paintedCashboxBoundary(current, cashboxId) === through;
           try {
-            await acknowledgeCashboxNotifications(current, { isCurrent: canRetry, applyResult: canRetry });
+            await acknowledgeCashboxNotifications({ through_transaction_id: through }, {
+              cashboxId, isCurrent: canRetry, applyResult: canRetry,
+            });
           } catch (_) {
             await readBack();
           }
-        }).finally(releaseScheduledLoad);
+        } finally {
+          release();
+        }
       }));
     }
 
-    async function refreshCashboxNotification({ initialize = true } = {}) {
+    async function refreshCashboxNotification({ initialize = true, refreshOpen = true } = {}) {
       if (!state.actor || !state.operatorSessionToken) return null;
       if (!operatorCanAccessEmployeesCashboxes()) {
         if (state.cashboxNotification) applyCashboxNotification(null);
@@ -16491,6 +16539,7 @@
       const accessRevision = state.employeesCashboxesAccessRevision;
       const notificationRevision = state.cashboxNotificationRevision;
       const cashboxesRequestSeq = state.cashboxesRequestSeq;
+      const watchId = state.activeCashboxId && cashboxDetailIsExposed() ? state.activeCashboxId : '';
       const isCurrent = () => viewer.isCurrent()
         && accessRevision === state.employeesCashboxesAccessRevision
         && cashboxesRequestSeq === state.cashboxesRequestSeq
@@ -16500,12 +16549,24 @@
       let request = null;
       request = (async () => {
         try {
-          const data = await api('/api/list_cashboxes?limit=1', { retryRead: false });
+          const path = '/api/list_cashboxes?limit=1' + (watchId ? '&cashbox_id=' + encodeURIComponent(watchId) : '');
+          const data = await api(path, { retryRead: false });
           if (!isCurrent() || foregroundCashboxBusy()
             || notificationRevision !== state.cashboxNotificationRevision) return null;
           const notification = data?.notification || null;
-          if (!notification && data?.meta?.notification_unavailable === true) return null;
-          applyCashboxNotification(notification);
+          if (notification || data?.meta?.notification_unavailable !== true) applyCashboxNotification(notification);
+          const updatedAt = data?.meta?.active_cashbox_updated_at;
+          if (refreshOpen && watchId && state.activeCashbox?.cashbox?.id === watchId && cashboxDetailIsExposed()) {
+            if (updatedAt === null) {
+              await loadCashboxes(false, { deferDetail: true });
+            } else if (updatedAt && (updatedAt !== state.activeCashbox.cashbox.updated_at || !state.activeCashbox.meta?.transaction_limit)) {
+              await loadCashboxDetail(watchId, { background: true, notification });
+            } else if (notification?.by_cashbox?.[watchId]?.needs_ack && paintedCashboxBoundary(notification, watchId)) {
+              // A regular poll can recover a lost write or a paint covered by a dialog.
+              prepareCashboxAcknowledgement(watchId, notification);
+              scheduleCashboxNotificationAcknowledgement({ seq: cashboxesRequestSeq, isViewerCurrent: viewer.isCurrent }, watchId);
+            }
+          }
           if (initialize && notification?.initialized === false && notification.needs_ack !== false
             && !state.cashboxNotificationSeenPromise && canInitialize()) {
             void acknowledgeCashboxNotifications(notification, {
@@ -16523,6 +16584,12 @@
       })();
       state.cashboxNotificationRefreshPromise = request;
       return request;
+    }
+
+    function prepareCashboxAcknowledgement(cashboxId, notification) {
+      state.cashboxNotificationForOpen = notification?.by_cashbox?.[cashboxId]?.needs_ack
+        ? { cashboxId, notification } : null;
+      if (notification?.has_unread) captureCashboxNotificationHighlights(notification);
     }
 
     function syncCashboxInList(cashbox) {
@@ -16674,28 +16741,44 @@
       }
     }
 
-    async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {}) {
+    async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null, notification, background = false } = {}) {
       const normalizedId = String(cashboxId || '').trim();
       if (!normalizedId) return null;
       if (openModal) maybeOpenModal(els.cashboxesModal, true);
       const ownsLoadContext = !loadContext;
-      if (!loadContext) loadContext = beginCashboxesLoad();
+      const previous = state.activeCashbox;
+      const previousRevision = previous?.cashbox?.updated_at;
+      if (!loadContext) {
+        loadContext = beginCashboxesLoad();
+        if (notification === undefined && (append || state.activeCashboxId !== normalizedId)) notification = state.cashboxNotification;
+        prepareCashboxAcknowledgement(normalizedId, notification);
+      }
+      const previouslyShown = append && paintedCashboxBoundary(notification, normalizedId);
+      const current = () => isCurrentCashboxesLoad(loadContext) && cashboxWorkspaceIsOpen()
+        && (!background || (cashboxDetailIsExposed() && state.activeCashboxId === normalizedId));
       try {
-        if (!isCurrentCashboxesLoad(loadContext) || !cashboxWorkspaceIsOpen()) return null;
-        const transactionOffset = finiteNonNegativeNumber(offset);
-        const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true', {
+        if (!current()) return null;
+        const readPage = (transactionOffset) => api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true', {
           retryRead: false, readController: loadContext.controller,
         });
-        if (!isCurrentCashboxesLoad(loadContext) || !cashboxWorkspaceIsOpen()) return null;
+        let transactionOffset = finiteNonNegativeNumber(offset);
+        let data = await readPage(transactionOffset);
+        if (!current()) return null;
+        if (append && (!previousRevision || previousRevision !== data?.cashbox?.updated_at
+          || previous?.cashbox?.id !== normalizedId || previous !== state.activeCashbox
+          || transactionOffset !== visibleCashboxTransactions().length)) {
+          // The offset belongs to the old ordering. Restart once at the new head.
+          transactionOffset = 0;
+          data = await readPage(0);
+          if (!current()) return null;
+        }
         const nextTransactions = Array.isArray(data?.transactions) ? data.transactions : [];
-        const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);
-        const transactions = canAppend
-          ? filteredCashboxTransactions().concat(nextTransactions)
-          : nextTransactions;
+        const transactions = transactionOffset ? visibleCashboxTransactions().concat(nextTransactions) : nextTransactions;
         state.activeCashboxId = data?.cashbox?.id || normalizedId;
         state.activeCashbox = {
           cashbox: data?.cashbox || null,
           transactions,
+          mobileExpanded: state.mobileLite && transactionOffset > 0,
           meta: data?.meta || {},
           statistics: data?.cashbox?.statistics || {},
         };
@@ -16703,10 +16786,12 @@
         renderCashboxesList();
         renderCashboxDetail();
         maybeOpenModal(els.cashboxesModal, openModal);
-        scheduleCashboxNotificationAcknowledgement(loadContext, state.activeCashboxId);
+        if (!previouslyShown || previouslyShown !== paintedCashboxBoundary(notification, normalizedId)) {
+          scheduleCashboxNotificationAcknowledgement(loadContext, state.activeCashboxId);
+        }
         return data;
       } catch (error) {
-        if (error?.name === 'AbortError' || !isCurrentCashboxesLoad(loadContext) || !cashboxWorkspaceIsOpen()) return null;
+        if (error?.name === 'AbortError' || background || !current()) return null;
         els.cashboxDetailTitle.textContent = 'ОШИБКА ЗАГРУЗКИ';
         els.cashboxDetailMeta.textContent = error.message;
         els.cashboxTransactions.innerHTML = '<div class="cashboxes-empty">' + escapeHtml(error.message) + '</div>';
@@ -16722,8 +16807,7 @@
       const cashboxId = String(state.activeCashbox?.cashbox?.id || state.activeCashboxId || '').trim();
       if (!cashboxId) return;
       await loadCashboxDetail(cashboxId, {
-        openModal: true,
-        offset: filteredCashboxTransactions().length,
+        offset: visibleCashboxTransactions().length,
         append: true,
       });
     }
@@ -16769,15 +16853,7 @@
         const nextId = state.cashboxes.some((item) => item.id === state.activeCashboxId)
           ? state.activeCashboxId
           : (state.cashboxes[0]?.id || '');
-        const notificationToAcknowledge = consumeNotifications ? notification : null;
-        if (notificationToAcknowledge && notificationToAcknowledge.needs_ack !== false) {
-          state.cashboxNotificationForOpen = {
-            notification: notificationToAcknowledge, revision: loadContext.notificationRevision,
-          };
-        }
-        if (notificationToAcknowledge?.initialized && notificationToAcknowledge.has_unread) {
-          captureCashboxNotificationHighlights(notificationToAcknowledge);
-        }
+        if (consumeNotifications) prepareCashboxAcknowledgement(nextId, notification);
         renderCashboxesList();
         if (nextId) {
           if (deferDetail) {

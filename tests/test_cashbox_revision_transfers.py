@@ -176,6 +176,19 @@ class CashboxRevisionTransferTests(CardServiceCase):
                 cancelled = service.cancel_cash_transaction(request)
                 self._assert_advanced(transfer["from_cashbox"], cancelled["cashbox"])
                 self._assert_advanced(transfer["to_cashbox"], cancelled["related_cashbox"])
+                with closing(JsonStore(state_file, self.logger)) as store:
+                    registered = {
+                        row.id: row.registration_seq for row in store.read_cash_transactions()
+                    }
+                self.assertEqual(
+                    [
+                        registered[transfer["source_transaction"]["id"]],
+                        registered[transfer["target_transaction"]["id"]],
+                        registered[cancelled["cancellation_transaction"]["id"]],
+                        registered[cancelled["related_cancellation_transaction"]["id"]],
+                    ],
+                    [1, 2, 3, 4],
+                )
                 for previous, current in (
                     (transfer["from_cashbox"], cancelled["cashbox"]),
                     (transfer["to_cashbox"], cancelled["related_cashbox"]),

@@ -36,7 +36,7 @@ from .card_service_cashbox_cancellation import (
     _CASH_TRANSACTION_KIND_CANCELLATION,
     _CASH_TRANSACTION_KIND_CANCELLED,
 )
-from .cash_amounts import cash_payment_minor
+from .cash_amounts import cash_payment_minor, next_cash_registration_seq
 from .errors import ServiceError
 from .finance_audit_payment_fixes import (
     TransactionReferences,
@@ -49,6 +49,8 @@ EMPLOYEES_SETTING_KEY = "employees"
 EMPLOYEE_SHIFT_ACCRUALS_SETTING_KEY = "employee_shift_accruals"
 _CASH_EXPENSE_NOTE_MIN_CHARS = 10
 _CASHBOX_NOTIFICATION_UNREAD_LIMIT = 500
+_CASHBOX_NOTIFICATION_PREFIX_LIMIT = 100
+_REGISTRATION_TIME_FLOOR = datetime.min.replace(tzinfo=UTC)
 _GATEWAY_ATTESTATION_RUN_RE = re.compile(r"^AST-GWAT-\d{8}T\d{6}Z$")
 _MAX_REGULAR_CASHBOXES = 6
 _MAX_GATEWAY_ATTESTATION_CASHBOXES = 2
@@ -83,12 +85,17 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             snapshot = self._store.read_cashbox_receipt_state()
             if not snapshot.dates_valid:
                 raise CashboxReceiptStoreError("Cash transaction dates are unavailable.")
+            cashbox_id = ""
+            if "cashbox_id" in payload:
+                cashbox_id = self._find_cashbox(snapshot.cashboxes, payload["cashbox_id"]).id
             through_transaction = None
             if requested_transaction_id:
                 through_transaction = self._find_cash_transaction(
                     snapshot.transactions, requested_transaction_id, exact_only=exact_boundary
                 )
-                if through_transaction is None:
+                if through_transaction is None or (
+                    cashbox_id and through_transaction.cashbox_id != cashbox_id
+                ):
                     self._fail(
                         "not_found",
                         "Движение кассы для отметки прочтения не найдено.",
@@ -96,15 +103,22 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                         details={"through_transaction_id": requested_transaction_id},
                     )
             elif not exact_boundary:
-                through_transaction = self._cashbox_notification_latest_transaction(
-                    snapshot.transactions
-                )
+                candidates = snapshot.transactions
+                if cashbox_id:
+                    candidates = [item for item in candidates if item.cashbox_id == cashbox_id]
+                through_transaction = self._cashbox_notification_latest_transaction(candidates)
             next_receipt = self._cashbox_notification_receipt(through_transaction)
             changed, effective_receipt = self._store.cashbox_receipts.advance(
                 actor_key,
                 next_receipt,
-                legacy_receipt=snapshot.legacy_receipts.get(actor_key),
+                legacy_receipt=self._registered_cashbox_receipt(
+                    snapshot.transactions, snapshot.legacy_receipts.get(actor_key)
+                ),
+                cashbox_id=cashbox_id,
                 initialize_only=initialize_only,
+                resolve_legacy=lambda row: self._registered_cashbox_receipt(
+                    snapshot.transactions, row
+                ),
                 publish_fence=lambda: self._store.fence_cashbox_receipt_state(snapshot),
             )
         except StateWriteConflictError:
@@ -605,6 +619,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             transfer_group_id = str(uuid.uuid4())
             source_transaction = self._append_cash_transaction(
                 transactions=transactions,
+                settings=bundle["settings"],
                 cashbox=source_cashbox,
                 direction="expense",
                 amount_minor=amount_minor,
@@ -616,6 +631,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             )
             target_transaction = self._append_cash_transaction(
                 transactions=transactions,
+                settings=bundle["settings"],
                 cashbox=target_cashbox,
                 direction="income",
                 amount_minor=amount_minor,
@@ -1129,6 +1145,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 )
             transaction = self._append_cash_transaction(
                 transactions=transactions,
+                settings=bundle["settings"],
                 cashbox=cashbox,
                 direction=direction,
                 amount_minor=self._validated_cash_amount_minor(payload),
@@ -1225,6 +1242,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 )
             transaction = self._append_cash_transaction(
                 transactions=transactions,
+                settings=settings,
                 cashbox=cashbox,
                 direction="expense",
                 amount_minor=amount_minor,
@@ -1628,6 +1646,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         self,
         *,
         transactions: list[CashTransaction],
+        settings: dict[str, Any],
         cashbox: CashBox,
         direction: str,
         amount_minor: int,
@@ -1644,6 +1663,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         parsed_created_at = parse_datetime(created_at) if created_at else None
         transaction = CashTransaction(
             id=str(uuid.uuid4()),
+            registration_seq=next_cash_registration_seq(settings, transactions),
             cashbox_id=cashbox.id,
             direction=direction,
             amount_minor=amount_minor,
@@ -2358,19 +2378,35 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
 
     def _cashbox_notification_transaction_key(
         self, transaction: CashTransaction
-    ) -> tuple[datetime, str]:
+    ) -> tuple[int, datetime, str]:
+        if transaction.registration_seq:
+            return transaction.registration_seq, _REGISTRATION_TIME_FLOOR, transaction.id
         return (
+            0,
             self._cash_transaction_business_sortable_datetime(transaction.created_at),
             transaction.id,
         )
 
-    def _cashbox_notification_receipt(self, transaction: CashTransaction | None) -> dict[str, str]:
+    def _cashbox_notification_receipt(self, transaction: CashTransaction | None) -> dict:
         if transaction is None:
-            return {"transaction_id": "", "created_at": ""}
+            return {"transaction_id": "", "created_at": "", "registration_seq": 0}
         return {
             "transaction_id": transaction.id,
             "created_at": transaction.created_at,
+            "registration_seq": transaction.registration_seq,
         }
+
+    @staticmethod
+    def _registered_cashbox_receipt(transactions, receipt):
+        # A legacy client can have seen a row recorded by the new ledger.
+        if receipt and "registration_seq" not in receipt and receipt["transaction_id"]:
+            for item in transactions:
+                if (
+                    item.id == receipt["transaction_id"]
+                    and item.created_at == receipt["created_at"]
+                ):
+                    return {**receipt, "registration_seq": item.registration_seq}
+        return receipt
 
     def _cashbox_notification_latest_transaction(
         self, transactions: Sequence[CashTransaction]
@@ -2390,34 +2426,44 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         actor_key: str,
         receipt: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        latest_transaction = self._cashbox_notification_latest_transaction(transactions)
-        through_transaction_id = latest_transaction.id if latest_transaction else ""
-        if receipt is None:
-            return {
-                "initialized": False,
-                "needs_ack": True,
-                "has_unread": False,
-                "tone": "",
+        global_key = cashbox_receipt_key(receipt)
+        thresholds = {
+            box_id: max(global_key, cashbox_receipt_key(position))
+            for box_id, position in (receipt or {}).get("by_cashbox", {}).items()
+        }
+        latest_by_box = {}
+        unseen = []
+        for item in transactions:
+            key = self._cashbox_notification_transaction_key(item)
+            box = item.cashbox_id
+            if box not in latest_by_box or key > latest_by_box[box]:
+                latest_by_box[box] = key
+            if receipt is not None and key > thresholds.get(box, global_key):
+                if normalize_actor_name(item.actor_name, default="").casefold() != actor_key:
+                    unseen.append((key, item))
+        by_cashbox = {
+            box: {
+                "through_transaction_id": key[-1],
+                "needs_ack": receipt is None or key > thresholds.get(box, global_key),
                 "unread_count": 0,
-                "unread_transactions": [],
-                "through_transaction_id": through_transaction_id,
+                "unread_transaction_ids": [],
             }
-
-        receipt_key = cashbox_receipt_key(receipt)
-        unseen = [
-            transaction
-            for transaction in transactions
-            if self._cashbox_notification_transaction_key(transaction) > receipt_key
-            and normalize_actor_name(transaction.actor_name, default="").casefold() != actor_key
-        ]
-        unseen.sort(key=self._cashbox_notification_transaction_key, reverse=True)
+            for box, key in latest_by_box.items()
+        }
+        # The browser can safely confirm a contiguous prefix of visible rows.
+        # Backdated payments may be on a later page in business-date order.
+        unseen.sort(key=lambda pair: pair[0])
+        for _, item in unseen:
+            status = by_cashbox[item.cashbox_id]
+            status["unread_count"] += 1
+            if status["unread_count"] <= _CASHBOX_NOTIFICATION_PREFIX_LIMIT:
+                status["unread_transaction_ids"].append(item.id)
         event_keys = {
             f"transfer:{transaction.transfer_group_id}"
             if transaction.transfer_group_id
             else f"transaction:{transaction.id}"
-            for transaction in unseen
+            for _, transaction in unseen
         }
-        visible_unseen = unseen[:_CASHBOX_NOTIFICATION_UNREAD_LIMIT]
         unread_transactions = [
             {
                 "transaction_id": transaction.id,
@@ -2426,19 +2472,20 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 "created_at": transaction.created_at,
                 "transfer_group_id": transaction.transfer_group_id,
             }
-            for transaction in visible_unseen
+            for _, transaction in reversed(unseen[-_CASHBOX_NOTIFICATION_UNREAD_LIMIT:])
         ]
-        latest_unseen = unseen[0] if unseen else None
+        latest_unseen = unseen[-1][1] if unseen else None
+        latest_key = max(latest_by_box.values(), default=None)
         return {
-            "initialized": True,
-            "needs_ack": latest_transaction is not None
-            and self._cashbox_notification_transaction_key(latest_transaction) > receipt_key,
+            "initialized": receipt is not None,
+            "needs_ack": receipt is None or any(row["needs_ack"] for row in by_cashbox.values()),
             "has_unread": bool(unseen),
             "tone": self._cashbox_notification_tone(latest_unseen) if latest_unseen else "",
             "unread_count": len(event_keys),
             "unread_transactions": unread_transactions,
-            "unread_transactions_truncated": len(unseen) > len(visible_unseen),
-            "through_transaction_id": through_transaction_id,
+            "unread_transactions_truncated": len(unseen) > len(unread_transactions),
+            "through_transaction_id": latest_key[-1] if latest_key else "",
+            "by_cashbox": by_cashbox,
         }
 
     def _find_cash_transaction(

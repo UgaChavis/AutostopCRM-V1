@@ -255,8 +255,14 @@ def _validate_cashbox_identities(values: Iterable[tuple[Any, Any]]) -> None:
         names.add(name)
 
 
+def _validate_cash_registration_seq(value: Any) -> None:
+    if type(value) is not int or value < 0:
+        raise StateFileCorruptedError("Некорректный номер регистрации кассового движения.")
+
+
 def _validate_raw_financial_references(state: dict[str, Any]) -> None:
     for transaction in state.get("cash_transactions", []):
+        _validate_cash_registration_seq(transaction.get("registration_seq", 0))
         for name in ("id", "cashbox_id", "related_transaction_id", "transfer_group_id"):
             _validate_financial_reference(
                 transaction.get(name), required=name in {"id", "cashbox_id"}
@@ -276,6 +282,7 @@ def _validate_financial_write_references(cards: Any, cashboxes: Any, transaction
     try:
         for item in transactions or []:
             if isinstance(item, CashTransaction):
+                _validate_cash_registration_seq(item.registration_seq)
                 for name in ("id", "cashbox_id", "related_transaction_id", "transfer_group_id"):
                     _validate_financial_reference(
                         getattr(item, name), required=name in {"id", "cashbox_id"}

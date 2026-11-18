@@ -103,6 +103,147 @@ class CashboxReceiptStorageTests(CardServiceCase):
         [stored] = iter_cashbox_receipt_rows(self.state_file)
         self.assertEqual(stored["transaction_id"], last["id"])
 
+    def test_two_boxes_keep_independent_positions_across_initialization_and_concurrent_acks(self):
+        other = self.service.create_cashbox({"name": "Second cashbox"})["cashbox"]["id"]
+        first = self.movement(100)
+        second = self.service.create_cash_transaction(
+            {"cashbox_id": other, "amount_minor": 250, "actor_name": "Synthetic other"}
+        )["transaction"]
+        peer = self.open_another_service()
+        scoped = {**self.acknowledgement(first), "cashbox_id": self.box}
+        original = self.service.list_cashboxes({"actor_name": self.viewer})["notification"]
+        self.assertFalse(original["initialized"])
+        self.service.mark_cashbox_notifications_seen(scoped)
+        delayed = peer.mark_cashbox_notifications_seen(
+            {**self.acknowledgement(second), "initialize_only": True}
+        )
+        self.assertFalse(delayed["meta"]["changed"])
+        self.assertEqual(
+            delayed["notification"]["by_cashbox"][other]["unread_transaction_ids"], [second["id"]]
+        )
+        self.assertFalse(delayed["notification"]["by_cashbox"][self.box]["needs_ack"])
+
+        with self.assertRaises(ServiceError) as wrong_box:
+            peer.mark_cashbox_notifications_seen(
+                {**self.acknowledgement(second), "cashbox_id": self.box}
+            )
+        self.assertEqual(wrong_box.exception.status_code, 404)
+        later = self.movement(75)
+        barrier = Barrier(2)
+
+        def confirm(service, box, boundary):
+            barrier.wait(timeout=5)
+            service.mark_cashbox_notifications_seen(
+                {**self.acknowledgement(boundary), "cashbox_id": box}
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as threads:
+            one = threads.submit(confirm, self.service, self.box, later)
+            two = threads.submit(confirm, peer, other, second)
+            one.result(timeout=10)
+            two.result(timeout=10)
+        self.assertFalse(
+            peer.list_cashboxes({"actor_name": self.viewer})["notification"]["has_unread"]
+        )
+        [stored] = iter_cashbox_receipt_rows(self.state_file)
+        self.assertEqual(stored["schema_version"], 2)
+        self.assertEqual(stored["transaction_id"], "")
+        self.assertEqual(stored["by_cashbox"][self.box]["transaction_id"], later["id"])
+        self.assertEqual(stored["by_cashbox"][other]["transaction_id"], second["id"])
+        listed = peer.list_cashboxes({"actor_name": self.viewer, "limit": 1, "cashbox_id": other})
+        self.assertNotIn(other, [box["id"] for box in listed["cashboxes"]])
+        self.assertEqual(
+            listed["meta"]["active_cashbox_updated_at"],
+            peer.get_cashbox({"cashbox_id": other})["cashbox"]["updated_at"],
+        )
+
+    def test_backdated_payment_stays_unread_until_its_registration_prefix_is_seen(self):
+        first = self.movement(100)
+        self.service.mark_cashbox_notifications_seen(
+            {**self.acknowledgement(first), "cashbox_id": self.box}
+        )
+        card = self.service.create_card({"title": "Synthetic backdated payment"})["card"]["id"]
+        self.service.update_repair_order(
+            {
+                "card_id": card,
+                "actor_name": "Synthetic other",
+                "repair_order": {
+                    "payments": [
+                        {
+                            "id": "p",
+                            "amount": "3.46",
+                            "cashbox_id": self.box,
+                            "paid_at": "15.10.2020 09:00",
+                        }
+                    ]
+                },
+            }
+        )
+        latest = self.movement(60)
+        details = self.service.get_cashbox({"cashbox_id": self.box})
+        self.assertEqual(details["transactions"][0]["id"], latest["id"])
+        backdated = details["transactions"][-1]
+        self.assertEqual(backdated["transaction_kind"], "repair_order_payment")
+        with patch(
+            "minimal_kanban.services.card_service_finance._CASHBOX_NOTIFICATION_PREFIX_LIMIT", 1
+        ):
+            summary = self.service.list_cashboxes({"actor_name": self.viewer})["notification"]
+            status = summary["by_cashbox"][self.box]
+            self.assertEqual(status["unread_count"], 2)
+            self.assertEqual(status["unread_transaction_ids"], [backdated["id"]])
+            marked = self.service.mark_cashbox_notifications_seen(
+                {**self.acknowledgement(backdated), "cashbox_id": self.box}
+            )
+            self.assertEqual(
+                marked["notification"]["by_cashbox"][self.box]["unread_transaction_ids"],
+                [latest["id"]],
+            )
+
+    def test_legacy_viewed_movement_remains_seen_when_new_payment_has_an_earlier_date(self):
+        old = self.movement(100)
+        ledger = json.loads(self.state_file.read_text(encoding="utf-8"))
+        del ledger["cash_transactions"][0]["registration_seq"]
+        self.state_file.write_text(json.dumps(ledger), encoding="utf-8")
+        self.store.cashbox_receipts.advance(
+            self.viewer, {"transaction_id": old["id"], "created_at": old["created_at"]}
+        )
+        peer = self.open_another_service()
+        self.assertFalse(
+            peer.list_cashboxes({"actor_name": self.viewer})["notification"]["has_unread"]
+        )
+        card = peer.create_card({"title": "Legacy receipt test"})["card"]["id"]
+        peer.update_repair_order(
+            {
+                "card_id": card,
+                "actor_name": "Another operator",
+                "repair_order": {
+                    "payments": [
+                        {
+                            "id": "p",
+                            "amount": "1",
+                            "cashbox_id": self.box,
+                            "paid_at": "15.10.2020 09:00",
+                        }
+                    ]
+                },
+            }
+        )
+        notice = peer.list_cashboxes({"actor_name": self.viewer})["notification"]
+        self.assertEqual(notice["unread_count"], 1)
+        self.assertNotEqual(notice["through_transaction_id"], old["id"])
+        marked = peer.mark_cashbox_notifications_seen(
+            {
+                "actor_name": self.viewer,
+                "cashbox_id": self.box,
+                "exact_boundary": True,
+                "through_transaction_id": notice["through_transaction_id"],
+            }
+        )
+        self.assertFalse(marked["notification"]["has_unread"])
+        saved = self.store.cashbox_receipts.read(self.viewer)
+        self.assertEqual(saved["transaction_id"], old["id"])
+        self.assertGreater(saved["by_cashbox"][self.box]["registration_seq"], 0)
+
     def test_peer_removal_between_validation_and_publish_fails_closed(self):
         movement = self.movement(100)
         peer = self.open_another_service()

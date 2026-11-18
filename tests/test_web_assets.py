@@ -5012,22 +5012,22 @@ class WebAssetsTests(unittest.TestCase):
             "scheduleCashboxDetailLoad(nextId, { openModal, loadContext });", BOARD_WEB_APP_HTML
         )
         self.assertIn(
-            "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {})",
+            "async function loadCashboxDetail(cashboxId,",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "const transactionOffset = finiteNonNegativeNumber(offset);", BOARD_WEB_APP_HTML
+            "let transactionOffset = finiteNonNegativeNumber(offset);", BOARD_WEB_APP_HTML
         )
         self.assertIn(
             "'&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true'",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
-            "const canAppend = append && state.activeCashbox?.cashbox?.id === (data?.cashbox?.id || normalizedId);",
+            "previousRevision !== data?.cashbox?.updated_at",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("async function loadMoreCashboxTransactions()", BOARD_WEB_APP_HTML)
-        self.assertIn("offset: filteredCashboxTransactions().length,", BOARD_WEB_APP_HTML)
+        self.assertIn("offset: visibleCashboxTransactions().length,", BOARD_WEB_APP_HTML)
         self.assertIn("append: true,", BOARD_WEB_APP_HTML)
         self.assertIn("data-cashbox-transactions-load-more", BOARD_WEB_APP_HTML)
         self.assertIn("function cashboxTransactionCanBeCancelled(item)", BOARD_WEB_APP_HTML)

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from copy import deepcopy
 from typing import Any
 
-from ..models import AuditEvent
+from ..models import CASH_REGISTRATION_SEQUENCE_SETTING, AuditEvent
 from ..operator_permissions import (
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
     EMPLOYEES_READ_ACCESS_PERMISSION,
@@ -161,7 +161,11 @@ def public_snapshot_settings(
     include_employees_cashboxes: bool = True,
     detach: bool = False,
 ) -> dict[str, Any]:
-    excluded_keys = {CASHBOX_NOTIFICATION_SEEN_SETTING_KEY, "telegram_agent_behavior"}
+    excluded_keys = {
+        CASHBOX_NOTIFICATION_SEEN_SETTING_KEY,
+        CASH_REGISTRATION_SEQUENCE_SETTING,
+        "telegram_agent_behavior",
+    }
     if not include_employees_cashboxes:
         excluded_keys.update(EMPLOYEES_CASHBOXES_PRIVATE_SETTING_KEYS)
     return {

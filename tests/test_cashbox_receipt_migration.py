@@ -164,3 +164,168 @@ class CashboxReceiptMigrationTests(CardServiceCase):
                 retry = migrate(self.state_file, to_legacy=True, apply=True)
                 self.assertFalse(retry["change_state_file"])
             self.assertEqual(len(directory_syncs), 2)
+
+    def seed_scoped(self):
+        box_a, box_b = (
+            self.service.create_cashbox({"name": name})["cashbox"]["id"] for name in ("A", "B")
+        )
+        card = self.service.create_card({"title": "Rollback fixture"})["card"]["id"]
+        seen = self.service.create_cash_transaction(
+            {"cashbox_id": box_a, "amount_minor": 100, "actor_name": "writer"}
+        )["transaction"]["id"]
+        self.service.mark_cashbox_notifications_seen(
+            {
+                "actor_name": "reader",
+                "cashbox_id": box_a,
+                "through_transaction_id": seen,
+                "exact_boundary": True,
+            }
+        )
+        result = self.service.update_repair_order(
+            {
+                "card_id": card,
+                "actor_name": "writer",
+                "repair_order": {
+                    "payments": [
+                        {
+                            "id": "late",
+                            "amount": "2",
+                            "cashbox_id": box_b,
+                            "paid_at": "01.01.2020 09:00",
+                        }
+                    ],
+                    "prepayment": "",
+                },
+            }
+        )
+        unseen = result["repair_order"]["payments"][0]["cash_transaction_id"]
+        return box_a, box_b, card, seen, unseen
+
+    def test_downgrade_twice_then_return_preserves_scopes_and_new_movements(self):
+        from minimal_kanban.models import CASH_REGISTRATION_SEQUENCE_SETTING as counter
+        from minimal_kanban.storage.cashbox_receipts import cashbox_receipt_directory
+
+        box_a, box_b, card, seen, unseen = self.seed_scoped()
+        scoped = self.store.cashbox_receipts.read("reader")
+        before = self.store._read_state()
+        numbers = {row["id"]: row["registration_seq"] for row in before["cash_transactions"]}
+        original = self.state_file.read_bytes()
+        self.assertTrue(migrate(self.state_file, to_legacy=True)["change_state_file"])
+        self.assertEqual(self.state_file.read_bytes(), original)
+
+        migrate(self.state_file, to_legacy=True, apply=True)
+        marker = self.state_file.with_suffix(".cashbox_rollback.json")
+        self.assertTrue(marker.exists())
+        self.assertEqual(self.store.cashbox_receipts.read("reader")["schema_version"], 1)
+        legacy = self.store._read_state()
+        self.assertEqual(legacy["settings"][LEGACY_KEY]["reader"]["transaction_id"], "")
+        self.assertNotIn(counter, legacy["settings"])
+        first_downgrade = self.state_file.read_bytes()
+        self.assertFalse(migrate(self.state_file, to_legacy=True, apply=True)["change_state_file"])
+        self.assertEqual(self.state_file.read_bytes(), first_downgrade)
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(marker.stat().st_mode), 0o600)
+            marker.chmod(0o640)
+            with self.assertRaises(PermissionError):
+                migrate(self.state_file, apply=True)
+            marker.chmod(0o600)
+            for row in cashbox_receipt_directory(self.state_file).glob("*.json"):
+                self.assertEqual(stat.S_IMODE(row.stat().st_mode), 0o600)
+
+        # The previous writer appends to the ledger, omits registration numbers
+        # and records a v1 global position when the receipt is acknowledged.
+        legacy["cards"][0]["description"] = "Edited during rollback"
+        added = {
+            **legacy["cash_transactions"][-1],
+            "id": "added-by-previous-version",
+            "cashbox_id": box_a,
+            "actor_name": "writer",
+        }
+        older = {
+            **added,
+            "id": "backdated-by-previous-version",
+            "created_at": "2019-01-01T09:00:00+07:00",
+        }
+        legacy["cash_transactions"].extend((added, older))
+        with self.store._process_lock.acquire():
+            self.store._write_state(legacy)
+        later = next(row for row in legacy["cash_transactions"] if row["id"] == seen)
+        for actor in ("reader", "new-reader"):
+            self.store.cashbox_receipts.advance(
+                actor,
+                {"transaction_id": seen, "created_at": later["created_at"]},
+                publish_fence=self.store._process_lock.acquire,
+            )
+        self.assertFalse(migrate(self.state_file, to_legacy=True, apply=True)["change_state_file"])
+        migrate(self.state_file, apply=True)
+        self.assertFalse(marker.exists())
+        self.assertEqual(scoped, self.store.cashbox_receipts.read("reader"))
+        restored = self.store._read_state()
+        self.assertEqual(restored["cards"][0]["id"], card)
+        self.assertEqual(restored["cards"][0]["description"], "Edited during rollback")
+        self.assertNotIn(LEGACY_KEY, restored["settings"])
+        self.assertEqual(
+            {row["id"]: row["registration_seq"] for row in restored["cash_transactions"]},
+            {
+                **numbers,
+                older["id"]: before["settings"][counter] + 1,
+                added["id"]: before["settings"][counter] + 2,
+            },
+        )
+        for actor in ("reader", "new-reader"):
+            by_box = self.service.list_cashboxes({"actor_name": actor})["notification"][
+                "by_cashbox"
+            ]
+            self.assertIn(unseen, by_box[box_b]["unread_transaction_ids"])
+            self.assertIn(added["id"], by_box[box_a]["unread_transaction_ids"])
+            self.assertIn(older["id"], by_box[box_a]["unread_transaction_ids"])
+        self.assertFalse(migrate(self.state_file, apply=True)["change_state_file"])
+
+    def test_retry_after_interrupted_marker_or_private_row_publication(self):
+        from scripts import migrate_cashbox_receipts as migration
+
+        self.seed_scoped()
+        position = self.store.cashbox_receipts.read("reader")
+        original = self.store._read_state()
+        marker = migration._manifest_path(self.state_file)
+        if os.name == "posix":
+            sync = os.fsync
+
+            def fail_first_manifest_directory_sync(fd):
+                if marker.exists() and os.path.samestat(os.fstat(fd), marker.parent.stat()):
+                    raise OSError("interrupted manifest fsync")
+                sync(fd)
+
+            with patch("os.fsync", side_effect=fail_first_manifest_directory_sync):
+                with self.assertRaisesRegex(OSError, "manifest fsync"):
+                    migrate(self.state_file, to_legacy=True, apply=True)
+            self.assertEqual(self.store._read_state(), original)
+            self.assertEqual(self.store.cashbox_receipts.read("reader"), position)
+        with patch.object(migration.CashboxReceiptStore, "_publish", side_effect=OSError("stop")):
+            with self.assertRaisesRegex(OSError, "stop"):
+                migrate(self.state_file, to_legacy=True, apply=True)
+        self.assertEqual(
+            migration._read_manifest(migration._manifest_path(self.state_file))["phase"],
+            "preparing",
+        )
+        self.assertEqual(self.store._read_state(), original)
+        migrate(self.state_file, to_legacy=True, apply=True)
+        # Simulate a crash after both state and rows were restored, just before
+        # the manifest can be retired. A retry must preserve the same numbers.
+        original_unlink = type(marker).unlink
+
+        def fail_final_unlink(path, *args, **kwargs):
+            if path == marker:
+                raise OSError("interrupted cleanup")
+            return original_unlink(path, *args, **kwargs)
+
+        with patch.object(type(marker), "unlink", fail_final_unlink):
+            with self.assertRaisesRegex(OSError, "interrupted cleanup"):
+                migrate(self.state_file, apply=True)
+        self.assertEqual(migration._read_manifest(marker)["phase"], "restoring")
+        with self.assertRaisesRegex(ValueError, "to-private"):
+            migrate(self.state_file, to_legacy=True, apply=True)
+        migrate(self.state_file, apply=True)
+        self.assertEqual(self.store._read_state(), original)
+        self.assertEqual(self.store.cashbox_receipts.read("reader"), position)
+        self.assertFalse(marker.exists())

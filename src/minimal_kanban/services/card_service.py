@@ -154,7 +154,12 @@ from .card_service_repair_order_search import (
 from .card_service_repair_order_search import (
     CardServiceRepairOrderSearchMixin,
 )
-from .cash_amounts import advance_cashbox_revision, cash_payment_minor, validated_cash_amount_minor
+from .cash_amounts import (
+    advance_cashbox_revision,
+    cash_payment_minor,
+    next_cash_registration_seq,
+    validated_cash_amount_minor,
+)
 from .column_service import ColumnService
 from .errors import ServiceError
 from .finance_read_core import FinanceReadCore
@@ -6560,6 +6565,7 @@ class CardService(
                 details={"field": "repair_order.payments"},
             )
         if cashboxes is not None and cash_transactions is not None:
+            assert settings is not None
             order = self._sync_repair_order_payment_transactions(
                 card,
                 previous_order,
@@ -6570,6 +6576,7 @@ class CardService(
                 actor_name,
                 source,
                 cards=cards,
+                settings=settings,
                 attestation_run_id=attestation_run_id,
                 digest_correlation_id=digest_correlation_id,
             )
@@ -7128,6 +7135,7 @@ class CardService(
         source: str,
         *,
         cards: list[Card],
+        settings: dict[str, Any],
         attestation_run_id: str = "",
         digest_correlation_id: str,
     ) -> RepairOrder:
@@ -7338,6 +7346,7 @@ class CardService(
                 continue
             transaction = CashTransaction(
                 id=str(uuid.uuid4()),
+                registration_seq=next_cash_registration_seq(settings, cash_transactions),
                 cashbox_id=cashbox.id,
                 direction="income",
                 amount_minor=new_amounts[id(payment)],

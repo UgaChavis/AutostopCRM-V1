@@ -321,15 +321,62 @@ function applyCashboxNotification(notification){notifications.push(notification)
 """
         )
 
-    def test_cash_notification_frames_and_conflict_or_uncertain_readback(self) -> None:
+    def test_poll_reads_only_changed_detail_and_leaves_covered_drafts_alone(self) -> None:
         self.run_js(
             """
 const assert=require('node:assert/strict');
 const state={
-  actor:'A',operatorSessionToken:'S',viewerStateGeneration:1,activeCashboxId:'box',
+  actor:'A',operatorSessionToken:'S',viewerStateGeneration:1,employeesCashboxesAccessRevision:1,
+  cashboxNotificationRevision:0,cashboxesRequestSeq:0,activeCashboxId:'second',modalStack:[{key:'cashboxes'}],
+  activeCashbox:{cashbox:{id:'second',updated_at:'v1'},meta:{transaction_limit:100}},
+};
+const document={hidden:false}, requests=[], details=[];
+function operatorCanAccessEmployeesCashboxes(){return true;}
+function cashboxWorkspaceIsOpen(){return true;}
+function applyCashboxNotification(n){state.cashboxNotification=n;state.cashboxNotificationRevision++;}
+function api(path){return new Promise(resolve=>requests.push({path,resolve}));}
+async function loadCashboxDetail(id,opts){details.push([id,opts.background]);}
+"""
+            + functions(
+                "app_main_before_printing.js",
+                "captureViewerRequestContext",
+                "cashboxDetailIsExposed",
+                "refreshCashboxNotification",
+            )
+            + """
+(async()=>{
+  const response=rev=>({notification:{initialized:true},meta:{active_cashbox_updated_at:rev}});
+  const first=refreshCashboxNotification();
+  const duplicate=refreshCashboxNotification();
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].path,'/api/list_cashboxes?limit=1&cashbox_id=second');
+  requests.shift().resolve(response('v1'));await Promise.all([first,duplicate]);
+  assert.deepEqual(details,[]);
+  const covered=refreshCashboxNotification();
+  state.modalStack.push({key:'cashbox-transfer'});
+  requests.shift().resolve(response('v2'));await covered;
+  assert.deepEqual(details,[]);
+  state.modalStack.pop();
+  const fresh=refreshCashboxNotification();
+  requests.shift().resolve(response('v2'));await fresh;
+  assert.deepEqual(details,[['second',true]]);
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        )
+
+    def test_cash_notification_frames_and_conflict_or_uncertain_readback(self) -> None:
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const notice=(through,ids=[through],total=ids.length)=>({
+  initialized:true,by_cashbox:{box:{through_transaction_id:through,needs_ack:true,unread_transaction_ids:ids,unread_count:total}}
+});
+const state={
+  actor:'A',operatorSessionToken:'S',viewerStateGeneration:1,activeCashboxId:'box',mobileView:'cashboxes',
   employeesCashboxesAccessRevision:1,cashboxNotificationRevision:0,cashboxesRequestSeq:0,
   cashboxNotification:{initialized:true,has_unread:true},
-  cashboxNotificationForOpen:{revision:0,notification:{through_transaction_id:'tx'}},
+  activeCashbox:{transactions:[{id:'tx'}]},
+  cashboxNotificationForOpen:{cashboxId:'box',notification:notice('tx')},
 };
 const document={hidden:false};
 const CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS=10000;
@@ -348,8 +395,12 @@ function isCurrentCashboxesLoadIntent(){return true;}
                 "cashboxNotificationViewerGuard",
                 "applyCashboxNotification",
                 "filteredCashboxTransactions",
+                "visibleCashboxTransactions",
+                "paintedCashboxBoundary",
+                "cashboxDetailIsExposed",
                 "acknowledgeCashboxNotifications",
                 "scheduleCashboxNotificationAcknowledgement",
+                "prepareCashboxAcknowledgement",
                 "refreshCashboxNotification",
             )
             + """
@@ -364,12 +415,14 @@ function isCurrentCashboxesLoadIntent(){return true;}
   assert.equal(state.cashboxNotificationRevision,0);
   frames.shift()();
   assert.equal(requests[1].path,'/api/mark_cashbox_notifications_seen');
+  assert.equal(requests[1].body.cashbox_id,'box');
   requests[1].resolve({notification:{initialized:true,has_unread:false}});
   await state.cashboxNotificationSeenPromise;
   assert.equal(state.cashboxNotification.has_unread,false);
 
+  state.activeCashbox={cashbox:{id:'box',updated_at:'stable'},meta:{transaction_limit:100},transactions:[{id:'unknown-tx'}]};
   state.cashboxNotificationForOpen={
-    revision:state.cashboxNotificationRevision, notification:{through_transaction_id:'unknown-tx'},
+    cashboxId:'box',notification:notice('unknown-tx'),
   };
   scheduleCashboxNotificationAcknowledgement({},'box');
   frames.shift()();
@@ -380,12 +433,20 @@ function isCurrentCashboxesLoadIntent(){return true;}
   assert.equal(frames.length,0,'another detail load must not schedule the same receipt');
   requests[2].reject(new DOMException('timed out','AbortError'));
   await new Promise(setImmediate);
-  assert.equal(requests[3].path,'/api/list_cashboxes?limit=1');
-  requests[3].resolve({notification:{initialized:false,needs_ack:true,through_transaction_id:'unknown-tx'}});
+  assert.equal(requests[3].path,'/api/list_cashboxes?limit=1&cashbox_id=box');
+  const stillUnread={notification:notice('unknown-tx'),meta:{active_cashbox_updated_at:'stable'}};
+  requests[3].resolve(stillUnread);
   await state.cashboxNotificationRefreshPromise;
   scheduleCashboxNotificationAcknowledgement({},'box');
   assert.equal(frames.length,0,'retrying a detail after the uncertain result must only read');
   assert.equal(requests.length,4,'authoritative reconciliation must not send another POST');
+  const nextPoll=refreshCashboxNotification();
+  requests[4].resolve(stillUnread);await nextPoll;
+  assert.equal(frames.length,1,'a later independent poll must recover a receipt which never reached the server');
+  frames.shift()();frames.shift()();
+  assert.equal(requests[5].body.through_transaction_id,'unknown-tx');
+  requests[5].resolve({notification:{initialized:true,has_unread:false}});
+  await new Promise(setImmediate);
 
   for (const [readbackBoundary, visibleRows, retry, mobile=false] of [
     ['newer-row',['painted-row'],false], ['painted-row',['other-cashbox-row'],false],
@@ -394,17 +455,18 @@ function isCurrentCashboxesLoadIntent(){return true;}
   ]) {
     const start=requests.length;
     state.mobileLite=mobile;
-    state.activeCashbox={transactions:visibleRows.map(id=>({id}))};
+    state.activeCashbox={transactions:[{id:'painted-row'}]};
     state.cashboxNotificationForOpen={
-      revision:state.cashboxNotificationRevision, notification:{through_transaction_id:'painted-row'},
+      cashboxId:'box',notification:notice('painted-row'),
     };
     scheduleCashboxNotificationAcknowledgement({},'box');
     frames.shift()();frames.shift()();
     const conflict=Object.assign(new Error('changed'),{status:409,code:'state_write_conflict'});
+    state.activeCashbox={transactions:visibleRows.map(id=>({id}))};
     requests[start].reject(conflict);
     await new Promise(setImmediate);
-    assert.equal(requests[start+1].path,'/api/list_cashboxes?limit=1');
-    requests[start+1].resolve({notification:{through_transaction_id:readbackBoundary,needs_ack:true}});
+    assert.equal(requests[start+1].path,'/api/list_cashboxes?limit=1&cashbox_id=box');
+    requests[start+1].resolve({notification:notice(readbackBoundary)});
     await new Promise(setImmediate);
     assert.equal(requests.length,start+(retry?3:2));
     if (retry) {
@@ -412,11 +474,52 @@ function isCurrentCashboxesLoadIntent(){return true;}
       assert.equal(requests[start+2].body.initialize_only,undefined);
       requests[start+2].reject(conflict);
       await new Promise(setImmediate);
-      requests[start+3].resolve({notification:{through_transaction_id:readbackBoundary,needs_ack:true}});
+      requests[start+3].resolve({notification:notice(readbackBoundary)});
       await new Promise(setImmediate);
       assert.equal(requests.length,start+4,'a second conflict is read back without a retry loop');
     }
   }
+  state.mobileLite=false;
+  state.activeCashbox={transactions:[{id:'later-visible'}]};
+  assert.equal(paintedCashboxBoundary(notice('later-visible',['hidden-backdate','later-visible']),'box'),'');
+  assert.equal(paintedCashboxBoundary(notice('later-visible',['later-visible','hidden-backdate']),'box'),'later-visible');
+  assert.equal(paintedCashboxBoundary(notice('later-visible',['later-visible'],120),'another'),'');
+  const start=requests.length;
+  state.activeCashbox={transactions:['one','two','three'].map(id=>({id}))};
+  state.cashboxNotificationForOpen={cashboxId:'box',
+    notification:notice('three',['one','two'],3)};
+  scheduleCashboxNotificationAcknowledgement({},'box');
+  frames.shift()();frames.shift()();
+  assert.equal(requests[start].body.through_transaction_id,'two');
+  requests[start].resolve({meta:{changed:true},notification:notice('three',['three'])});
+  await new Promise(setImmediate);
+  frames.shift()();frames.shift()();
+  assert.equal(requests[start+1].body.through_transaction_id,'three');
+  requests[start+1].resolve({meta:{changed:true},notification:notice('three',[])});
+  await new Promise(setImmediate);
+  assert.equal(frames.length,0);
+  state.mobileLite=true;
+  state.activeCashbox={transactions:['a','b','c','d','e','hidden'].map(id=>({id}))};
+  assert.equal(paintedCashboxBoundary(notice('hidden'),'box'),'');
+  state.activeCashbox.mobileExpanded=true;
+  assert.equal(paintedCashboxBoundary(notice('hidden'),'box'),'hidden');
+
+  const queued=requests.length;
+  const both={initialized:true,by_cashbox:{box:notice('first').by_cashbox.box,other:notice('second').by_cashbox.box}};
+  for(const [id,tx] of [['box','first'],['other','second']]){
+    state.activeCashboxId=id;
+    state.activeCashbox={transactions:[{id:tx}]};
+    prepareCashboxAcknowledgement(id,both);
+    scheduleCashboxNotificationAcknowledgement({},id);
+    frames.shift()();frames.shift()();
+  }
+  assert.equal(requests.length,queued+1,'the second box waits for the first receipt');
+  requests[queued].resolve({notification:{unread_count:1}});
+  await new Promise(setImmediate);
+  assert.equal(requests[queued+1].body.cashbox_id,'other');
+  requests[queued+1].resolve({notification:{unread_count:0}});
+  await new Promise(setImmediate);
+  assert.equal(state.cashboxNotification.unread_count,0,'the indicator must reflect the last queued receipt');
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
         )
