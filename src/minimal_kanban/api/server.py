@@ -1439,18 +1439,10 @@ class AuthenticationPolicy:
                 )
                 return None
             return next_payload
-        if route in self._operator_session_routes:
-            if session is None:
-                self._reject(
-                    handler,
-                    request_id,
-                    status=HTTPStatus.UNAUTHORIZED,
-                    code="unauthorized",
-                    message="Нужен вход оператора.",
-                )
-                return None
-            return next_payload
-        if str(next_payload.get("source", "")).strip().lower() == "ui" and session is None:
+        if session is None and (
+            route in self._operator_session_routes
+            or str(next_payload.get("source", "")).strip().lower() == "ui"
+        ):
             self._reject(
                 handler,
                 request_id,
