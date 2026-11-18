@@ -20,7 +20,7 @@ from minimal_kanban.storage.cashbox_receipts import (
     cashbox_receipt_filename,
     iter_cashbox_receipt_rows,
 )
-from minimal_kanban.storage.json_store import JsonStore, StateFileCorruptedError
+from minimal_kanban.storage.json_store import JsonStore
 
 
 class CashboxReceiptStorageTests(CardServiceCase):
@@ -192,9 +192,124 @@ class CashboxReceiptStorageTests(CardServiceCase):
         self.assertEqual(self.state_file.read_bytes(), before)
 
         # An invalid date must not become a fresh watermark from a fallback clock.
-        raw["cash_transactions"][0]["created_at"] = "not a date"
-        self.state_file.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-        before = self.state_file.read_bytes()
-        with self.assertRaises(StateFileCorruptedError):
+        for bad_date in ("not a date", None):
+            with self.subTest(bad_date=bad_date):
+                if bad_date is None:
+                    raw["cash_transactions"][0].pop("created_at")
+                else:
+                    raw["cash_transactions"][0]["created_at"] = bad_date
+                self.state_file.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+                before = self.state_file.read_bytes()
+                listed = self.service.list_cashboxes({"actor_name": self.viewer})
+                self.assertTrue(listed["meta"]["notification_unavailable"])
+                self.assertIsNone(listed["notification"])
+                self.assertEqual(listed["cashboxes"][0]["statistics"]["balance_minor"], 100)
+                self.assertIsNone(listed["cashboxes"][0]["statistics"]["last_transaction_at"])
+                with self.assertRaises(ServiceError) as error:
+                    self.service.mark_cashbox_notifications_seen(self.acknowledgement(movement))
+                self.assertEqual(error.exception.code, "cashbox_notification_unavailable")
+                self.assertEqual(self.state_file.read_bytes(), before)
+
+    def test_two_tabs_cannot_auto_ack_an_unseen_movement(self):
+        first = self.movement(100)
+        peer = self.open_another_service()
+        original = self.store.cashbox_receipts.read
+        later = []
+
+        def read_and_interleave(actor):
+            current = original(actor)
+            if not later:
+                peer.mark_cashbox_notifications_seen(self.acknowledgement(first))
+                later.append(self.movement(200))
+            return current
+
+        with patch.object(self.store.cashbox_receipts, "read", side_effect=read_and_interleave):
+            notice = self.service.list_cashboxes({"actor_name": self.viewer})["notification"]
+        self.assertTrue(notice["initialized"])
+        self.assertEqual(notice["unread_count"], 1)
+        # A background tab may already have received an uninitialized summary.
+        duplicate = self.service.mark_cashbox_notifications_seen(
+            {**self.acknowledgement(later[0]), "initialize_only": True}
+        )
+        self.assertFalse(duplicate["meta"]["changed"])
+        self.assertEqual(duplicate["notification"]["unread_count"], 1)
+        self.assertTrue(
+            self.service.mark_cashbox_notifications_seen(self.acknowledgement(later[0]))["meta"][
+                "changed"
+            ]
+        )
+
+    def test_verified_receipt_cache_detects_in_place_edit_with_restored_mtime(self):
+        self.movement(100)
+        payload = {"actor_name": self.viewer}
+        with (
+            patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(
+                self.store,
+                "_repair_order_file_signature",
+                return_value=self.store._repair_order_file_signature(),
+            ),
+        ):
+            first = self.service.list_cashboxes(payload)
+            self.assertEqual(first["cashboxes"][0]["statistics"]["balance_minor"], 100)
+            with patch.object(
+                self.store, "_decode_state", wraps=self.store._decode_state
+            ) as decode:
+                self.service.mark_cashbox_notifications_seen(payload)
+                self.service.mark_cashbox_notifications_seen(payload)
+                decode.assert_not_called()
+                previous = self.state_file.stat()
+                raw = self.state_file.read_bytes()
+                changed = raw.replace(b'"amount_minor":100', b'"amount_minor":200', 1)
+                self.assertNotEqual(raw, changed)
+                self.state_file.write_bytes(changed)
+                os.utime(self.state_file, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+                refreshed = self.service.list_cashboxes(payload)
+                self.assertEqual(refreshed["cashboxes"][0]["statistics"]["balance_minor"], 200)
+                decode.assert_called_once()
+
+    def test_initialize_only_preserves_empty_legacy_position(self):
+        movement = self.movement(100)
+        bundle = self.store.read_bundle()
+        settings = {
+            **bundle["settings"],
+            CASHBOX_NOTIFICATION_SEEN_SETTING_KEY: {
+                self.viewer: {"transaction_id": "", "created_at": ""}
+            },
+        }
+        self.store.write_bundle(**{**bundle, "settings": settings})
+        result = self.service.mark_cashbox_notifications_seen(
+            {**self.acknowledgement(movement), "initialize_only": True}
+        )
+        self.assertFalse(result["meta"]["changed"])
+        self.assertEqual(result["notification"]["unread_count"], 1)
+        self.assertIsNone(self.store.cashbox_receipts.read(self.viewer))
+
+    def test_verified_fence_detects_same_size_edit_after_resolving_boundary(self):
+        movement = self.movement(100)
+        fence = self.store.fence_cashbox_receipt_state
+
+        @contextmanager
+        def edit_and_fence(snapshot):
+            previous = self.state_file.stat()
+            raw = self.state_file.read_bytes()
+            changed = raw.replace(movement["id"].encode("ascii"), b"x" * len(movement["id"]))
+            self.assertNotEqual(raw, changed)
+            self.state_file.write_bytes(changed)
+            os.utime(self.state_file, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+            with fence(snapshot):
+                yield
+
+        with (
+            patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(
+                self.store,
+                "_repair_order_file_signature",
+                return_value=self.store._repair_order_file_signature(),
+            ),
+            patch.object(self.store, "fence_cashbox_receipt_state", side_effect=edit_and_fence),
+            self.assertRaises(ServiceError) as error,
+        ):
             self.service.mark_cashbox_notifications_seen(self.acknowledgement(movement))
-        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(error.exception.code, "state_write_conflict")
+        self.assertIsNone(self.store.cashbox_receipts.read(self.viewer))

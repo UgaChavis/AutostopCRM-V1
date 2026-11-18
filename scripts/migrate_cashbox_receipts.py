@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -14,11 +17,14 @@ from minimal_kanban.storage.cashbox_receipts import (  # noqa: E402
     CASHBOX_NOTIFICATION_SEEN_SETTING_KEY as LEGACY_KEY,
 )
 from minimal_kanban.storage.cashbox_receipts import (  # noqa: E402
+    CASHBOX_RECEIPT_FILE_RE,
+    cashbox_receipt_directory,
     cashbox_receipt_key,
     iter_cashbox_receipt_rows,
     normalize_legacy_cashbox_receipts,
 )
-from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
+from minimal_kanban.storage.json_store import JSON_STORE_STATE_MAX_BYTES, JsonStore  # noqa: E402
+from minimal_kanban.storage.limited_io import read_text_limited  # noqa: E402
 
 
 def _legacy_positions(state: dict) -> dict:
@@ -49,13 +55,87 @@ def _advances(source: dict, destination: dict) -> dict:
     }
 
 
+def _require_crm_user(state_file: Path) -> None:
+    if os.name != "posix":
+        return
+    owner = (os.geteuid(), os.getegid())
+    state_stat = state_file.lstat()
+    if (state_stat.st_uid, state_stat.st_gid) != owner:
+        raise PermissionError("Run this migration as the CRM state file's runtime UID and GID.")
+    parent = state_file.parent.stat()
+    if owner[0] == 0 and parent.st_uid != 0:
+        raise PermissionError("Refusing to migrate a non-root CRM profile as root.")
+    if parent.st_mode & stat.S_ISGID and parent.st_gid != owner[1]:
+        raise PermissionError("New profile files would inherit a different CRM group.")
+
+    def check_file(path: Path, *, private: bool = False) -> None:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return
+        mode = stat.S_IMODE(info.st_mode)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or (info.st_uid, info.st_gid) != owner
+            or mode & 0o600 != 0o600
+            or (private and mode != 0o600)
+        ):
+            raise PermissionError(
+                "A CRM state, receipt or lock file has unexpected ownership or permissions."
+            )
+
+    check_file(state_file)
+    check_file(state_file.with_suffix(".lock"))
+    for filename in ("change_feed.sqlite3", "change_feed.sqlite3-wal", "change_feed.sqlite3-shm"):
+        check_file(state_file.with_name(filename))
+    directory = cashbox_receipt_directory(state_file)
+    try:
+        info = directory.lstat()
+    except FileNotFoundError:
+        return
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or (info.st_uid, info.st_gid) != owner
+        or stat.S_IMODE(info.st_mode) != 0o700
+    ):
+        raise PermissionError(
+            "The cashbox receipt directory must belong to the CRM user with mode 0700."
+        )
+    for path in directory.iterdir():
+        check_file(path, private=bool(CASHBOX_RECEIPT_FILE_RE.fullmatch(path.name)))
+
+
+@contextmanager
+def _migration_store(state_file: Path, apply: bool):
+    if not apply:
+        yield None
+        return
+    _require_crm_user(state_file)
+    store = JsonStore(state_file)
+    try:
+        yield store
+        if os.name == "posix":
+            # Retry this barrier even if a previous replace already made the state match.
+            descriptor = os.open(state_file.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    finally:
+        store.close()
+
+
 def migrate(state_file: Path, *, to_legacy: bool = False, apply: bool = False) -> dict:
     if not state_file.is_file() or state_file.is_symlink():
         raise ValueError("Expected an existing regular state file.")
-    store = JsonStore(state_file)
-    try:
-        with store._process_lock.acquire():
-            state = store._read_state(preserve_corrupted=False)
+    with _migration_store(state_file, apply) as store:
+        with store._process_lock.acquire() if store else nullcontext():
+            # The offline preview must also work on a read-only state-only recovery copy.
+            state = JsonStore._decode_state(
+                read_text_limited(
+                    state_file, max_bytes=JSON_STORE_STATE_MAX_BYTES, label="state file"
+                )
+            )
             legacy = _legacy_positions(state)
             private = _private_positions(state_file)
             changes = _advances(private, legacy) if to_legacy else _advances(legacy, private)
@@ -75,13 +155,13 @@ def migrate(state_file: Path, *, to_legacy: bool = False, apply: bool = False) -
                 merged = {**legacy, **changes}
                 if normalize_legacy_cashbox_receipts({LEGACY_KEY: merged}) != merged:
                     raise ValueError("The previous CRM cannot represent all private receipt keys.")
-                if apply:
+                if store is not None:
                     state.setdefault("settings", {})[LEGACY_KEY] = merged
-                    store._write_state(state)
+                    store._write_state(state, preserve_posix_metadata=True)
                     if _legacy_positions(store._read_state(preserve_corrupted=False)) != merged:
                         raise ValueError("Legacy receipt readback did not match.")
                 return result
-        if not apply:
+        if store is None:
             return result
 
         # Runtime writers take the actor lock first, then the state lock for publication.
@@ -101,12 +181,10 @@ def migrate(state_file: Path, *, to_legacy: bool = False, apply: bool = False) -
                 )
             if LEGACY_KEY in current.get("settings", {}):
                 del current["settings"][LEGACY_KEY]
-                store._write_state(current)
+                store._write_state(current, preserve_posix_metadata=True)
             if LEGACY_KEY in store._read_state(preserve_corrupted=False).get("settings", {}):
                 raise ValueError("Legacy receipt cleanup failed readback.")
         return result
-    finally:
-        store.close()
 
 
 def main() -> int:

@@ -15,7 +15,6 @@ from ..storage.cashbox_receipts import (
 from ..storage.cashbox_receipts import (
     CashboxReceiptStoreError,
     newer_cashbox_receipt,
-    normalize_legacy_cashbox_receipts,
 )
 
 
@@ -34,54 +33,62 @@ class FinanceReadCore:
             operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
         )
         actor_key = normalize_actor_name(payload.get("actor_name"), default="").casefold()
-        private_receipt = None
-        notification_unavailable = False
-        # Do not hold the service lock while waiting for a same-actor receipt writer.
-        if actor_key and not references_only:
-            try:
-                private_receipt = service._store.cashbox_receipts.read(actor_key)
-            except CashboxReceiptStoreError:
-                service._logger.warning("cashbox_notification_receipt_unavailable")
-                notification_unavailable = True
-        with service._lock:
-            bundle = service._store.read_bundle()
-            cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
-            if references_only:
-                reference_cashboxes = [cashbox.to_dict() for cashbox in cashboxes[:limit]]
-                return {
-                    "cashboxes": reference_cashboxes,
-                    "notification": None,
-                    "meta": {
-                        "total": len(cashboxes),
-                        "limit": limit,
-                        "returned": len(reference_cashboxes),
-                        "has_more": len(cashboxes) > len(reference_cashboxes),
-                        "references_only": True,
-                    },
-                }
-            transactions = bundle["cash_transactions"]
-            serialized_cashboxes = service._serialize_cashboxes(cashboxes[:limit], transactions)
-            notification = None
-            if not notification_unavailable:
-                legacy_receipt = normalize_legacy_cashbox_receipts(bundle["settings"]).get(
-                    actor_key
-                )
-                receipt = newer_cashbox_receipt(legacy_receipt, private_receipt)
-                notification = service._cashbox_notification_summary(
-                    transactions, actor_key, receipt
-                )
+        snapshot, notification = self._cashbox_list_view(actor_key, references_only)
+        cashboxes = service._ordered_cashboxes(snapshot.cashboxes)
+        if references_only:
+            serialized = [cashbox.to_dict() for cashbox in cashboxes[:limit]]
             return {
-                "cashboxes": serialized_cashboxes,
-                "notification": notification,
+                "cashboxes": serialized,
+                "notification": None,
                 "meta": {
                     "total": len(cashboxes),
-                    "transactions_total": len(transactions),
                     "limit": limit,
-                    "returned": len(serialized_cashboxes),
-                    "has_more": len(cashboxes) > len(serialized_cashboxes),
-                    **({"notification_unavailable": True} if notification_unavailable else {}),
+                    "returned": len(serialized),
+                    "has_more": len(cashboxes) > len(serialized),
+                    "references_only": True,
                 },
             }
+        transactions = snapshot.transactions
+        serialized = service._serialize_cashboxes(cashboxes[:limit], transactions)
+        return {
+            "cashboxes": serialized,
+            "notification": notification,
+            "meta": {
+                "total": len(cashboxes),
+                "transactions_total": len(transactions),
+                "limit": limit,
+                "returned": len(serialized),
+                "has_more": len(cashboxes) > len(serialized),
+                **({"notification_unavailable": True} if notification is None else {}),
+            },
+        }
+
+    def _cashbox_list_view(self, actor_key: str, references_only: bool):
+        service = self._service
+        store = service._store
+        if references_only:
+            return store.read_cashbox_receipt_state(), None
+        # The actor's monotonic position must span the ledger read. Never wait
+        # for the actor's filesystem lock under the shared service or state lock.
+        snapshot = None
+        try:
+            before = store.cashbox_receipts.read(actor_key) if actor_key else None
+            for _ in range(2):
+                snapshot = store.read_cashbox_receipt_state()
+                if not snapshot.dates_valid:
+                    break
+                after = store.cashbox_receipts.read(actor_key) if actor_key else None
+                if before == after:
+                    receipt = newer_cashbox_receipt(snapshot.legacy_receipts.get(actor_key), after)
+                    return snapshot, service._cashbox_notification_summary(
+                        snapshot.transactions, actor_key, receipt
+                    )
+                before = after
+        except CashboxReceiptStoreError:
+            service._logger.warning("cashbox_notification_receipt_unavailable")
+        if snapshot is None:
+            snapshot = store.read_cashbox_receipt_state()
+        return snapshot, None
 
     def get_cashbox(self, payload: dict | None = None) -> dict:
         service = self._service

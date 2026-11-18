@@ -728,6 +728,15 @@ const rendersBefore=cashboxRenders.length;
 assert.equal(await ensureRepairOrderPaymentCashboxes({isCurrent:()=>false}),null);
 assert.equal(cashboxRenders.length,rendersBefore,'stale cached path rendered into a changed workspace');
 
+state.cashboxes=[];state.cashboxesLoaded=false;state.employeesCashboxesAccessRevision=1;
+const oldAccess=deferred();api=async()=>oldAccess.promise;
+const beforeRevoke=ensureRepairOrderPaymentCashboxes({isCurrent:()=>true});
+state.employeesCashboxesAccessRevision++;
+oldAccess.resolve({cashboxes:[{id:'protected-A',statistics:{balance_minor:100}}]});
+assert.equal(await beforeRevoke,null,'a pre-revocation response must not restore full cashbox data');
+assert.deepEqual(state.cashboxes,[]);
+state.cashboxes=[{id:'cached-B'}];state.cashboxesLoaded=true;
+
 state.repairOrderPaymentCashboxesRequest=null;
 const cachedOpen=openRepairOrderPaymentsModal();
 closeRepairOrderPaymentsModal();

@@ -201,6 +201,7 @@ class CashboxReceiptStore:
         receipt: Mapping[str, str],
         *,
         legacy_receipt: dict[str, str] | None = None,
+        initialize_only: bool = False,
         publish_fence: Callable[[], AbstractContextManager] = nullcontext,
     ) -> tuple[bool, dict[str, Any]]:
         try:
@@ -214,8 +215,8 @@ class CashboxReceiptStore:
                 },
                 path.name,
             )
-            if legacy_receipt is not None and cashbox_receipt_key(row) <= cashbox_receipt_key(
-                legacy_receipt
+            if legacy_receipt is not None and (
+                initialize_only or cashbox_receipt_key(row) <= cashbox_receipt_key(legacy_receipt)
             ):
                 private = self.read(actor_key)
                 effective = newer_cashbox_receipt(legacy_receipt, private)
@@ -227,7 +228,9 @@ class CashboxReceiptStore:
             with self._actor_lock(path).acquire():
                 private = self._read_current(path)
                 current = newer_cashbox_receipt(legacy_receipt, private)
-                if current is not None and cashbox_receipt_key(row) <= cashbox_receipt_key(current):
+                if current is not None and (
+                    initialize_only or cashbox_receipt_key(row) <= cashbox_receipt_key(current)
+                ):
                     # A previous replace may have succeeded even if its directory
                     # sync failed, so confirm durability before a no-op succeeds.
                     if current is private:

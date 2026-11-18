@@ -74,13 +74,23 @@ function renderOperatorProfile(data,options){state.operatorProfile=data;rendered
   await Promise.all([startup,foreground,visibility,newer,duplicate]);
   assert.equal(rendered.length,1);assert.deepEqual(state.operatorProfile.user.permissions,['employees_read_access']);
   const preWrite=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_employees');
-  const afterWrite=loadOperatorProfile({fresh:true,afterWrite:true});
+  const afterWrite=loadOperatorProfile({fresh:true,afterChange:true});
   assert.equal(calls.length,4,'a confirmed write must supersede a pre-write read');
   assert.equal(calls[2].signal.aborted,true);
   calls[2].resolve({user:{permissions:['employees_read_access']}});
   calls[3].resolve({user:{permissions:[]}});
   await Promise.all([preWrite,afterWrite]);
   assert.equal(rendered.length,2);
+  assert.deepEqual(state.operatorProfile.user.permissions,[]);
+  const firstDenial=refreshOperatorProfileAfterPermissionMismatch('S','/api/get_cashbox',true);
+  const secondDenial=refreshOperatorProfileAfterPermissionMismatch('S','/api/get_payroll_report',true);
+  const repeatDenial=refreshOperatorProfileAfterPermissionMismatch('S','/api/get_payroll_report',false);
+  assert.equal(calls.length,6,'replace a profile sampled before the second confirmed permission change');
+  assert.equal(calls[4].signal.aborted,true);
+  calls[4].resolve({user:{permissions:['employees_read_access']}});
+  calls[5].resolve({user:{permissions:[]}});
+  await Promise.all([firstDenial,secondDenial,repeatDenial]);
+  assert.equal(rendered.length,3);
   assert.deepEqual(state.operatorProfile.user.permissions,[]);
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
@@ -90,7 +100,9 @@ function renderOperatorProfile(data,options){state.operatorProfile=data;rendered
         source = read_board_source("app_main_before_printing.js")
         code = section(source, "    async function api(", "    function setApiToken(")
         permissions = section(
-            source, "    function operatorHasPermission(", "    function operatorCanViewEmployees("
+            source,
+            "    function operatorHasPermission(",
+            "    function operatorHasEmployeesReadOnlyAccess(",
         )
         self.run_js(
             """
@@ -99,7 +111,7 @@ const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION='employees_cashboxes_access';
 const EMPLOYEES_READ_ACCESS_PERMISSION='employees_read_access';
 const SALARY_BALANCE_RESET_PERMISSION='salary_balance_reset';
 const grants=[EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,EMPLOYEES_READ_ACCESS_PERMISSION];
-const state={viewerStateGeneration:1,operatorSessionToken:'S',operatorProfile:{user:{permissions:grants}}};
+const state={viewerStateGeneration:1,operatorSessionToken:'S',operatorProfileDenials:new Set(),operatorProfile:{user:{permissions:grants}}};
 const requests=[],effects=[];
 const window=globalThis;
 const API_READ_RETRY_LIMIT=1;
@@ -161,10 +173,36 @@ function referencesResponse(){
   await unexpectedReferences;
   assert.equal(operatorCanAccessEmployeesCashboxes(),false);
   assert.equal(operatorHasPermission(EMPLOYEES_READ_ACCESS_PERMISSION),true);
+  const oldReferences=api('/api/list_cashboxes');
+  const oldDenial=api('/api/get_payroll_report');
+  state.operatorProfileDenials=new Set();
+  state.operatorProfile={user:{permissions:grants}};
+  requests.shift()(referencesResponse());
+  await oldReferences;
+  requests.shift()(errorResponse(403,'forbidden',EMPLOYEES_READ_ACCESS_PERMISSION));
+  await assert.rejects(oldDenial,{status:403});
+  assert.equal(operatorCanAccessEmployeesCashboxes(),true,'late evidence cannot erase a fresh permission grant');
+  state.operatorProfile={user:{permissions:[EMPLOYEES_CASHBOXES_ACCESS_PERMISSION]}};
+  const inherited=api('/api/get_payroll_report');
+  requests.shift()(errorResponse(403,'forbidden',EMPLOYEES_READ_ACCESS_PERMISSION));
+  await assert.rejects(inherited,{status:403});
+  assert.equal(operatorCanViewEmployees(),false,'both possible grants must disappear after employee read denial');
+  assert.equal(operatorCanAccessEmployeesCashboxes(),false);
+  state.operatorProfile={user:{permissions:[EMPLOYEES_READ_ACCESS_PERMISSION]}};
+  const readOnlyRevoked=api('/api/list_employees');
+  requests.shift()(referencesResponse());
+  await readOnlyRevoked;
+  assert.equal(operatorCanViewEmployees(),false,'reference fallback also confirms loss of read-only access');
   const expired=api('/api/list_cashboxes');
   requests.shift()(errorResponse(401,'unauthorized'));
   await assert.rejects(expired,{status:401});
-  assert.deepEqual(effects,['profile','sync','profile','sync','profile','logout']);
+  assert.deepEqual(effects,['profile','sync','profile','sync','profile','profile','profile','sync','profile','sync','profile','logout']);
+  state.operatorProfileDenials=new Set();
+  state.operatorProfile={user:{permissions:[EMPLOYEES_CASHBOXES_ACCESS_PERMISSION]}};
+  assert.equal(revokeOperatorPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION),true);
+  assert.equal(revokeOperatorPermission(EMPLOYEES_READ_ACCESS_PERMISSION),true,
+    'a distinct denial invalidates a pending profile even if access was already hidden');
+  assert.equal(revokeOperatorPermission(EMPLOYEES_READ_ACCESS_PERMISSION),false);
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
         )
@@ -283,7 +321,7 @@ function applyCashboxNotification(notification){notifications.push(notification)
 """
         )
 
-    def test_cash_notification_receipt_frames_and_uncertain_readback(self) -> None:
+    def test_cash_notification_frames_and_conflict_or_uncertain_readback(self) -> None:
         self.run_js(
             """
 const assert=require('node:assert/strict');
@@ -295,9 +333,10 @@ const state={
 };
 const document={hidden:false};
 const CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS=10000;
+const MOBILE_CASHBOX_TRANSACTION_LIMIT=5;
 const requests=[],frames=[];
 const window={setTimeout,clearTimeout,requestAnimationFrame:callback=>frames.push(callback)};
-function api(path){return new Promise((resolve,reject)=>requests.push({path,resolve,reject}));}
+function api(path,options){return new Promise((resolve,reject)=>requests.push({path,body:options.body,resolve,reject}));}
 function operatorCanAccessEmployeesCashboxes(){return true;}
 function renderCashboxNotificationIndicator(){}
 function cashboxWorkspaceIsOpen(){return true;}
@@ -308,6 +347,7 @@ function isCurrentCashboxesLoadIntent(){return true;}
                 "captureViewerRequestContext",
                 "cashboxNotificationViewerGuard",
                 "applyCashboxNotification",
+                "filteredCashboxTransactions",
                 "acknowledgeCashboxNotifications",
                 "scheduleCashboxNotificationAcknowledgement",
                 "refreshCashboxNotification",
@@ -346,6 +386,37 @@ function isCurrentCashboxesLoadIntent(){return true;}
   scheduleCashboxNotificationAcknowledgement({},'box');
   assert.equal(frames.length,0,'retrying a detail after the uncertain result must only read');
   assert.equal(requests.length,4,'authoritative reconciliation must not send another POST');
+
+  for (const [readbackBoundary, visibleRows, retry, mobile=false] of [
+    ['newer-row',['painted-row'],false], ['painted-row',['other-cashbox-row'],false],
+    ['painted-row',['a','b','c','d','e','painted-row'],false,true],
+    ['painted-row',['painted-row'],true],
+  ]) {
+    const start=requests.length;
+    state.mobileLite=mobile;
+    state.activeCashbox={transactions:visibleRows.map(id=>({id}))};
+    state.cashboxNotificationForOpen={
+      revision:state.cashboxNotificationRevision, notification:{through_transaction_id:'painted-row'},
+    };
+    scheduleCashboxNotificationAcknowledgement({},'box');
+    frames.shift()();frames.shift()();
+    const conflict=Object.assign(new Error('changed'),{status:409,code:'state_write_conflict'});
+    requests[start].reject(conflict);
+    await new Promise(setImmediate);
+    assert.equal(requests[start+1].path,'/api/list_cashboxes?limit=1');
+    requests[start+1].resolve({notification:{through_transaction_id:readbackBoundary,needs_ack:true}});
+    await new Promise(setImmediate);
+    assert.equal(requests.length,start+(retry?3:2));
+    if (retry) {
+      assert.equal(requests[start+2].body.through_transaction_id,'painted-row');
+      assert.equal(requests[start+2].body.initialize_only,undefined);
+      requests[start+2].reject(conflict);
+      await new Promise(setImmediate);
+      requests[start+3].resolve({notification:{through_transaction_id:readbackBoundary,needs_ack:true}});
+      await new Promise(setImmediate);
+      assert.equal(requests.length,start+4,'a second conflict is read back without a retry loop');
+    }
+  }
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
         )

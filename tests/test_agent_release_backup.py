@@ -213,6 +213,55 @@ class AgentReleaseBackupTests(unittest.TestCase):
                 self.assertFalse(orphan.exists())
                 self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
 
+    def test_cashbox_receipt_permissions_and_restore_durability(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            crm, manager, out = self._fixture(Path(temp_dir))
+            (crm / self.module.CHANGE_FEED_BACKUP_NAME).unlink()
+            state = crm / "state.json"
+            row = self._cashbox_receipt_fixture(crm, "owner", "A")
+            backup = Path(
+                self.module.create_backup(output_root=out, crm_data_dir=crm, manager_db=manager)[
+                    "backup_dir"
+                ]
+            )
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            if os.name == "posix":
+                row.chmod(0o640)
+                self.assertEqual(
+                    self.module.compare_current_protected_state(backup)["changed_artifacts"],
+                    ["cashbox_receipts"],
+                )
+                with self.assertRaisesRegex(self.module.BackupError, "row permissions"):
+                    self.module.create_backup(
+                        output_root=out, crm_data_dir=crm, manager_db=manager, backup_id="drift"
+                    )
+                self.assertIn(
+                    "cashbox_receipts", self.module.restore_crm_state_and_feed(backup)["restored"]
+                )
+                self.assertEqual(stat.S_IMODE(row.stat().st_mode), 0o600)
+
+                record = json.loads(row.read_text(encoding="utf-8"))
+                metadata = self.module._cashbox_receipt_directory_metadata(row.parent)
+                original_fsync = os.fsync
+                for desired, perms in (({row.name: record}, metadata), ({}, None)):
+                    self._cashbox_receipt_fixture(crm, "owner", "B")
+                    calls = []
+
+                    def fail_once(fd):
+                        if os.path.samestat(os.fstat(fd), row.parent.stat()):
+                            calls.append(fd)
+                            if len(calls) == 1:
+                                raise OSError("directory sync failed")
+                        original_fsync(fd)
+
+                    with patch.object(os, "fsync", side_effect=fail_once):
+                        with self.assertRaisesRegex(OSError, "sync failed"):
+                            self.module._restore_cashbox_receipt_store(state, desired, perms)
+                        self.assertFalse(
+                            self.module._restore_cashbox_receipt_store(state, desired, perms)
+                        )
+                    self.assertEqual(len(calls), 2)
+
     def test_cashbox_receipt_backup_verifies_row_hash_and_schema(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             crm_data, manager_db, output_root = self._fixture(Path(temp_dir))

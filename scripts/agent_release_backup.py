@@ -354,10 +354,19 @@ def _cashbox_receipt_directory_metadata(directory: Path) -> dict[str, int]:
 
 def _read_cashbox_receipt_store(
     state_file: Path,
-) -> tuple[dict[str, dict[str, Any]], dict[str, int] | None]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, int] | None, bool]:
+    paths = _cashbox_receipt_paths(state_file)
+    if not paths:
+        return {}, None, True
+    metadata = _cashbox_receipt_directory_metadata(cashbox_receipt_directory(state_file))
+    row_metadata = {**metadata, "mode": 0o600}
     rows = {}
+    valid_permissions = True
     total_bytes = 0
-    for name, path in _cashbox_receipt_paths(state_file).items():
+    for name, path in paths.items():
+        if os.name == "posix" and not _restore_metadata_matches(path, row_metadata):
+            valid_permissions = False
+            continue
         # Include space for the filename and JSON separators in the size guard.
         total_bytes += path.stat().st_size + len(name) + 16
         if total_bytes > CASHBOX_RECEIPTS_MAX_BYTES:
@@ -366,10 +375,7 @@ def _read_cashbox_receipt_store(
             rows[name] = load_cashbox_receipt_file(path)
         except CashboxReceiptStoreError as exc:
             raise BackupError("Cashbox receipt store contains an invalid row") from exc
-    metadata = (
-        _cashbox_receipt_directory_metadata(cashbox_receipt_directory(state_file)) if rows else None
-    )
-    return rows, metadata
+    return rows, metadata, valid_permissions
 
 
 def _unique_json_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -450,8 +456,10 @@ def _restore_cashbox_receipt_store(
         if name not in rows:
             path.unlink()
             changed = True
-    if changed and os.name != "nt":
-        directory = cashbox_receipt_directory(state_file)
+    directory = cashbox_receipt_directory(state_file)
+    if os.name == "posix" and directory.exists():
+        # A previous attempt may have replaced or removed the final row before
+        # its directory sync failed. A matching readback still needs this barrier.
         for parent in (directory, directory.parent):
             descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
             try:
@@ -691,7 +699,11 @@ def create_backup(
         with ProcessFileLock(state_source.with_suffix(".lock"), timeout_seconds=30.0).acquire():
             state_restore_metadata = _file_restore_metadata(state_source)
             _copy_state(state_source, state_destination)
-            receipt_rows, receipt_metadata = _read_cashbox_receipt_store(state_source)
+            receipt_rows, receipt_metadata, valid_permissions = _read_cashbox_receipt_store(
+                state_source
+            )
+            if not valid_permissions:
+                raise BackupError("Cashbox receipt row permissions differ from the private store")
         artifacts: dict[str, Any] = {
             "state": _artifact(
                 state_destination,
@@ -1282,7 +1294,8 @@ def compare_current_protected_state(backup_dir: Path) -> dict[str, Any]:
     with state_lock.acquire():
         if not state_current.is_file() or _sha256(state_current) != _sha256(state_source):
             changed.append("state")
-        if _read_cashbox_receipt_store(state_current) != expected_receipts:
+        rows, metadata, valid_permissions = _read_cashbox_receipt_store(state_current)
+        if not valid_permissions or (rows, metadata) != expected_receipts:
             changed.append("cashbox_receipts")
 
     with tempfile.TemporaryDirectory(prefix="autostop-release-compare-") as temp_dir:

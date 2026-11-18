@@ -74,6 +74,15 @@ def unexpected_skips(skipped, platform: str) -> list[dict[str, str]]:
             continue
         if (
             platform == "win32"
+            and type(test).__module__.removeprefix("tests.") == "test_cashbox_receipt_storage"
+            and type(test).__name__ == "CashboxReceiptStorageTests"
+            and getattr(test, "_testMethodName", None)
+            == "test_repeat_ack_syncs_visible_row_after_a_failed_directory_sync"
+            and reason == "Directory sync is a POSIX operation"
+        ):
+            continue
+        if (
+            platform == "win32"
             and type(test).__module__.removeprefix("tests.") == "test_automation_center"
             and type(test).__name__ == "AutomationControlClientTests"
             and getattr(test, "_testMethodName", None) in WINDOWS_UNIX_SOCKET_CASES

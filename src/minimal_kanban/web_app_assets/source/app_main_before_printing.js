@@ -11,6 +11,7 @@
     const BOARD_SEARCH_DEBOUNCE_MS = 90;
     const CASH_JOURNAL_RENDER_BATCH_SIZE = 250;
     const CASHBOX_TRANSACTION_PAGE_SIZE = 100;
+    const MOBILE_CASHBOX_TRANSACTION_LIMIT = 5;
     const CASHBOX_EXPENSE_NOTE_MIN_LENGTH = 10;
     const CASHBOX_CANCEL_REASON_MIN_LENGTH = 10;
 
@@ -42,6 +43,7 @@
       operatorSessionToken: localStorage.getItem(OPERATOR_SESSION_STORAGE_KEY) || '',
       operatorProfile: null,
       operatorProfileRequest: null,
+      operatorProfileDenials: new Set(),
       operatorProfileRefreshAttemptAt: 0,
       operatorLoginRequest: null,
       operatorAdminRequestSeq: 0,
@@ -2261,6 +2263,8 @@
       const request = { method: options.method || 'GET', headers: {}, cache: 'no-store' };
       const requestOperatorSessionToken = state.operatorSessionToken;
       const requestViewerStateGeneration = state.viewerStateGeneration;
+      // A fresh profile replaces this set. Prior responses can only trigger a recheck.
+      const requestProfileDenials = state.operatorProfileDenials;
       const isCurrentViewer = () => requestViewerStateGeneration === state.viewerStateGeneration
         && requestOperatorSessionToken === state.operatorSessionToken
         && !options.signal?.aborted && !options.readController?.signal.aborted;
@@ -2335,8 +2339,9 @@
       }
       if (isCurrentViewer() && response.status === 403 && payload?.error?.code === 'forbidden') {
         const permission = payload.error.details?.permission;
-        if (permission) revokeOperatorPermission(permission);
-        void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
+        const newEvidence = Boolean(permission) && requestProfileDenials === state.operatorProfileDenials
+          && revokeOperatorPermission(permission);
+        void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path, newEvidence);
       }
       if (payload?.error?.details?.auth_type === 'operator_session') {
         if (response.status === 401 && isCurrentViewer()) {
@@ -2379,10 +2384,19 @@
         throw error;
       }
       finishApiPerf();
-      if (isCurrentViewer() && payload?.data?.meta?.references_only === true && operatorCanAccessEmployeesCashboxes()
-        && !options.body?.references_only && !/[?&]references_only=(?:true|1|yes|y)(?:&|$)/i.test(path)) {
-        revokeOperatorPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
-        void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
+      if (isCurrentViewer() && payload?.data?.meta?.references_only === true) {
+        const [route, query] = path.split('?');
+        const explicit = options.body?.references_only ?? new URLSearchParams(query).get('references_only');
+        const permission = route === '/api/list_employees' ? EMPLOYEES_READ_ACCESS_PERMISSION
+          : route === '/api/list_cashboxes' ? EMPLOYEES_CASHBOXES_ACCESS_PERMISSION : null;
+        const expectedFull = permission === EMPLOYEES_READ_ACCESS_PERMISSION
+          ? operatorCanViewEmployees() : permission && operatorCanAccessEmployeesCashboxes();
+        if (permission && (expectedFull || state.operatorProfileRequest?.fresh)
+          && !/^(?:true|1|yes|y)$/i.test(String(explicit).trim())) {
+          const newEvidence = requestProfileDenials === state.operatorProfileDenials
+            && revokeOperatorPermission(permission);
+          void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path, newEvidence);
+        }
       }
       if (isCurrentViewer()) notifyCashboxesMutation(path, request.method);
       return payload.data;
@@ -2682,7 +2696,7 @@
         displayDashboardSelectionRange: null,
         stickyMutationRequest: null, stickyDraft: null,
         operatorUsers: [], operatorPermissionEditorUsername: '', operatorEmployeeBindingUser: '',
-        operatorProfileRequest: null, operatorProfileRefreshAttemptAt: 0,
+        operatorProfileRequest: null, operatorProfileRefreshAttemptAt: 0, operatorProfileDenials: new Set(),
         mobileCardOpenRequest: null, mobileCardSaveRequest: null, mobileCardFilesRequest: null,
         mobileCardJournalRequest: null, mobileCardCreating: false, mobileCardLoading: false,
         mobileCardSaving: false, mobileCardFilesBusy: false, mobileCardDraftBaseline: '', mobileCardWriteVerificationPending: new Set(),
@@ -2859,13 +2873,22 @@
 
     function revokeOperatorPermission(permission) {
       if (![EMPLOYEES_CASHBOXES_ACCESS_PERMISSION, EMPLOYEES_READ_ACCESS_PERMISSION,
-        SALARY_BALANCE_RESET_PERMISSION].includes(permission) || !operatorHasPermission(permission)) return;
+        SALARY_BALANCE_RESET_PERMISSION].includes(permission)) return false;
+      const newEvidence = !state.operatorProfileDenials.has(permission);
+      state.operatorProfileDenials.add(permission);
       const profile = state.operatorProfile;
+      const grants = profile?.user?.permissions;
+      if (!Array.isArray(grants)) return newEvidence;
+      // The server grants employee reads through either the read or the management permission.
+      const permissions = grants.filter((item) => item !== permission
+        && !(permission === EMPLOYEES_READ_ACCESS_PERMISSION && item === EMPLOYEES_CASHBOXES_ACCESS_PERMISSION));
+      if (permissions.length === grants.length) return newEvidence;
       state.operatorProfile = {
         ...profile,
-        user: { ...profile.user, permissions: profile.user.permissions.filter((item) => item !== permission) },
+        user: { ...profile.user, permissions },
       };
       syncEmployeesCashboxesAccessUi();
+      return true;
     }
 
     function operatorCanAccessEmployeesCashboxes() {
@@ -3048,6 +3071,7 @@
         ? { ...data, board_preferences: preservedPreferences }
         : data;
       state.operatorProfile = profile;
+      state.operatorProfileDenials = new Set();
       if (!preservePersonalBoardPreferences) applyPersonalBoardPreferences(profile?.board_preferences);
       state.actor = profile?.user?.username || '';
       setOperatorSessionToken(profile?.session?.token || state.operatorSessionToken);
@@ -3076,7 +3100,7 @@
       if (openModal) pushModal('operator-profile', els.operatorProfileModal);
     }
 
-    async function loadOperatorProfile({ fresh = false, afterWrite = false } = {}) {
+    async function loadOperatorProfile({ fresh = false, afterChange = false } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
       const operatorSessionToken = state.operatorSessionToken;
       if (!operatorSessionToken) return null;
@@ -3084,7 +3108,7 @@
         && operatorSessionToken === state.operatorSessionToken;
       const pending = state.operatorProfileRequest;
       const replacesPending = pending?.isCurrent();
-      if (replacesPending && (!fresh || (pending.fresh && !afterWrite))) return pending.promise;
+      if (replacesPending && (!fresh || (pending.fresh && !afterChange))) return pending.promise;
       const personalBoardPreferencesRevision = state.personalBoardPreferencesRevision;
       const request = { isCurrent, fresh, controller: new AbortController(), replacement: null };
       state.operatorProfileRefreshAttemptAt = Date.now();
@@ -3119,14 +3143,14 @@
       return loadOperatorProfile().catch(() => null);
     }
 
-    function refreshOperatorProfileAfterPermissionMismatch(requestSessionToken, requestPath = '') {
+    function refreshOperatorProfileAfterPermissionMismatch(requestSessionToken, requestPath = '', afterChange = false) {
       const normalizedPath = String(requestPath || '').split('?')[0];
       if (
         !requestSessionToken
         || requestSessionToken !== state.operatorSessionToken
         || normalizedPath === '/api/get_operator_profile'
       ) return null;
-      return loadOperatorProfile({ fresh: true }).catch(() => null);
+      return loadOperatorProfile({ fresh: true, afterChange }).catch(() => null);
     }
 
     async function openOperatorWorkspace() {
@@ -5462,7 +5486,7 @@
       state.operatorAdminRequestSeq = requestSeq;
       const isCurrent = () => context.isCurrent() && state.operatorAdminRequestSeq === requestSeq;
       const tasks = [reloadOperatorAdminUsers({ isCurrent })];
-      if (refreshProfile && isCurrent()) tasks.push(loadOperatorProfile({ fresh: true, afterWrite: true }));
+      if (refreshProfile && isCurrent()) tasks.push(loadOperatorProfile({ fresh: true, afterChange: true }));
       await Promise.all(tasks);
       if (!isCurrent()) return false;
       if (openAdminModal) {
@@ -6899,7 +6923,7 @@
       } else {
         const stats = state.activeCashbox?.statistics || activeCashbox.statistics || {};
         const balanceMinor = finiteNumber(stats.balance_minor ?? activeCashbox?.statistics?.balance_minor);
-        const transactions = filteredCashboxTransactions().slice(0, 5);
+        const transactions = filteredCashboxTransactions().slice(0, MOBILE_CASHBOX_TRANSACTION_LIMIT);
         const transactionHtml = transactions.length
           ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
               const transactionId = String(item?.id || '').trim();
@@ -11309,13 +11333,14 @@
 
     async function ensureRepairOrderPaymentCashboxes(context = null) {
       const isCurrent = context?.isCurrent || (() => true);
+      const accessRevision = state.employeesCashboxesAccessRevision;
       if (state.cashboxesLoaded && Array.isArray(state.cashboxes) && state.cashboxes.length) {
         if (!isCurrent()) return null;
         renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
         return { cashboxes: state.cashboxes };
       }
       const data = await api('/api/list_cashboxes?limit=200');
-      if (!isCurrent()) return null;
+      if (!isCurrent() || accessRevision !== state.employeesCashboxesAccessRevision) return null;
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       state.cashboxesLoaded = true;
       state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
@@ -16359,7 +16384,7 @@
     }
 
     function acknowledgeCashboxNotifications(notification, options = {}) {
-      const { isCurrent = () => true, applyResult = () => true, onSend = () => {} } = options;
+      const { isCurrent = () => true, applyResult = () => true, onSend = () => {}, initializeOnly = false } = options;
       const isViewerCurrent = cashboxNotificationViewerGuard();
       const actor = state.actor;
       const revision = state.cashboxNotificationRevision;
@@ -16379,6 +16404,7 @@
             body: {
               through_transaction_id: throughTransactionId,
               exact_boundary: true,
+              ...(initializeOnly ? { initialize_only: true } : {}),
               actor_name: actor,
               source: 'ui',
             },
@@ -16403,14 +16429,18 @@
       const pending = state.cashboxNotificationForOpen;
       if (!pending || pending.scheduledLoad === loadContext) return;
       pending.scheduledLoad = loadContext;
-      const isCurrent = () => state.cashboxNotificationForOpen === pending
-        && pending.scheduledLoad === loadContext
-        && isCurrentCashboxesLoadIntent(loadContext)
+      const sameOpen = () => isCurrentCashboxesLoadIntent(loadContext)
         && cashboxWorkspaceIsOpen() && state.activeCashboxId === cashboxId;
+      const isCurrent = () => state.cashboxNotificationForOpen === pending
+        && pending.scheduledLoad === loadContext && sameOpen();
       const releaseScheduledLoad = () => {
         if (pending.scheduledLoad === loadContext) pending.scheduledLoad = null;
       };
       const viewerIsCurrent = cashboxNotificationViewerGuard();
+      const readBack = async () => {
+        await state.cashboxNotificationRefreshPromise;
+        return viewerIsCurrent() ? refreshCashboxNotification({ initialize: false }) : null;
+      };
       // Wait until the movements or the empty cashbox state have been painted.
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         if (!isCurrent()) {
@@ -16421,10 +16451,24 @@
           isCurrent,
           applyResult: () => pending.revision === state.cashboxNotificationRevision,
           onSend: () => { state.cashboxNotificationForOpen = null; },
-        }).catch(async () => {
-          if (!viewerIsCurrent()) return;
-          await state.cashboxNotificationRefreshPromise;
-          if (viewerIsCurrent()) await refreshCashboxNotification({ initialize: false });
+        }).catch(async (error) => {
+          const current = await readBack();
+          // A version conflict is returned before the server publishes the receipt.
+          // Retry once only when the readback still owes the exact painted boundary.
+          if (error.status !== 409 || error.code !== 'state_write_conflict' || !current?.needs_ack
+            || current.through_transaction_id !== pending.notification.through_transaction_id) return;
+          const canRetry = () => {
+            if (!sameOpen() || document.hidden || state.cashboxNotification !== current) return false;
+            const rows = filteredCashboxTransactions();
+            const visibleRows = state.mobileLite ? rows.slice(0, MOBILE_CASHBOX_TRANSACTION_LIMIT) : rows;
+            return current.through_transaction_id
+              ? visibleRows.some((row) => row.id === current.through_transaction_id) : !visibleRows.length;
+          };
+          try {
+            await acknowledgeCashboxNotifications(current, { isCurrent: canRetry, applyResult: canRetry });
+          } catch (_) {
+            await readBack();
+          }
         }).finally(releaseScheduledLoad);
       }));
     }
@@ -16461,7 +16505,7 @@
           if (initialize && notification?.initialized === false && notification.needs_ack !== false
             && !state.cashboxNotificationSeenPromise && canInitialize()) {
             void acknowledgeCashboxNotifications(notification, {
-              isCurrent: canInitialize, applyResult: canInitialize,
+              isCurrent: canInitialize, applyResult: canInitialize, initializeOnly: true,
             }).catch(() => {});
           }
           return notification;

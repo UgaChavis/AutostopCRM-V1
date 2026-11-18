@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import shutil
+import stat
 import sys
 import time
 from collections.abc import Callable, Iterable
@@ -55,7 +57,11 @@ from ..repair_order import (
 from ..services.parts_store_column import ensure_parts_store_column
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
-from .cashbox_receipts import CashboxReceiptStore, normalize_legacy_cashbox_receipts
+from .cashbox_receipts import (
+    CASHBOX_NOTIFICATION_SEEN_SETTING_KEY,
+    CashboxReceiptStore,
+    normalize_legacy_cashbox_receipts,
+)
 from .change_feed_projection import cached_crm_source_signatures
 from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
@@ -357,9 +363,16 @@ class StateWriteConflictError(RuntimeError):
     """Raised when a cached bundle no longer matches the on-disk state."""
 
 
-class CashboxReceiptState(NamedTuple):
+class CashboxReceiptVersion(NamedTuple):
     signature: tuple[int, int, int, int, int]
+    content_digest: str | None
+
+
+class CashboxReceiptState(NamedTuple):
+    version: CashboxReceiptVersion
+    cashboxes: tuple[CashBox, ...]
     transactions: tuple[CashTransaction, ...]
+    dates_valid: bool
     legacy_receipts: dict[str, dict[str, str]]
 
 
@@ -380,6 +393,8 @@ class JsonStore:
         self.cashbox_receipts = CashboxReceiptStore(self._state_file)
         self._cashbox_receipt_snapshot_lock = RLock()
         self._cashbox_receipt_snapshot: CashboxReceiptState | None = None
+        self._cashbox_receipt_source: tuple[CashboxReceiptVersion, dict] | None = None
+        self._committed_state_digest: str | None = None
         self._change_feed_store = ChangeFeedStore(self._state_file.with_name("change_feed.sqlite3"))
         self._change_feed_initialized = False
         self._change_feed_state_signature: tuple[int, int, int, int] | None = None
@@ -449,56 +464,100 @@ class JsonStore:
         )
         self._change_feed_initialized = True
         self._change_feed_state_signature = self._state_signature()
+        self._committed_state_digest = fingerprint
 
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
 
+    def _cashbox_receipt_state_matches(self, version: CashboxReceiptVersion) -> bool:
+        if self._repair_order_file_signature() != version.signature:
+            return False
+        if version.content_digest is None:
+            return not _SNAPSHOT_REQUIRES_FILE_LOCK
+        # Windows creation time cannot distinguish an in-place edit with its mtime
+        # restored. Verify the bytes under state.lock before reusing the projection.
+        with self._state_file.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest() == version.content_digest
+
+    def _capture_cashbox_state_file(self) -> tuple[CashboxReceiptVersion, bytes]:
+        # POSIX writers replace atomically. Capture the inode actually read.
+        with self._state_file.open("rb") as stream:
+            info = os.fstat(stream.fileno())
+            if info.st_size > JSON_STORE_STATE_MAX_BYTES:
+                raise ValueError("Cashbox state exceeds the configured limit.")
+            raw = stream.read(info.st_size + 1)
+            if len(raw) != info.st_size:
+                raise StateWriteConflictError("Cashbox receipt state was replaced.")
+            signature = (
+                info.st_dev,
+                info.st_ino,
+                info.st_mtime_ns,
+                info.st_ctime_ns,
+                info.st_size,
+            )
+            if _SNAPSHOT_REQUIRES_FILE_LOCK:
+                # fstat and Path.stat expose different Windows ctime semantics.
+                signature = self._repair_order_file_signature()
+                if signature is None:
+                    raise StateWriteConflictError("Cashbox receipt state was replaced.")
+            digest = hashlib.sha256(raw).hexdigest() if _SNAPSHOT_REQUIRES_FILE_LOCK else None
+            return CashboxReceiptVersion(signature, digest), raw
+
     def read_cashbox_receipt_state(self) -> CashboxReceiptState:
-        """Capture a checked committed ledger without state or change-feed repairs."""
+        """Read one committed cash ledger, without repairs or change-feed publication."""
         with self._cashbox_receipt_snapshot_lock:
             guard = self._process_lock.acquire() if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext()
             with guard:
-                signature = self._repair_order_file_signature()
-                if signature is None:
-                    raise StateFileCorruptedError("Файл состояния отсутствует.")
                 cached = self._cashbox_receipt_snapshot
-                if not _SNAPSHOT_REQUIRES_FILE_LOCK and cached and cached.signature == signature:
+                if cached is not None and self._cashbox_receipt_state_matches(cached.version):
                     return cached
-                try:
-                    raw_state = self._read_state_text()
-                except FileNotFoundError as exc:
-                    raise StateWriteConflictError("Cashbox receipt state was replaced.") from exc
-                except (ValueError, UnicodeError) as exc:
-                    raise StateFileCorruptedError("Файл состояния поврежден.") from exc
+                source = self._cashbox_receipt_source
+                state = None
+                if source is not None and self._cashbox_receipt_state_matches(source[0]):
+                    version, state = source
+                else:
+                    try:
+                        version, raw = self._capture_cashbox_state_file()
+                    except (FileNotFoundError, ValueError) as exc:
+                        raise StateFileCorruptedError(
+                            "Файл состояния отсутствует или поврежден."
+                        ) from exc
             try:
-                state = self._decode_state(raw_state)
-                validate_state_shape(state)
-                _validate_raw_financial_references(state)
-                _validate_cash_transaction_ids(state)
-                rows = state.get("cash_transactions", [])
-                if any(parse_business_datetime(row.get("created_at")) is None for row in rows):
-                    raise ValueError("Cash transaction has no valid stored date.")
+                if state is None:
+                    state = self._decode_state(raw.decode("utf-8"))
+                    validate_state_shape(state)
+                    _validate_raw_financial_references(state)
+                    _validate_cash_transaction_ids(state)
+                cashboxes, _ = self._normalize_cashboxes(state)
+                invalid_dates = {
+                    normalize_text(row.get("id"), limit=128)
+                    for row in state.get("cash_transactions", [])
+                    if parse_business_datetime(row.get("created_at")) is None
+                }
                 transactions, repaired = self._normalize_cash_transactions(state)
                 if repaired:
                     raise ValueError("Cash transaction data requires repair.")
+                if invalid_dates:
+                    for item in transactions:
+                        if item.id in invalid_dates:
+                            item.created_at = ""
             except (ValueError, TypeError, OverflowError, RecursionError) as exc:
                 raise StateFileCorruptedError("Данные кассовых движений повреждены.") from exc
-            if self._repair_order_file_signature() != signature:
-                raise StateWriteConflictError("Cashbox receipt state was replaced.")
             snapshot = CashboxReceiptState(
-                signature,
+                version,
+                tuple(cashboxes),
                 tuple(transactions),
+                not invalid_dates,
                 normalize_legacy_cashbox_receipts(state.get("settings", {})),
             )
-            if not _SNAPSHOT_REQUIRES_FILE_LOCK:
-                self._cashbox_receipt_snapshot = snapshot
+            self._cashbox_receipt_snapshot = snapshot
             return snapshot
 
     @contextmanager
-    def fence_cashbox_receipt_state(self, signature: tuple[int, int, int, int, int]):
+    def fence_cashbox_receipt_state(self, snapshot: CashboxReceiptState):
         """Fence the already prepared receipt replacement against state writers."""
         with self._lock, self._process_lock.acquire():
-            if self._repair_order_file_signature() != signature:
+            if not self._cashbox_receipt_state_matches(snapshot.version):
                 raise StateWriteConflictError("Cashbox receipt state was replaced.")
             yield
 
@@ -783,7 +842,7 @@ class JsonStore:
                     "events": events,
                     "settings": settings,
                 }
-                self._set_read_cache(bundle, self._state_signature())
+                self._set_read_cache(bundle, self._state_signature(), state)
                 self._log_slow_operation("read_bundle", started_at)
                 return bundle, self._read_cache_signature
 
@@ -881,7 +940,7 @@ class JsonStore:
                 state_conversion_ms = (time.perf_counter() - state_started_at) * 1000
                 record_timing("serialize", state_conversion_ms)
                 json_serialize_ms, write_ms = self._write_state(state)
-                self._set_read_cache(bundle, self._validated_state_signature)
+                self._set_read_cache(bundle, self._validated_state_signature, state)
                 total_ms = (time.perf_counter() - started_at) * 1000
                 record_timing("storage", total_ms)
                 self._log_write_metrics(
@@ -960,7 +1019,7 @@ class JsonStore:
                     raise
                 source_bundle.clear()
                 source_bundle.update(bundle)
-                self._set_read_cache(source_bundle, self._validated_state_signature)
+                self._set_read_cache(source_bundle, self._validated_state_signature, state)
                 try:
                     self._prime_committed_card_source(self._pending_committed_payload)
                 except Exception:
@@ -1444,6 +1503,7 @@ class JsonStore:
         already_safe: bool = False,
         fast_serializer: bool = False,
         trusted_safe: bool = False,
+        preserve_posix_metadata: bool = False,
     ) -> tuple[float, float]:
         self._pending_committed_payload = None
         existing_signature = self._state_signature()
@@ -1517,11 +1577,24 @@ class JsonStore:
             record_timing("change_feed_commit", 0.0)
             if trusted_safe and serializer_provenance == [True]:
                 self._pending_committed_payload = payload
+            self._committed_state_digest = fingerprint
             return serialize_ms, 0.0
         temp_file = self._state_file.with_name(f".{self._state_file.name}.{uuid4().hex}.tmp")
         write_started_at = time.perf_counter()
         try:
-            temp_file.write_bytes(payload)
+            if preserve_posix_metadata and os.name == "posix":
+                original = self._state_file.stat()
+                fd = os.open(temp_file, os.O_WRONLY | os.O_EXCL | os.O_CREAT, 0o600)
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    created = os.fstat(fd)
+                    if (created.st_uid, created.st_gid) != (original.st_uid, original.st_gid):
+                        os.fchown(fd, original.st_uid, original.st_gid)
+                    os.fchmod(fd, stat.S_IMODE(original.st_mode))
+                    os.fsync(fd)
+            else:
+                temp_file.write_bytes(payload)
             temp_file.replace(self._state_file)
         except Exception:
             try:
@@ -1563,6 +1636,7 @@ class JsonStore:
                 (time.perf_counter() - feed_commit_started_at) * 1000,
             )
         self._validated_state_signature = written_signature
+        self._committed_state_digest = fingerprint
         if trusted_safe and serializer_provenance == [True]:
             self._pending_committed_payload = payload
         return serialize_ms, write_ms
@@ -1593,6 +1667,7 @@ class JsonStore:
         self._card_projection_cache.clear()
         self._read_cache_signature = None
         self._read_cache_bundle = None
+        self._cashbox_receipt_source = None
         self._repair_order_snapshot_signature = None
         self._repair_order_snapshot_cards = None
         self._context_snapshot_signature = None
@@ -1610,10 +1685,38 @@ class JsonStore:
         self._trusted_event_objects.clear()
         self._storage_dict_cache.clear()
 
+    def _cashbox_source_from_bundle(self, state, signature):
+        # Retain only the cash domains of this already validated state. Build the
+        # receipt models lazily, outside the business writer's lock.
+        full = self._repair_order_file_signature()
+        if (
+            full
+            and (full[0], full[1], full[2], full[4]) == signature
+            and signature == self._change_feed_state_signature
+            and self._committed_state_digest is not None
+        ):
+            version = CashboxReceiptVersion(
+                full, self._committed_state_digest if _SNAPSHOT_REQUIRES_FILE_LOCK else None
+            )
+            return (
+                version,
+                {
+                    "cashboxes": state.get("cashboxes", []),
+                    "cash_transactions": state.get("cash_transactions", []),
+                    "settings": {
+                        CASHBOX_NOTIFICATION_SEEN_SETTING_KEY: deepcopy(
+                            state.get("settings", {}).get(CASHBOX_NOTIFICATION_SEEN_SETTING_KEY)
+                        )
+                    },
+                },
+            )
+        return None
+
     def _set_read_cache(
         self,
         bundle: dict[str, Any],
         signature: tuple[int, int, int, int] | None,
+        state: dict,
     ) -> None:
         # A newly loaded or committed bundle retires all independent snapshots.
         self._context_snapshot_signature = None
@@ -1623,6 +1726,11 @@ class JsonStore:
         self._repair_order_snapshot_cards = None
         self._read_cache_signature = signature
         self._read_cache_bundle = bundle
+        try:
+            self._cashbox_receipt_source = self._cashbox_source_from_bundle(state, signature)
+        except Exception:
+            # This optional cache must never turn a committed business write into a failure.
+            self._cashbox_receipt_source = None
         self._trusted_card_versions = {
             card.id: (id(card), card.updated_at) for card in bundle["cards"]
         }

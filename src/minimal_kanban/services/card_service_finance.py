@@ -78,8 +78,11 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             )
         requested_transaction_id = normalize_text(payload.get("through_transaction_id"), default="")
         exact_boundary = self._validated_optional_bool(payload, "exact_boundary", default=False)
+        initialize_only = self._validated_optional_bool(payload, "initialize_only", default=False)
         try:
             snapshot = self._store.read_cashbox_receipt_state()
+            if not snapshot.dates_valid:
+                raise CashboxReceiptStoreError("Cash transaction dates are unavailable.")
             through_transaction = None
             if requested_transaction_id:
                 through_transaction = self._find_cash_transaction(
@@ -101,7 +104,8 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 actor_key,
                 next_receipt,
                 legacy_receipt=snapshot.legacy_receipts.get(actor_key),
-                publish_fence=lambda: self._store.fence_cashbox_receipt_state(snapshot.signature),
+                initialize_only=initialize_only,
+                publish_fence=lambda: self._store.fence_cashbox_receipt_state(snapshot),
             )
         except StateWriteConflictError:
             self._fail(
@@ -2752,7 +2756,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         return self._cashbox_statistics_by_id([cashbox], transactions)[cashbox.id]
 
     def _cashbox_statistics_by_id(
-        self, cashboxes: list[CashBox], transactions: list[CashTransaction]
+        self, cashboxes: Sequence[CashBox], transactions: Sequence[CashTransaction]
     ) -> dict[str, dict[str, Any]]:
         statistics = {
             cashbox.id: {
@@ -2779,7 +2783,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             key = (parsed_timestamps[item.created_at], item.id)
             if item.cashbox_id not in latest_keys or key > latest_keys[item.cashbox_id]:
                 latest_keys[item.cashbox_id] = key
-                summary["last_transaction_at"] = item.created_at
+                summary["last_transaction_at"] = item.created_at or None
         for summary in statistics.values():
             balance_minor = summary["income_total_minor"] - summary["expense_total_minor"]
             summary["balance_minor"] = balance_minor
@@ -2791,7 +2795,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         return statistics
 
     def _serialize_cashboxes(
-        self, cashboxes: list[CashBox], transactions: list[CashTransaction]
+        self, cashboxes: Sequence[CashBox], transactions: Sequence[CashTransaction]
     ) -> list[dict[str, object]]:
         statistics = self._cashbox_statistics_by_id(cashboxes, transactions)
         return [
@@ -2820,7 +2824,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
 
     def _ordered_cashboxes(
         self,
-        cashboxes: list[CashBox],
+        cashboxes: Sequence[CashBox],
         *,
         exclude_cashbox_id: str | None = None,
     ) -> list[CashBox]:

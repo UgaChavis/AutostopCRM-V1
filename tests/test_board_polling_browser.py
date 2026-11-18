@@ -48,6 +48,7 @@ class BoardPollingBrowserTests(UiBrowserTestCase):
             )
         advance_board_poll()
         self.assertEqual(len(receipts), 1)
+        self.assertIs(receipts[0].request.post_data_json["initialize_only"], True)
         self.assertEqual(len(cash_reads), 1)
         advance_board_poll()
         self.page.wait_for_function("!state.cashboxNotificationSeenPromise")
