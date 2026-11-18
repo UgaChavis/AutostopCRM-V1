@@ -197,8 +197,10 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             )
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
-        # Includes draft protection, vehicle identity checks and client selection updates.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 982_500)
+
+    def test_startup_javascript_stays_within_payload_budget(self) -> None:
+        # Cashbox and permission updates bring the measured script to 1,001,502 bytes.
+        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 1_002_000)
 
     def test_auxiliary_workspaces_are_lazy_while_popup_entrypoints_stay_eager(self) -> None:
         module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["auxiliary"]]

@@ -1016,6 +1016,41 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             """
         )
 
+    def test_api_retries_default_reads_but_never_writes_or_disabled_reads(self) -> None:
+        api_function = functions("app_main_before_printing.js", "api")
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            const window = globalThis;
+            const API_READ_RETRY_LIMIT = 1;
+            const API_READ_RETRY_BASE_DELAY_MS = 150;
+            const state = {{operatorSessionToken: 'operator', viewerStateGeneration: 0}};
+            let methods = [];
+            function perfStart() {{}}
+            function perfEnd() {{}}
+            function apiReadTimeoutMs() {{ return 10000; }}
+            async function delay() {{}}
+            function notifyCashboxesMutation() {{}}
+            global.fetch = async (_path, request) => {{
+              methods.push(request.method);
+              if (methods.length === 1) throw new TypeError('network outage');
+              return {{
+                ok: true, status: 200, headers: new Headers(),
+                async text() {{ return JSON.stringify({{ok: true, data: 'recovered'}}); }},
+              }};
+            }};
+            {api_function}
+            (async () => {{
+              assert.equal(await api('/default-read'), 'recovered');
+              assert.deepEqual(methods, ['GET', 'GET']);
+              methods = [];
+              await assert.rejects(api('/single-read', {{retryRead: false}}), /НЕТ СВЯЗИ/);
+              assert.deepEqual(methods, ['GET']);
+              methods = [];
+              await assert.rejects(api('/write', {{body: {{}}, retryRead: true}}), /НЕТ СВЯЗИ/);
+              assert.deepEqual(methods, ['POST']);
+            }})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
+            """)
+
     def test_get_timeout_covers_response_body_and_releases_snapshot_refresh(self) -> None:
         api_function = _source_section(
             self.source,

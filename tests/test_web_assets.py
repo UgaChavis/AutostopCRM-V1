@@ -16,7 +16,6 @@ from minimal_kanban.web_assets import (  # noqa: E402, I001
     BOARD_WEB_APP_CSS,
     BOARD_WEB_APP_CSS_PATH,
     BOARD_WEB_APP_HTML as BOARD_WEB_APP_SHELL_HTML,
-    BOARD_WEB_APP_JS,
     BOARD_WEB_APP_JS_PATH,
 )
 
@@ -62,8 +61,6 @@ class WebAssetsTests(unittest.TestCase):
         self.assertNotIn("<style>", BOARD_WEB_APP_SHELL_HTML)
         self.assertNotIn("  <script>\n", BOARD_WEB_APP_SHELL_HTML)
         self.assertGreater(len(BOARD_WEB_APP_CSS), 100_000)
-        # Includes draft protection, vehicle identity checks and client selection updates.
-        self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 982_500)
 
     def test_web_assets_are_loaded_from_packaged_source_chunks(self) -> None:
         source_dir = ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source"
@@ -1296,10 +1293,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const API_PERF_READ_TIMEOUT_MS = 6000;", BOARD_WEB_APP_HTML)
         self.assertIn("function apiReadTimeoutMs()", BOARD_WEB_APP_HTML)
         self.assertIn("function delay(ms)", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "const retryLimit = request.method === 'GET' ? API_READ_RETRY_LIMIT : 0;",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("options.retryRead !== false", BOARD_WEB_APP_HTML)
         self.assertIn("const requestAttempt = { ...request };", BOARD_WEB_APP_HTML)
         self.assertIn("timedOut = true;", BOARD_WEB_APP_HTML)
         self.assertIn("controller.abort();", BOARD_WEB_APP_HTML)
@@ -1384,8 +1378,9 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "const requestOperatorSessionToken = state.operatorSessionToken;", api_fragment
         )
-        self.assertIn("state.operatorSessionToken === requestOperatorSessionToken", api_fragment)
-        self.assertIn("else if (!state.operatorSessionToken)", api_fragment)
+        self.assertIn("requestOperatorSessionToken === state.operatorSessionToken", api_fragment)
+        self.assertIn("requestViewerStateGeneration === state.viewerStateGeneration", api_fragment)
+        self.assertIn("response.status === 401 && isCurrentViewer()", api_fragment)
 
         login_fragment = BOARD_WEB_APP_HTML[
             BOARD_WEB_APP_HTML.index(
@@ -3308,7 +3303,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("function applyCardSeenSuppression(card)", BOARD_WEB_APP_HTML)
         self.assertIn("function applyCardSeenSuppressionsToSnapshot(snapshot)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const nextSnapshot = applyCardSeenSuppressionsToSnapshot(await api('/api/get_board_snapshot?compact=1&include_archive=0'));",
+            "const nextSnapshot = applyCardSeenSuppressionsToSnapshot(data);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn(
