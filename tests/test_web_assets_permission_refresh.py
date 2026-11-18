@@ -39,32 +39,193 @@ class PermissionRefreshRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_profile_responses_cannot_roll_back_permissions(self) -> None:
+    def test_profile_loads_coalesce_and_permission_changes_refresh_after_pending_read(self) -> None:
         source = read_board_source("app_main_before_printing.js")
         code = section(
             source,
             "    async function loadOperatorProfile(",
-            "    function refreshOperatorProfileAfterPermissionMismatch(",
+            "    async function openOperatorWorkspace(",
         )
         self.run_js(
             """
 const assert=require('node:assert/strict');
 const state={viewerStateGeneration:1,operatorSessionToken:'S',personalBoardPreferencesRevision:1};
 const calls=[],rendered=[];
+const document={hidden:false};
 function api(){return new Promise(resolve=>calls.push(resolve));}
-function renderOperatorProfile(data){state.operatorProfile=data;rendered.push(data);}
-const els={operatorProfileModal:{}};let opens=0;
-function pushModal(){opens++;}
+function renderOperatorProfile(data,options){state.operatorProfile=data;rendered.push(options);}
 """
             + code
             + """
 (async()=>{
-  const old=loadOperatorProfile(true);const newer=loadOperatorProfile();
-  calls[1]({user:{updated_at:'2026-09-14T12:00:01+00:00',permissions:['employees_read_access']}});await newer;
-  calls[0]({user:{updated_at:'2026-09-14T12:00:00+00:00',permissions:[]}});await old;
+  const startup=loadOperatorProfile();const foreground=loadOperatorProfile(true);
+  const visibility=refreshOperatorProfileIfDue({force:true});
+  assert.equal(calls.length,1);
+  const newer=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_cashboxes');
+  const duplicate=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_employees');
+  assert.equal(calls.length,1,'permission refresh must wait for the pending read');
+  calls[0]({user:{permissions:[]}});await Promise.all([startup,foreground,visibility]);
+  assert.deepEqual(rendered,[],'pre-change permissions must not be applied');
+  assert.equal(calls.length,2,'permission changes require one follow-up read');
+  calls[1]({user:{permissions:['employees_read_access']}});await Promise.all([newer,duplicate]);
   assert.equal(rendered.length,1);assert.deepEqual(state.operatorProfile.user.permissions,['employees_read_access']);
-  assert.equal(opens,1,'background refresh must not swallow a profile-open click');
+  assert.equal(rendered[0].openModal,true,'background refresh must not swallow a profile-open click');
 })().catch(e=>{console.error(e);process.exitCode=1});
+"""
+        )
+
+    def test_api_only_reacts_to_current_session_auth_failures(self) -> None:
+        source = read_board_source("app_main_before_printing.js")
+        code = section(source, "    async function api(", "    function setApiToken(")
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:1,operatorSessionToken:'S'};
+const requests=[],effects=[];
+const window=globalThis;
+const API_READ_RETRY_LIMIT=1;
+function apiReadTimeoutMs(){return 10000;}
+function perfStart(){}
+function perfEnd(){}
+function clearOperatorSession(){effects.push('logout');}
+function openOperatorLoginModal(){effects.push('login');}
+function refreshOperatorProfileAfterPermissionMismatch(){effects.push('profile');}
+function fetch(){return new Promise(resolve=>requests.push(resolve));}
+function errorResponse(status,code){
+  return {status,headers:new Headers(),text:async()=>JSON.stringify({
+    ok:false,error:{code,message:code,details:{auth_type:'operator_session'}},
+  })};
+}
+"""
+            + code
+            + """
+(async()=>{
+  const stale=api('/api/list_cashboxes');state.viewerStateGeneration++;
+  requests.shift()(errorResponse(401,'unauthorized'));
+  await assert.rejects(stale,{status:401});
+  const stalePermission=api('/api/list_cashboxes');state.operatorSessionToken='T';
+  requests.shift()(errorResponse(403,'forbidden'));
+  await assert.rejects(stalePermission,{status:403});
+  assert.deepEqual(effects,[]);
+  const permission=api('/api/list_cashboxes');
+  requests.shift()(errorResponse(403,'forbidden'));
+  await assert.rejects(permission,{status:403});
+  assert.deepEqual(effects,['profile']);
+  const expired=api('/api/list_cashboxes');
+  requests.shift()(errorResponse(401,'unauthorized'));
+  await assert.rejects(expired,{status:401});
+  assert.deepEqual(effects,['profile','logout']);
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        )
+
+    def test_bootstrap_keeps_session_on_network_error_and_ignores_stale_failure(self) -> None:
+        source = read_board_source("app_main_before_printing.js")
+        viewer = section(
+            source,
+            "    function captureViewerRequestContext(",
+            "    function operatorHasPermission(",
+        )
+        bootstrap = section(
+            source,
+            "    async function bootstrapOperatorSession(",
+            "    function normalizeConnectionState(",
+        )
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:1,operatorSessionToken:'S'};
+const requests=[],events=[];
+function loadOperatorProfile(){return new Promise((_resolve,reject)=>requests.push(reject));}
+function updateOperatorButton(){}
+function setStatus(message){events.push(message);}
+function clearOperatorSession(){throw new Error('network failures must not clear an active session');}
+"""
+            + viewer
+            + bootstrap
+            + """
+(async()=>{
+  const startup=bootstrapOperatorSession();
+  requests.shift()(new Error('network'));
+  await startup;
+  assert.equal(state.operatorSessionToken,'S');
+  assert.deepEqual(events,['network']);
+  const stale=bootstrapOperatorSession();
+  state.viewerStateGeneration++;
+  state.operatorSessionToken='T';
+  requests.shift()(new Error('old network error'));
+  await stale;
+  assert.equal(state.operatorSessionToken,'T');
+  assert.deepEqual(events,['network']);
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        )
+
+    def test_delayed_logout_cannot_clear_replacement_session(self) -> None:
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:1,operatorSessionToken:'S'};
+let finishLogout;const cleared=[];
+function api(){return new Promise(resolve=>{finishLogout=resolve;});}
+function clearOperatorSession(){cleared.push(state.operatorSessionToken);}
+"""
+            + functions(
+                "app_main_before_printing.js", "captureViewerRequestContext", "logoutOperator"
+            )
+            + """
+(async()=>{
+  const old=logoutOperator();
+  state.viewerStateGeneration++;
+  state.operatorSessionToken='T';
+  finishLogout();
+  await old;
+  assert.deepEqual(cleared,[]);
+  const current=logoutOperator();
+  finishLogout();
+  await current;
+  assert.deepEqual(cleared,['T']);
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        )
+
+    def test_cash_notification_poll_yields_to_foreground_load_and_receipt(self) -> None:
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const state={
+  actor:'A',operatorSessionToken:'S',viewerStateGeneration:1,
+  employeesCashboxesAccessRevision:1,cashboxNotificationRevision:1,cashboxesRequestSeq:0,
+};
+const document={hidden:false};
+const requests=[],notifications=[];
+function api(){return new Promise(resolve=>requests.push(resolve));}
+function operatorCanAccessEmployeesCashboxes(){return true;}
+function applyCashboxNotification(notification){notifications.push(notification);}
+"""
+            + functions(
+                "app_main_before_printing.js",
+                "captureViewerRequestContext",
+                "refreshCashboxNotification",
+            )
+            + """
+(async()=>{
+  const data={notification:{initialized:true}};
+  const beforeForeground=refreshCashboxNotification();
+  state.cashboxesRequestSeq++;
+  requests.shift()(data);
+  await beforeForeground;
+  const beforeReceipt=refreshCashboxNotification();
+  state.cashboxNotificationSeenPromise=Promise.resolve();
+  requests.shift()(data);
+  await beforeReceipt;
+  assert.deepEqual(notifications,[]);
+  state.cashboxNotificationSeenPromise=null;
+  const current=refreshCashboxNotification();
+  requests.shift()(data);
+  await current;
+  assert.deepEqual(notifications,[data.notification]);
+})().catch(error=>{console.error(error);process.exitCode=1});
 """
         )
 

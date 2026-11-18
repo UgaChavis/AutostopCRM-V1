@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -173,3 +174,57 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         old = self.assert_parse_allows_commit(read)
         self.assertEqual(old["card"]["title"], "BEFORE")
         self.assertEqual(read()["card"]["title"], "AFTER")
+
+    def test_client_search_leaves_cashbox_and_writer_free_during_load_and_ranking(self):
+        cashbox = self.service.create_cashbox({"name": "SYNTHETIC CASHBOX"})["cashbox"]
+        for search in (self.service.search_clients, self.service.search_clients_readonly):
+            for owner, method in (
+                (self.store, "_read_context_bundle_snapshot"),
+                (self.service, "_rank_client_matches"),
+            ):
+                with self.subTest(route=search.__name__, phase=method):
+                    client = self.service.create_client({"display_name": "SYNTHETIC BEFORE"})[
+                        "client"
+                    ]
+                    payload = {"query": "SYNTHETIC"}
+                    self.assertTrue(search(payload)["clients"])
+                    paused, release = threading.Event(), threading.Event()
+                    original = getattr(owner, method)
+
+                    def pause_search(*args, **kwargs):
+                        result = original(*args, **kwargs)
+                        if not paused.is_set():
+                            paused.set()
+                            if not release.wait(5):
+                                raise TimeoutError("Synthetic client search was not released")
+                        return result
+
+                    def cashbox_and_write():
+                        self.assertEqual(
+                            self.service.list_cashboxes()["cashboxes"][0]["id"], cashbox["id"]
+                        )
+                        self.service.update_client(
+                            {"client_id": client["id"], "display_name": "SYNTHETIC AFTER"}
+                        )
+                        return search(payload)
+
+                    with (
+                        patch.object(owner, method, side_effect=pause_search),
+                        ThreadPoolExecutor(max_workers=2) as workers,
+                    ):
+                        before = workers.submit(search, payload)
+                        try:
+                            self.assertTrue(paused.wait(2))
+                            after = workers.submit(cashbox_and_write).result(timeout=2)
+                        finally:
+                            release.set()
+
+                    for response, expected in (
+                        (before.result(), "SYNTHETIC BEFORE"),
+                        (after, "SYNTHETIC AFTER"),
+                        (search(payload), "SYNTHETIC AFTER"),
+                    ):
+                        result = next(
+                            item for item in response["clients"] if item["id"] == client["id"]
+                        )
+                        self.assertEqual(result["name"], expected)

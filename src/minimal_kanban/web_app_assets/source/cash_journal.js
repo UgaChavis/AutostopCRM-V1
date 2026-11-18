@@ -2,14 +2,7 @@
       const journalPath = includeMarkdown
         ? '/api/get_cash_journal?months=3&limit=5000&include_markdown=true'
         : '/api/get_cash_journal?months=3&limit=5000&include_markdown=false&compact_groups=true';
-      const [journalData, cashboxesData] = await Promise.all([
-        api(journalPath),
-        api('/api/list_cashboxes?limit=200'),
-      ]);
-      return {
-        ...(journalData || {}),
-        cashboxes: Array.isArray(cashboxesData?.cashboxes) ? cashboxesData.cashboxes : [],
-      };
+      return await api(journalPath) || {};
     }
 
     function renderCashJournalLoading() {

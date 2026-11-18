@@ -280,6 +280,27 @@ class CashboxIdentityResolutionTests(CardServiceCase):
             self.assertEqual(rejected.exception.code, code)
             self.assertEqual(rejected.exception.status_code, 409)
 
+    def test_exact_notification_boundary_cannot_rebind_a_removed_movement_to_an_alias(self) -> None:
+        movement = self.service.create_cash_transaction(
+            {"cashbox_id": self.first, "amount_minor": 100, "note": "Synthetic"}
+        )["transaction"]
+        self.replace_ids(transactions={movement["id"]: FIRST_ID})
+        self.assert_rejected_without_save(
+            "not_found",
+            lambda: self.service.mark_cashbox_notifications_seen(
+                {
+                    "actor_name": "Synthetic",
+                    "through_transaction_id": "CT-12345678",
+                    "exact_boundary": True,
+                }
+            ),
+            status=404,
+        )
+        legacy = self.service.mark_cashbox_notifications_seen(
+            {"actor_name": "Synthetic", "through_transaction_id": "CT-12345678"}
+        )
+        self.assertEqual(legacy["meta"]["through_transaction_id"], FIRST_ID)
+
     def test_overlong_ids_do_not_resolve_to_a_valid_prefix(self) -> None:
         cashbox_id = "b" * 128
         self.replace_ids(cashboxes={self.first: cashbox_id})

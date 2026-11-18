@@ -221,32 +221,87 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const frames = [];
             const loads = [];
             const state = {{ activeCashboxId: 'cashbox-1', cashboxesRequestSeq: 0 }};
-            const els = {{ cashboxesModal: {{ classList: {{ contains() {{ return open; }} }} }} }};
             global.window = {{ requestAnimationFrame(callback) {{ frames.push(callback); }} }};
-            function loadCashboxDetail(id) {{ state.cashboxesRequestSeq += 1; loads.push(id); }}
+            function cashboxWorkspaceIsOpen() {{ return open; }}
+            function isCurrentCashboxesLoad(context) {{ return context.seq === state.cashboxesRequestSeq; }}
+            function finishCashboxesLoad() {{}}
+            function loadCashboxDetail(id) {{ loads.push(id); }}
             {scheduler}
-            scheduleCashboxDetailLoad('cashbox-1');
+            function schedule() {{
+              scheduleCashboxDetailLoad('cashbox-1', {{ loadContext: {{seq: state.cashboxesRequestSeq}} }});
+            }}
+            schedule();
             assert.deepEqual(loads, [], 'list rendering must yield before detail starts');
             frames.shift()();
             assert.deepEqual(loads, ['cashbox-1']);
-            scheduleCashboxDetailLoad('cashbox-1');
+            schedule();
             open = false;
             frames.shift()();
             open = true;
-            scheduleCashboxDetailLoad('cashbox-1');
+            schedule();
             state.activeCashboxId = 'cashbox-2';
             frames.shift()();
             assert.deepEqual(loads, ['cashbox-1'], 'stale deferred work must not fetch another selection');
             state.activeCashboxId = 'cashbox-1';
-            scheduleCashboxDetailLoad('cashbox-1');
+            schedule();
             state.cashboxesRequestSeq += 1;
             frames.shift()();
             assert.deepEqual(loads, ['cashbox-1'], 'abort or a newer load must invalidate pending detail');
-            scheduleCashboxDetailLoad('cashbox-1');
-            scheduleCashboxDetailLoad('cashbox-1');
-            frames.shift()();
+            const loadContext = {{seq: state.cashboxesRequestSeq}};
+            scheduleCashboxDetailLoad('cashbox-1', {{loadContext}});
+            scheduleCashboxDetailLoad('cashbox-1', {{loadContext}});
+            assert.equal(frames.length, 1);
             frames.shift()();
             assert.deepEqual(loads, ['cashbox-1', 'cashbox-1'], 'same-frame callbacks must not start duplicate requests');
+        """)
+
+    def test_cashbox_ack_queue_does_not_cross_sessions_or_overwrite_newer_notification(
+        self,
+    ) -> None:
+        acknowledgements = _source_section(
+            self.source,
+            "function cashboxNotificationViewerGuard()",
+            "function scheduleCashboxNotificationAcknowledgement(",
+        )
+        self._run_node(f"""
+            const assert = require('node:assert/strict');
+            const pending = [];
+            const state = {{
+              actor: 'first', operatorSessionToken: 'first-token',
+              viewerStateGeneration: 1, employeesCashboxesAccessRevision: 1,
+              cashboxNotificationRevision: 0, cashboxNotificationSeenPromise: null,
+              cashboxNotification: null,
+            }};
+            function operatorCanAccessEmployeesCashboxes() {{ return true; }}
+            function api(path, options) {{
+              return new Promise((resolve) => pending.push({{body: options.body, resolve}}));
+            }}
+            function applyCashboxNotification(notification) {{
+              state.cashboxNotification = notification;
+              state.cashboxNotificationRevision++;
+            }}
+            {acknowledgements}
+            (async () => {{
+              const first = acknowledgeCashboxNotifications({{through_transaction_id: 'first-tx'}});
+              const queued = acknowledgeCashboxNotifications({{through_transaction_id: 'queued-tx'}});
+              state.actor = 'second';
+              state.operatorSessionToken = 'second-token';
+              applyCashboxNotification('second viewer');
+              pending[0].resolve({{notification: 'first viewer stale response'}});
+              await first;
+              assert.equal(await queued, null);
+              assert.equal(pending.length, 1);
+              assert.equal(state.cashboxNotification, 'second viewer');
+
+              const second = acknowledgeCashboxNotifications({{through_transaction_id: ''}});
+              assert.deepEqual(pending[1].body, {{
+                through_transaction_id: '', exact_boundary: true, actor_name: 'second', source: 'ui',
+              }});
+              applyCashboxNotification('newer receipt');
+              pending[1].resolve({{notification: 'second viewer stale response'}});
+              await second;
+              assert.equal(state.cashboxNotification, 'newer receipt');
+            }})().catch((error) => {{ console.error(error); process.exitCode = 1; }});
         """)
 
     def test_save_cancels_pending_seen_write_and_requeues_only_when_needed(self) -> None:
@@ -782,6 +837,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               state.snapshot = null;
             }}
             function renderOperatorProfile() {{ events.push('profile'); }}
+            function captureViewerRequestContext() {{ return {{ isCurrent: () => true }}; }}
+            function startSnapshotPolling() {{ events.push('poll'); }}
             async function refreshSnapshot(showSuccess) {{
               assert.equal(showSuccess, true);
               events.push('refresh:start');
@@ -798,6 +855,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.ok(events.indexOf('login') < events.indexOf('reset'));
             assert.ok(events.indexOf('reset') < events.indexOf('profile'));
             assert.ok(events.indexOf('profile') < events.indexOf('refresh:start'));
+            assert.ok(events.indexOf('profile') < events.indexOf('poll'));
             assert.ok(events.indexOf('refresh:end') < events.indexOf('resolved'));
             assert.equal(state.snapshot.meta.revision, 'viewer-second');
             }})().catch((error) => {{
@@ -964,7 +1022,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
         refresh_snapshot = _source_section(
             self.source,
-            "async function refreshSnapshot(showSuccess = false)",
+            "async function refreshSnapshot(showSuccess = false,",
             "async function refreshSnapshotRevision()",
         )
         self._run_node(
@@ -2057,13 +2115,13 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
         profile_loader = _source_section(
             self.source,
-            "async function loadOperatorProfile(openModal = false)",
+            "async function loadOperatorProfile(openModal = false,",
             "async function openOperatorWorkspace()",
         )
         profile_renderer = _source_section(
             self.source,
             "function renderOperatorProfile(data,",
-            "async function loadOperatorProfile(openModal = false)",
+            "async function loadOperatorProfile(openModal = false,",
         )
         self._run_node(
             f"""

@@ -80,6 +80,7 @@ class CashJournalBrowserTests(UiBrowserTestCase):
             "months": [],
             "totals": {"count": len(entries)},
             "meta": {"months": 3, "total": len(entries), "returned": len(entries)},
+            "markdown": "# Synthetic cash journal\n\nOpening balance: 0",
         }
         self.page.route(
             "**/api/get_cash_journal?**",
@@ -88,6 +89,14 @@ class CashJournalBrowserTests(UiBrowserTestCase):
         self.load_board()
         self.page.locator("#cashboxesButton").click()
         self.page.locator("#cashboxesModal.is-open").wait_for()
+        self.page.wait_for_function("state.cashboxesLoaded && !state.cashboxesLoadController")
+        redundant_lists = []
+
+        def fail_cashbox_list(route):
+            redundant_lists.append(route.request.url)
+            route.fulfill(status=503, json={"ok": False, "error": {"message": "Unavailable"}})
+
+        self.page.route("**/api/list_cashboxes?limit=200", fail_cashbox_list)
         self.page.locator("#cashboxJournalButton").click()
         self.page.locator(
             "#cashboxJournalModal.is-open .cashbox-journal-operation-row"
@@ -137,3 +146,10 @@ class CashJournalBrowserTests(UiBrowserTestCase):
         self.assertNotIn(
             "ordinary synthetic income", self.page.locator("#cashboxJournalText").inner_text()
         )
+        self.page.locator('[data-close="cashbox-journal"]').click()
+        with self.page.expect_download() as download:
+            self.page.locator("#cashboxJournalDownloadButton").click()
+        self.assertEqual(
+            download.value.path().read_text(encoding="utf-8"), journal["markdown"] + "\n"
+        )
+        self.assertEqual(redundant_lists, [])

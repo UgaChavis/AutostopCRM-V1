@@ -887,9 +887,16 @@ unrelated password or employee-binding changes do not conflict.
   when transaction business dates are backdated or movements are removed. Use
   a freshly read revision for guarded writes; transaction dates are unchanged.
 - `list_cashboxes` returns the current operator's compact `notification`
-  summary. `/api/mark_cashbox_notifications_seen` advances that operator's
-  receipt only through the supplied `through_transaction_id`; operations made
-  by the same operator do not become unread notifications.
+  summary. Its `needs_ack` field indicates whether initializing or advancing
+  the receipt to the returned boundary would change its position, including
+  after the operator's own movement. `/api/mark_cashbox_notifications_seen`
+  advances the receipt through the supplied `through_transaction_id`.
+  Send `exact_boundary: true` to confirm the full ID seen in the summary.
+  A missing movement returns 404. With this flag, an empty or omitted ID
+  initializes an empty position, even if another movement has since arrived.
+  Existing receipts only advance. Without the flag, an empty or omitted ID
+  retains the default of acknowledging the latest movement.
+  Movements made by the same operator do not become unread notifications.
 - `/api/create_employee_shift_accrual` records a non-cash payroll accrual and
   does not change a cashbox.
 - `POST /api/reset_employee_salary_balance` records an immutable non-cash

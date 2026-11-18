@@ -122,8 +122,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "async function openOperatorWorkspace()",
         )
         self.assertIn("requestSessionToken !== state.operatorSessionToken", refresh_helper)
-        self.assertIn("state.operatorPermissionRefreshPromise", refresh_helper)
-        self.assertIn("loadOperatorProfile(false)", refresh_helper)
+        self.assertIn("loadOperatorProfile(false, { fresh: true })", refresh_helper)
 
     def test_admin_editor_preserves_all_registered_permissions(self) -> None:
         self.assertIn(

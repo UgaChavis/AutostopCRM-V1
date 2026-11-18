@@ -4563,6 +4563,35 @@ class CardServiceTests(CardServiceCase):
             self.service.get_board_snapshot({"actor_name": "ALICE"})["settings"],
         )
 
+    def test_cashbox_empty_receipt_does_not_consume_a_new_movement(self) -> None:
+        box = self.service.create_cashbox({"name": "Synthetic receipt cashbox"})["cashbox"]
+        listed = self.service.list_cashboxes({"actor_name": "ALICE"})["notification"]
+        self.assertEqual(listed["through_transaction_id"], "")
+        self.assertTrue(listed["needs_ack"])
+        movement = self.service.create_cash_transaction(
+            {"cashbox_id": box["id"], "direction": "income", "amount": "100", "actor_name": "BOB"}
+        )["transaction"]
+        empty = self.service.mark_cashbox_notifications_seen(
+            {"actor_name": "ALICE", "through_transaction_id": "", "exact_boundary": True}
+        )
+        self.assertTrue(empty["meta"]["changed"])
+        self.assertEqual(empty["meta"]["through_transaction_id"], "")
+        self.assertEqual(
+            [row["transaction_id"] for row in empty["notification"]["unread_transactions"]],
+            [movement["id"]],
+        )
+        self.assertTrue(empty["notification"]["needs_ack"])
+
+        # Legacy callers without an exact boundary still advance to the latest movement.
+        latest = self.service.mark_cashbox_notifications_seen({"actor_name": "ALICE"})
+        self.assertEqual(latest["meta"]["through_transaction_id"], movement["id"])
+        self.assertFalse(latest["notification"]["needs_ack"])
+        duplicate = self.service.mark_cashbox_notifications_seen(
+            {"actor_name": "ALICE", "exact_boundary": True}
+        )
+        self.assertFalse(duplicate["meta"]["changed"])
+        self.assertFalse(duplicate["notification"]["has_unread"])
+
     def test_manual_cashbox_expense_requires_note_minimum(self) -> None:
         cashbox = self.service.create_cashbox({"name": "Наличный", "actor_name": "ADMIN"})[
             "cashbox"

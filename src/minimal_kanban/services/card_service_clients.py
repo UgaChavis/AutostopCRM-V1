@@ -122,47 +122,48 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             return deepcopy(result)
 
     def search_clients(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            query = normalize_text(payload.get("query"), default="", limit=240)
-            limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
-            bundle = self._store._read_context_bundle_snapshot(
-                domains=("clients", "client_search", "client_search_cards")
-            )
-            return self._checked_search_clients(bundle, query, limit)
+        payload = payload or {}
+        query = normalize_text(payload.get("query"), default="", limit=240)
+        limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
+        bundle = self._store._read_context_bundle_snapshot(
+            domains=("clients", "client_search", "client_search_cards")
+        )
+        return self._checked_search_clients(bundle, query, limit)
 
     def _checked_search_clients(self, bundle, query, limit):
-        prepared = getattr(self, "_client_search_prepared", None)
-        if prepared is None or prepared[0] is not bundle:
-            clients = self._ordered_clients(bundle["clients"])
-            for client in clients:
-                bundle.require_client_sort_key(client)
-            client_index = self._client_search_index_for(
-                clients, signature=("checked-search", id(bundle))
-            )
-            related, warnings = self._client_checked_search_cards(bundle, clients)
-            related_fields = {
-                client.id: [
-                    value
-                    for card in related.get(client.id, [])
-                    for value in self._client_related_vehicle_fields_for_card(
-                        card, explicit_link=card.client_id == client.id
-                    )
-                ]
-                for client in clients
-            }
-            related_index = self._client_related_search_index(related_fields)
-            prepared = (
-                bundle,
-                clients,
-                client_index,
-                related,
-                warnings,
-                related_fields,
-                related_index,
-            )
-            self._client_search_prepared = prepared
-        _, clients, client_index, related, warnings, related_fields, related_index = prepared
+        # Index construction uses the shared ranking caches. The prepared
+        # indexes and detached models can be read after releasing the lock.
+        with self._lock:
+            prepared = bundle.client_search_indexes.get("checked")
+            if prepared is None:
+                clients = self._ordered_clients(bundle["clients"])
+                for client in clients:
+                    bundle.require_client_sort_key(client)
+                client_index = self._client_search_index_for(
+                    clients, signature=("checked-search", bundle.client_search_generation)
+                )
+                related, warnings = self._client_checked_search_cards(bundle, clients)
+                related_fields = {
+                    client.id: [
+                        value
+                        for card in related.get(client.id, [])
+                        for value in self._client_related_vehicle_fields_for_card(
+                            card, explicit_link=card.client_id == client.id
+                        )
+                    ]
+                    for client in clients
+                }
+                related_index = self._client_related_search_index(related_fields)
+                prepared = (
+                    clients,
+                    client_index,
+                    related,
+                    warnings,
+                    related_fields,
+                    related_index,
+                )
+                bundle.client_search_indexes["checked"] = prepared
+        clients, client_index, related, warnings, related_fields, related_index = prepared
         matches = (
             [(1, client) for client in clients]
             if not query
@@ -286,18 +287,18 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
 
     def search_clients_readonly(self, payload: dict | None = None) -> dict:
         """Search saved profiles and label card-derived, unverified candidates."""
+        payload = payload or {}
+        query = normalize_text(payload.get("query"), default="", limit=240)
+        limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
+        bundle = self._store._read_context_bundle_snapshot(
+            domains=("clients", "client_search", "client_search_cards")
+        )
         with self._lock:
-            payload = payload or {}
-            query = normalize_text(payload.get("query"), default="", limit=240)
-            limit = self._validated_limit(payload.get("limit"), default=10, maximum=100)
-            bundle = self._store._read_context_bundle_snapshot(
-                domains=("clients", "client_search", "client_search_cards")
-            )
-            prepared = getattr(self, "_client_readonly_search_prepared", None)
-            if prepared is None or prepared[0] is not bundle:
+            prepared = bundle.client_search_indexes.get("readonly")
+            if prepared is None:
                 clients = self._ordered_clients(bundle["clients"])
                 client_index = self._client_search_index_for(
-                    clients, signature=("readonly-client-search", id(bundle))
+                    clients, signature=("readonly-client-search", bundle.client_search_generation)
                 )
                 related = self._client_readonly_related_cards(bundle, clients, bundle["cards"])
                 related_fields = {
@@ -311,38 +312,38 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
                     for client in clients
                 }
                 related_index = self._client_related_search_index(related_fields)
-                prepared = (bundle, clients, client_index, related, related_fields, related_index)
-                self._client_readonly_search_prepared = prepared
-            _, clients, client_index, related, related_fields, related_index = prepared
-            matches = (
-                [(1, client) for client in clients]
-                if not query
-                else self._rank_client_matches(
-                    clients,
-                    query,
-                    client_search_index=client_index,
-                    related_fields_by_client_id=related_fields,
-                    related_search_index_by_client_id=related_index,
-                )
+                prepared = (clients, client_index, related, related_fields, related_index)
+                bundle.client_search_indexes["readonly"] = prepared
+        clients, client_index, related, related_fields, related_index = prepared
+        matches = (
+            [(1, client) for client in clients]
+            if not query
+            else self._rank_client_matches(
+                clients,
+                query,
+                client_search_index=client_index,
+                related_fields_by_client_id=related_fields,
+                related_search_index_by_client_id=related_index,
             )
-            for _, client in matches:
-                bundle.require_client_identity(client)
-            selected = [client for _, client in matches[:limit]]
-            return {
-                "clients": [
-                    self._serialize_readonly_client(
-                        bundle, client, related.get(client.id, []), include_stats=True, query=query
-                    )
-                    for client in selected
-                ],
-                "meta": {
-                    "query": query,
-                    "total": len(matches),
-                    "returned": len(selected),
-                    "has_more": len(matches) > len(selected),
-                    "read_only_contract": "client-search-v1",
-                },
-            }
+        )
+        for _, client in matches:
+            bundle.require_client_identity(client)
+        selected = [client for _, client in matches[:limit]]
+        return {
+            "clients": [
+                self._serialize_readonly_client(
+                    bundle, client, related.get(client.id, []), include_stats=True, query=query
+                )
+                for client in selected
+            ],
+            "meta": {
+                "query": query,
+                "total": len(matches),
+                "returned": len(selected),
+                "has_more": len(matches) > len(selected),
+                "read_only_contract": "client-search-v1",
+            },
+        }
 
     def _client_readonly_related_cards(self, bundle, clients, cards):
         return client_readonly_related_cards(self, bundle, clients, cards)

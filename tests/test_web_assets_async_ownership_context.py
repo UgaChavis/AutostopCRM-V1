@@ -47,6 +47,53 @@ class AsyncOwnershipContextRegressionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_card_suggestions_accept_only_the_latest_input(self) -> None:
+        self.run_node(
+            functions(
+                "app_main_before_printing.js",
+                "scheduleClientSuggestionsForCard",
+                "refreshClientSuggestionsForCard",
+                "hideClientSuggestions",
+            )
+            + """
+const assert = require('node:assert/strict');
+const state = {clientSuggestionGeneration: 0, viewerStateGeneration: 1, cardHydrationSeq: 1};
+const els = {};
+const CARD_CLIENT_SUGGESTION_LIMIT = 6;
+const pending = [];
+const rendered = [];
+let next, query;
+const window = {setTimeout(fn) { next = fn; return 1; }, clearTimeout() { next = null; }};
+function readVehicleProfileForm() { return query; }
+function clientSuggestionProfileSignature(value) { return value; }
+function clientSuggestionQueryCandidates(value) { return [{query: value}]; }
+function mergeClientSuggestionResults(groups) { return groups.flat(); }
+function renderClientSuggestions(clients) { rendered.push(...clients.map(c => c.id)); }
+function api() { return new Promise(resolve => pending.push(resolve)); }
+function type(value) { query = value; scheduleClientSuggestionsForCard(); }
+(async () => {
+  type('Alpha');
+  const old = next();
+  type('Beta');
+  type('Alpha');
+  const current = next();
+  pending[1]({clients: [{id: 'current'}]});
+  await current;
+  pending[0]({clients: [{id: 'old'}]});
+  await old;
+  type('Delta');
+  const closed = next();
+  hideClientSuggestions();
+  pending[2]({clients: [{id: 'closed'}]});
+  await closed;
+  assert.deepEqual(rendered, ['current']);
+  type('Gamma');
+  hideClientSuggestions();
+  assert.equal(next, null);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        )
+
     def test_ai_enrichment_launch_cannot_cross_card_logout_or_same_id_aba(self) -> None:
         source = SOURCE.read_text(encoding="utf-8")
         request_context = section(

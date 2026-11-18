@@ -1256,24 +1256,25 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("const SNAPSHOT_POLL_INTERVAL_MS = 8000;", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_HIDDEN_INTERVAL_MS = 120000;", BOARD_WEB_APP_HTML)
         self.assertIn("function snapshotPollIntervalMs()", BOARD_WEB_APP_HTML)
-        self.assertIn("function scheduleNextSnapshotPoll()", BOARD_WEB_APP_HTML)
+        self.assertIn("function scheduleNextSnapshotPoll(generation, viewer)", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "function scheduleNextCashboxNotificationPoll(generation, viewer)", BOARD_WEB_APP_HTML
+        )
         self.assertIn("function handleSnapshotVisibilityChange()", BOARD_WEB_APP_HTML)
         self.assertIn("function refreshSnapshotRevision()", BOARD_WEB_APP_HTML)
-        self.assertIn("if (!document.hidden) refreshSnapshotRevision();", BOARD_WEB_APP_HTML)
         self.assertIn(
             "document.addEventListener('visibilitychange', handleSnapshotVisibilityChange);",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn("state.pollHandle = window.setTimeout(async () => {", BOARD_WEB_APP_HTML)
-        self.assertIn(
-            "await Promise.all([refreshSnapshotRevision(), refreshCashboxNotification()]);",
-            BOARD_WEB_APP_HTML,
-        )
+        self.assertIn("await refreshSnapshotRevision();", BOARD_WEB_APP_HTML)
         self.assertIn("/api/get_board_revision?compact=1&include_archive=0", BOARD_WEB_APP_HTML)
-        self.assertIn("scheduleNextSnapshotPoll();", BOARD_WEB_APP_HTML)
+        self.assertIn("scheduleNextSnapshotPoll(generation, viewer);", BOARD_WEB_APP_HTML)
         self.assertIn("const SNAPSHOT_POLL_MODAL_INTERVAL_MS = 15000;", BOARD_WEB_APP_HTML)
         self.assertIn("function hasOpenWorkspaceModal()", BOARD_WEB_APP_HTML)
-        self.assertIn("if (perfEnabled()) {\n        stopSnapshotPolling();", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "if (perfEnabled() || !state.operatorSessionToken) return;", BOARD_WEB_APP_HTML
+        )
 
     def test_perf_instrumentation_is_wired_for_slow_paths(self) -> None:
         self.assertIn("const PERF_STORAGE_KEY = 'autostop-perf';", BOARD_WEB_APP_HTML)
@@ -3540,7 +3541,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function loginOperator()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleIdentityInputKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleIdentityPasswordKeydown(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("async function loadOperatorProfile(openModal = false)", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadOperatorProfile(openModal = false,", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorWorkspace()", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorAdminModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
@@ -5004,10 +5005,12 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("cashboxesLoaded: false,", BOARD_WEB_APP_HTML)
         self.assertIn("function scheduleCashboxDetailLoad(", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "if (!els.cashboxesModal?.classList.contains('is-open')) return;", BOARD_WEB_APP_HTML
+            "!cashboxWorkspaceIsOpen() || state.activeCashboxId !== cashboxId", BOARD_WEB_APP_HTML
         )
         self.assertIn("if (state.cashboxesLoaded) {", BOARD_WEB_APP_HTML)
-        self.assertIn("scheduleCashboxDetailLoad(nextId, { openModal });", BOARD_WEB_APP_HTML)
+        self.assertIn(
+            "scheduleCashboxDetailLoad(nextId, { openModal, loadContext });", BOARD_WEB_APP_HTML
+        )
         self.assertIn(
             "async function loadCashboxDetail(cashboxId, { openModal = false, offset = 0, append = false, loadContext = null } = {})",
             BOARD_WEB_APP_HTML,

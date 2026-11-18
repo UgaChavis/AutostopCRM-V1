@@ -75,16 +75,19 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                     "Нужно определить пользователя, который просмотрел кассы.",
                     details={"field": "actor_name"},
                 )
-            bundle = self._read_bundle_for_update()
-            transactions = bundle["cash_transactions"]
             requested_transaction_id = normalize_text(
                 payload.get("through_transaction_id"), default=""
             )
-            through_transaction = (
-                self._find_cash_transaction(transactions, requested_transaction_id)
-                if requested_transaction_id
-                else self._cashbox_notification_latest_transaction(transactions)
-            )
+            exact_boundary = self._validated_optional_bool(payload, "exact_boundary", default=False)
+            bundle = self._read_bundle_for_update()
+            transactions = bundle["cash_transactions"]
+            through_transaction = None
+            if requested_transaction_id:
+                through_transaction = self._find_cash_transaction(
+                    transactions, requested_transaction_id, exact_only=exact_boundary
+                )
+            elif not exact_boundary:
+                through_transaction = self._cashbox_notification_latest_transaction(transactions)
             if requested_transaction_id and through_transaction is None:
                 self._fail(
                     "not_found",
@@ -2419,6 +2422,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         if receipt is None:
             return {
                 "initialized": False,
+                "needs_ack": True,
                 "has_unread": False,
                 "tone": "",
                 "unread_count": 0,
@@ -2454,6 +2458,8 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         latest_unseen = unseen[0] if unseen else None
         return {
             "initialized": True,
+            "needs_ack": latest_transaction is not None
+            and self._cashbox_notification_transaction_key(latest_transaction) > receipt_key,
             "has_unread": bool(unseen),
             "tone": self._cashbox_notification_tone(latest_unseen) if latest_unseen else "",
             "unread_count": len(event_keys),
@@ -2466,6 +2472,8 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         self,
         transactions: list[CashTransaction],
         transaction_id: str | None,
+        *,
+        exact_only: bool = False,
     ) -> CashTransaction | None:
         requested_id = normalize_text(transaction_id, default="")
         if not requested_id:
@@ -2475,7 +2483,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 "validation_error", "Некорректный ID движения.", details={"field": "transaction_id"}
             )
         matches = [transaction for transaction in transactions if transaction.id == requested_id]
-        if not matches:
+        if not matches and not exact_only:
             requested_short_id = requested_id.upper()
             matches = [
                 transaction

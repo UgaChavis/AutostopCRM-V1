@@ -9,6 +9,66 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class CashboxActionsBrowserTests(UiBrowserTestCase):
+    def test_cashbox_ack_waits_until_movements_are_visible_on_desktop_and_mobile(self) -> None:
+        detail_path = "**/api/get_cashbox?**"
+        ack_path = "**/api/mark_cashbox_notifications_seen"
+        box_id = self.runtime.cashbox_id
+        for mobile in (False, True):
+            with self.subTest(mobile=mobile):
+                if mobile:
+                    self.page.set_viewport_size({"width": 390, "height": 844})
+                self.runtime.service.mark_cashbox_notifications_seen({"actor_name": "admin"})
+                self.load_board()
+                note = f"Synthetic notification for {'mobile' if mobile else 'desktop'}"
+                movement = self.runtime.service.create_cash_transaction(
+                    {
+                        "cashbox_id": box_id,
+                        "direction": "income",
+                        "amount": "1",
+                        "note": note,
+                        "actor_name": "OTHER",
+                    }
+                )["transaction"]
+                held_detail = []
+                held_ack = []
+                self.page.route(detail_path, lambda route: held_detail.append(route))
+                self.page.route(ack_path, lambda route: held_ack.append(route))
+                button = '[data-mobile-view="cashboxes"]' if mobile else "#cashboxesButton"
+                self.page.locator(button).click()
+                self.await_held_request(held_detail)
+                self.assertEqual(held_ack, [])
+                held_detail.pop().continue_()
+                self.await_held_request(held_ack)
+                selector = "#mobileCashboxDetail" if mobile else "#cashboxTransactions"
+                row = self.page.locator(
+                    f'{selector} [data-cashbox-notification-transaction-id="{movement["id"]}"]'
+                )
+                self.assertTrue(row.is_visible())
+                self.assertIn(note, row.inner_text())
+                ack = held_ack.pop()
+                self.assertEqual(
+                    ack.request.post_data_json["through_transaction_id"], movement["id"]
+                )
+
+                newer = self.runtime.service.create_cash_transaction(
+                    {
+                        "cashbox_id": box_id,
+                        "direction": "income",
+                        "amount": "2",
+                        "actor_name": "OTHER",
+                    }
+                )["transaction"]
+                ack.continue_()
+                self.page.wait_for_function("!state.cashboxNotificationSeenPromise")
+                self.assertEqual(
+                    self.page.evaluate(
+                        "state.cashboxNotification.unread_transactions.map(item => item.transaction_id)"
+                    ),
+                    [newer["id"]],
+                )
+                self.page.unroute(detail_path)
+                self.page.unroute(ack_path)
+
     def test_module_timeout_restores_controls_and_late_load_cannot_send_money(self) -> None:
         self.context.add_init_script(
             "const schedule = window.setTimeout; window.setTimeout = (fn, ms, ...args) => schedule(fn, ms === 15000 ? 150 : ms, ...args);"
