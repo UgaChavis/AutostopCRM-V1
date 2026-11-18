@@ -266,6 +266,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         self._run_node(f"""
             const assert = require('node:assert/strict');
             const pending = [];
+            const window = globalThis;
+            const CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS = 10000;
             const state = {{
               actor: 'first', operatorSessionToken: 'first-token',
               viewerStateGeneration: 1, employeesCashboxesAccessRevision: 1,
@@ -2115,13 +2117,13 @@ class WebAssetsRuntimeTests(unittest.TestCase):
         )
         profile_loader = _source_section(
             self.source,
-            "async function loadOperatorProfile(openModal = false,",
+            "async function loadOperatorProfile(",
             "async function openOperatorWorkspace()",
         )
         profile_renderer = _source_section(
             self.source,
             "function renderOperatorProfile(data,",
-            "async function loadOperatorProfile(openModal = false,",
+            "async function loadOperatorProfile(",
         )
         self._run_node(
             f"""

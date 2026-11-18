@@ -159,6 +159,32 @@ stopped, removing stale WAL/SHM files before replacement. Do not replace a live
 store's database file in place or overlay newer data. For the shared backup and
 restore procedure, use the selected Manager root's M2 instruction; see [Deploy](#deploy).
 
+### Cashbox viewing receipts
+
+The CRM stores each operator's cashbox viewing position in a private JSON
+record under `state.cashbox_receipts/` next to `state.json`. Include this
+directory in the same recovery point as CRM state. The CRM release backup
+helper's v6 manifest includes these records. Restore a historical snapshot
+with the writers stopped, then reopen the CRM. An older backup without this
+artifact supplies its viewing positions through its own `state.json`.
+
+Existing profiles can start the new version directly. It reads both formats
+and retains the furthest confirmed position for each operator. After all
+writers have upgraded and the recovery copy has been verified, the offline
+migration can move inactive operators' positions and remove the legacy key.
+Run against the intended file with all CRM writers stopped. Omit `--apply`
+to see counts before applying.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_cashbox_receipts.py --state-file PATH\state.json --direction to-private --apply
+```
+
+To return to an older CRM binary **with current business data**, run the
+same command with `--direction to-legacy` before starting the old writer.
+It merges private positions into the current state and keeps the private
+records for a subsequent upgrade. Both directions can resume after an
+interruption. Use a verified recovery copy for the affected profile.
+
 Desktop integration settings live in the compatibility data directory's
 `settings.json`. Initial creation and load-time normalization hold the same
 process lock as saves. An I/O read failure propagates without replacing settings;

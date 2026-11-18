@@ -468,6 +468,7 @@
     const API_READ_RETRY_BASE_DELAY_MS = 150;
     const API_READ_TIMEOUT_MS = 10000;
     const API_PERF_READ_TIMEOUT_MS = 6000;
+    const CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS = 10000;
     const CARD_UNREAD_HOVER_DELAY_MS = 260;
     const CARD_UPDATED_HOVER_DELAY_MS = 80;
 
@@ -2261,7 +2262,8 @@
       const requestOperatorSessionToken = state.operatorSessionToken;
       const requestViewerStateGeneration = state.viewerStateGeneration;
       const isCurrentViewer = () => requestViewerStateGeneration === state.viewerStateGeneration
-        && requestOperatorSessionToken === state.operatorSessionToken;
+        && requestOperatorSessionToken === state.operatorSessionToken
+        && !options.signal?.aborted && !options.readController?.signal.aborted;
       if (options.signal) request.signal = options.signal;
       if (options.body) {
         request.method = options.method || 'POST';
@@ -2278,7 +2280,7 @@
         let timeoutId = null;
         let timedOut = false;
         if (!options.signal && requestAttempt.method === 'GET') {
-          const controller = new AbortController();
+          const controller = options.readController || new AbortController();
           requestAttempt.signal = controller.signal;
           timeoutId = window.setTimeout(() => {
             timedOut = true;
@@ -2332,6 +2334,8 @@
         throw error;
       }
       if (isCurrentViewer() && response.status === 403 && payload?.error?.code === 'forbidden') {
+        const permission = payload.error.details?.permission;
+        if (permission) revokeOperatorPermission(permission);
         void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
       }
       if (payload?.error?.details?.auth_type === 'operator_session') {
@@ -2376,7 +2380,8 @@
       }
       finishApiPerf();
       if (isCurrentViewer() && payload?.data?.meta?.references_only === true && operatorCanAccessEmployeesCashboxes()
-        && !/[?&]references_only=true(?:&|$)/.test(path)) {
+        && !options.body?.references_only && !/[?&]references_only=(?:true|1|yes|y)(?:&|$)/i.test(path)) {
+        revokeOperatorPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
         void refreshOperatorProfileAfterPermissionMismatch(requestOperatorSessionToken, path);
       }
       if (isCurrentViewer()) notifyCashboxesMutation(path, request.method);
@@ -2614,6 +2619,7 @@
 
     function resetViewerScopedState() {
       state.viewerStateGeneration += 1;
+      state.operatorProfileRequest?.controller.abort();
       state.cashboxMoneyRequest?.release();
       state.stickyMutationRequest?.release?.();
       resetClientMutationControls();
@@ -2851,6 +2857,17 @@
       return Boolean(normalized && permissions.includes(normalized));
     }
 
+    function revokeOperatorPermission(permission) {
+      if (![EMPLOYEES_CASHBOXES_ACCESS_PERMISSION, EMPLOYEES_READ_ACCESS_PERMISSION,
+        SALARY_BALANCE_RESET_PERMISSION].includes(permission) || !operatorHasPermission(permission)) return;
+      const profile = state.operatorProfile;
+      state.operatorProfile = {
+        ...profile,
+        user: { ...profile.user, permissions: profile.user.permissions.filter((item) => item !== permission) },
+      };
+      syncEmployeesCashboxesAccessUi();
+    }
+
     function operatorCanAccessEmployeesCashboxes() {
       return operatorHasPermission(EMPLOYEES_CASHBOXES_ACCESS_PERMISSION);
     }
@@ -3052,49 +3069,54 @@
       ].join('');
       renderOperatorActivity(profile?.recent_actions || []);
       els.operatorAdminButton.classList.toggle('hidden', !profile?.user?.is_admin);
+      els.operatorProfileModal?.setAttribute('aria-busy', 'false');
       if (els.employeeSalaryModal?.classList.contains('is-open')) renderEmployeeSalaryModal();
       closeOperatorLoginModal();
       if (!previousCashboxAccess && state.employeesCashboxesAccess) void refreshCashboxNotification();
       if (openModal) pushModal('operator-profile', els.operatorProfileModal);
     }
 
-    async function loadOperatorProfile(openModal = false, { fresh = false } = {}) {
+    async function loadOperatorProfile({ fresh = false, afterWrite = false } = {}) {
       const viewerStateGeneration = state.viewerStateGeneration;
       const operatorSessionToken = state.operatorSessionToken;
       if (!operatorSessionToken) return null;
       const isCurrent = () => viewerStateGeneration === state.viewerStateGeneration
         && operatorSessionToken === state.operatorSessionToken;
       const pending = state.operatorProfileRequest;
-      if (pending?.isCurrent()) {
-        pending.openModal ||= openModal;
-        if (fresh && !pending.followUp) {
-          const refresh = () => isCurrent() ? loadOperatorProfile(pending.openModal) : null;
-          pending.followUp = pending.promise.then(refresh, refresh);
-        }
-        return pending.followUp || pending.promise;
-      }
+      const replacesPending = pending?.isCurrent();
+      if (replacesPending && (!fresh || (pending.fresh && !afterWrite))) return pending.promise;
       const personalBoardPreferencesRevision = state.personalBoardPreferencesRevision;
-      const request = { isCurrent, openModal, followUp: null };
+      const request = { isCurrent, fresh, controller: new AbortController(), replacement: null };
       state.operatorProfileRefreshAttemptAt = Date.now();
-      request.promise = api('/api/get_operator_profile', { retryRead: openModal }).then((data) => {
-        if (!isCurrent() || request.followUp) return null;
+      state.operatorProfileRequest = request;
+      request.promise = api('/api/get_operator_profile', {
+        retryRead: false, readController: request.controller,
+      }).then((data) => {
+        if (request.replacement) return request.replacement;
+        if (!isCurrent()) return null;
         renderOperatorProfile(data, {
-          openModal: request.openModal,
           preservePersonalBoardPreferences:
             personalBoardPreferencesRevision !== state.personalBoardPreferencesRevision,
         });
         return data;
+      }, (error) => {
+        if (request.replacement) return request.replacement;
+        if (isCurrent()) throw error;
+        return null;
       }).finally(() => {
         if (state.operatorProfileRequest === request) state.operatorProfileRequest = null;
       });
-      state.operatorProfileRequest = request;
+      if (replacesPending) {
+        pending.replacement = request.promise;
+        pending.controller.abort();
+      }
       return request.promise;
     }
 
     function refreshOperatorProfileIfDue({ force = false } = {}) {
       if (!state.operatorSessionToken || document.hidden) return null;
       if (!force && state.operatorProfile && Date.now() - state.operatorProfileRefreshAttemptAt < 30000) return null;
-      return loadOperatorProfile(false).catch(() => null);
+      return loadOperatorProfile().catch(() => null);
     }
 
     function refreshOperatorProfileAfterPermissionMismatch(requestSessionToken, requestPath = '') {
@@ -3104,7 +3126,7 @@
         || requestSessionToken !== state.operatorSessionToken
         || normalizedPath === '/api/get_operator_profile'
       ) return null;
-      return loadOperatorProfile(false, { fresh: true }).catch(() => null);
+      return loadOperatorProfile({ fresh: true }).catch(() => null);
     }
 
     async function openOperatorWorkspace() {
@@ -3112,11 +3134,22 @@
         openOperatorLoginModal();
         return;
       }
+      if (isModalOpen('operator-profile')) return;
       const viewer = captureViewerRequestContext();
+      els.operatorProfileModal.setAttribute('aria-busy', 'true');
+      els.operatorProfileMeta.textContent = 'ЗАГРУЗКА ПРОФИЛЯ...';
+      els.operatorStatsGrid.replaceChildren();
+      els.operatorActivityList.replaceChildren();
+      els.operatorAdminButton.classList.add('hidden');
+      pushModal('operator-profile', els.operatorProfileModal);
+      const entry = state.modalStack.at(-1);
       try {
-        await loadOperatorProfile(true);
+        await loadOperatorProfile();
       } catch (error) {
-        if (viewer.isCurrent()) setStatus(error.message, true);
+        if (viewer.isCurrent() && state.modalStack.includes(entry)) {
+          els.operatorProfileModal.setAttribute('aria-busy', 'false');
+          els.operatorProfileMeta.textContent = error.message;
+        }
       }
     }
 
@@ -5429,7 +5462,7 @@
       state.operatorAdminRequestSeq = requestSeq;
       const isCurrent = () => context.isCurrent() && state.operatorAdminRequestSeq === requestSeq;
       const tasks = [reloadOperatorAdminUsers({ isCurrent })];
-      if (refreshProfile && isCurrent()) tasks.push(loadOperatorProfile(false, { fresh: true }));
+      if (refreshProfile && isCurrent()) tasks.push(loadOperatorProfile({ fresh: true, afterWrite: true }));
       await Promise.all(tasks);
       if (!isCurrent()) return false;
       if (openAdminModal) {
@@ -5574,7 +5607,7 @@
       }
       const viewer = captureViewerRequestContext();
       try {
-        await loadOperatorProfile(false);
+        await loadOperatorProfile();
       } catch (error) {
         if (viewer.isCurrent()) setStatus(error.message, true);
       }
@@ -16325,7 +16358,8 @@
         && state.employeesCashboxesAccessRevision === accessRevision;
     }
 
-    function acknowledgeCashboxNotifications(notification, { isCurrent = () => true, applyResult = () => true } = {}) {
+    function acknowledgeCashboxNotifications(notification, options = {}) {
+      const { isCurrent = () => true, applyResult = () => true, onSend = () => {} } = options;
       const isViewerCurrent = cashboxNotificationViewerGuard();
       const actor = state.actor;
       const revision = state.cashboxNotificationRevision;
@@ -16335,19 +16369,27 @@
       const request = (async () => {
         if (previous) await previous.catch(() => {});
         if (!canSend()) return null;
-        const data = await api('/api/mark_cashbox_notifications_seen', {
-          method: 'POST',
-          body: {
-            through_transaction_id: throughTransactionId,
-            exact_boundary: true,
-            actor_name: actor,
-            source: 'ui',
-          },
-        });
-        if (isViewerCurrent() && applyResult() && revision === state.cashboxNotificationRevision) {
-          applyCashboxNotification(data?.notification || null);
+        onSend();
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS);
+        try {
+          const data = await api('/api/mark_cashbox_notifications_seen', {
+            method: 'POST',
+            signal: controller.signal,
+            body: {
+              through_transaction_id: throughTransactionId,
+              exact_boundary: true,
+              actor_name: actor,
+              source: 'ui',
+            },
+          });
+          if (isViewerCurrent() && applyResult() && revision === state.cashboxNotificationRevision) {
+            applyCashboxNotification(data?.notification || null);
+          }
+          return data;
+        } finally {
+          window.clearTimeout(timeout);
         }
-        return data;
       })().finally(() => {
         if (state.cashboxNotificationSeenPromise === request) {
           state.cashboxNotificationSeenPromise = null;
@@ -16359,32 +16401,43 @@
 
     function scheduleCashboxNotificationAcknowledgement(loadContext, cashboxId) {
       const pending = state.cashboxNotificationForOpen;
-      if (!pending) return;
+      if (!pending || pending.scheduledLoad === loadContext) return;
+      pending.scheduledLoad = loadContext;
       const isCurrent = () => state.cashboxNotificationForOpen === pending
+        && pending.scheduledLoad === loadContext
         && isCurrentCashboxesLoadIntent(loadContext)
         && cashboxWorkspaceIsOpen() && state.activeCashboxId === cashboxId;
-      // A frame containing the movements (or the empty cashbox state) must
-      // have been painted before a receipt write can claim the service lock.
+      const releaseScheduledLoad = () => {
+        if (pending.scheduledLoad === loadContext) pending.scheduledLoad = null;
+      };
+      const viewerIsCurrent = cashboxNotificationViewerGuard();
+      // Wait until the movements or the empty cashbox state have been painted.
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-        if (!isCurrent()) return;
+        if (!isCurrent()) {
+          releaseScheduledLoad();
+          return;
+        }
         acknowledgeCashboxNotifications(pending.notification, {
           isCurrent,
           applyResult: () => pending.revision === state.cashboxNotificationRevision,
-        }).then((data) => {
-          if (data && state.cashboxNotificationForOpen === pending) {
-            state.cashboxNotificationForOpen = null;
-          }
-        }).catch(() => {});
+          onSend: () => { state.cashboxNotificationForOpen = null; },
+        }).catch(async () => {
+          if (!viewerIsCurrent()) return;
+          await state.cashboxNotificationRefreshPromise;
+          if (viewerIsCurrent()) await refreshCashboxNotification({ initialize: false });
+        }).finally(releaseScheduledLoad);
       }));
     }
 
-    async function refreshCashboxNotification() {
+    async function refreshCashboxNotification({ initialize = true } = {}) {
       if (!state.actor || !state.operatorSessionToken) return null;
       if (!operatorCanAccessEmployeesCashboxes()) {
         if (state.cashboxNotification) applyCashboxNotification(null);
         return null;
       }
-      if (document.hidden || state.cashboxesLoadController || state.cashboxNotificationSeenPromise) return null;
+      const foregroundCashboxBusy = () => state.cashboxesLoadController
+        || state.cashboxNotificationSeenPromise || state.cashboxNotificationForOpen?.scheduledLoad;
+      if (document.hidden || foregroundCashboxBusy()) return null;
       if (state.cashboxNotificationRefreshPromise) return state.cashboxNotificationRefreshPromise;
       const viewer = captureViewerRequestContext();
       const accessRevision = state.employeesCashboxesAccessRevision;
@@ -16400,11 +16453,12 @@
       request = (async () => {
         try {
           const data = await api('/api/list_cashboxes?limit=1', { retryRead: false });
-          if (!isCurrent() || state.cashboxesLoadController || state.cashboxNotificationSeenPromise
+          if (!isCurrent() || foregroundCashboxBusy()
             || notificationRevision !== state.cashboxNotificationRevision) return null;
           const notification = data?.notification || null;
+          if (!notification && data?.meta?.notification_unavailable === true) return null;
           applyCashboxNotification(notification);
-          if (notification?.initialized === false && notification.needs_ack !== false
+          if (initialize && notification?.initialized === false && notification.needs_ack !== false
             && !state.cashboxNotificationSeenPromise && canInitialize()) {
             void acknowledgeCashboxNotifications(notification, {
               isCurrent: canInitialize, applyResult: canInitialize,
@@ -16582,7 +16636,7 @@
         if (!isCurrentCashboxesLoad(loadContext) || !cashboxWorkspaceIsOpen()) return null;
         const transactionOffset = finiteNonNegativeNumber(offset);
         const data = await api('/api/get_cashbox?cashbox_id=' + encodeURIComponent(normalizedId) + '&transaction_limit=' + CASHBOX_TRANSACTION_PAGE_SIZE + '&transaction_offset=' + transactionOffset + '&compact=true', {
-          signal: loadContext.controller.signal,
+          retryRead: false, readController: loadContext.controller,
         });
         if (!isCurrentCashboxesLoad(loadContext) || !cashboxWorkspaceIsOpen()) return null;
         const nextTransactions = Array.isArray(data?.transactions) ? data.transactions : [];
@@ -16646,11 +16700,12 @@
       try {
         resetCashboxDragState();
         const data = await api('/api/list_cashboxes?limit=200', {
-          signal: loadContext.controller.signal,
+          retryRead: false, readController: loadContext.controller,
         });
         if (!isCurrentCashboxesLoad(loadContext)) return null;
         const notification = data?.notification || null;
-        if (loadContext.notificationRevision === state.cashboxNotificationRevision) {
+        const notificationUnavailable = !notification && data?.meta?.notification_unavailable === true;
+        if (!notificationUnavailable && loadContext.notificationRevision === state.cashboxNotificationRevision) {
           applyCashboxNotification(notification);
           loadContext.notificationRevision = state.cashboxNotificationRevision;
         }

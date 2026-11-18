@@ -4,13 +4,19 @@ import math
 from datetime import datetime, timedelta
 from typing import Any
 
-from ..models import CashTransaction, business_timezone
+from ..models import CashTransaction, business_timezone, normalize_actor_name
 from ..operator_permissions import (
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
     operator_has_permission,
 )
-
-CASHBOX_NOTIFICATION_SEEN_SETTING_KEY = "_cashbox_notification_seen_by_users"
+from ..storage.cashbox_receipts import (
+    CASHBOX_NOTIFICATION_SEEN_SETTING_KEY as CASHBOX_NOTIFICATION_SEEN_SETTING_KEY,
+)
+from ..storage.cashbox_receipts import (
+    CashboxReceiptStoreError,
+    newer_cashbox_receipt,
+    normalize_legacy_cashbox_receipts,
+)
 
 
 class FinanceReadCore:
@@ -21,15 +27,26 @@ class FinanceReadCore:
 
     def list_cashboxes(self, payload: dict | None = None) -> dict:
         service = self._service
+        payload = payload or {}
+        limit = service._validated_limit(payload.get("limit"), default=200, maximum=1000)
+        operator_session = payload.get("_operator_session")
+        references_only = isinstance(operator_session, dict) and not operator_has_permission(
+            operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+        )
+        actor_key = normalize_actor_name(payload.get("actor_name"), default="").casefold()
+        private_receipt = None
+        notification_unavailable = False
+        # Do not hold the service lock while waiting for a same-actor receipt writer.
+        if actor_key and not references_only:
+            try:
+                private_receipt = service._store.cashbox_receipts.read(actor_key)
+            except CashboxReceiptStoreError:
+                service._logger.warning("cashbox_notification_receipt_unavailable")
+                notification_unavailable = True
         with service._lock:
-            payload = payload or {}
-            limit = service._validated_limit(payload.get("limit"), default=200, maximum=1000)
             bundle = service._store.read_bundle()
             cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
-            operator_session = payload.get("_operator_session")
-            if isinstance(operator_session, dict) and not operator_has_permission(
-                operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
-            ):
+            if references_only:
                 reference_cashboxes = [cashbox.to_dict() for cashbox in cashboxes[:limit]]
                 return {
                     "cashboxes": reference_cashboxes,
@@ -44,15 +61,25 @@ class FinanceReadCore:
                 }
             transactions = bundle["cash_transactions"]
             serialized_cashboxes = service._serialize_cashboxes(cashboxes[:limit], transactions)
+            notification = None
+            if not notification_unavailable:
+                legacy_receipt = normalize_legacy_cashbox_receipts(bundle["settings"]).get(
+                    actor_key
+                )
+                receipt = newer_cashbox_receipt(legacy_receipt, private_receipt)
+                notification = service._cashbox_notification_summary(
+                    transactions, actor_key, receipt
+                )
             return {
                 "cashboxes": serialized_cashboxes,
-                "notification": service._cashbox_notification_summary(bundle, payload),
+                "notification": notification,
                 "meta": {
                     "total": len(cashboxes),
                     "transactions_total": len(transactions),
                     "limit": limit,
                     "returned": len(serialized_cashboxes),
                     "has_more": len(cashboxes) > len(serialized_cashboxes),
+                    **({"notification_unavailable": True} if notification_unavailable else {}),
                 },
             }
 

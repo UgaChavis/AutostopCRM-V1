@@ -39,7 +39,9 @@ class PermissionRefreshRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_profile_loads_coalesce_and_permission_changes_refresh_after_pending_read(self) -> None:
+    def test_profile_reads_coalesce_and_confirmed_mismatch_immediately_replaces_pending_read(
+        self,
+    ) -> None:
         source = read_board_source("app_main_before_printing.js")
         code = section(
             source,
@@ -52,24 +54,34 @@ const assert=require('node:assert/strict');
 const state={viewerStateGeneration:1,operatorSessionToken:'S',personalBoardPreferencesRevision:1};
 const calls=[],rendered=[];
 const document={hidden:false};
-function api(){return new Promise(resolve=>calls.push(resolve));}
+function api(path,{readController}){return new Promise(resolve=>calls.push({resolve,signal:readController.signal}));}
 function renderOperatorProfile(data,options){state.operatorProfile=data;rendered.push(options);}
 """
             + code
             + """
 (async()=>{
-  const startup=loadOperatorProfile();const foreground=loadOperatorProfile(true);
+  const startup=loadOperatorProfile();const foreground=loadOperatorProfile();
   const visibility=refreshOperatorProfileIfDue({force:true});
   assert.equal(calls.length,1);
   const newer=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_cashboxes');
   const duplicate=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_employees');
-  assert.equal(calls.length,1,'permission refresh must wait for the pending read');
-  calls[0]({user:{permissions:[]}});await Promise.all([startup,foreground,visibility]);
+  assert.equal(calls.length,2,'one fresh permission fetch must start immediately');
+  assert.equal(calls[0].signal.aborted,true,'the pre-change fetch is obsolete');
+  calls[0].resolve({user:{permissions:[]}});
+  await Promise.resolve();
   assert.deepEqual(rendered,[],'pre-change permissions must not be applied');
-  assert.equal(calls.length,2,'permission changes require one follow-up read');
-  calls[1]({user:{permissions:['employees_read_access']}});await Promise.all([newer,duplicate]);
+  calls[1].resolve({user:{permissions:['employees_read_access']}});
+  await Promise.all([startup,foreground,visibility,newer,duplicate]);
   assert.equal(rendered.length,1);assert.deepEqual(state.operatorProfile.user.permissions,['employees_read_access']);
-  assert.equal(rendered[0].openModal,true,'background refresh must not swallow a profile-open click');
+  const preWrite=refreshOperatorProfileAfterPermissionMismatch('S','/api/list_employees');
+  const afterWrite=loadOperatorProfile({fresh:true,afterWrite:true});
+  assert.equal(calls.length,4,'a confirmed write must supersede a pre-write read');
+  assert.equal(calls[2].signal.aborted,true);
+  calls[2].resolve({user:{permissions:['employees_read_access']}});
+  calls[3].resolve({user:{permissions:[]}});
+  await Promise.all([preWrite,afterWrite]);
+  assert.equal(rendered.length,2);
+  assert.deepEqual(state.operatorProfile.user.permissions,[]);
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
         )
@@ -77,10 +89,17 @@ function renderOperatorProfile(data,options){state.operatorProfile=data;rendered
     def test_api_only_reacts_to_current_session_auth_failures(self) -> None:
         source = read_board_source("app_main_before_printing.js")
         code = section(source, "    async function api(", "    function setApiToken(")
+        permissions = section(
+            source, "    function operatorHasPermission(", "    function operatorCanViewEmployees("
+        )
         self.run_js(
             """
 const assert=require('node:assert/strict');
-const state={viewerStateGeneration:1,operatorSessionToken:'S'};
+const EMPLOYEES_CASHBOXES_ACCESS_PERMISSION='employees_cashboxes_access';
+const EMPLOYEES_READ_ACCESS_PERMISSION='employees_read_access';
+const SALARY_BALANCE_RESET_PERMISSION='salary_balance_reset';
+const grants=[EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,EMPLOYEES_READ_ACCESS_PERMISSION];
+const state={viewerStateGeneration:1,operatorSessionToken:'S',operatorProfile:{user:{permissions:grants}}};
 const requests=[],effects=[];
 const window=globalThis;
 const API_READ_RETRY_LIMIT=1;
@@ -89,15 +108,23 @@ function perfStart(){}
 function perfEnd(){}
 function clearOperatorSession(){effects.push('logout');}
 function openOperatorLoginModal(){effects.push('login');}
-function refreshOperatorProfileAfterPermissionMismatch(){effects.push('profile');}
+function refreshOperatorProfileAfterPermissionMismatch(){effects.push('profile');return new Promise(()=>{});}
+function notifyCashboxesMutation(){}
+function syncEmployeesCashboxesAccessUi(){effects.push('sync');}
 function fetch(){return new Promise(resolve=>requests.push(resolve));}
-function errorResponse(status,code){
+function errorResponse(status,code,permission){
   return {status,headers:new Headers(),text:async()=>JSON.stringify({
-    ok:false,error:{code,message:code,details:{auth_type:'operator_session'}},
+    ok:false,error:{code,message:code,details:{auth_type:'operator_session',permission}},
+  })};
+}
+function referencesResponse(){
+  return {ok:true,status:200,headers:new Headers(),text:async()=>JSON.stringify({
+    ok:true,data:{meta:{references_only:true}},
   })};
 }
 """
             + code
+            + permissions
             + """
 (async()=>{
   const stale=api('/api/list_cashboxes');state.viewerStateGeneration++;
@@ -107,14 +134,37 @@ function errorResponse(status,code){
   requests.shift()(errorResponse(403,'forbidden'));
   await assert.rejects(stalePermission,{status:403});
   assert.deepEqual(effects,[]);
+  const superseded=new AbortController();
+  const staleProfile=api('/api/get_operator_profile',{readController:superseded,retryRead:false});
+  superseded.abort();
+  requests.shift()(errorResponse(401,'unauthorized'));
+  await assert.rejects(staleProfile,{status:401});
+  assert.deepEqual(effects,[],'a superseded read must not log out the same token');
   const permission=api('/api/list_cashboxes');
   requests.shift()(errorResponse(403,'forbidden'));
   await assert.rejects(permission,{status:403});
   assert.deepEqual(effects,['profile']);
+  assert.equal(operatorCanAccessEmployeesCashboxes(),true);
+  const confirmed=api('/api/get_cashbox');
+  requests.shift()(errorResponse(403,'forbidden',EMPLOYEES_CASHBOXES_ACCESS_PERMISSION));
+  await assert.rejects(confirmed,{status:403});
+  assert.deepEqual(effects,['profile','sync','profile']);
+  assert.equal(operatorCanAccessEmployeesCashboxes(),false);
+  assert.equal(operatorHasPermission(EMPLOYEES_READ_ACCESS_PERMISSION),true);
+  state.operatorProfile={user:{permissions:grants}};
+  const explicitReferences=api('/api/list_employees?references_only=true');
+  requests.shift()(referencesResponse());
+  await explicitReferences;
+  assert.equal(operatorCanAccessEmployeesCashboxes(),true);
+  const unexpectedReferences=api('/api/list_cashboxes?limit=200');
+  requests.shift()(referencesResponse());
+  await unexpectedReferences;
+  assert.equal(operatorCanAccessEmployeesCashboxes(),false);
+  assert.equal(operatorHasPermission(EMPLOYEES_READ_ACCESS_PERMISSION),true);
   const expired=api('/api/list_cashboxes');
   requests.shift()(errorResponse(401,'unauthorized'));
   await assert.rejects(expired,{status:401});
-  assert.deepEqual(effects,['profile','logout']);
+  assert.deepEqual(effects,['profile','sync','profile','sync','profile','logout']);
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
         )
@@ -221,10 +271,81 @@ function applyCashboxNotification(notification){notifications.push(notification)
   await beforeReceipt;
   assert.deepEqual(notifications,[]);
   state.cashboxNotificationSeenPromise=null;
+  const unavailable=refreshCashboxNotification();
+  requests.shift()({notification:null,meta:{notification_unavailable:true}});
+  await unavailable;
+  assert.deepEqual(notifications,[],'temporary server degradation must leave the indicator untouched');
   const current=refreshCashboxNotification();
   requests.shift()(data);
   await current;
   assert.deepEqual(notifications,[data.notification]);
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+        )
+
+    def test_cash_notification_receipt_frames_and_uncertain_readback(self) -> None:
+        self.run_js(
+            """
+const assert=require('node:assert/strict');
+const state={
+  actor:'A',operatorSessionToken:'S',viewerStateGeneration:1,activeCashboxId:'box',
+  employeesCashboxesAccessRevision:1,cashboxNotificationRevision:0,cashboxesRequestSeq:0,
+  cashboxNotification:{initialized:true,has_unread:true},
+  cashboxNotificationForOpen:{revision:0,notification:{through_transaction_id:'tx'}},
+};
+const document={hidden:false};
+const CASHBOX_NOTIFICATION_ACK_TIMEOUT_MS=10000;
+const requests=[],frames=[];
+const window={setTimeout,clearTimeout,requestAnimationFrame:callback=>frames.push(callback)};
+function api(path){return new Promise((resolve,reject)=>requests.push({path,resolve,reject}));}
+function operatorCanAccessEmployeesCashboxes(){return true;}
+function renderCashboxNotificationIndicator(){}
+function cashboxWorkspaceIsOpen(){return true;}
+function isCurrentCashboxesLoadIntent(){return true;}
+"""
+            + functions(
+                "app_main_before_printing.js",
+                "captureViewerRequestContext",
+                "cashboxNotificationViewerGuard",
+                "applyCashboxNotification",
+                "acknowledgeCashboxNotifications",
+                "scheduleCashboxNotificationAcknowledgement",
+                "refreshCashboxNotification",
+            )
+            + """
+(async()=>{
+  const oldPoll=refreshCashboxNotification();
+  scheduleCashboxNotificationAcknowledgement({},'box');
+  frames.shift()();
+  requests[0].resolve({notification:{initialized:true,has_unread:true}});
+  await oldPoll;
+  await refreshCashboxNotification();
+  assert.equal(requests.length,1);
+  assert.equal(state.cashboxNotificationRevision,0);
+  frames.shift()();
+  assert.equal(requests[1].path,'/api/mark_cashbox_notifications_seen');
+  requests[1].resolve({notification:{initialized:true,has_unread:false}});
+  await state.cashboxNotificationSeenPromise;
+  assert.equal(state.cashboxNotification.has_unread,false);
+
+  state.cashboxNotificationForOpen={
+    revision:state.cashboxNotificationRevision, notification:{through_transaction_id:'unknown-tx'},
+  };
+  scheduleCashboxNotificationAcknowledgement({},'box');
+  frames.shift()();
+  frames.shift()();
+  assert.equal(requests[2].path,'/api/mark_cashbox_notifications_seen');
+  assert.equal(state.cashboxNotificationForOpen,null,'the attempted receipt must be consumed on send');
+  scheduleCashboxNotificationAcknowledgement({},'box');
+  assert.equal(frames.length,0,'another detail load must not schedule the same receipt');
+  requests[2].reject(new DOMException('timed out','AbortError'));
+  await new Promise(setImmediate);
+  assert.equal(requests[3].path,'/api/list_cashboxes?limit=1');
+  requests[3].resolve({notification:{initialized:false,needs_ack:true,through_transaction_id:'unknown-tx'}});
+  await state.cashboxNotificationRefreshPromise;
+  scheduleCashboxNotificationAcknowledgement({},'box');
+  assert.equal(frames.length,0,'retrying a detail after the uncertain result must only read');
+  assert.equal(requests.length,4,'authoritative reconciliation must not send another POST');
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
         )

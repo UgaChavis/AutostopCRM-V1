@@ -15,6 +15,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -29,9 +30,19 @@ from minimal_kanban.deployment_role_workspace import (  # noqa: E402
     snapshot_workspace,
     verify_workspace_snapshot,
 )
+from minimal_kanban.storage.cashbox_receipts import (  # noqa: E402
+    CASHBOX_RECEIPT_FILE_RE,
+    CASHBOX_RECEIPT_MAX_BYTES,
+    CASHBOX_RECEIPT_TRANSIENT_RE,
+    CashboxReceiptStoreError,
+    cashbox_receipt_directory,
+    load_cashbox_receipt_file,
+    validate_cashbox_receipt_row,
+)
 from minimal_kanban.storage.file_lock import ProcessFileLock  # noqa: E402
 
-BACKUP_SCHEMA = "autostop-agent-release-backup.v5"
+BACKUP_SCHEMA = "autostop-agent-release-backup.v6"
+V5_BACKUP_SCHEMA = "autostop-agent-release-backup.v5"
 V4_BACKUP_SCHEMA = "autostop-agent-release-backup.v4"
 V3_BACKUP_SCHEMA = "autostop-agent-release-backup.v3"
 PREVIOUS_BACKUP_SCHEMA = "autostop-agent-release-backup.v2"
@@ -39,6 +50,7 @@ LEGACY_BACKUP_SCHEMA = "autostop-agent-release-backup.v1"
 SUPPORTED_BACKUP_SCHEMAS = frozenset(
     {
         BACKUP_SCHEMA,
+        V5_BACKUP_SCHEMA,
         V4_BACKUP_SCHEMA,
         V3_BACKUP_SCHEMA,
         PREVIOUS_BACKUP_SCHEMA,
@@ -47,6 +59,7 @@ SUPPORTED_BACKUP_SCHEMAS = frozenset(
 )
 MANIFEST_NAME = "manifest.json"
 STATE_BACKUP_NAME = "state.json"
+CASHBOX_RECEIPTS_BACKUP_NAME = "cashbox-receipts.json"
 CHANGE_FEED_BACKUP_NAME = "change_feed.sqlite3"
 AUDIT_BACKUP_NAME = "audit-archive.tar.gz"
 MANAGER_BACKUP_NAME = "autostop_manager.sqlite3"
@@ -61,10 +74,12 @@ COMPLETION_ACT_FORM_RECORD_MAX_BYTES = 1 * 1024 * 1024
 COMPLETION_ACT_FORMS_MAX_RECORDS = 8192
 COMPLETION_ACT_RECORD_FILE_RE = re.compile(r"\A[0-9a-f]{64}\.json\Z")
 COMPLETION_ACT_TEMP_FILE_RE = re.compile(r"\A\.[0-9a-f]{64}\.[0-9a-f]{32}\.tmp\Z")
+CASHBOX_RECEIPTS_MAX_BYTES = 64 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
 MAX_RESTORE_ID = (1 << 32) - 2
 ARTIFACT_FILE_NAMES = {
     "state": STATE_BACKUP_NAME,
+    "cashbox_receipts": CASHBOX_RECEIPTS_BACKUP_NAME,
     "change_feed_sqlite": CHANGE_FEED_BACKUP_NAME,
     "audit_archive": AUDIT_BACKUP_NAME,
     "manager_sqlite": MANAGER_BACKUP_NAME,
@@ -77,11 +92,19 @@ PREVIOUS_ARTIFACT_KEYS = frozenset(
     {"state", "change_feed_sqlite", "audit_archive", "manager_sqlite"}
 )
 CURRENT_ARTIFACT_KEYS = frozenset(ARTIFACT_FILE_NAMES)
-V4_ARTIFACT_KEYS = CURRENT_ARTIFACT_KEYS - {"manager_role_workspace"}
+V5_ARTIFACT_KEYS = CURRENT_ARTIFACT_KEYS - {"cashbox_receipts"}
+V4_ARTIFACT_KEYS = V5_ARTIFACT_KEYS - {"manager_role_workspace"}
 V3_ARTIFACT_KEYS = V4_ARTIFACT_KEYS - {"manager_structure"}
 REQUIRED_ARTIFACT_KEYS = frozenset({"state", "manager_sqlite"})
 METADATA_ARTIFACT_KEYS = frozenset(
-    {"state", "change_feed_sqlite", "manager_sqlite", "completion_act_forms", "manager_structure"}
+    {
+        "state",
+        "cashbox_receipts",
+        "change_feed_sqlite",
+        "manager_sqlite",
+        "completion_act_forms",
+        "manager_structure",
+    }
 )
 BASE_ARTIFACT_FIELDS = frozenset({"name", "size_bytes", "sha256"})
 MANIFEST_FIELDS = frozenset(
@@ -153,26 +176,43 @@ def _fsync_file(path: Path) -> None:
         os.fsync(handle.fileno())
 
 
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    temp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    temp_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-    _fsync_file(temp_path)
-    temp_path.replace(path)
+def _apply_restore_metadata(path: Path, metadata: dict[str, int]) -> None:
+    chown = getattr(os, "chown", None)
+    if chown is not None:
+        chown(path, metadata["uid"], metadata["gid"])
+    elif os.name == "posix":  # pragma: no cover - POSIX always exposes os.chown
+        raise BackupError("POSIX restore cannot apply ownership")
+    os.chmod(path, metadata["mode"])
+
+
+def _write_json_atomic(
+    path: Path, payload: dict[str, Any], *, restore_metadata: dict[str, int] | None = None
+) -> None:
+    temp_path = path.with_name(f".{path.stem}.{uuid4().hex}.tmp")
+    descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(
+                payload, handle, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False
+            )
+            handle.write("\n")
+        if restore_metadata is not None:
+            _apply_restore_metadata(temp_path, restore_metadata)
+        _fsync_file(temp_path)
+        temp_path.replace(path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 
 def _copy_state(state_file: Path, destination: Path) -> None:
+    """Copy the state bytes while the caller holds the state-file lock."""
     if not state_file.is_file():
         raise BackupError(f"CRM state file does not exist: {state_file}")
-    lock = ProcessFileLock(state_file.with_suffix(".lock"), timeout_seconds=30.0)
-    with lock.acquire():
-        shutil.copyfile(state_file, destination)
-        with destination.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        if not isinstance(payload, dict):
-            raise BackupError("CRM state backup is not a JSON object")
+    shutil.copyfile(state_file, destination)
+    with destination.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise BackupError("CRM state backup is not a JSON object")
     _fsync_file(destination)
 
 
@@ -274,6 +314,151 @@ def _read_regular_file_bounded(source: Path, *, max_bytes: int, label: str) -> b
     if len(encoded) > max_bytes:
         raise BackupError(f"{label} exceeds the bounded backup size")
     return encoded
+
+
+def _cashbox_receipt_paths(state_file: Path) -> dict[str, Path]:
+    directory = cashbox_receipt_directory(state_file)
+    try:
+        directory_stat = directory.lstat()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise BackupError("Cashbox receipt store is not a regular readable directory") from exc
+    if not stat.S_ISDIR(directory_stat.st_mode) or (
+        getattr(directory_stat, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    ):
+        raise BackupError("Cashbox receipt store is not a regular directory")
+    result = {}
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if CASHBOX_RECEIPT_TRANSIENT_RE.fullmatch(entry.name):
+                    continue
+                if not CASHBOX_RECEIPT_FILE_RE.fullmatch(entry.name) or not entry.is_file(
+                    follow_symlinks=False
+                ):
+                    raise BackupError("Cashbox receipt store has an unexpected entry")
+                result[entry.name] = directory / entry.name
+    except OSError as exc:
+        raise BackupError("Cashbox receipt store is not a regular readable directory") from exc
+    return result
+
+
+def _cashbox_receipt_directory_metadata(directory: Path) -> dict[str, int]:
+    metadata = _file_restore_metadata(directory)
+    if os.name == "nt":
+        metadata["mode"] = 0o700
+    return metadata
+
+
+def _read_cashbox_receipt_store(
+    state_file: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, int] | None]:
+    rows = {}
+    total_bytes = 0
+    for name, path in _cashbox_receipt_paths(state_file).items():
+        # Include space for the filename and JSON separators in the size guard.
+        total_bytes += path.stat().st_size + len(name) + 16
+        if total_bytes > CASHBOX_RECEIPTS_MAX_BYTES:
+            raise BackupError("Cashbox receipt backup exceeds the bounded size")
+        try:
+            rows[name] = load_cashbox_receipt_file(path)
+        except CashboxReceiptStoreError as exc:
+            raise BackupError("Cashbox receipt store contains an invalid row") from exc
+    metadata = (
+        _cashbox_receipt_directory_metadata(cashbox_receipt_directory(state_file)) if rows else None
+    )
+    return rows, metadata
+
+
+def _unique_json_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    fields = {}
+    for key, value in pairs:
+        if key in fields:
+            raise ValueError("Duplicate JSON fields")
+        fields[key] = value
+    return fields
+
+
+def _load_cashbox_receipt_backup(
+    backup_dir: Path, metadata: dict[str, Any] | None
+) -> tuple[dict[str, dict[str, Any]], dict[str, int] | None]:
+    if metadata is None:
+        return {}, None
+    source = backup_dir / CASHBOX_RECEIPTS_BACKUP_NAME
+    encoded = _read_regular_file_bounded(
+        source,
+        max_bytes=CASHBOX_RECEIPTS_MAX_BYTES,
+        label="Cashbox receipt backup",
+    )
+    if os.name != "nt" and stat.S_IMODE(source.lstat().st_mode) & 0o077:
+        raise BackupError("Cashbox receipt backup permissions are not private")
+    if (
+        len(encoded) != metadata["size_bytes"]
+        or hashlib.sha256(encoded).hexdigest() != metadata["sha256"]
+    ):
+        raise BackupError("Cashbox receipt backup changed during verification")
+    try:
+        rows = json.loads(
+            encoded.decode("utf-8"),
+            parse_constant=_reject_json_constant,
+            object_pairs_hook=_unique_json_fields,
+        )
+        if not isinstance(rows, dict) or not rows:
+            raise ValueError("Expected stored cashbox rows")
+        for name, row in rows.items():
+            validate_cashbox_receipt_row(row, name)
+            if (
+                len(json.dumps(row, ensure_ascii=False, indent=2).encode("utf-8")) + 1
+                > CASHBOX_RECEIPT_MAX_BYTES
+            ):
+                raise ValueError("Cashbox receipt row is too large")
+    except (ValueError, RecursionError) as exc:
+        raise BackupError("Cashbox receipt backup is not a valid row map") from exc
+    return rows, _validated_restore_metadata(metadata["restore_metadata"], label="cashbox_receipts")
+
+
+def _restore_cashbox_receipt_store(
+    state_file: Path, rows: dict[str, dict[str, Any]], metadata: dict[str, int] | None
+) -> bool:
+    """Replace only committed rows while the caller holds state.lock."""
+    paths = _cashbox_receipt_paths(state_file)
+    changed = False
+    if metadata is not None:
+        directory = cashbox_receipt_directory(state_file)
+        directory.mkdir(mode=0o700, exist_ok=True)
+        if _cashbox_receipt_directory_metadata(directory) != metadata:
+            _apply_restore_metadata(directory, metadata)
+            changed = True
+        row_metadata = {**metadata, "mode": 0o600}
+        for name, row in rows.items():
+            path = directory / name
+            existing = None
+            if name in paths:
+                try:
+                    existing = load_cashbox_receipt_file(path)
+                except CashboxReceiptStoreError:
+                    # The verified checkpoint can replace an unreadable candidate row.
+                    pass
+            if existing != row or (
+                os.name != "nt" and not _restore_metadata_matches(path, row_metadata)
+            ):
+                _write_json_atomic(path, row, restore_metadata=row_metadata)
+                changed = True
+    for name, path in paths.items():
+        if name not in rows:
+            path.unlink()
+            changed = True
+    if changed and os.name != "nt":
+        directory = cashbox_receipt_directory(state_file)
+        for parent in (directory, directory.parent):
+            descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    return changed
 
 
 def _copy_json_object(source: Path, destination: Path, *, label: str) -> bool:
@@ -502,15 +687,28 @@ def create_backup(
         state_source = crm_data_dir / "state.json"
         if not state_source.is_file():
             raise BackupError(f"CRM state file does not exist: {state_source}")
-        state_restore_metadata = _file_restore_metadata(state_source)
         state_destination = temp_dir / STATE_BACKUP_NAME
-        _copy_state(state_source, state_destination)
+        with ProcessFileLock(state_source.with_suffix(".lock"), timeout_seconds=30.0).acquire():
+            state_restore_metadata = _file_restore_metadata(state_source)
+            _copy_state(state_source, state_destination)
+            receipt_rows, receipt_metadata = _read_cashbox_receipt_store(state_source)
         artifacts: dict[str, Any] = {
             "state": _artifact(
                 state_destination,
                 restore_metadata=state_restore_metadata,
             )
         }
+        artifacts["cashbox_receipts"] = None
+        if receipt_metadata is not None:
+            if receipt_metadata["mode"] != 0o700:
+                raise BackupError("Cashbox receipt store permissions are not private")
+            receipts_destination = temp_dir / CASHBOX_RECEIPTS_BACKUP_NAME
+            _write_json_atomic(receipts_destination, receipt_rows)
+            if receipts_destination.stat().st_size > CASHBOX_RECEIPTS_MAX_BYTES:
+                raise BackupError("Cashbox receipt backup exceeds the bounded size")
+            artifacts["cashbox_receipts"] = _artifact(
+                receipts_destination, restore_metadata=receipt_metadata
+            )
 
         manager_structure_destination = temp_dir / MANAGER_STRUCTURE_BACKUP_NAME
         manager_structure_metadata = _copy_manager_structure(
@@ -636,7 +834,7 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
 
     sources = manifest.get("sources")
     source_fields = {"crm_data_dir", "manager_db"}
-    if schema == BACKUP_SCHEMA:
+    if schema in {BACKUP_SCHEMA, V5_BACKUP_SCHEMA}:
         source_fields.add("manager_role_workspace")
     if (
         not isinstance(sources, dict)
@@ -664,6 +862,8 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         expected_artifact_keys = V3_ARTIFACT_KEYS
     elif schema == V4_BACKUP_SCHEMA:
         expected_artifact_keys = V4_ARTIFACT_KEYS
+    elif schema == V5_BACKUP_SCHEMA:
+        expected_artifact_keys = V5_ARTIFACT_KEYS
     else:
         expected_artifact_keys = CURRENT_ARTIFACT_KEYS
     if set(artifacts) != expected_artifact_keys:
@@ -689,6 +889,8 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
             raise BackupError(f"Invalid backup artifact size: {artifact_name}")
         if artifact_name == "completion_act_forms" and size_bytes > COMPLETION_ACT_FORMS_MAX_BYTES:
             raise BackupError("Completion act drafts backup exceeds the bounded size")
+        if artifact_name == "cashbox_receipts" and size_bytes > CASHBOX_RECEIPTS_MAX_BYTES:
+            raise BackupError("Cashbox receipt backup exceeds the bounded size")
         if artifact_name == "manager_structure" and size_bytes > MANAGER_STRUCTURE_MAX_BYTES:
             raise BackupError("Manager structure backup exceeds the bounded size")
         if artifact_name == "manager_role_workspace":
@@ -704,7 +906,11 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         ):
             raise BackupError(f"Invalid backup artifact hash: {artifact_name}")
         if "restore_metadata" in metadata:
-            _validated_restore_metadata(metadata["restore_metadata"], label=artifact_name)
+            restore_metadata = _validated_restore_metadata(
+                metadata["restore_metadata"], label=artifact_name
+            )
+            if artifact_name == "cashbox_receipts" and restore_metadata["mode"] != 0o700:
+                raise BackupError("Cashbox receipt backup directory permissions are not private")
 
     if schema != BACKUP_SCHEMA:
         # Older release backups predate one or both optional CRM runtime
@@ -716,6 +922,7 @@ def _load_manifest(backup_dir: Path) -> dict[str, Any]:
         normalized_artifacts.setdefault("completion_act_forms", None)
         normalized_artifacts.setdefault("manager_structure", None)
         normalized_artifacts.setdefault("manager_role_workspace", None)
+        normalized_artifacts.setdefault("cashbox_receipts", None)
         manifest["artifacts"] = normalized_artifacts
     return manifest
 
@@ -748,6 +955,7 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
             raise BackupError("CRM state backup is not a JSON object")
     if manifest["artifacts"]["manager_structure"] is not None:
         _manager_structure_bytes(backup_dir / MANAGER_STRUCTURE_BACKUP_NAME)
+    _load_cashbox_receipt_backup(backup_dir, manifest["artifacts"]["cashbox_receipts"])
     if manifest["artifacts"]["manager_role_workspace"] is not None:
         try:
             verify_workspace_snapshot(backup_dir / ROLE_WORKSPACE_BACKUP_NAME)
@@ -807,12 +1015,7 @@ def _restore_file_atomic(
         temp_path = Path(raw_temp_path)
         try:
             shutil.copyfile(source, temp_path)
-            chown = getattr(os, "chown", None)
-            if chown is not None:
-                chown(temp_path, effective_metadata["uid"], effective_metadata["gid"])
-            elif os.name == "posix":  # pragma: no cover - POSIX always exposes os.chown
-                raise BackupError("POSIX restore cannot apply file ownership")
-            os.chmod(temp_path, effective_metadata["mode"])
+            _apply_restore_metadata(temp_path, effective_metadata)
             _fsync_file(temp_path)
             os.replace(temp_path, destination)
         finally:
@@ -864,18 +1067,24 @@ def restore_crm_state_and_feed(backup_dir: Path) -> dict[str, Any]:
     state_source = backup_dir / STATE_BACKUP_NAME
     state_destination = crm_data_dir / "state.json"
     state_metadata = manifest["artifacts"]["state"].get("restore_metadata")
-    if (
-        not state_destination.is_file()
-        or _sha256(state_destination) != _sha256(state_source)
-        or not _restore_metadata_matches(state_destination, state_metadata)
-    ):
-        _restore_file_atomic(
-            state_source,
-            state_destination,
-            restore_metadata=state_metadata,
-            lock_path=state_destination.with_suffix(".lock"),
-        )
-        restored.append("state")
+    receipt_rows, receipt_metadata = _load_cashbox_receipt_backup(
+        backup_dir, manifest["artifacts"]["cashbox_receipts"]
+    )
+    state_lock = ProcessFileLock(state_destination.with_suffix(".lock"), timeout_seconds=30.0)
+    with state_lock.acquire():
+        if _restore_cashbox_receipt_store(state_destination, receipt_rows, receipt_metadata):
+            restored.append("cashbox_receipts")
+        if (
+            not state_destination.is_file()
+            or _sha256(state_destination) != _sha256(state_source)
+            or not _restore_metadata_matches(state_destination, state_metadata)
+        ):
+            _restore_file_atomic(
+                state_source,
+                state_destination,
+                restore_metadata=state_metadata,
+            )
+            restored.append("state")
 
     structure_destination = crm_data_dir / MANAGER_STRUCTURE_BACKUP_NAME
     structure_metadata = manifest["artifacts"]["manager_structure"]
@@ -1066,10 +1275,15 @@ def compare_current_protected_state(backup_dir: Path) -> dict[str, Any]:
     changed: list[str] = []
     state_source = backup_dir / STATE_BACKUP_NAME
     state_current = crm_data_dir / "state.json"
+    expected_receipts = _load_cashbox_receipt_backup(
+        backup_dir, manifest["artifacts"]["cashbox_receipts"]
+    )
     state_lock = ProcessFileLock(state_current.with_suffix(".lock"), timeout_seconds=30.0)
     with state_lock.acquire():
         if not state_current.is_file() or _sha256(state_current) != _sha256(state_source):
             changed.append("state")
+        if _read_cashbox_receipt_store(state_current) != expected_receipts:
+            changed.append("cashbox_receipts")
 
     with tempfile.TemporaryDirectory(prefix="autostop-release-compare-") as temp_dir:
         temp_root = Path(temp_dir)

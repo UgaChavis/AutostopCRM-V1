@@ -817,8 +817,10 @@ the normalized bundle, not the original malformed storage bytes.
 The browser checks the current operator profile on visible board polls,
 at most once per 30 seconds, and immediately when the page becomes visible.
 With a responsive server, new rights appear within 45 seconds on a visible
-page. Profile refresh failure leaves the last known UI state and is retried
-on later polls; the server always checks current permissions on requests.
+page. A route that rejects a required operator permission returns HTTP 403
+with its name in `error.details.permission`. The browser immediately hides
+the affected data and requests a fresh profile. An ordinary profile read
+failure leaves the last known UI state and is retried on later polls.
 `save_operator_user` preserves permissions when `permissions` is omitted,
 including password changes. The UI permission editor sends
 `expected_permissions` from its initial read. A concurrent permission change
@@ -897,6 +899,15 @@ unrelated password or employee-binding changes do not conflict.
   Existing receipts only advance. Without the flag, an empty or omitted ID
   retains the default of acknowledging the latest movement.
   Movements made by the same operator do not become unread notifications.
+  When the private receipt is temporarily unavailable, an authorized
+  `list_cashboxes` can still return financial data with `notification: null`
+  and `meta.notification_unavailable: true`. Keep the last known indicator
+  and fetch it again before acknowledging a boundary. Reference-only callers
+  continue to receive `notification: null` without access to personal receipts.
+  If the state changes before a new receipt is committed, the acknowledgement
+  returns HTTP 409 (`state_write_conflict`). A private storage failure returns
+  HTTP 503 (`cashbox_notification_unavailable`). Read the current summary to
+  reconcile the receipt after either error or a lost reply.
 - `/api/create_employee_shift_accrual` records a non-cash payroll accrual and
   does not change a cashbox.
 - `POST /api/reset_employee_salary_balance` records an immutable non-cash

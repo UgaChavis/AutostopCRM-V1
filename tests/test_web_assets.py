@@ -3541,7 +3541,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("async function loginOperator()", BOARD_WEB_APP_HTML)
         self.assertIn("function handleIdentityInputKeydown(event)", BOARD_WEB_APP_HTML)
         self.assertIn("function handleIdentityPasswordKeydown(event)", BOARD_WEB_APP_HTML)
-        self.assertIn("async function loadOperatorProfile(openModal = false,", BOARD_WEB_APP_HTML)
+        self.assertIn("async function loadOperatorProfile({ fresh = false,", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorWorkspace()", BOARD_WEB_APP_HTML)
         self.assertIn("async function openOperatorAdminModal()", BOARD_WEB_APP_HTML)
         self.assertIn("async function saveOperatorUser()", BOARD_WEB_APP_HTML)
@@ -4804,7 +4804,7 @@ class WebAssetsTests(unittest.TestCase):
             "abortCashboxesLoad();\n          clearCashboxNotificationHighlights();",
             BOARD_WEB_APP_HTML,
         )
-        self.assertIn("signal: loadContext.controller.signal", BOARD_WEB_APP_HTML)
+        self.assertIn("readController: loadContext.controller", BOARD_WEB_APP_HTML)
         self.assertIn("if (!isCurrentCashboxesLoad(loadContext)) return null;", BOARD_WEB_APP_HTML)
         self.assertIn(
             "els.cashboxDetailTitle.textContent = 'ЗАГРУЖАЮ КАССЫ...';", BOARD_WEB_APP_HTML
@@ -5166,7 +5166,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn(
             "function captureCashboxNotificationHighlights(notification)", BOARD_WEB_APP_HTML
         )
-        self.assertIn("async function refreshCashboxNotification()", BOARD_WEB_APP_HTML)
+        self.assertIn("async function refreshCashboxNotification(", BOARD_WEB_APP_HTML)
         self.assertIn("'/api/mark_cashbox_notifications_seen'", BOARD_WEB_APP_HTML)
         self.assertIn('data-cashbox-notification-tone="income"', BOARD_WEB_APP_HTML)
         self.assertIn('data-cashbox-notification-tone="transfer"', BOARD_WEB_APP_HTML)

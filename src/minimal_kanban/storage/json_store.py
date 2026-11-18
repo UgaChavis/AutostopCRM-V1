@@ -7,7 +7,7 @@ import shutil
 import sys
 import time
 from collections.abc import Callable, Iterable
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import fields
 from datetime import timedelta
@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 from logging import Logger
 from pathlib import Path
 from threading import RLock
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import orjson
@@ -40,6 +40,7 @@ from ..models import (
     InventoryMovement,
     StickyNote,
     normalize_text,
+    parse_business_datetime,
     parse_datetime,
     utc_now,
 )
@@ -54,6 +55,7 @@ from ..repair_order import (
 from ..services.parts_store_column import ensure_parts_store_column
 from ..services.ready_column import ensure_ready_column
 from ..texts import COLUMN_LABELS_RU
+from .cashbox_receipts import CashboxReceiptStore, normalize_legacy_cashbox_receipts
 from .change_feed_projection import cached_crm_source_signatures
 from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
@@ -355,6 +357,12 @@ class StateWriteConflictError(RuntimeError):
     """Raised when a cached bundle no longer matches the on-disk state."""
 
 
+class CashboxReceiptState(NamedTuple):
+    signature: tuple[int, int, int, int, int]
+    transactions: tuple[CashTransaction, ...]
+    legacy_receipts: dict[str, dict[str, str]]
+
+
 class JsonStore:
     def close(self) -> None:
         """Release this store's idle SQLite keeper without changing persisted data."""
@@ -369,6 +377,9 @@ class JsonStore:
         self._process_lock = ProcessFileLock(
             self._state_file.with_suffix(".lock"), metric_name="file_lock"
         )
+        self.cashbox_receipts = CashboxReceiptStore(self._state_file)
+        self._cashbox_receipt_snapshot_lock = RLock()
+        self._cashbox_receipt_snapshot: CashboxReceiptState | None = None
         self._change_feed_store = ChangeFeedStore(self._state_file.with_name("change_feed.sqlite3"))
         self._change_feed_initialized = False
         self._change_feed_state_signature: tuple[int, int, int, int] | None = None
@@ -441,6 +452,55 @@ class JsonStore:
 
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
+
+    def read_cashbox_receipt_state(self) -> CashboxReceiptState:
+        """Capture a checked committed ledger without state or change-feed repairs."""
+        with self._cashbox_receipt_snapshot_lock:
+            guard = self._process_lock.acquire() if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext()
+            with guard:
+                signature = self._repair_order_file_signature()
+                if signature is None:
+                    raise StateFileCorruptedError("Файл состояния отсутствует.")
+                cached = self._cashbox_receipt_snapshot
+                if not _SNAPSHOT_REQUIRES_FILE_LOCK and cached and cached.signature == signature:
+                    return cached
+                try:
+                    raw_state = self._read_state_text()
+                except FileNotFoundError as exc:
+                    raise StateWriteConflictError("Cashbox receipt state was replaced.") from exc
+                except (ValueError, UnicodeError) as exc:
+                    raise StateFileCorruptedError("Файл состояния поврежден.") from exc
+            try:
+                state = self._decode_state(raw_state)
+                validate_state_shape(state)
+                _validate_raw_financial_references(state)
+                _validate_cash_transaction_ids(state)
+                rows = state.get("cash_transactions", [])
+                if any(parse_business_datetime(row.get("created_at")) is None for row in rows):
+                    raise ValueError("Cash transaction has no valid stored date.")
+                transactions, repaired = self._normalize_cash_transactions(state)
+                if repaired:
+                    raise ValueError("Cash transaction data requires repair.")
+            except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+                raise StateFileCorruptedError("Данные кассовых движений повреждены.") from exc
+            if self._repair_order_file_signature() != signature:
+                raise StateWriteConflictError("Cashbox receipt state was replaced.")
+            snapshot = CashboxReceiptState(
+                signature,
+                tuple(transactions),
+                normalize_legacy_cashbox_receipts(state.get("settings", {})),
+            )
+            if not _SNAPSHOT_REQUIRES_FILE_LOCK:
+                self._cashbox_receipt_snapshot = snapshot
+            return snapshot
+
+    @contextmanager
+    def fence_cashbox_receipt_state(self, signature: tuple[int, int, int, int, int]):
+        """Fence the already prepared receipt replacement against state writers."""
+        with self._lock, self._process_lock.acquire():
+            if self._repair_order_file_signature() != signature:
+                raise StateWriteConflictError("Cashbox receipt state was replaced.")
+            yield
 
     def _read_context_bundle_snapshot(self, *, domains):
         """Return a private snapshot for read-only service code; never mutate its models."""
@@ -1296,17 +1356,7 @@ class JsonStore:
                 raise FileNotFoundError("Файл состояния отсутствует.")
             return deepcopy(DEFAULT_STATE)
         try:
-            payload = json.loads(
-                self._read_state_text(),
-                parse_constant=_reject_json_constant,
-            )
-            # json.loads returns only native containers; avoid traversing every
-            # scalar while keeping the same depth limit for untrusted state.
-            from .readonly_context_snapshot import reject_deeply_nested_native_json
-
-            reject_deeply_nested_native_json(payload)
-            if not isinstance(payload, dict):
-                raise ValueError("state file must contain an object")
+            payload = self._decode_state(self._read_state_text())
             if preserve_corrupted:
                 # Full normalization/feed publication may write every domain.
                 # Read-only snapshots validate just their requested domains and
@@ -1328,6 +1378,17 @@ class JsonStore:
             _validate_raw_financial_references(payload)
             _validate_cash_transaction_ids(payload)
             self._validated_state_signature = self._state_signature()
+        return payload
+
+    @staticmethod
+    def _decode_state(raw_state: str) -> dict:
+        from .readonly_context_snapshot import reject_deeply_nested_native_json
+
+        payload = json.loads(raw_state, parse_constant=_reject_json_constant)
+        # Native containers need only the depth guard before domain validation.
+        reject_deeply_nested_native_json(payload)
+        if not isinstance(payload, dict):
+            raise ValueError("state file must contain an object")
         return payload
 
     def _read_state_text(self) -> str:

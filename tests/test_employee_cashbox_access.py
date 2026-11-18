@@ -571,6 +571,9 @@ class EmployeeCashboxAccessApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
         self.assertEqual(denied["error"]["code"], "forbidden")
+        self.assertEqual(
+            denied["error"]["details"]["permission"], EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
+        )
         status, listed = self.api.request(
             "/api/list_cashboxes", method="GET", headers=self.allowed_headers
         )

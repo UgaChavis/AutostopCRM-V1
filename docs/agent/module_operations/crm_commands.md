@@ -72,6 +72,7 @@ needed. The code and runbook, not this summary, define exact thresholds.
 | `scripts/client_data_quality_maintenance.py [--apply]`, `scripts/client_duplicates_maintenance.py [--apply --backup]` | Private CRM report / W apply. Historical data changes need separate scope and backup. |
 | `scripts/clear_financial_history.py [--apply --backup]` | X: destructive finance maintenance; excluded from ordinary release. |
 | `scripts/apply_payroll_policy_2026_07_13.py [--apply]`, `scripts/normalize_cashboxes_after_safe_fix.py`, `scripts/migrate_repair_order_cycles.py [--apply]` | W/X: one-off historical migration/correction; separate approved window and rollback evidence. |
+| `scripts/migrate_cashbox_receipts.py --state-file PATH [--direction to-private\|to-legacy] [--apply]` | R for preview, W for the offline move or downgrade of cashbox viewing positions. See [cashbox viewing receipts](../../OPERATIONS_RUNBOOK.md#cashbox-viewing-receipts). |
 | `scripts/compact_audit_events.py`, `scripts/operator_activity_maintenance.py [--apply --backup]` | Private audit/retention maintenance; inspect exact parser and backup gate before mutation. |
 
 Do not infer that a no-argument invocation is dry-run. Read each parser and the

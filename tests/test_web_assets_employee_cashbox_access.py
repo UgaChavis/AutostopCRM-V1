@@ -90,7 +90,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
 
     def test_background_fetch_and_mobile_more_do_not_open_protected_workspaces(self) -> None:
         notification = _asset_section(
-            "async function refreshCashboxNotification()",
+            "async function refreshCashboxNotification(",
             "function syncCashboxInList(",
         )
         self.assertIn("if (!operatorCanAccessEmployeesCashboxes())", notification)
@@ -122,7 +122,7 @@ class EmployeeCashboxAccessWebAssetTests(unittest.TestCase):
             "async function openOperatorWorkspace()",
         )
         self.assertIn("requestSessionToken !== state.operatorSessionToken", refresh_helper)
-        self.assertIn("loadOperatorProfile(false, { fresh: true })", refresh_helper)
+        self.assertIn("loadOperatorProfile({ fresh: true })", refresh_helper)
 
     def test_admin_editor_preserves_all_registered_permissions(self) -> None:
         self.assertIn(

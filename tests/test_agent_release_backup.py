@@ -110,6 +110,164 @@ class AgentReleaseBackupTests(unittest.TestCase):
             "receipts": {},
         }
 
+    def _cashbox_receipt_fixture(self, crm_data: Path, actor: str, transaction: str) -> Path:
+        directory = self.module.cashbox_receipt_directory(crm_data / "state.json")
+        directory.mkdir(mode=0o700, exist_ok=True)
+        filename = hashlib.sha256(actor.encode("utf-8")).hexdigest() + ".json"
+        path = directory / filename
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "actor_key": actor,
+                    "transaction_id": transaction,
+                    "created_at": "2026-11-01T01:00:00+00:00" if transaction else "",
+                }
+            ),
+            encoding="utf-8",
+        )
+        path.chmod(0o600)
+        return path
+
+    def test_cashbox_receipt_backup_restores_changed_rows_and_fresh_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            crm_data, manager_db, output_root = self._fixture(root)
+            (crm_data / self.module.CHANGE_FEED_BACKUP_NAME).unlink()
+            original = self._cashbox_receipt_fixture(crm_data, "synthetic-owner", "SYNTHETIC-1")
+            empty = self._cashbox_receipt_fixture(crm_data, "synthetic-empty", "")
+            original_rows = {
+                path.name: json.loads(path.read_text(encoding="utf-8"))
+                for path in (original, empty)
+            }
+            lock = original.with_suffix(".lock")
+            lock.touch()
+            temporary = original.with_name(f".{original.stem}.{'a' * 32}.tmp")
+            temporary.write_text("not a committed row", encoding="utf-8")
+
+            created = self.module.create_backup(
+                output_root=output_root, crm_data_dir=crm_data, manager_db=manager_db
+            )
+            backup = Path(created["backup_dir"])
+            self.assertIn(
+                "cashbox_receipts", self.module.verify_backup(backup)["verified_artifacts"]
+            )
+            receipt_backup = backup / self.module.CASHBOX_RECEIPTS_BACKUP_NAME
+            self.assertEqual(json.loads(receipt_backup.read_text(encoding="utf-8")), original_rows)
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(receipt_backup.stat().st_mode), 0o600)
+
+            self._cashbox_receipt_fixture(crm_data, "synthetic-owner", "SYNTHETIC-2")
+            orphan = self._cashbox_receipt_fixture(crm_data, "synthetic-new", "SYNTHETIC-3")
+            self.assertEqual(
+                self.module.compare_current_protected_state(backup)["changed_artifacts"],
+                ["cashbox_receipts"],
+            )
+            original.write_text("corrupt replacement", encoding="utf-8")
+            self.assertEqual(
+                self.module.restore_crm_state_and_feed(backup)["restored"], ["cashbox_receipts"]
+            )
+            self.assertFalse(orphan.exists())
+            self.assertTrue(lock.exists())
+            self.assertTrue(temporary.exists())
+            self.assertEqual(
+                json.loads(original.read_text(encoding="utf-8")), original_rows[original.name]
+            )
+
+            original.parent.rename(crm_data / "receipt-store-before-fresh-restore")
+            self.assertEqual(
+                self.module.restore_crm_state_and_feed(backup)["restored"], ["cashbox_receipts"]
+            )
+            self.assertEqual({path.name for path in original.parent.iterdir()}, set(original_rows))
+            self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(original.parent.stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(original.stat().st_mode), 0o600)
+
+    def test_cashbox_receipt_absence_in_current_and_v5_backups_removes_candidate_rows(self) -> None:
+        for schema in (self.module.BACKUP_SCHEMA, self.module.V5_BACKUP_SCHEMA):
+            with self.subTest(schema=schema), tempfile.TemporaryDirectory() as temp_dir:
+                crm_data, manager_db, output_root = self._fixture(Path(temp_dir))
+                (crm_data / self.module.CHANGE_FEED_BACKUP_NAME).unlink()
+                created = self.module.create_backup(
+                    output_root=output_root, crm_data_dir=crm_data, manager_db=manager_db
+                )
+                backup = Path(created["backup_dir"])
+                self.assertIsNone(created["artifacts"]["cashbox_receipts"])
+                if schema == self.module.V5_BACKUP_SCHEMA:
+                    manifest_path = backup / self.module.MANIFEST_NAME
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest["schema"] = schema
+                    manifest["artifacts"].pop("cashbox_receipts")
+                    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                self.assertTrue(self.module.verify_backup(backup)["ok"])
+                orphan = self._cashbox_receipt_fixture(crm_data, "synthetic-next", "SYNTHETIC-3")
+                self.assertEqual(
+                    self.module.compare_current_protected_state(backup)["changed_artifacts"],
+                    ["cashbox_receipts"],
+                )
+                self.assertEqual(
+                    self.module.restore_crm_state_and_feed(backup)["restored"], ["cashbox_receipts"]
+                )
+                self.assertFalse(orphan.exists())
+                self.assertTrue(self.module.compare_current_protected_state(backup)["ok"])
+
+    def test_cashbox_receipt_backup_verifies_row_hash_and_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            crm_data, manager_db, output_root = self._fixture(Path(temp_dir))
+            row = self._cashbox_receipt_fixture(crm_data, "synthetic-owner", "SYNTHETIC-1")
+            created = self.module.create_backup(
+                output_root=output_root, crm_data_dir=crm_data, manager_db=manager_db
+            )
+            backup = Path(created["backup_dir"])
+            artifact = backup / self.module.CASHBOX_RECEIPTS_BACKUP_NAME
+            if os.name != "nt":
+                artifact.chmod(0o644)
+                with self.assertRaisesRegex(self.module.BackupError, "permissions are not private"):
+                    self.module.verify_backup(backup)
+                artifact.chmod(0o600)
+            manifest_path = backup / self.module.MANIFEST_NAME
+            metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+            invalid = json.loads(artifact.read_text(encoding="utf-8"))
+            invalid[row.name]["actor_key"] = "synthetic-different-actor"
+            artifact.write_text(json.dumps(invalid), encoding="utf-8")
+            metadata["artifacts"]["cashbox_receipts"].update(
+                size_bytes=artifact.stat().st_size,
+                sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            )
+            manifest_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+            with self.assertRaisesRegex(self.module.BackupError, "valid row map"):
+                self.module.verify_backup(backup)
+            with self.assertRaisesRegex(self.module.BackupError, "valid row map"):
+                self.module.restore_crm_state_and_feed(backup)
+            self.assertEqual(
+                json.loads(row.read_text(encoding="utf-8"))["actor_key"], "synthetic-owner"
+            )
+
+    def test_cashbox_receipt_backup_uses_same_state_file_lock_as_state_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            crm_data, manager_db, output_root = self._fixture(Path(temp_dir))
+            self._cashbox_receipt_fixture(crm_data, "synthetic-owner", "SYNTHETIC-1")
+            copy_receipts = self.module._read_cashbox_receipt_store
+
+            def inspect_state_lock(state_file):
+                competitor = self.module.ProcessFileLock(
+                    state_file.with_suffix(".lock"), timeout_seconds=0
+                )
+                with self.assertRaises(TimeoutError), competitor.acquire():
+                    pass
+                return copy_receipts(state_file)
+
+            with patch.object(
+                self.module, "_read_cashbox_receipt_store", side_effect=inspect_state_lock
+            ):
+                result = self.module.create_backup(
+                    output_root=output_root, crm_data_dir=crm_data, manager_db=manager_db
+                )
+            self.assertTrue(self.module.verify_backup(Path(result["backup_dir"]))["ok"])
+
     def test_role_workspace_snapshot_verifies_and_rollback_preserves_new_records(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -173,6 +331,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["schema"] = self.module.V4_BACKUP_SCHEMA
             manifest["artifacts"].pop("manager_role_workspace")
+            manifest["artifacts"].pop("cashbox_receipts")
             manifest["sources"].pop("manager_role_workspace")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             self.assertIsNone(
@@ -306,6 +465,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["schema"] = self.module.V3_BACKUP_SCHEMA
             manifest["artifacts"].pop("manager_structure")
             manifest["artifacts"].pop("manager_role_workspace")
+            manifest["artifacts"].pop("cashbox_receipts")
             manifest["sources"].pop("manager_role_workspace")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -704,6 +864,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["artifacts"].pop("completion_act_forms")
             manifest["artifacts"].pop("manager_structure")
             manifest["artifacts"].pop("manager_role_workspace")
+            manifest["artifacts"].pop("cashbox_receipts")
             manifest["sources"].pop("manager_role_workspace")
             for artifact_name in ("state", "manager_sqlite"):
                 manifest["artifacts"][artifact_name].pop("restore_metadata")
@@ -769,6 +930,7 @@ class AgentReleaseBackupTests(unittest.TestCase):
             manifest["artifacts"].pop("completion_act_forms")
             manifest["artifacts"].pop("manager_structure")
             manifest["artifacts"].pop("manager_role_workspace")
+            manifest["artifacts"].pop("cashbox_receipts")
             manifest["sources"].pop("manager_role_workspace")
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 

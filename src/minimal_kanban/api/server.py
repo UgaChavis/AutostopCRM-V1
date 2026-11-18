@@ -1416,6 +1416,7 @@ class AuthenticationPolicy:
                 status=HTTPStatus.FORBIDDEN,
                 code="forbidden",
                 message="Нет права на это действие.",
+                permission=required_permission,
             )
             return None
         if route in self._admin_only_routes:
@@ -1554,13 +1555,17 @@ class AuthenticationPolicy:
         status: HTTPStatus,
         code: str,
         message: str,
+        permission: str = "",
     ) -> None:
+        details = {"auth_type": "operator_session"}
+        if permission:
+            details["permission"] = permission
         handler._send_error_response(
             request_id,
             status,
             code,
             message,
-            {"auth_type": "operator_session"},
+            details,
         )
 
 

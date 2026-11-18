@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -28,6 +29,8 @@ from ..repair_order import (
     RepairOrderPayment,
     RepairOrderRow,
 )
+from ..storage.cashbox_receipts import CashboxReceiptStoreError, cashbox_receipt_key
+from ..storage.json_store import StateWriteConflictError
 from .card_service_cash_journal import CardServiceCashJournalMixin
 from .card_service_cashbox_cancellation import (
     _CASH_TRANSACTION_KIND_CANCELLATION,
@@ -40,7 +43,6 @@ from .finance_audit_payment_fixes import (
     payment_kind_safe_fixes,
     payment_protected_transaction_ids,
 )
-from .finance_read_core import CASHBOX_NOTIFICATION_SEEN_SETTING_KEY
 from .payroll_constants import EMPLOYEE_SHIFT_ACCRUAL_NOTE
 
 EMPLOYEES_SETTING_KEY = "employees"
@@ -66,63 +68,62 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         return self._finance_read_core.get_finance_audit(payload)
 
     def mark_cashbox_notifications_seen(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            actor_name = normalize_actor_name(payload.get("actor_name"), default="")
-            if not actor_name:
-                self._fail(
-                    "validation_error",
-                    "Нужно определить пользователя, который просмотрел кассы.",
-                    details={"field": "actor_name"},
-                )
-            requested_transaction_id = normalize_text(
-                payload.get("through_transaction_id"), default=""
+        payload = payload or {}
+        actor_key = normalize_actor_name(payload.get("actor_name"), default="").casefold()
+        if not actor_key:
+            self._fail(
+                "validation_error",
+                "Нужно определить пользователя, который просмотрел кассы.",
+                details={"field": "actor_name"},
             )
-            exact_boundary = self._validated_optional_bool(payload, "exact_boundary", default=False)
-            bundle = self._read_bundle_for_update()
-            transactions = bundle["cash_transactions"]
+        requested_transaction_id = normalize_text(payload.get("through_transaction_id"), default="")
+        exact_boundary = self._validated_optional_bool(payload, "exact_boundary", default=False)
+        try:
+            snapshot = self._store.read_cashbox_receipt_state()
             through_transaction = None
             if requested_transaction_id:
                 through_transaction = self._find_cash_transaction(
-                    transactions, requested_transaction_id, exact_only=exact_boundary
+                    snapshot.transactions, requested_transaction_id, exact_only=exact_boundary
                 )
+                if through_transaction is None:
+                    self._fail(
+                        "not_found",
+                        "Движение кассы для отметки прочтения не найдено.",
+                        status_code=404,
+                        details={"through_transaction_id": requested_transaction_id},
+                    )
             elif not exact_boundary:
-                through_transaction = self._cashbox_notification_latest_transaction(transactions)
-            if requested_transaction_id and through_transaction is None:
-                self._fail(
-                    "not_found",
-                    "Движение кассы для отметки прочтения не найдено.",
-                    status_code=404,
-                    details={"through_transaction_id": requested_transaction_id},
+                through_transaction = self._cashbox_notification_latest_transaction(
+                    snapshot.transactions
                 )
-            settings = dict(bundle["settings"])
-            seen_by_users = self._cashbox_notification_seen_by_users(settings)
-            actor_key = actor_name.casefold()
-            current_receipt = seen_by_users.get(actor_key)
             next_receipt = self._cashbox_notification_receipt(through_transaction)
-            changed = current_receipt is None or self._cashbox_notification_receipt_key(
-                next_receipt
-            ) > self._cashbox_notification_receipt_key(current_receipt)
-            if changed:
-                seen_by_users[actor_key] = next_receipt
-                settings[CASHBOX_NOTIFICATION_SEEN_SETTING_KEY] = seen_by_users
-                bundle["settings"] = settings
-                self._save_bundle(
-                    bundle,
-                    columns=bundle["columns"],
-                    cards=bundle["cards"],
-                    cashboxes=bundle["cashboxes"],
-                    cash_transactions=transactions,
-                    events=bundle["events"],
-                    settings=settings,
-                )
-            return {
-                "notification": self._cashbox_notification_summary(bundle, payload),
-                "meta": {
-                    "changed": changed,
-                    "through_transaction_id": str(next_receipt.get("transaction_id") or ""),
-                },
-            }
+            changed, effective_receipt = self._store.cashbox_receipts.advance(
+                actor_key,
+                next_receipt,
+                legacy_receipt=snapshot.legacy_receipts.get(actor_key),
+                publish_fence=lambda: self._store.fence_cashbox_receipt_state(snapshot.signature),
+            )
+        except StateWriteConflictError:
+            self._fail(
+                "state_write_conflict",
+                "Движения кассы изменились. Обновите кассы и повторите действие.",
+                status_code=409,
+            )
+        except CashboxReceiptStoreError:
+            self._fail(
+                "cashbox_notification_unavailable",
+                "Не удалось сохранить отметку просмотра касс.",
+                status_code=503,
+            )
+        return {
+            "notification": self._cashbox_notification_summary(
+                snapshot.transactions, actor_key, effective_receipt
+            ),
+            "meta": {
+                "changed": changed,
+                "through_transaction_id": next_receipt["transaction_id"],
+            },
+        }
 
     def apply_finance_audit_safe_fixes(self, payload: dict | None = None) -> dict:
         with self._lock:
@@ -2359,16 +2360,6 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             transaction.id,
         )
 
-    def _cashbox_notification_receipt_key(self, receipt: object) -> tuple[datetime, str]:
-        if not isinstance(receipt, dict):
-            return datetime.min.replace(tzinfo=business_timezone()), ""
-        return (
-            self._cash_transaction_business_sortable_datetime(
-                normalize_text(receipt.get("created_at"), default="", limit=80)
-            ),
-            normalize_text(receipt.get("transaction_id"), default="", limit=128),
-        )
-
     def _cashbox_notification_receipt(self, transaction: CashTransaction | None) -> dict[str, str]:
         if transaction is None:
             return {"transaction_id": "", "created_at": ""}
@@ -2377,27 +2368,8 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
             "created_at": transaction.created_at,
         }
 
-    def _cashbox_notification_seen_by_users(
-        self, settings: dict[str, Any]
-    ) -> dict[str, dict[str, str]]:
-        raw_seen = settings.get(CASHBOX_NOTIFICATION_SEEN_SETTING_KEY)
-        if not isinstance(raw_seen, dict):
-            return {}
-        normalized: dict[str, dict[str, str]] = {}
-        for raw_actor, raw_receipt in raw_seen.items():
-            actor_key = normalize_actor_name(raw_actor, default="").casefold()
-            if not actor_key or not isinstance(raw_receipt, dict):
-                continue
-            normalized[actor_key] = {
-                "transaction_id": normalize_text(
-                    raw_receipt.get("transaction_id"), default="", limit=128
-                ),
-                "created_at": normalize_text(raw_receipt.get("created_at"), default="", limit=80),
-            }
-        return normalized
-
     def _cashbox_notification_latest_transaction(
-        self, transactions: list[CashTransaction]
+        self, transactions: Sequence[CashTransaction]
     ) -> CashTransaction | None:
         if not transactions:
             return None
@@ -2409,16 +2381,13 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
         return "expense" if transaction.direction == "expense" else "income"
 
     def _cashbox_notification_summary(
-        self, bundle: dict[str, Any], payload: dict | None = None
+        self,
+        transactions: Sequence[CashTransaction],
+        actor_key: str,
+        receipt: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        payload = payload or {}
-        actor_name = normalize_actor_name(payload.get("actor_name"), default="")
-        transactions = list(bundle.get("cash_transactions") or [])
         latest_transaction = self._cashbox_notification_latest_transaction(transactions)
         through_transaction_id = latest_transaction.id if latest_transaction else ""
-        seen_by_users = self._cashbox_notification_seen_by_users(bundle.get("settings") or {})
-        actor_key = actor_name.casefold()
-        receipt = seen_by_users.get(actor_key) if actor_key else None
         if receipt is None:
             return {
                 "initialized": False,
@@ -2430,7 +2399,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
                 "through_transaction_id": through_transaction_id,
             }
 
-        receipt_key = self._cashbox_notification_receipt_key(receipt)
+        receipt_key = cashbox_receipt_key(receipt)
         unseen = [
             transaction
             for transaction in transactions
@@ -2470,7 +2439,7 @@ class CardServiceFinanceMixin(CardServiceCashJournalMixin):
 
     def _find_cash_transaction(
         self,
-        transactions: list[CashTransaction],
+        transactions: Sequence[CashTransaction],
         transaction_id: str | None,
         *,
         exact_only: bool = False,

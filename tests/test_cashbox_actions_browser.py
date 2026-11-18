@@ -9,6 +9,33 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 
 class CashboxActionsBrowserTests(UiBrowserTestCase):
+    def test_unavailable_notification_keeps_known_indicator_when_cashboxes_open(self) -> None:
+        self.load_board()
+        self.page.wait_for_function(
+            "!state.cashboxNotificationRefreshPromise && !state.cashboxNotificationSeenPromise"
+        )
+        self.page.evaluate(
+            """applyCashboxNotification({
+                initialized: true, has_unread: true, unread_count: 2, tone: 'income',
+            });"""
+        )
+        self.writes.clear()
+
+        def with_unavailable_notification(route):
+            response = route.fetch()
+            payload = response.json()
+            payload["data"]["notification"] = None
+            payload["data"]["meta"]["notification_unavailable"] = True
+            route.fulfill(response=response, json=payload)
+
+        self.page.route("**/api/list_cashboxes?limit=200", with_unavailable_notification)
+        button = self.page.locator("#cashboxesButton")
+        button.click()
+        self.page.locator("#cashboxesList [data-cashbox-id]").first.wait_for()
+        self.page.wait_for_function("!state.cashboxesLoadController")
+        self.assertEqual(button.get_attribute("data-cashbox-notification-tone"), "income")
+        self.assertNotIn("mark_cashbox_notifications_seen", self.writes)
+
     def test_cashbox_ack_waits_until_movements_are_visible_on_desktop_and_mobile(self) -> None:
         detail_path = "**/api/get_cashbox?**"
         ack_path = "**/api/mark_cashbox_notifications_seen"

@@ -47,13 +47,81 @@ class BoardPollingBrowserTests(UiBrowserTestCase):
                 }
             )
         advance_board_poll()
-        advance_board_poll()
         self.assertEqual(len(receipts), 1)
         self.assertEqual(len(cash_reads), 1)
-        receipts[0].fulfill(json={"ok": True, "data": {"notification": {"initialized": True}}})
+        advance_board_poll()
+        self.page.wait_for_function("!state.cashboxNotificationSeenPromise")
+        self.assertEqual(len(receipts), 1)
+        self.assertEqual(len(cash_reads), 2, "polling must resume after the receipt times out")
+        receipts.pop().abort("failed")
+        cash_reads[1].fulfill(json={"ok": True, "data": {"notification": {"initialized": True}}})
         self.page.wait_for_function(
             "!state.cashboxNotificationSeenPromise && state.cashboxNotification?.initialized === true"
         )
+
+    def test_profile_shell_opens_during_background_load_and_late_read_cannot_reopen_it(
+        self,
+    ) -> None:
+        self.load_board()
+        profile_path = "**/api/get_operator_profile"
+        held = []
+        self.page.route(profile_path, lambda route: held.append(route))
+        modal = self.page.locator("#operatorProfileModal")
+        with self.page.expect_request(profile_path):
+            self.page.evaluate("void loadOperatorProfile()")
+        self.page.locator("#operatorButton").click()
+        self.assertTrue(modal.is_visible())
+        self.assertEqual(modal.get_attribute("aria-busy"), "true")
+        self.assertIn("ЗАГРУЗКА ПРОФИЛЯ", self.page.locator("#operatorProfileMeta").inner_text())
+        self.assertEqual(len(held), 1)
+
+        self.page.locator('#operatorProfileModal [data-close="operator-profile"]').click()
+        held.pop().continue_()
+        self.page.wait_for_function("!state.operatorProfileRequest")
+        self.assertFalse(modal.is_visible())
+
+        with self.page.expect_request(profile_path):
+            self.page.locator("#operatorButton").click()
+        self.assertTrue(modal.is_visible())
+        self.page.locator("#operatorLogoutButton").click()
+        self.page.wait_for_function("!state.operatorSessionToken && !state.operatorProfileRequest")
+        held.pop().abort("failed")
+        self.assertFalse(modal.is_visible())
+
+    def test_confirmed_cashbox_denial_clears_protected_view_before_profile_response(self) -> None:
+        self.load_board()
+        profile_path = "**/api/get_operator_profile"
+        held = []
+        self.page.route(profile_path, lambda route: held.append(route))
+        self.page.route(
+            "**/api/get_cashbox?**",
+            lambda route: route.fulfill(
+                status=403,
+                json={
+                    "ok": False,
+                    "error": {
+                        "code": "forbidden",
+                        "message": "Synthetic cashbox denial",
+                        "details": {
+                            "auth_type": "operator_session",
+                            "permission": "employees_cashboxes_access",
+                        },
+                    },
+                },
+            ),
+        )
+        with self.page.expect_request(profile_path):
+            self.page.locator("#cashboxesButton").click()
+        self.page.wait_for_function(
+            """state.operatorProfileRequest
+                && !operatorCanAccessEmployeesCashboxes()
+                && !state.activeCashbox && !state.cashboxes.length"""
+        )
+        self.assertTrue(self.page.locator("#cashboxesButton").is_hidden())
+        self.assertTrue(self.page.locator("#cashboxesModal").is_hidden())
+        self.assertEqual(len(held), 1)
+        held.pop().continue_()
+        self.page.wait_for_function("!state.operatorProfileRequest")
 
     def test_resume_coalesces_revision_and_late_failure_cannot_affect_new_session(self) -> None:
         self.page.clock.install()
