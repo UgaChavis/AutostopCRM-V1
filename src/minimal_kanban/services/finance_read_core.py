@@ -33,9 +33,8 @@ class FinanceReadCore:
             operator_session, EMPLOYEES_CASHBOXES_ACCESS_PERMISSION
         )
         actor_key = normalize_actor_name(payload.get("actor_name"), default="").casefold()
-        snapshot, notification = self._cashbox_list_view(actor_key, references_only)
-        cashboxes = service._ordered_cashboxes(snapshot.cashboxes)
         if references_only:
+            cashboxes = service._ordered_cashboxes(service._store.read_cashbox_references())
             serialized = [cashbox.to_dict() for cashbox in cashboxes[:limit]]
             return {
                 "cashboxes": serialized,
@@ -48,6 +47,8 @@ class FinanceReadCore:
                     "references_only": True,
                 },
             }
+        snapshot, notification = self._cashbox_list_view(actor_key)
+        cashboxes = service._ordered_cashboxes(snapshot.cashboxes)
         transactions = snapshot.transactions
         serialized = service._serialize_cashboxes(cashboxes[:limit], transactions)
         return {
@@ -63,11 +64,9 @@ class FinanceReadCore:
             },
         }
 
-    def _cashbox_list_view(self, actor_key: str, references_only: bool):
+    def _cashbox_list_view(self, actor_key: str):
         service = self._service
         store = service._store
-        if references_only:
-            return store.read_cashbox_receipt_state(), None
         # The actor's monotonic position must span the ledger read. Never wait
         # for the actor's filesystem lock under the shared service or state lock.
         snapshot = None

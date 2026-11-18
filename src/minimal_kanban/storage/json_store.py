@@ -16,7 +16,7 @@ from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from logging import Logger
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any, NamedTuple
 from uuid import uuid4
 
@@ -372,6 +372,7 @@ class CashboxReceiptState(NamedTuple):
     version: CashboxReceiptVersion
     cashboxes: tuple[CashBox, ...]
     transactions: tuple[CashTransaction, ...]
+    transactions_digest: bytes
     dates_valid: bool
     legacy_receipts: dict[str, dict[str, str]]
 
@@ -393,6 +394,9 @@ class JsonStore:
         self.cashbox_receipts = CashboxReceiptStore(self._state_file)
         self._cashbox_receipt_snapshot_lock = RLock()
         self._cashbox_receipt_snapshot: CashboxReceiptState | None = None
+        self._cashbox_references: tuple[CashboxReceiptVersion, tuple[CashBox, ...]] | None = None
+        self._cashbox_handoff_lock = Lock()
+        self._pending_cashbox_state: tuple[CashboxReceiptVersion, dict] | None = None
         self._cashbox_receipt_source: tuple[CashboxReceiptVersion, dict] | None = None
         self._committed_state_digest: str | None = None
         self._change_feed_store = ChangeFeedStore(self._state_file.with_name("change_feed.sqlite3"))
@@ -503,55 +507,104 @@ class JsonStore:
             digest = hashlib.sha256(raw).hexdigest() if _SNAPSHOT_REQUIRES_FILE_LOCK else None
             return CashboxReceiptVersion(signature, digest), raw
 
+    def _read_cashbox_source(
+        self, cached_version: CashboxReceiptVersion | None
+    ) -> tuple[CashboxReceiptVersion, dict | None]:
+        guard = self._process_lock.acquire() if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext()
+        with guard:
+            if cached_version is not None and self._cashbox_receipt_state_matches(cached_version):
+                return cached_version, None
+            for source in (self._cashbox_receipt_source, self._pending_cashbox_state):
+                if source is not None and self._cashbox_receipt_state_matches(source[0]):
+                    return source
+            try:
+                version, raw = self._capture_cashbox_state_file()
+            except (FileNotFoundError, ValueError) as exc:
+                raise StateFileCorruptedError("Файл состояния отсутствует или поврежден.") from exc
+        try:
+            state = self._decode_state(raw.decode("utf-8"))
+            validate_state_shape(state)
+            _validate_raw_financial_references(state)
+            _validate_cash_transaction_ids(state)
+        except (ValueError, TypeError, OverflowError, RecursionError) as exc:
+            raise StateFileCorruptedError("Данные кассовых движений повреждены.") from exc
+        # The next full reader can normalize these verified bytes under its normal locks.
+        with self._cashbox_handoff_lock:
+            self._pending_cashbox_state = (version, state)
+        return version, state
+
     def read_cashbox_receipt_state(self) -> CashboxReceiptState:
         """Read one committed cash ledger, without repairs or change-feed publication."""
         with self._cashbox_receipt_snapshot_lock:
-            guard = self._process_lock.acquire() if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext()
-            with guard:
-                cached = self._cashbox_receipt_snapshot
-                if cached is not None and self._cashbox_receipt_state_matches(cached.version):
-                    return cached
-                source = self._cashbox_receipt_source
-                state = None
-                if source is not None and self._cashbox_receipt_state_matches(source[0]):
-                    version, state = source
-                else:
-                    try:
-                        version, raw = self._capture_cashbox_state_file()
-                    except (FileNotFoundError, ValueError) as exc:
-                        raise StateFileCorruptedError(
-                            "Файл состояния отсутствует или поврежден."
-                        ) from exc
+            cached = self._cashbox_receipt_snapshot
+            version, state = self._read_cashbox_source(cached.version if cached else None)
+            if state is None:
+                assert cached is not None
+                return cached
             try:
-                if state is None:
-                    state = self._decode_state(raw.decode("utf-8"))
-                    validate_state_shape(state)
-                    _validate_raw_financial_references(state)
-                    _validate_cash_transaction_ids(state)
                 cashboxes, _ = self._normalize_cashboxes(state)
-                invalid_dates = {
-                    normalize_text(row.get("id"), limit=128)
-                    for row in state.get("cash_transactions", [])
-                    if parse_business_datetime(row.get("created_at")) is None
-                }
-                transactions, repaired = self._normalize_cash_transactions(state)
-                if repaired:
-                    raise ValueError("Cash transaction data requires repair.")
-                if invalid_dates:
-                    for item in transactions:
-                        if item.id in invalid_dates:
-                            item.created_at = ""
+                digest = self._cash_transactions_digest(state.get("cash_transactions", []))
+                if cached is not None and digest == cached.transactions_digest:
+                    transactions, dates_valid = cached.transactions, cached.dates_valid
+                else:
+                    transactions, dates_valid = self._cashbox_receipt_transactions(state)
             except (ValueError, TypeError, OverflowError, RecursionError) as exc:
                 raise StateFileCorruptedError("Данные кассовых движений повреждены.") from exc
             snapshot = CashboxReceiptState(
                 version,
                 tuple(cashboxes),
-                tuple(transactions),
-                not invalid_dates,
+                transactions,
+                digest,
+                dates_valid,
                 normalize_legacy_cashbox_receipts(state.get("settings", {})),
             )
             self._cashbox_receipt_snapshot = snapshot
+            self._cashbox_references = version, snapshot.cashboxes
             return snapshot
+
+    @staticmethod
+    def _cash_transactions_digest(rows: list) -> bytes:
+        # Keep an exact ledger key outside the writer lock. Only a new file
+        # version reaches this path; a warm read uses the snapshot immediately.
+        try:
+            encoded = orjson.dumps(rows)
+        except TypeError:
+            encoded = None
+        if encoded is None or b"null" in encoded:
+            # orjson renders non-finite legacy numbers as null and cannot
+            # represent arbitrary integers. Preserve their distinction here.
+            encoded = json.dumps(rows, separators=(",", ":")).encode("ascii")
+        return hashlib.sha256(encoded).digest()
+
+    def _cashbox_receipt_transactions(
+        self, state: dict
+    ) -> tuple[tuple[CashTransaction, ...], bool]:
+        invalid_dates = {
+            normalize_text(row.get("id"), limit=128)
+            for row in state.get("cash_transactions", [])
+            if parse_business_datetime(row.get("created_at")) is None
+        }
+        transactions, repaired = self._normalize_cash_transactions(state)
+        if repaired:
+            raise ValueError("Cash transaction data requires repair.")
+        if invalid_dates:
+            for item in transactions:
+                if item.id in invalid_dates:
+                    item.created_at = ""
+        return tuple(transactions), not invalid_dates
+
+    def read_cashbox_references(self) -> tuple[CashBox, ...]:
+        """Read cashbox identities without building the notification ledger."""
+        with self._cashbox_receipt_snapshot_lock:
+            cached = self._cashbox_references
+            version, state = self._read_cashbox_source(cached[0] if cached else None)
+            if state is None:
+                assert cached is not None
+                return cached[1]
+            cashboxes, _ = self._normalize_cashboxes(state)
+            result = tuple(cashboxes)
+            self._cashbox_references = version, result
+            return result
 
     @contextmanager
     def fence_cashbox_receipt_state(self, snapshot: CashboxReceiptState):
@@ -768,15 +821,29 @@ class JsonStore:
         with self._lock:
             with self._process_lock.acquire():
                 signature = self._state_signature()
+                with self._cashbox_handoff_lock:
+                    pending = self._pending_cashbox_state
+                    self._pending_cashbox_state = None
                 if (
                     signature is not None
                     and signature == self._read_cache_signature
                     and self._read_cache_bundle is not None
                 ):
-                    return self._read_cache_bundle, signature
-                state = self._read_state()
+                    # A cash reader can finish an old decode after a writer primed
+                    # a newer bundle. Prove which bytes that bundle represents.
+                    source = self._cashbox_receipt_source
+                    if pending is None or (
+                        source is not None and self._cashbox_receipt_state_matches(source[0])
+                    ):
+                        return self._read_cache_bundle, signature
+                if pending is not None and self._cashbox_receipt_state_matches(pending[0]):
+                    state = pending[1]
+                    self._validated_state_signature = signature
+                else:
+                    state = self._read_state()
                 if (
-                    not self._change_feed_initialized
+                    pending is not None
+                    or not self._change_feed_initialized
                     or signature != self._change_feed_state_signature
                     or self._change_feed_store.has_pending_state_write()
                 ):
@@ -1664,6 +1731,7 @@ class JsonStore:
         return hashlib.sha256(payload).hexdigest()
 
     def _invalidate_read_cache(self) -> None:
+        self._pending_cashbox_state = None
         self._card_projection_cache.clear()
         self._read_cache_signature = None
         self._read_cache_bundle = None
@@ -1719,6 +1787,7 @@ class JsonStore:
         state: dict,
     ) -> None:
         # A newly loaded or committed bundle retires all independent snapshots.
+        self._pending_cashbox_state = None
         self._context_snapshot_signature = None
         self._context_snapshots.clear()
         self._context_snapshot_state = None

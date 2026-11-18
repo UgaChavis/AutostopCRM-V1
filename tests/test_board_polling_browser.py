@@ -124,6 +124,44 @@ class BoardPollingBrowserTests(UiBrowserTestCase):
         held.pop().continue_()
         self.page.wait_for_function("!state.operatorProfileRequest")
 
+    def test_first_payment_click_accepts_references_after_cashbox_permission_revocation(self):
+        card_id = self.create_card("Synthetic payment references")
+        self.runtime.service.get_repair_order({"card_id": card_id, "create_if_missing": True})
+        self.load_board()
+        self.page.click("#repairOrdersButton")
+        self.page.locator(f'#repairOrdersList [data-open-repair-order-card="{card_id}"]').click()
+        self.page.wait_for_function("state.repairOrderWriteReady && !state.repairOrderLoading")
+        self.page.wait_for_function(
+            "!state.cashboxNotificationRefreshPromise && !state.operatorProfileRequest"
+        )
+        self.assertFalse(self.page.evaluate("state.cashboxesLoaded"))
+        permissions = self.page.evaluate("state.operatorProfile.user.permissions")
+        self.assertIn("employees_cashboxes_access", permissions)
+
+        def set_permissions(values):
+            response = self.context.request.post(
+                self.runtime.base_url + "/api/save_operator_user",
+                headers={"X-Operator-Session": self.session_token},
+                data={"username": "admin", "permissions": values},
+            )
+            self.assertTrue(response.ok)
+
+        self.addCleanup(set_permissions, permissions)
+        set_permissions([item for item in permissions if item != "employees_cashboxes_access"])
+        self.assertTrue(self.page.evaluate("state.employeesCashboxesAccess"))
+        with self.page.expect_response("**/api/list_cashboxes?limit=200") as listed:
+            self.page.click("#repairOrderPaymentsButton")
+        data = listed.value.json()["data"]
+        self.assertTrue(data["meta"]["references_only"])
+        self.page.locator("#repairOrderPaymentsModal.is-open").wait_for()
+        self.assertEqual(
+            self.page.locator("#repairOrderPaymentCashbox").input_value(), self.runtime.cashbox_id
+        )
+        self.assertEqual(self.page.evaluate("state.cashboxes"), data["cashboxes"])
+        self.assertTrue(self.page.evaluate("state.cashboxesReferencesOnly"))
+        self.assertTrue(all("statistics" not in item for item in data["cashboxes"]))
+        self.assertTrue(self.page.locator("#cashboxesButton").is_hidden())
+
     def test_resume_coalesces_revision_and_late_failure_cannot_affect_new_session(self) -> None:
         self.page.clock.install()
         self.load_board()

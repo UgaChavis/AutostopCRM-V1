@@ -735,6 +735,12 @@ state.employeesCashboxesAccessRevision++;
 oldAccess.resolve({cashboxes:[{id:'protected-A',statistics:{balance_minor:100}}]});
 assert.equal(await beforeRevoke,null,'a pre-revocation response must not restore full cashbox data');
 assert.deepEqual(state.cashboxes,[]);
+const staleReferences=deferred();api=async()=>staleReferences.promise;
+const beforeGrant=ensureRepairOrderPaymentCashboxes({isCurrent:()=>true});
+state.employeesCashboxesAccessRevision++;state.employeesCashboxesAccess=true;
+staleReferences.resolve({cashboxes:[{id:'old-reference'}],meta:{references_only:true}});
+assert.equal(await beforeGrant,null,'old references must not overwrite a newly granted view');
+assert.deepEqual(state.cashboxes,[]);
 state.cashboxes=[{id:'cached-B'}];state.cashboxesLoaded=true;
 
 state.repairOrderPaymentCashboxesRequest=null;

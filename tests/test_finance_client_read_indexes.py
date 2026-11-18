@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import CashBox, CashTransaction
 from minimal_kanban.services.card_service import CardService
-from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.json_store import JsonStore, StateFileCorruptedError
 
 
 class FinanceClientReadIndexTests(unittest.TestCase):
@@ -27,6 +28,105 @@ class FinanceClientReadIndexTests(unittest.TestCase):
         logger.propagate = False
         self.store = JsonStore(self.state_file, logger)
         self.service = CardService(self.store, logger)
+
+    def test_cold_cashbox_detail_uses_list_decode_and_detects_intervening_write(self) -> None:
+        box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
+        payload = {"cashbox_id": box_id, "compact": True, "transaction_limit": 100}
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                reader = JsonStore(self.state_file)
+                self.addCleanup(reader.close)
+                service = CardService(reader, logging.getLogger(self.id()))
+                with patch.object(reader, "_decode_state", wraps=reader._decode_state) as decode:
+                    service.list_cashboxes({"limit": 200})
+                    self.assertEqual(decode.call_count, 1)
+                    if changed:
+                        self.service.create_cash_transaction(
+                            {"cashbox_id": box_id, "direction": "income", "amount_minor": 750}
+                        )
+                    detail = service.get_cashbox(payload)
+                    self.assertEqual(decode.call_count, 2 if changed else 1)
+                self.assertEqual(
+                    detail["cashbox"]["statistics"]["balance_minor"], 750 if changed else 0
+                )
+                self.assertIsNone(reader._pending_cashbox_state)
+
+    def test_late_list_decode_does_not_discard_a_newer_committed_bundle(self) -> None:
+        box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
+        reader = JsonStore(self.state_file)
+        self.addCleanup(reader.close)
+        service = CardService(reader, logging.getLogger(self.id()))
+        decode = reader._decode_state
+        wrote = False
+
+        def write_after_capture(raw):
+            nonlocal wrote
+            state = decode(raw)
+            if not wrote:
+                wrote = True
+                service.create_cash_transaction(
+                    {"cashbox_id": box_id, "direction": "income", "amount_minor": 410}
+                )
+            return state
+
+        with patch.object(reader, "_decode_state", side_effect=write_after_capture):
+            listed = service.list_cashboxes({})["cashboxes"][0]
+        self.assertEqual(listed["statistics"]["balance_minor"], 0)
+        with patch.object(reader, "_decode_state", side_effect=AssertionError("unexpected decode")):
+            detail = service.get_cashbox({"cashbox_id": box_id})
+        self.assertEqual(detail["cashbox"]["statistics"]["balance_minor"], 410)
+
+    def test_cold_detail_preserves_corrupt_replacement_after_a_valid_list(self) -> None:
+        box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
+        reader = JsonStore(self.state_file)
+        self.addCleanup(reader.close)
+        service = CardService(reader, logging.getLogger(self.id()))
+        service.list_cashboxes({})
+        corrupt = b'{"cash_transactions":'
+        self.state_file.write_bytes(corrupt)
+        with self.assertRaises(StateFileCorruptedError):
+            service.get_cashbox({"cashbox_id": box_id})
+        self.assertEqual(self.state_file.with_suffix(".corrupted.json").read_bytes(), corrupt)
+
+    def test_cashbox_detail_detects_atomic_replacement_with_matching_size_and_mtime(self) -> None:
+        box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
+        self.service.list_cashboxes({})
+        old_stat = self.state_file.stat()
+        raw = self.state_file.read_bytes()
+        self.assertIn(b"Cold read", raw)
+        replacement = self.state_file.with_suffix(".tmp")
+        replacement.write_bytes(raw.replace(b"Cold read", b"Warm read"))
+        os.utime(replacement, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
+        replacement.replace(self.state_file)
+        with patch.object(self.store, "_decode_state", wraps=self.store._decode_state) as decode:
+            listed = self.service.list_cashboxes({})["cashboxes"][0]
+            detail = self.service.get_cashbox({"cashbox_id": box_id})
+            self.assertEqual(decode.call_count, 1)
+        self.assertEqual(listed["name"], "Warm read")
+        self.assertEqual(detail["cashbox"]["name"], "Warm read")
+
+    @patch("minimal_kanban.storage.json_store._SNAPSHOT_REQUIRES_FILE_LOCK", True)
+    def test_cashbox_detail_uses_windows_digest_when_file_metadata_matches(self) -> None:
+        box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
+        self.service.create_cash_transaction(
+            {"cashbox_id": box_id, "direction": "income", "amount_minor": 12341}
+        )
+        self.service.list_cashboxes({})
+        old_stat = self.state_file.stat()
+        old_signature = self.store._repair_order_file_signature()
+        raw = self.state_file.read_bytes()
+        self.assertIn(b"12341", raw)
+        self.state_file.write_bytes(raw.replace(b"12341", b"54321"))
+        os.utime(self.state_file, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
+        with (
+            patch.object(self.store, "_repair_order_file_signature", return_value=old_signature),
+            patch.object(self.store, "_decode_state", wraps=self.store._decode_state) as decode,
+        ):
+            listed = self.service.list_cashboxes({})["cashboxes"][0]
+            detail = self.service.get_cashbox({"cashbox_id": box_id})
+            self.assertEqual(decode.call_count, 1)
+        self.assertEqual(listed["statistics"]["balance_minor"], 54321)
+        self.assertEqual(detail["transactions"][0]["amount_minor"], 54321)
 
     def test_cashbox_summaries_preserve_minor_units_rounding_and_latest_instant(self) -> None:
         bundle = self.store.read_bundle()

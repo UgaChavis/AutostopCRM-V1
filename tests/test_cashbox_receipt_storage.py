@@ -20,7 +20,7 @@ from minimal_kanban.storage.cashbox_receipts import (
     cashbox_receipt_filename,
     iter_cashbox_receipt_rows,
 )
-from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.json_store import JsonStore, StateWriteConflictError
 
 
 class CashboxReceiptStorageTests(CardServiceCase):
@@ -267,6 +267,50 @@ class CashboxReceiptStorageTests(CardServiceCase):
                 refreshed = self.service.list_cashboxes(payload)
                 self.assertEqual(refreshed["cashboxes"][0]["statistics"]["balance_minor"], 200)
                 decode.assert_called_once()
+
+    def test_card_write_reuses_ledger_but_advances_the_receipt_fence(self):
+        self.movement(100)
+        before = self.store.read_cashbox_receipt_state()
+        self.service.create_card({"title": "Unrelated card"})
+        with (
+            patch.object(self.store, "_cashbox_receipt_transactions") as rebuild,
+            patch.object(
+                self.store, "_cash_transactions_digest", wraps=self.store._cash_transactions_digest
+            ) as digest,
+        ):
+            after = self.store.read_cashbox_receipt_state()
+            self.assertIs(after.transactions, before.transactions)
+            self.assertIs(after, self.store.read_cashbox_receipt_state())
+            digest.assert_called_once()
+            rebuild.assert_not_called()
+        with (
+            self.assertRaises(StateWriteConflictError),
+            self.store.fence_cashbox_receipt_state(before),
+        ):
+            self.fail("Stale receipt snapshot passed its publication fence.")
+        with self.store.fence_cashbox_receipt_state(after):
+            pass
+
+        bundle = self.store.read_bundle()
+        bundle["cards"][-1].title = "Another title"
+        bundle = self.store.write_bundle(**bundle)
+        self.assertIs(self.store.read_cashbox_receipt_state().transactions, before.transactions)
+        bundle["cash_transactions"][0].amount_minor = 200
+        self.assertEqual(after.transactions[0].amount_minor, 100)
+        self.store.write_bundle(**bundle)
+        self.assertEqual(self.store.read_cashbox_receipt_state().transactions[0].amount_minor, 200)
+
+    def test_references_do_not_build_transactions_even_after_a_cash_write(self):
+        self.movement(100)
+        peer = self.open_another_service()
+        restricted = {"_operator_session": {"permissions": []}}
+        with patch.object(peer._store, "_cashbox_receipt_transactions") as rebuild:
+            self.assertTrue(peer.list_cashboxes(restricted)["meta"]["references_only"])
+            self.service.create_cashbox({"name": "Another cashbox"})
+            listed = peer.list_cashboxes(restricted)
+            self.assertIn("Another cashbox", {box["name"] for box in listed["cashboxes"]})
+            self.assertNotIn("statistics", listed["cashboxes"][0])
+            rebuild.assert_not_called()
 
     def test_initialize_only_preserves_empty_legacy_position(self):
         movement = self.movement(100)

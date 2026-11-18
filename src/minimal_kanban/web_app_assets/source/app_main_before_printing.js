@@ -11340,10 +11340,14 @@
         return { cashboxes: state.cashboxes };
       }
       const data = await api('/api/list_cashboxes?limit=200');
-      if (!isCurrent() || accessRevision !== state.employeesCashboxesAccessRevision) return null;
+      const referencesOnly = data?.meta?.references_only === true;
+      if (!isCurrent() || (referencesOnly && state.employeesCashboxesAccess)) return null;
+      // api() can revoke full access while processing this very list of permitted names.
+      const currentRevision = state.employeesCashboxesAccessRevision;
+      if (currentRevision !== accessRevision && !(referencesOnly && currentRevision === accessRevision + 1)) return null;
       state.cashboxes = Array.isArray(data?.cashboxes) ? data.cashboxes : [];
       state.cashboxesLoaded = true;
-      state.cashboxesReferencesOnly = Boolean(data?.meta?.references_only);
+      state.cashboxesReferencesOnly = referencesOnly;
       renderRepairOrderPaymentCashboxOptions(els.repairOrderPaymentCashbox?.value || '');
       return data;
     }
