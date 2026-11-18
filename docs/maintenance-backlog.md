@@ -75,7 +75,7 @@ Current performance work is tracked in the [CRM performance map](#произво
 
 | Сценарий | Результат точечной проверки |
 | --- | --- |
-| Две вкладки одного оператора | В Chromium первая вкладка показала движение и отправила отметку. Вторая получила запоздалый ответ об отсутствии позиции с уже более новым движением. После фоновой инициализации сервер и обе вкладки сохранили одно непрочитанное движение. [Браузерная проверка](../tests/test_cashbox_two_tabs_browser.py) |
+| Две вкладки одного оператора | В Chromium первая вкладка показала движение и отправила отметку. Вторая получила запоздалый ответ об отсутствии позиции с уже более новым движением. После фоновой инициализации сервер и обе вкладки сохранили одно непрочитанное движение. Браузерная проверка (`tests/test_cashbox_two_tabs_browser.py`) |
 | Конфликт отметки | При записи посторонней карточки первое подтверждение вернуло 409. Сверка с сервером разрешила один повтор для той же видимой границы, индикатор погас. Потеря ответа, смена окна и появление более новой границы исключают такой повтор. |
 | Отзыв и выдача прав | Отказ в чтении зарплаты скрывает данные, доступные через общее право на сотрудников и кассы. Два последовательных отзыва пережили задержанный профиль. Ранее запрошенный справочный список после выдачи доступа сохранил открытую кассу. |
 | Перенос и откат | На временном Linux-профиле запуск переноса от root остановился до первой записи. После обратного переноса с `umask 077` прежняя CRM из `210b4779` под UID/GID `10001:10001` открыла файл с исходным режимом 0640, прочитала тот же баланс и одно непрочитанное движение, затем записала новую отметку. Предпросмотр переноса сохранил содержимое каталога. |
@@ -97,8 +97,8 @@ Current performance work is tracked in the [CRM performance map](#произво
 версию файла до следующего общего чтения или записи. Если между запросами
 прошло новое движение, детали показывают новый баланс. На Linux проверка версии
 опирается на штатную атомарную замену файла. На Windows проверяется также
-контрольная сумма содержимого. [Проверки хранилища](../tests/test_cashbox_receipt_storage.py) и
-[проверки чтения деталей](../tests/test_finance_client_read_indexes.py).
+контрольная сумма содержимого. Проверки хранилища (`tests/test_cashbox_receipt_storage.py`) и
+проверки чтения деталей (`tests/test_finance_client_read_indexes.py`).
 
 Локальный Linux, Python 3.13, синтетический `state.json` размером 14,48 МиБ,
 800 карточек и 2 000 движений. Время от вызова `list_cashboxes(limit=200)` до
@@ -126,7 +126,7 @@ Current performance work is tracked in the [CRM performance map](#произво
 
 В Chromium после отзыва права на кассу первый клик «Оплаты» открыл форму
 заказ-наряда с разрешёнными названиями касс. Кнопка «Кассы» осталась скрытой,
-ответ справочника не содержал балансов. [Браузерная проверка](../tests/test_board_polling_browser.py).
+ответ справочника не содержал балансов. Браузерная проверка (`tests/test_board_polling_browser.py`).
 
 ### Одновременная работа двух операторов в кассах
 
@@ -137,7 +137,7 @@ Current performance work is tracked in the [CRM performance map](#произво
 только подряд показанные непрочитанные движения в порядке регистрации.
 Если самое раннее из них находится на следующей странице, его уведомление
 сохраняется. У перевода между кассами один общий индикатор до просмотра обеих
-сторон. [Проверки хранилища](../tests/test_cashbox_receipt_storage.py).
+сторон. Проверки хранилища (`tests/test_cashbox_receipt_storage.py`).
 
 В Chromium проверили две независимые сессии операторов на временном профиле.
 Просмотр первой кассы оставил движение второй непрочитанным. Новая операция
@@ -147,7 +147,7 @@ Current performance work is tracked in the [CRM performance map](#произво
 следующем опросе, хотя список опроса ограничен первой кассой.
 Когда второй оператор добавил приход между запросами страниц, браузер
 перечитал первую. Итоговые 200 строк совпали по ID и порядку с ответом
-сервера. [Проверки двух операторов](../tests/test_cashbox_two_operators_browser.py).
+сервера. Проверки двух операторов (`tests/test_cashbox_two_operators_browser.py`).
 
 На прогретом временном профиле Linux с Python 3.13, одной карточкой, 2 000
 историческими движениями и одной чужой непрочитанной операцией сравнили
@@ -283,8 +283,8 @@ Current performance work is tracked in the [CRM performance map](#произво
    Формат, порядок записи, перенос старых позиций, восстановление и критерии
    приёмки описаны в [плане переноса](#перенос-личных-отметок-кассы).
    [Сервис кассы](../src/minimal_kanban/services/card_service_finance.py) ·
-   [Проверки API](../tests/test_api.py) ·
-   [Проверки change feed](../tests/test_change_feed_producers.py).
+   Проверки API (`tests/test_api.py`) ·
+   Проверки change feed (`tests/test_change_feed_producers.py`).
 
 3. **Журнал кассы. Убрать лишний запрос, затем измерить полный ответ.**
    Изначально `loadCashJournalData` ждал `list_cashboxes?limit=200` через `Promise.all`.
@@ -300,7 +300,7 @@ Current performance work is tracked in the [CRM performance map](#произво
    часовой пояс, порядок по дате и ID, равные даты и запись между страницами.
    [Браузер журнала](../src/minimal_kanban/web_app_assets/source/cash_journal.js) ·
    [Расчёт журнала](../src/minimal_kanban/services/card_service_cash_journal.py) ·
-   [Браузерные проверки](../tests/test_cash_journal_browser.py).
+   Браузерные проверки (`tests/test_cash_journal_browser.py`).
 
 4. **Кассовые чтения и фоновые запросы. Снизить нагрузку на общий замок.**
    `list_cashboxes?limit=1` вычисляет статистику и уведомления по истории.
@@ -312,8 +312,8 @@ Current performance work is tracked in the [CRM performance map](#произво
    снимок по схеме ниже.
    Сохранить точные остатки, права, старые идентификаторы и поля для браузера,
    Windows, API и MCP. [Кассовые чтения](../src/minimal_kanban/services/finance_read_core.py) ·
-   [Тесты финансовых индексов](../tests/test_finance_client_read_indexes.py) ·
-   [Тесты снимков](../tests/test_context_snapshot_cache.py).
+   Тесты финансовых индексов (`tests/test_finance_client_read_indexes.py`) ·
+   Тесты снимков (`tests/test_context_snapshot_cache.py`).
 
 5. **Поиск клиентов и ревизия доски. Уменьшить объём работы после записи.**
    Каталог отправляет один запрос после 160 мс ожидания, подсказки карточки —
@@ -347,9 +347,9 @@ Current performance work is tracked in the [CRM performance map](#произво
    каждого оператора.
    [Поиск клиентов](../src/minimal_kanban/services/card_service_clients.py) ·
    [Ранжирование](../src/minimal_kanban/services/card_service_client_search.py) ·
-   [Проверки принадлежности](../tests/test_client_search_owner_safety.py) ·
+   Проверки принадлежности (`tests/test_client_search_owner_safety.py`) ·
    [Кеш доски](../src/minimal_kanban/services/snapshot_cache.py) ·
-   [Тест индекса](../tests/test_client_search_phone_name.py).
+   Тест индекса (`tests/test_client_search_phone_name.py`).
 
 6. **Профиль и возврат во вкладку. Отделить проверку прав от тяжёлого отчёта.**
    Исходный таймер доски ждал одновременно ревизию и кассу, а кассовое чтение при
@@ -384,7 +384,7 @@ Current performance work is tracked in the [CRM performance map](#произво
    координации вкладок.
    [Планировщик браузера](../src/minimal_kanban/web_app_assets/source/app_main_before_printing.js) ·
    [Профиль оператора](../src/minimal_kanban/operator_auth.py) ·
-   [Проверки обновления прав](../tests/test_web_assets_runtime.py).
+   Проверки обновления прав (`tests/test_web_assets_runtime.py`).
 
 7. **Хранилище. Сократить критический участок записи и запуска по фазам.**
    После сохранения быстрый путь под замками повторно читает записанный файл,
@@ -403,7 +403,7 @@ Current performance work is tracked in the [CRM performance map](#произво
    Решение о смене формата основного хранилища принимать после этих замеров.
    [JsonStore](../src/minimal_kanban/storage/json_store.py) ·
    [Общий путь сохранения](../src/minimal_kanban/services/card_service.py) ·
-   [Изоляция записи](../tests/test_save_isolation.py).
+   Изоляция записи (`tests/test_save_isolation.py`).
 
 ### Общая блокировка и приёмка конкурентных чтений
 
@@ -444,9 +444,9 @@ Current performance work is tracked in the [CRM performance map](#произво
 повторов для случаев «поиск и окно» и «возврат во вкладку и окно». Для
 проверки порядка ответов использовать управляемое время и перехват HTTP.
 Для замера времени оставить пассивные наблюдатели и обычный опрос.
-[Конкурентность снимков](../tests/test_read_snapshot_concurrency.py) ·
-[Снимок сотрудников](../tests/test_list_employees_snapshot.py) ·
-[Конкурентность печати](../tests/test_printing_backend_concurrency.py).
+Конкурентность снимков (`tests/test_read_snapshot_concurrency.py`) ·
+Снимок сотрудников (`tests/test_list_employees_snapshot.py`) ·
+Конкурентность печати (`tests/test_printing_backend_concurrency.py`).
 
 ### Следующие проходы ревью
 
