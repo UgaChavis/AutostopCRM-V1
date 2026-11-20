@@ -1,7 +1,6 @@
 # CRM commands, gates and side effects
 
-Inventory checked against `scripts/`, `deploy.sh`, `.github/workflows/quality.yml`
-and the [runbook](../../OPERATIONS_RUNBOOK.md) on 2026-09-28. Run commands from the exact CRM checkout. For Python entries,
+Run commands from the exact CRM checkout. For Python entries,
 the full path is `scripts/<name>`; inspect `python scripts/<name> --help` only
 for an entry with an argument parser. PowerShell uses `pwsh -File
 scripts/<name>.ps1` on Linux or the `./scripts/<name>.ps1` form on Windows.
@@ -11,9 +10,8 @@ synthetic/build output, **T** = technical state/config, **W** = business write,
 private business data; keep it out of Git and shared output.
 
 For shared server and GitHub update instructions, follow [Deploy](../../OPERATIONS_RUNBOOK.md#deploy)
-to the selected Manager root's M2 instruction. The old J1/cold/warm and CRM-only
-controllers below are retained references for deferred cleanup, not current
-release commands.
+to the selected Manager root's M2 instruction. Compare exact source, GitHub
+and installed revisions using [Git parity](../../OPERATIONS_RUNBOOK.md#git-parity).
 
 ## Daily checks and release gates
 
@@ -60,7 +58,6 @@ needed. The code and runbook, not this summary, define exact thresholds.
 
 | Entrypoint and mode | Role and boundary |
 | --- | --- |
-| `scripts/release_git_preflight.sh` | R/T: exact Git/ref and dirty-tree preflight; may update remote-tracking refs. |
 | `scripts/agent_release_backup.py` subcommands: `create`, `verify`, `compare-current`, `restore-changed`, `restore-crm-changed`, `restore-manager-changed` | X for create/restore; durable release checkpoint and rollback component. `verify`/`compare-current` are R. Historical controller component; not the current release procedure. |
 | `scripts/agent_release_retention.py` subcommands: `prune`, `cleanup-attempt` | X: validated old release/backup or failed-attempt artifact pruning only after its specified checkpoint. |
 | `scripts/configure_mcp_oauth.py` subcommands: `ensure`, `check`; `--env-file .env` | T for `ensure`, R for `check`; protected OAuth config. |
