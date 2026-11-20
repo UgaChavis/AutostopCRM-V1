@@ -89,6 +89,13 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             result = json.loads(next((root / "receipts").glob("core-result-*.json")).read_text())
             self.assertTrue(result["exact_disjoint_id_receipts"])
             self.assertTrue(result["successful"])
+            diagnostics = [
+                report["controller_pid"]
+                for path in (root / "receipts").glob("*.json")
+                if (report := json.loads(path.read_text(encoding="utf-8"))).get("schema")
+                == "autostopcrm.runtime-process.v1"
+            ]
+            self.assertCountEqual(diagnostics, result["controller_pids"])
 
     def test_missing_test_cannot_be_reported_as_successful_empty_cohort(self):
         with tempfile.TemporaryDirectory() as name:
@@ -181,7 +188,7 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             self.assertTrue(all(type(code) is int for code in result["cohort_exit_codes"]))
             reports = [
                 json.loads(path.read_text(encoding="utf-8"))
-                for path in (ROOT / "output/runtime-process").glob("*.json")
+                for path in (root / "receipts").glob("*.json")
                 if path.stat().st_size < 1024**2
             ]
             reports = [

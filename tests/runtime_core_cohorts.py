@@ -173,7 +173,7 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
                     "--label",
                     f"core-{index + 1}",
                     "--diagnostics-dir",
-                    str(root / "output/runtime-process"),
+                    str(output),
                     "--",
                     sys.executable,
                     "-m",
