@@ -267,6 +267,7 @@
       clientsProfileRequestSeq: 0,
       clientsProfileSelectionRequest: null,
       clientsMetaState: null,
+      clientsConfirmedListMeta: null,
       clientsDraftBaseline: '',
       clientsDraftRevision: null,
       clientVehicleEditor: null,
@@ -2761,6 +2762,7 @@
       state.clientsActiveId = '';
       state.clientsActiveProfile = null;
       state.clientsMetaState = null;
+      state.clientsConfirmedListMeta = null;
       state.clientsDraftBaseline = '';
       state.clientsDraftRevision = null;
       state.clientVehicleEditor = null;
@@ -4416,8 +4418,9 @@
       updateClientSaveButtonState();
     }
 
-    async function loadClients({ openModal = false } = {}) {
+    async function loadClients({ openModal = false, reopenRefresh = false } = {}) {
       const query = String(els.clientsSearchInput?.value ?? state.clientsQuery ?? '').trim();
+      const cachedMeta = reopenRefresh && !query && state.clientsLoaded ? state.clientsConfirmedListMeta : null;
       state.clientsQuery = query;
       const requestSeq = Math.trunc(finiteNonNegativeNumber(state.clientsRequestSeq)) + 1;
       state.clientsRequestSeq = requestSeq;
@@ -4436,6 +4439,7 @@
         openModal,
         modalEl: els.clientsModal,
         isCurrent: isCurrentRequest,
+        reportError: !cachedMeta,
         onSuccess: (payload) => {
           if (!isCurrentRequest()) return;
           const clients = payload?.clients, meta = payload?.meta;
@@ -4460,16 +4464,24 @@
           }
           const sameClients = state.clientsLoaded && JSON.stringify(state.clients) === JSON.stringify(clients);
           state.clientsMetaState = meta;
+          state.clientsConfirmedListMeta = query ? null : meta;
           state.clients = clients;
           state.clientsLoaded = true;
           if (!sameClients || !syncClientsListSelection()) renderClientsList();
         },
         onError: (error) => {
+          const desktopOpen = els.clientsModal?.classList.contains('is-open');
+          const mobileOpen = state.mobileView === 'more' && state.mobileMorePanel === 'clients';
+          if (cachedMeta && !desktopOpen && !mobileOpen) {
+            state.clientsMetaState = cachedMeta;
+            return;
+          }
           state.clientsLoaded = false;
           state.clientsLoadError = true;
-          if (els.clientsModal?.classList.contains('is-open')) {
+          if (desktopOpen) {
             setModalListError(els.clientsMeta, els.clientsList, 'ОШИБКА ЗАГРУЗКИ КЛИЕНТОВ.', error.message);
           }
+          if (cachedMeta) setStatus(error.message, true);
         },
       });
       if (!isCurrentRequest()) {
@@ -4680,7 +4692,7 @@
         maybeOpenModal(els.clientsModal, true);
         renderClientsList();
         if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();
-        loadClients({ openModal: false });
+        loadClients({ reopenRefresh: true });
         return;
       }
       if (!state.clients.length && !state.clientsActiveId && !state.clientsActiveProfile) renderClientProfileEmptyState();

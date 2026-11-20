@@ -139,6 +139,37 @@ class ClientsReopenRefreshBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.page.locator(f'#clientsList [data-client-id="{created}"]').count(), 1)
         self.assertEqual(self.page.locator(f'#clientsList [data-client-id="{second}"]').count(), 1)
 
+    def test_closed_refresh_failure_keeps_confirmed_list_and_board_connection(self):
+        first, _ = self.prepare()
+        confirmed_meta = self.page.evaluate("state.clientsMetaState")
+        close = self.page.locator('[data-close="clients"]')
+        close.click()
+        status = self.page.locator("#statusLine")
+        initial_status = status.inner_text()
+        self.assertEqual(status.get_attribute("data-connection"), "online")
+        held = []
+        self.page.route("**/api/list_clients?**", lambda route: held.append(route))
+        self.page.evaluate("""() => {
+          const load = loadClients;
+          loadClients = (...args) => window.clientRefresh = load(...args);
+        }""")
+        for _ in range(2):
+            with self.page.expect_request("**/api/list_clients?**"):
+                self.page.locator("#clientsButton").click()
+            self.page.locator(f'#clientsList [data-client-id="{first}"]').wait_for()
+            close.click()
+        self.assertEqual(len(held), 2)
+        self.assertTrue(self.page.locator("#clientsModal").is_hidden())
+        held.pop().fulfill(status=503, body="Synthetic temporary list failure")
+        self.page.evaluate("() => window.clientRefresh")
+        held.pop().continue_()
+        self.assertEqual(status.inner_text(), initial_status)
+        self.assertEqual(status.get_attribute("data-connection"), "online")
+        self.assertFalse(self.page.evaluate("state.clientsLoadError"))
+        self.assertTrue(self.page.evaluate("state.clientsLoaded"))
+        self.assertEqual(self.page.evaluate("state.clientsMetaState"), confirmed_meta)
+        self.assertTrue(self.page.evaluate("id => state.clients.some(c => c.id === id)", first))
+
     def test_background_error_hides_cached_list_and_retry_keeps_draft(self):
         first, _ = self.prepare()
         self.page.locator(f'#clientsList [data-client-id="{first}"]').click()
