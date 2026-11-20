@@ -3230,6 +3230,33 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
                 self.assertFalse(body["ok"])
                 self.assertEqual(body["error"]["code"], "validation_error")
 
+    def test_set_card_deadline_updates_only_the_timer_and_checks_revision(self) -> None:
+        status, created = self.request("/api/create_card", {"title": "Original title"})
+        self.assertEqual(status, 200)
+        card = created["data"]["card"]
+        payload = {
+            "card_id": card["id"],
+            "deadline": {"minutes": 5},
+            "expected_updated_at": card["updated_at"],
+            "response_mode": "compact",
+            "title": "Old form title",
+            "timer_state": "inactive",
+        }
+        status, updated = self.request("/api/set_card_deadline", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(updated["data"]["card"]["title"], "Original title")
+        self.assertEqual(updated["data"]["card"]["timer_state"], "running")
+        self.assertEqual(updated["data"]["card"]["deadline_total_seconds"], 300)
+        self.assertEqual(updated["data"]["meta"]["changed_fields"], ["deadline"])
+        self.assertEqual(updated["data"]["meta"]["response_mode"], "compact")
+
+        state_file = Path(self.temp_dir.name) / "state.json"
+        before = state_file.read_bytes()
+        status, stale = self.request("/api/set_card_deadline", payload)
+        self.assertEqual(status, 409)
+        self.assertEqual(stale["error"]["code"], "card_update_conflict")
+        self.assertEqual(state_file.read_bytes(), before)
+
     def test_repair_order_table_replacement_checks_card_revision_over_http(self) -> None:
         for field in ("works", "materials"):
             with self.subTest(field=field):

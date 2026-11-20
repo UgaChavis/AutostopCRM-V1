@@ -1,4 +1,7 @@
-# Continuous code review
+# Continuous code review records
+
+This page records the October 2026 review. Current maintenance and release
+instructions are in [the operations runbook](../docs/OPERATIONS_RUNBOOK.md).
 
 Owner request, 2026-10-15: review small coherent portions deeply, improve them,
 publish each accepted portion, and continue until an explicit stop. Starting
@@ -7,37 +10,31 @@ revision: `adf0ed49d3e4a97158604bc733bd7e392d3d1e57` on `autostopcrm-v1`.
 Second pass, explicitly started by the owner on 2026-10-16: baseline
 `e93b102e41bd515de1891fa5633db6479b83334f`, freshly matched to GitHub with
 [all five quality jobs passing](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38866686592).
-Use a separate clean worktree and portion IDs `R2-NNN`; preserve the old worktree
-and handoff archives. Accepted IR-001 through IR-007 remain accepted. IR-008 was
-not accepted and was reverted; IR-009/010 remain research, not delivered fixes.
+The second pass used separate clean worktrees and portion IDs `R2-NNN` and
+preserved the old worktree and handoff archives. IR-001 through IR-007 passed.
+IR-008 was reverted. IR-009 and IR-010 began as research. Their follow-up is
+listed in the second-pass queue below.
 
 Existing size/complexity ownership remains in
 [code_health_audit.py](../scripts/code_health_audit.py). The earlier
 [UI sweep](SWEEP.md) is historical evidence, not acceptance of unreviewed code.
 
-Each portion records before/after evidence, focused checks, full local CI and
-the exact published SHA's hosted quality result. Detailed synthetic diagnostics
+The portion records include before/after evidence, focused checks, full local CI
+and the exact published SHA's hosted quality result. Detailed synthetic diagnostics
 and publication receipts live under ignored `output/continuous-review/IR-NNN/`.
-A clean portion needs no artificial source change. Production deployment and
-historical-data repair require their own owner request.
 
-For the second pass, freeze source/test hashes, run focused and neighboring
-checks, then the complete `scripts/run_checks.ps1 -Profile ci`. Publish each
-candidate as `codex/crm-review-v2-NNN`; require `unit`, `static`,
-`browser-performance`, `docker-runtime-assets` and `quality` for its exact SHA.
-Only then fast-forward `autostopcrm-v1` and require the same five main-branch
-jobs. A changed base requires validation of the integrated candidate. Do not
-force-push. Diagnose failures before at most one justified unchanged-candidate
-retry; a second failure becomes a separate blocker investigation.
+The second pass used frozen source/test hashes, focused and neighboring checks
+and `scripts/run_checks.ps1 -Profile ci`. Its publication procedure tested
+`unit`, `static`, `browser-performance`, `docker-runtime-assets` and `quality`
+on the exact candidate SHA and again on `autostopcrm-v1`. Candidate branches
+were named `codex/crm-review-v2-NNN`.
 
 Detailed second-pass evidence lives under ignored
 `output/continuous-review-v2/R2-NNN/`. Its `index.json` inventories every tracked
 file by Git blob and records individual responsibilities in large modules.
 Broad audits do not mark a file deeply reviewed; changed blobs require renewed
-review. Generated files belong with their generators and build checks. Record
-clean reviews without artificial commits. The run continues until the owner's
-explicit stop; deployment, historical financial data and the Manager pin are
-outside this run.
+review. Deployment, historical financial data and the Manager pin were
+outside that review.
 
 ## Portions
 
@@ -52,7 +49,7 @@ outside this run.
 | IR-007 | Cash cancellation payment links, owners 019/012. Match the exact cash movement, retain other payments/legacy IDs, and reject one movement referenced by multiple payments. Share order unlinking while keeping selected-reversal and last-delete journal contracts. | Accepted at `f9fbb6c31ef383c1241baa6a94af78a599ffbd4d`; [quality run 38776397620](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38776397620), attempt 2 |
 | IR-008 | Legacy duplicate payment-ID reconciliation. Draft `6af768fde33feaca92de80e1c520edb0920a91ae` was not accepted; Linux SQLite WAL invalidated startup byte-snapshot assertions. Follow-up local runs exposed separate PDF/browser runner failures. | Cancelled and reverted by `1e4f418`; preserved handoff and worktree; reproduce again as R2-005 |
 | IR-009 | Existing payment cash-link ownership, reuse and consistency; separate audit safe-fix concern. | Research only; reproduce on the new base as R2-006/007 |
-| IR-010 | Combined deadline exceeds the one-year limit although individual fields pass. | Research only; reproduce on the new base as R2-008 |
+| IR-010 | Combined deadline exceeded the one-year limit although individual fields passed. | Resolved in the later R2-008 check below |
 
 ## Second-pass queue
 
@@ -65,8 +62,8 @@ outside this run.
 | R2-005 | Reproduce IR-008 on the new base; minimal payment reconciliation fix, logical SQLite WAL restart checks and byte-stable warm replay. | Accepted at `6ceed3d5861b28e5f990908a6d7766d357b4f6e5`; [candidate CI 38926449782](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38926449782) and [main CI 38928665928](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38928665928), both attempt 1 |
 | R2-006 | Reproduce IR-009: cash-link owner, amount, direction, cashbox, cancellation, transfers and reuse, including archives, concurrency and rollback. Preserve existing ambiguity/cancellation errors; use `repair_order_payment_cash_link_invalid` HTTP 409 for inconsistent links. | Frozen WIP preserved separately at unaccepted `3e028481759d7b4d398f0044bb64cedfbe097330` on `wip/crm-review-v2-006-frozen-20261017`; original files/index unchanged; excluded from release candidate and further work paused by owner |
 | R2-007 | Finance audit safe-fix must not reclassify cancelled or transfer movements as customer payments; preview, apply and repeat. | Accepted at `f6a8fd76ba8b15b47bd883b4620448468173fe1d`; [candidate CI 38984649234](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38984649234) and [main CI 38985596957](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38985596957), both attempt 1; frozen R2-006 and rejected UI/test candidates remain separate |
-| R2-008 | Reproduce IR-010: total deadline at most 31,536,000 seconds before mutation; existing `validation_error` HTTP 400, exact boundary across create/update/timer/restart. | Pending |
-| R2-009 | Cashbox revision after payment removal: on accepted `0ff6687`, four synthetic cases keep the old cashbox timestamp after removing a ledger row and accept a request with that stale marker. Review revision meaning and all native callers before an independent correction. | New research, separate from payment identity/link validation; no historical repair |
+| R2-008 | Combined deadline limit and durability across creation, editing and restarting a timer. | Fixed in `3ca3e736`. [Deadline boundary tests](../tests/test_deadline_boundaries.py) cover the exact limit and rejection without a write. |
+| R2-009 | Cashbox revision after payment removal. On `0ff6687`, deleting a ledger row left its old revision usable. | Fixed in `3ca3e736`. [Cashbox revision tests](../tests/test_cashbox_revision_integrity.py) cover removal and rejection of a stale revision. |
 | R2-010 | Manager manual-status readback ownership: block Save and duplicate Read during fresh-state fetch, preserve draft and recover on failure. | Candidates `6bd85e83b0befc7d75286306cf36858b8caaf920` and integrated `0908fdc1f0e180a3dfc20721afd259585010c899` rejected: [first CI 38947686956](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38947686956) hit the PowerShell timeout; [integrated CI 38966599748](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38966599748) failed the print-hydration assertion and teardown. Neither promoted; preserved separately |
 | R2-011 | PowerShell completion-probe timeout evidence: retain partial stdout/stderr and initialization phase in the original failure, preserving the 15-second timeout and native exit guards. | Accepted at `480e5537195438148bddc1e41ca94bba2ff0f24a`; [candidate CI 38957449774](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38957449774) and [main CI 38959188893](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38959188893), both attempt 1; original timeout cause remains unresolved |
 | R2-012 | Print-hydration route-capture readiness: strengthen the existing waits without changing assertions, timeout literals or production code. | Rejected `63b885c30f71ecbb679c29ac4e4c64bb0f429a5a` and its [failed CI 38978979106](https://github.com/UgaChavis/AutostopCRM-V1/actions/runs/38978979106) remain preserved. Fresh integration with accepted `f6a8fd7` passes full local CI1; new exact-SHA hosted acceptance pending |

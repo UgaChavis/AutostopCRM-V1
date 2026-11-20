@@ -4385,10 +4385,16 @@ class CardService(
             }
 
     def set_card_deadline(self, payload: dict) -> dict:
-        with self._lock:
-            payload = dict(payload)
-            payload["deadline"] = payload.get("deadline")
-            return self.update_card(payload)
+        return self.update_card(
+            {
+                "card_id": payload.get("card_id", ""),
+                "deadline": payload.get("deadline"),
+                "expected_updated_at": payload.get("expected_updated_at"),
+                "response_mode": payload.get("response_mode"),
+                "actor_name": payload.get("actor_name"),
+                "source": payload.get("source"),
+            }
+        )
 
     def start_card_timer(self, payload: dict) -> dict:
         with self._lock:
@@ -4802,7 +4808,7 @@ class CardService(
             text = self._validated_sticky_text(payload.get("text"))
             x = self._validated_sticky_position(payload.get("x"), field="x")
             y = self._validated_sticky_position(payload.get("y"), field="y")
-            deadline_total_seconds = self._validated_sticky_deadline(payload.get("deadline"))
+            deadline_total_seconds = self._validated_deadline(payload.get("deadline"), sticky=True)
             now = utc_now()
             sticky = StickyNote(
                 id=str(uuid.uuid4()),
@@ -4877,7 +4883,9 @@ class CardService(
                     )
                     changed = True
             if "deadline" in payload:
-                next_deadline_seconds = self._validated_sticky_deadline(payload.get("deadline"))
+                next_deadline_seconds = self._validated_deadline(
+                    payload.get("deadline"), sticky=True
+                )
                 if next_deadline_seconds != sticky.deadline_total_seconds:
                     before_seconds = sticky.deadline_total_seconds
                     sticky.deadline_total_seconds = next_deadline_seconds
@@ -9686,37 +9694,6 @@ class CardService(
             )
         return coordinate
 
-    def _validated_sticky_deadline(self, value) -> int:
-        if not isinstance(value, dict):
-            self._fail(
-                "validation_error",
-                "Поле deadline для стикера должно быть JSON-объектом с числами days, hours, minutes, seconds или total_seconds.",
-                details={"field": "deadline"},
-            )
-        total_seconds_direct = self._validated_deadline_part(
-            value, "total_seconds", maximum=31_536_000
-        )
-        days = self._validated_deadline_part(value, "days", maximum=365)
-        hours = self._validated_deadline_part(value, "hours", maximum=23)
-        minutes = self._validated_deadline_part(value, "minutes", maximum=59)
-        seconds = self._validated_deadline_part(value, "seconds", maximum=59)
-        total_seconds = (
-            total_seconds_direct + days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
-        )
-        if total_seconds <= 0:
-            self._fail(
-                "validation_error",
-                "Срок стикера должен быть больше нуля.",
-                details={"field": "deadline"},
-            )
-        if total_seconds > MAX_DEADLINE_TOTAL_SECONDS:
-            self._fail(
-                "validation_error",
-                "Срок стикера не может превышать 365 дней.",
-                details={"field": "deadline"},
-            )
-        return total_seconds
-
     def _validated_vehicle(self, value) -> str:
         vehicle = " ".join(str(value or "").strip().split())
         if len(vehicle) > CARD_VEHICLE_LIMIT:
@@ -9771,15 +9748,16 @@ class CardService(
             )
         return summary
 
-    def _validated_deadline(self, value) -> int:
+    def _validated_deadline(self, value, *, sticky: bool = False) -> int:
         if not isinstance(value, dict):
+            field_label = "deadline для стикера" if sticky else "deadline"
             self._fail(
                 "validation_error",
-                "Поле deadline должно быть JSON-объектом с числами days, hours, minutes, seconds или total_seconds.",
+                f"Поле {field_label} должно быть JSON-объектом с числами days, hours, minutes, seconds или total_seconds.",
                 details={"field": "deadline"},
             )
         total_seconds_direct = self._validated_deadline_part(
-            value, "total_seconds", maximum=31_536_000
+            value, "total_seconds", maximum=MAX_DEADLINE_TOTAL_SECONDS
         )
         days = self._validated_deadline_part(value, "days", maximum=365)
         hours = self._validated_deadline_part(value, "hours", maximum=23)
@@ -9788,16 +9766,17 @@ class CardService(
         total_seconds = (
             total_seconds_direct + days * 24 * 3600 + hours * 3600 + minutes * 60 + seconds
         )
+        subject = "стикера" if sticky else "карточки"
         if total_seconds <= 0:
             self._fail(
                 "validation_error",
-                "Срок карточки должен быть больше нуля.",
+                f"Срок {subject} должен быть больше нуля.",
                 details={"field": "deadline"},
             )
         if total_seconds > MAX_DEADLINE_TOTAL_SECONDS:
             self._fail(
                 "validation_error",
-                "Срок карточки не может превышать 365 дней.",
+                f"Срок {subject} не может превышать 365 дней.",
                 details={"field": "deadline"},
             )
         return total_seconds

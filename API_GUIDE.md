@@ -362,8 +362,9 @@ read as running so an upgrade does not silently stop old deadlines.
 
 Inactive timers report `timer_state="inactive"`, `timer_active=false`, and
 `remaining_seconds=0`. They are excluded from overdue/critical manager scans
-and from bulk deadline extension. `/api/set_card_deadline` remains compatible:
-setting a positive deadline activates and restarts the timer.
+and from bulk deadline extension. `/api/set_card_deadline` accepts the card ID,
+deadline, optional revision and response mode. A positive deadline activates
+and restarts the timer. Other editable card fields in the request are ignored.
 For cards and sticky notes, the combined duration of `days`, `hours`, `minutes`,
 `seconds` and `total_seconds` must be positive and at most 365 days (31,536,000 seconds).
 An out-of-range sum returns `validation_error` without saving the operation.
