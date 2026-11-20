@@ -417,7 +417,7 @@ class JsonStore:
         self._repair_order_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._repair_order_snapshot_cards: list[Card] | None = None
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
-        self._context_snapshots: dict[tuple[str, ...], Any] = {}
+        self._context_snapshots: dict[tuple[str, ...], tuple[tuple[int, ...], Any]] = {}
         self._context_snapshot_state: dict | None = None
         self._search_client_profiles: _SearchClientProfiles | None = None
         self._committed_card_source = None
@@ -631,16 +631,11 @@ class JsonStore:
 
         domain_key = tuple(sorted(domains))
         if not _SNAPSHOT_REQUIRES_FILE_LOCK:
-            # Ready snapshots need no serialization with an unrelated build.
-            with self._lock:
-                cached = self._context_snapshots.get(domain_key)
-                signature = self._context_snapshot_signature
-                if (
-                    cached is not None
-                    and signature is not None
-                    and signature == self._repair_order_file_signature()
-                ):
-                    return cached
+            # Capture the file signature and its detached snapshot as one pair.
+            # A writer preparing a replacement can leave this version current.
+            cached = self._context_snapshots.get(domain_key)
+            if cached is not None and cached[0] == self._repair_order_file_signature():
+                return cached[1]
         guard = (
             self._process_lock.acquire(existing_only=True)
             if _SNAPSHOT_REQUIRES_FILE_LOCK
@@ -654,7 +649,7 @@ class JsonStore:
                 if signature is not None and signature == self._context_snapshot_signature:
                     cached = self._context_snapshots.get(domain_key)
                     if cached is not None:
-                        return cached
+                        return cached[1]
                 else:
                     # Release the previous generation before allocating the next.
                     self._context_snapshots.clear()
@@ -677,7 +672,7 @@ class JsonStore:
                     # Each variant indexes the same immutable raw dictionaries,
                     # rather than retaining another decoded full state file.
                     self._context_snapshot_state = state
-                    self._context_snapshots[domain_key] = snapshot
+                    self._context_snapshots[domain_key] = (signature, snapshot)
             return snapshot
 
     def _decoded_context_for_signature(self, signature):

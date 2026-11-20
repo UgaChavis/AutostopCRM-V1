@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -164,6 +164,41 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         old = self.assert_parse_allows_commit(snapshot)
         self.assertEqual(old["cards"][0].title, "BEFORE")
         self.assertEqual(snapshot()["cards"][0].title, "AFTER")
+
+    def test_warm_client_search_uses_the_persisted_file_while_writer_prepares(self):
+        client = self.service.create_client({"display_name": "SYNTHETIC BEFORE"})["client"]
+        started, release = threading.Event(), threading.Event()
+        searches = (self.service.search_clients, self.service.search_clients_readonly)
+
+        def write():
+            with self.store._lock:
+                started.set()
+                if not release.wait(5):
+                    raise TimeoutError("Synthetic writer was not released")
+                self.service.update_client(
+                    {"client_id": client["id"], "display_name": "SYNTHETIC AFTER"}
+                )
+
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+            ThreadPoolExecutor(max_workers=3) as pool,
+        ):
+            query = {"query": "SYNTHETIC BEFORE"}
+            before = [search(query) for search in searches]
+            writer = pool.submit(write)
+            try:
+                self.assertTrue(started.wait(2))
+                readers = [pool.submit(search, query) for search in searches]
+                _, waiting = wait(readers, timeout=2)
+            finally:
+                release.set()
+            writer.result(timeout=5)
+            self.assertFalse(waiting, "Warm searches waited for the store writer")
+            self.assertEqual([reader.result(timeout=5) for reader in readers], before)
+            for search in searches:
+                self.assertEqual(search(query)["clients"], [])
+                current = search({"query": "SYNTHETIC AFTER"})
+                self.assertEqual(current["clients"][0]["id"], client["id"])
 
     def test_warm_reads_do_not_wait_for_unrelated_cold_snapshot(self):
         self.service.create_client({"display_name": "SYNTHETIC CUSTOMER"})
