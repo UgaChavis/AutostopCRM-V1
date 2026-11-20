@@ -603,9 +603,7 @@ def build_context_snapshot(store, state, domains, *, read_search_clients=None):
             # can remove one side of a collision.
             cards = _search_cards_before_retention(deepcopy(raw_cards), columns)
             search_cards_need_retention = True
-        elif (
-            tuple(domains) in (("client_profile",), ("events",)) or "client_search_cards" in domains
-        ) and _safe_to_detach_shallow_json(raw_cards):
+        elif _safe_to_detach_shallow_json(raw_cards):
             # Detach nested order history without serializing cards for a repair check.
             cards, _ = store._normalize_cards(
                 {"cards": raw_cards},

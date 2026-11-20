@@ -28,10 +28,12 @@ def _least_retention_pressure(cards):
     return list(selected.values())
 
 
-def _search_card_clients(service, card, related, client_ids_by_key):
-    if card.client_id:
-        return {card.client_id} if card.client_id in related else set()
-    matching = set()
+def _search_card_clients(
+    service, card, related, client_ids_by_key, *, include_text_on_linked_cards=False
+):
+    matching = {card.client_id} if card.client_id and card.client_id in related else set()
+    if card.client_id and not include_text_on_linked_cards:
+        return matching
     for key in service._card_client_values(card):
         matching.update(client_ids_by_key.get(key, set()))
     return matching
@@ -98,22 +100,38 @@ def validate_context_relations(
 ):
     for event in events:
         bundle.require_event(event)
-    related_by_client = {}
-    for client in [linked_client, *(client for _, client in matches)]:
-        if client is not None:
-            bundle.require_client(client)
-            related = service._client_related_cards(client, bundle["cards"])
-            for card in related:
-                warning = "related_card_client_match_unverified"
-                if card.client_id != client.id and warning not in read_warnings:
-                    read_warnings.append(warning)
+    clients = {
+        client.id: client
+        for client in [linked_client, *(client for _, client in matches)]
+        if client is not None
+    }
+    if not clients:
+        return {}
+    for client in clients.values():
+        bundle.require_client(client)
+
+    related_by_client = {client_id: [] for client_id in clients}
+    client_ids_by_key = service._client_ids_by_match_key(list(clients.values()))
+    # Keep each raw match until validation. A duplicate card ID must not hide
+    # an exact link behind a text match to a different client.
+    warning = "related_card_client_match_unverified"
+    for card in bundle["cards"]:
+        matching = _search_card_clients(
+            service, card, related_by_client, client_ids_by_key, include_text_on_linked_cards=True
+        )
+        for client_id in matching:
+            exact = card.client_id == client_id
+            if not exact and warning not in read_warnings:
+                read_warnings.append(warning)
+            if exact or not strict_links:
+                related_by_client[client_id].append(card)
+
+    for related in related_by_client.values():
+        related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
+        for card in related:
+            bundle.require_card(card)
             if strict_links:
-                related = [card for card in related if card.client_id == client.id]
-            for card in related:
-                bundle.require_card(card)
-                if strict_links:
-                    bundle.require_card_client_links(card)
-            related_by_client[client.id] = related
+                bundle.require_card_client_links(card)
     return related_by_client
 
 

@@ -388,6 +388,40 @@ class ContextLinkAndTextSafetyTests(CardServiceCase, IsolatedAsyncioTestCase):
                         self.assertTrue(result["ok"], f"Gateway rejected {scenario}")
                         self.assertTrue(before == self.snapshot(), "Gateway read changed files")
 
+    def test_card_context_checks_related_cards_in_one_pass(self):
+        before = self.snapshot()
+        payload = {"card_id": self.cards[0], "include_repair_order_text": False}
+        for strict_links, order_total in ((False, 3), (True, 1)):
+            with (
+                self.subTest(strict_links=strict_links),
+                patch.object(
+                    self.service, "_card_client_values", wraps=self.service._card_client_values
+                ) as values,
+            ):
+                result = self.service.get_card_context(
+                    {**payload, "strict_client_links": strict_links}
+                )
+                self.assertIn(
+                    self.client_a["id"], {client["id"] for client in result["client_suggestions"]}
+                )
+                self.assertEqual(result["client"]["stats"]["repair_orders_total"], order_total)
+                self.assertIn("related_card_client_match_unverified", result["read_warnings"])
+                self.assertLessEqual(values.call_count, len(self.cards))
+        self.assertTrue(before == self.snapshot(), "Context read changed synthetic files")
+
+    def test_strict_card_context_keeps_exact_owner_collision_visible(self):
+        state = json.loads(self.state_file.read_bytes())
+        cards = {card["id"]: card for card in state["cards"]}
+        for card_id in (self.cards[1], self.cards[0]):
+            state["cards"].append({**cards[card_id], "id": "synthetic-related-owner-collision"})
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        before = self.snapshot()
+
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.get_card_context({"card_id": self.cards[0], "strict_client_links": True})
+
+        self.assertTrue(before == self.snapshot(), "Context read changed synthetic files")
+
     async def test_raw_card_context_renders_text_in_memory_without_any_file_changes(self):
         raw_tool = self.raw_server._tool_manager.get_tool("get_card_context")
         self.assertTrue(raw_tool.annotations.readOnlyHint)
