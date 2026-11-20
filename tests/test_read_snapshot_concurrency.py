@@ -2,10 +2,12 @@ from __future__ import annotations
 
 # Fixture import selects this checkout before importing application modules.
 # ruff: noqa: I001
+import base64
 import os
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextlib import nullcontext
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -23,7 +25,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         self.card_id = self.service.create_card({"title": "BEFORE"})["card"]["id"]
         self.service.update_card({"card_id": self.card_id, "repair_order": {"client": "SYNTHETIC"}})
 
-    def assert_read_ignores_service_lock(self, read):
+    def assert_read_ignores_service_lock(self, read, *, hold_store=False):
         finished = threading.Event()
         results, errors = [], []
 
@@ -35,7 +37,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
             finally:
                 finished.set()
 
-        with self.service._lock:
+        with self.service._lock, self.store._lock if hold_store else nullcontext():
             worker = threading.Thread(target=run)
             worker.start()
             independent = finished.wait(2)
@@ -56,6 +58,63 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
             lambda: self.service.list_repair_orders({"compact": True})
         )
         self.assertEqual(result["repair_orders"][0]["card_id"], self.card_id)
+
+    def test_readonly_order_and_text_do_not_queue_behind_service_lock(self):
+        original = self.state_file.read_bytes()
+        views = (
+            (self.service.get_repair_order, {"create_if_missing": False}),
+            (self.service.get_repair_order_text, {"read_only": True}),
+        )
+        with patch.object(
+            self.store, "_read_single_card_snapshot", wraps=self.store._read_single_card_snapshot
+        ) as snapshot:
+            for read, options in views:
+                with self.subTest(route=read.__name__):
+                    result = self.assert_read_ignores_service_lock(
+                        lambda: read({"card_id": self.card_id, **options}),
+                        hold_store=not json_store._SNAPSHOT_REQUIRES_FILE_LOCK,
+                    )
+                    self.assertEqual(result["card_id"], self.card_id)
+                    self.assertEqual(result["repair_order"]["client"], "SYNTHETIC")
+                    self.assertEqual(self.state_file.read_bytes(), original)
+        self.assertEqual(snapshot.call_count, 2)
+
+    def test_order_read_retries_after_concurrent_attachment_removal(self):
+        attachment = self.service.add_card_attachment(
+            {
+                "card_id": self.card_id,
+                "file_name": "fixture.txt",
+                "content_base64": base64.b64encode(b"fixture").decode("ascii"),
+            }
+        )["attachment"]
+        probing, release = threading.Event(), threading.Event()
+        exists_on_disk = self.service._attachment_exists_on_disk
+
+        def paused_probe(*args):
+            if not probing.is_set():
+                probing.set()
+                if not release.wait(6):
+                    raise TimeoutError("Synthetic attachment check was not released")
+            return exists_on_disk(*args)
+
+        with (
+            patch.object(self.service, "_attachment_exists_on_disk", side_effect=paused_probe),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            reader = pool.submit(
+                self.service.get_repair_order,
+                {"card_id": self.card_id, "create_if_missing": False},
+            )
+            try:
+                self.assertTrue(probing.wait(2))
+                writer = pool.submit(
+                    self.service.remove_card_attachment,
+                    {"card_id": self.card_id, "attachment_id": attachment["id"]},
+                )
+                writer.result(timeout=4)
+            finally:
+                release.set()
+            self.assertEqual(reader.result(timeout=5)["card"]["attachments"], [])
 
     def assert_parse_allows_commit(self, snapshot, *, requires_file_lock=False):
         parsing, release, committed = threading.Event(), threading.Event(), threading.Event()

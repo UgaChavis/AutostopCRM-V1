@@ -742,14 +742,11 @@ class JsonStore:
                                     return result
                     self._committed_card_source = None
         elif not _SNAPSHOT_REQUIRES_FILE_LOCK:
-            with self._lock:
-                cached = self._committed_card_source
-                signature = self._repair_order_file_signature()
-                if cached is not None and signature is not None and signature == cached[0]:
-                    result = cached[2].for_card(self, card_id)
-                    if signature == self._repair_order_file_signature():
-                        return result
-                self._committed_card_source = None
+            from .readonly_context_snapshot import read_posix_committed_card_snapshot
+
+            result = read_posix_committed_card_snapshot(self, card_id)
+            if result is not None:
+                return result
         return self._read_context_bundle_snapshot(domains=("events",))
 
     def _prime_committed_card_source(self, payload):

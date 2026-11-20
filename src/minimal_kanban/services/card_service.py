@@ -8,7 +8,7 @@ import re
 import time
 import uuid
 from collections import Counter
-from copy import deepcopy
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, DecimalException
 from logging import Logger
@@ -2492,90 +2492,66 @@ class CardService(
         return self._snapshot_service.get_card_log(payload)
 
     def get_repair_order(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        create_if_missing = self._validated_optional_bool(
+            payload, "create_if_missing", default=True
+        )
+        if not create_if_missing:
+            return read_context.get_readonly_repair_order(self, payload)
         with self._lock:
-            payload = payload or {}
-            create_if_missing = self._validated_optional_bool(
-                payload, "create_if_missing", default=True
-            )
-            bundle = (
-                self._read_card_bundle_for_update(payload.get("card_id", ""))
-                if create_if_missing
-                else self._store._read_context_bundle_snapshot(domains=("events",))
-            )
+            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]
             card = self._find_card(cards, payload.get("card_id"))
-            read_warnings = read_context.maybe_card_warnings(bundle, card, not create_if_missing)
             self._ensure_repair_order_state_supported(card)
             actor_name, source = self._audit_identity(payload, default_source="ui")
-            created = False
-            synced_fields: list[str] = []
-            numbering_changed = False
-            if create_if_missing:
-                created = self._ensure_repair_order_exists(
-                    card,
-                    cards,
+            created = self._ensure_repair_order_exists(
+                card,
+                cards,
+                events,
+                actor_name,
+                source,
+                cashboxes=bundle["cashboxes"],
+                cash_transactions=bundle["cash_transactions"],
+                settings=bundle["settings"],
+            )
+            synced_fields = self._fill_missing_repair_order_fields_from_card(card)
+            if synced_fields:
+                self._append_event(
                     events,
-                    actor_name,
-                    source,
+                    actor_name=actor_name,
+                    source=source,
+                    action="repair_order_vehicle_fields_synced",
+                    message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
+                    card_id=card.id,
+                    details={"fields": synced_fields},
+                )
+            cleared_client_information = self._clear_legacy_repair_order_comment(card)
+            if cleared_client_information:
+                self._append_event(
+                    events,
+                    actor_name=actor_name,
+                    source=source,
+                    action="repair_order_client_information_autofill_cleared",
+                    message=(f"{actor_name} очистил автоматический текст информации для клиента"),
+                    card_id=card.id,
+                    details={"field": "comment"},
+                )
+            numbering_changed = self._synchronize_repair_order_numbers(cards)
+            if created or numbering_changed or synced_fields or cleared_client_information:
+                if synced_fields or cleared_client_information:
+                    self._touch_card(card, actor_name)
+                self._save_bundle(
+                    bundle,
+                    columns=columns,
+                    cards=cards,
                     cashboxes=bundle["cashboxes"],
                     cash_transactions=bundle["cash_transactions"],
-                    settings=bundle["settings"],
+                    events=events,
                 )
-                synced_fields = self._fill_missing_repair_order_fields_from_card(card)
-                if synced_fields:
-                    self._append_event(
-                        events,
-                        actor_name=actor_name,
-                        source=source,
-                        action="repair_order_vehicle_fields_synced",
-                        message=f"{actor_name} дополнил заказ-наряд данными паспорта автомобиля",
-                        card_id=card.id,
-                        details={"fields": synced_fields},
-                    )
-                cleared_client_information = self._clear_legacy_repair_order_comment(card)
-                if cleared_client_information:
-                    self._append_event(
-                        events,
-                        actor_name=actor_name,
-                        source=source,
-                        action="repair_order_client_information_autofill_cleared",
-                        message=(
-                            f"{actor_name} очистил автоматический текст информации для клиента"
-                        ),
-                        card_id=card.id,
-                        details={"field": "comment"},
-                    )
-                numbering_changed = self._synchronize_repair_order_numbers(cards)
-                if created or numbering_changed or synced_fields or cleared_client_information:
-                    if synced_fields or cleared_client_information:
-                        self._touch_card(card, actor_name)
-                    self._save_bundle(
-                        bundle,
-                        columns=columns,
-                        cards=cards,
-                        cashboxes=bundle["cashboxes"],
-                        cash_transactions=bundle["cash_transactions"],
-                        events=events,
-                    )
-            return deepcopy(
-                {
-                    **({"read_warnings": read_warnings} if read_warnings else {}),
-                    "card_id": card.id,
-                    "heading": card.heading(),
-                    "card": self._serialize_card(
-                        card,
-                        events,
-                        column_labels=self._column_labels(columns),
-                        viewer_username=actor_name,
-                    ),
-                    "repair_order": card.repair_order.to_dict(),
-                    "meta": {
-                        "has_any_data": self._card_has_repair_order(card),
-                        "created": created,
-                    },
-                }
+            return read_context.repair_order_response(
+                self, card, columns, events, actor_name, created=created
             )
 
     def update_repair_order(self, payload: dict | None = None) -> dict:
@@ -3370,9 +3346,14 @@ class CardService(
             return body, file_name
 
     def get_repair_order_text(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            bundle, read_only = read_context.prepare_repair_order_text(self, payload)
+        payload = payload or {}
+        read_only = self._validated_optional_bool(payload, "read_only", default=False)
+        with nullcontext() if read_only else self._lock:
+            bundle = (
+                self._store._read_single_card_snapshot(payload.get("card_id"))
+                if read_only
+                else self._read_bundle_for_update()
+            )
             if not read_only and self._synchronize_repair_order_numbers(bundle["cards"]):
                 self._save_bundle(
                     bundle,

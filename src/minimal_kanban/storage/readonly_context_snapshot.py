@@ -543,6 +543,21 @@ def read_operator_audit_events(store) -> list[AuditEvent]:
     return events if events is not None else store.read_bundle()["events"]
 
 
+def read_posix_committed_card_snapshot(store, card_id):
+    cached = store._committed_card_source
+    if cached is None:
+        return None
+    # Keep the detached generation pinned in memory during an overlapping write.
+    if cached[0] == store._repair_order_file_signature():
+        snapshot = cached[2].for_card(store, card_id)
+        if cached[0] == store._repair_order_file_signature():
+            return snapshot
+    with store._lock:
+        if store._committed_card_source is cached:
+            store._committed_card_source = None
+    return None
+
+
 def build_context_snapshot(store, state, domains, *, read_search_clients=None):
     if domains == ("operator_audit_events",):
         try:

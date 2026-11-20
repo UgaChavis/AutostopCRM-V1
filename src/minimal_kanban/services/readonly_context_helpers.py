@@ -78,16 +78,6 @@ def client_readonly_related_cards(
     return related
 
 
-def prepare_repair_order_text(service, payload):
-    read_only = service._validated_optional_bool(payload, "read_only", default=False)
-    bundle = (
-        service._store._read_context_bundle_snapshot(domains=("events",))
-        if read_only
-        else service._read_bundle_for_update()
-    )
-    return bundle, read_only
-
-
 def ranked_context_clients(service, card, clients):
     search_parts = (
         card.vehicle_profile.customer_name,
@@ -147,6 +137,50 @@ def checked_card_warnings(bundle, card):
 
 def maybe_card_warnings(bundle, card, read_only):
     return checked_card_warnings(bundle, card) if read_only else []
+
+
+def repair_order_response(
+    service, card, columns, events, actor_name, *, created=False, read_warnings=()
+):
+    return deepcopy(
+        {
+            **({"read_warnings": read_warnings} if read_warnings else {}),
+            "card_id": card.id,
+            "heading": card.heading(),
+            "card": service._serialize_card(
+                card,
+                events,
+                column_labels=service._column_labels(columns),
+                viewer_username=actor_name,
+            ),
+            "repair_order": card.repair_order.to_dict(),
+            "meta": {"has_any_data": service._card_has_repair_order(card), "created": created},
+        }
+    )
+
+
+def get_readonly_repair_order(service, payload):
+    card_id = payload.get("card_id")
+    actor_name, _ = service._audit_identity(payload, default_source="ui")
+    store = service._store
+
+    def read():
+        bundle = store._read_single_card_snapshot(card_id)
+        card = service._find_card(bundle["cards"], card_id)
+        warnings = checked_card_warnings(bundle, card)
+        service._ensure_repair_order_state_supported(card)
+        return card, repair_order_response(
+            service, card, bundle["columns"], bundle["events"], actor_name, read_warnings=warnings
+        )
+
+    signature = store._repair_order_file_signature()
+    card, result = read()
+    # The attachment status check reads disk. A local removal or repair may
+    # have replaced state between capturing the card and checking its files.
+    if card.active_attachments() and signature != store._repair_order_file_signature():
+        with service._lock:
+            return read()[1]
+    return result
 
 
 def detached_card_response(card, read_warnings):
