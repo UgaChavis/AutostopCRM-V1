@@ -1948,6 +1948,7 @@ class JsonStore:
         *,
         _repair_orders: list[RepairOrder] | None = None,
         detach_order_history: bool = False,
+        compare_storage: bool = True,
     ) -> tuple[list[Card], bool]:
         raw_cards = state.get("cards", [])
         repaired = False
@@ -1984,7 +1985,7 @@ class JsonStore:
                 order.payroll_postings = deepcopy(order.payroll_postings)
                 order.active_correction = deepcopy(order.active_correction)
             cards.append(card)
-            if item != card.to_storage_dict():
+            if compare_storage and item != card.to_storage_dict():
                 repaired = True
         cards, retention_repaired = self._apply_card_retention(cards)
         if retention_repaired:

@@ -48,7 +48,15 @@ class ClientProfileCardSnapshotDetachmentTests(CardServiceCase):
             [card.to_storage_dict() for card in expected],
         )
 
-    def test_profile_card_mutations_do_not_touch_source_or_other_snapshot(self):
+    def test_client_card_mutations_do_not_touch_source_or_other_snapshot(self):
+        for domains in (
+            ("client_profile",),
+            ("clients", "client_search", "client_search_cards"),
+        ):
+            with self.subTest(domains=domains):
+                self.assert_card_mutations_stay_detached(domains)
+
+    def assert_card_mutations_stay_detached(self, domains):
         state, raw = self.card_state()
         raw["vehicle_profile"].update(
             customer_phones=["123", "456"],
@@ -83,7 +91,7 @@ class ClientProfileCardSnapshotDetachmentTests(CardServiceCase):
         )
         self.write_state(state)
         before = self.state_file.read_bytes()
-        profile = self.store._read_context_bundle_snapshot(domains=("client_profile",))
+        profile = self.store._read_context_bundle_snapshot(domains=domains)
         other = self.store._read_context_bundle_snapshot(domains=("events",))
         raw_before = deepcopy(self.store._context_snapshot_state)
         other_before = [card.to_storage_dict() for card in other["cards"]]
@@ -114,6 +122,30 @@ class ClientProfileCardSnapshotDetachmentTests(CardServiceCase):
 
         self.assertEqual(self.store._context_snapshot_state, raw_before)
         self.assertEqual([card.to_storage_dict() for card in other["cards"]], other_before)
+        self.assertEqual(self.state_file.read_bytes(), before)
+
+    def test_client_search_does_not_serialize_cards_for_read_repair(self):
+        state, _ = self.card_state()
+        expected = self.reference_cards(state)
+        before = self.state_file.read_bytes()
+        with (
+            patch(
+                "minimal_kanban.storage.readonly_context_snapshot._safe_to_detach_shallow_json",
+                return_value=True,
+            ),
+            patch.object(
+                type(expected[0]),
+                "to_storage_dict",
+                side_effect=AssertionError("detached read does not need a write comparison"),
+            ),
+        ):
+            snapshot = self.store._read_context_bundle_snapshot(
+                domains=("clients", "client_search", "client_search_cards")
+            )
+        self.assertEqual(
+            [item.to_storage_dict() for item in snapshot["cards"]],
+            [item.to_storage_dict() for item in expected],
+        )
         self.assertEqual(self.state_file.read_bytes(), before)
 
     def test_legacy_order_history_is_detached_and_normalized(self):
