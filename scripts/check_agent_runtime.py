@@ -158,24 +158,28 @@ def _evaluate_agent_runtime_mode(
             return "api_only", {"api_url": base_url, "reason": "agent_status_route_retired"}
         raise
 
-    status = payload["data"]["status"]
-    agent = payload["data"]["agent"]
-    heartbeat_age = _heartbeat_age_seconds(str(status.get("last_heartbeat", "") or ""))
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise ValueError("Invalid agent status response")
+    status, agent = data.get("status"), data.get("agent")
     if (
-        agent.get("enabled")
-        and heartbeat_age is not None
-        and heartbeat_age <= max_heartbeat_age_seconds
+        not isinstance(status, dict)
+        or not isinstance(agent, dict)
+        or not isinstance(agent.get("enabled"), bool)
     ):
-        return "ok", {
-            "api_url": base_url,
-            "heartbeat_age_seconds": f"{heartbeat_age:.2f}",
-            "model": str(agent.get("model", "") or ""),
-        }
-    if not agent.get("enabled"):
+        raise ValueError("Invalid agent status response")
+    if not agent["enabled"]:
         return "api_only", {"api_url": base_url, "reason": "embedded_agent_disabled"}
+    if agent.get("available") is False or agent.get("ready") is False:
+        return "api_only", {"api_url": base_url, "reason": "embedded_agent_not_ready"}
+    heartbeat_age = _heartbeat_age_seconds(str(status.get("last_heartbeat", "") or ""))
     if heartbeat_age is None or heartbeat_age > max_heartbeat_age_seconds:
         return "api_only", {"api_url": base_url, "reason": "stale_or_missing_heartbeat"}
-    return "api_only", {"api_url": base_url, "reason": "unknown_agent_state"}
+    return "ok", {
+        "api_url": base_url,
+        "heartbeat_age_seconds": f"{heartbeat_age:.2f}",
+        "model": str(agent.get("model", "") or ""),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

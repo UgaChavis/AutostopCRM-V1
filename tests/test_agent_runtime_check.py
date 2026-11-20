@@ -161,6 +161,43 @@ class CheckAgentRuntimeScriptTests(unittest.TestCase):
         self.assertEqual(details["heartbeat_age_seconds"], "5.00")
         self.assertEqual(details["model"], "gpt-test")
 
+    def test_fresh_heartbeat_does_not_override_reported_unavailability(self) -> None:
+        for field in ("available", "ready"):
+            with self.subTest(field=field):
+                payload = {
+                    "data": {
+                        "status": {
+                            "last_heartbeat": (utc_now() - timedelta(seconds=60)).isoformat()
+                        },
+                        "agent": {"enabled": True, field: False},
+                    }
+                }
+                with patch.object(self.module, "_request_json", return_value=payload):
+                    status, details = self.module._evaluate_agent_runtime_mode(
+                        base_url="http://127.0.0.1:41731",
+                        token="token",
+                        max_heartbeat_age_seconds=120.0,
+                    )
+                self.assertEqual(status, "api_only")
+                self.assertEqual(details["reason"], "embedded_agent_not_ready")
+
+    def test_reports_malformed_status_without_a_traceback(self) -> None:
+        output = StringIO()
+        with (
+            patch.object(self.module, "_login", return_value="test-session"),
+            patch.object(
+                self.module, "_request_json", return_value={"data": {"status": None, "agent": {}}}
+            ),
+            redirect_stdout(output),
+        ):
+            exit_code = self.module.main(
+                ["--operator-username", "test-admin", "--operator-password", "test-password"]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("status: error", output.getvalue())
+        self.assertIn("Invalid agent status response", output.getvalue())
+
     def test_heartbeat_age_cli_limit_is_bounded(self) -> None:
         self.assertEqual(self.module._bounded_heartbeat_age_seconds(float("inf")), 30.0)
         self.assertEqual(self.module._bounded_heartbeat_age_seconds("bad"), 30.0)
