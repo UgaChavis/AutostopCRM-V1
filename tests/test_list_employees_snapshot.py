@@ -32,15 +32,31 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 class ListEmployeesSnapshotTests(unittest.TestCase):
     def test_salary_report_uses_one_snapshot_while_new_accrual_is_saved(self) -> None:
+        self._check_accrual_report_snapshot(
+            self.service.get_employee_salary_report,
+            "_build_employee_salary_report",
+            {"month": "2026-11"},
+            "shift_accrual_total_minor",
+        )
+
+    def test_salary_reconciliation_uses_one_snapshot_while_new_accrual_is_saved(self) -> None:
+        self._check_accrual_report_snapshot(
+            self.service.get_employee_salary_reconciliation,
+            "_build_employee_salary_reconciliation",
+            {"date_from": "2026-11-01", "date_to": "2026-11-30"},
+            "accrued_total_minor",
+        )
+
+    def _check_accrual_report_snapshot(self, read, builder, period, total_key) -> None:
         employee = self.service.save_employee(
             {"name": "Synthetic employee", "salary_mode": "none"}
         )["employee"]
-        query = {"employee_id": employee["id"], "month": "2026-11"}
+        query = {"employee_id": employee["id"], **period}
         accrual = {"employee_id": employee["id"], "created_at": "2026-11-20T12:00:00+07:00"}
         self.service.create_employee_shift_accrual({**accrual, "amount_minor": 100})
         started = threading.Event()
         resume = threading.Event()
-        build = self.service._build_employee_salary_report
+        build = getattr(self.service, builder)
 
         def pause_report(*args, **kwargs):
             started.set()
@@ -48,10 +64,8 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
             return build(*args, **kwargs)
 
         with ThreadPoolExecutor(max_workers=2) as workers:
-            with patch.object(
-                self.service, "_build_employee_salary_report", side_effect=pause_report
-            ):
-                pending = workers.submit(self.service.get_employee_salary_report, query)
+            with patch.object(self.service, builder, side_effect=pause_report):
+                pending = workers.submit(read, query)
                 try:
                     self.assertTrue(started.wait(5))
                     workers.submit(
@@ -61,9 +75,8 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
                     resume.set()
                 report = pending.result(timeout=5)
 
-        self.assertEqual(report["totals"]["shift_accrual_total_minor"], 100)
-        latest = self.service.get_employee_salary_report(query)
-        self.assertEqual(latest["totals"]["shift_accrual_total_minor"], 300)
+        self.assertEqual(report["totals"][total_key], 100)
+        self.assertEqual(read(query)["totals"][total_key], 300)
 
     def test_detached_projection_matches_deepcopy_and_preserves_shared_nested_sources(self) -> None:
         employee = self.service.save_employee(

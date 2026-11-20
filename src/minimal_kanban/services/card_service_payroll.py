@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Iterable
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -50,8 +51,11 @@ from .payroll_constants import (
     repair_order_payroll_scheme as _repair_order_payroll_scheme,
 )
 from .payroll_read_snapshot import (
+    PayrollReadCard,
+    SalaryLedgerCard,
     SalaryReportCard,
     detach_employee_list_inputs,
+    detach_salary_ledger_inputs,
     detach_salary_report_cards,
 )
 from .payroll_report_text import employee_salary_report_text
@@ -654,7 +658,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
 
     @staticmethod
     def _legacy_overall_accruals_without_postings(
-        cards: list[Card], entries: list[dict[str, Any]]
+        cards: Iterable[Card | PayrollReadCard | SalaryLedgerCard], entries: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         journal_card_ids = {
             card.id
@@ -694,7 +698,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
 
     def _build_employee_salary_reconciliation(
         self,
-        cards: list[Card],
+        cards: list[SalaryLedgerCard],
         cashboxes: list[CashBox],
         cash_transactions: list[CashTransaction],
         employee: dict[str, Any],
@@ -833,10 +837,10 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
         for card in cards:
             order = card.repair_order
             if order.payroll_postings:
-                vehicle = order.vehicle or card.vehicle_display() or "-"
+                vehicle = order.vehicle or card.display_vehicle or "-"
                 license_plate = (
                     normalize_license_plate(order.license_plate, limit=40)
-                    or normalize_license_plate(card.vehicle_profile.registration_plate, limit=40)
+                    or normalize_license_plate(card.registration_plate, limit=40)
                     or ""
                 )
                 for posting in order.payroll_postings:
@@ -917,10 +921,10 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             closed_at_utc = closed_at.astimezone(UTC)
             if closed_at_utc < period_start or closed_at_utc > period_end:
                 continue
-            vehicle = order.vehicle or card.vehicle_display() or "-"
+            vehicle = order.vehicle or card.display_vehicle or "-"
             license_plate = (
                 normalize_license_plate(order.license_plate, limit=40)
-                or normalize_license_plate(card.vehicle_profile.registration_plate, limit=40)
+                or normalize_license_plate(card.registration_plate, limit=40)
                 or ""
             )
             repair_order_number = order.number or "-"
@@ -1233,49 +1237,50 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                     now=model_helpers.utc_now(),
                 )
             )
-            report = self._build_employee_salary_reconciliation(
-                bundle["cards"],
-                bundle["cashboxes"],
-                bundle["cash_transactions"],
-                employee,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
-                salary_balance_resets=salary_balance_resets,
-                period_start=period_start,
-                period_end=period_end,
-            )
-            business_start = period_start.astimezone(business_timezone())
-            business_end = period_end.astimezone(business_timezone())
-            period = {
-                "date_from": business_start.date().isoformat(),
-                "date_to": business_end.date().isoformat(),
-                "label": f"{business_start.strftime('%d.%m.%Y')} - {business_end.strftime('%d.%m.%Y')}",
-                "days": period_days,
-                "mode": period_mode,
-                "generated_at": generated_at.isoformat(),
-            }
-            return {
-                "employee": {
-                    "id": employee["id"],
-                    "name": employee["name"],
-                    "position": employee.get("position", ""),
-                    "salary_mode": employee.get("salary_mode", ""),
-                    "base_salary": employee.get("base_salary", ""),
-                    "work_percent": employee.get("work_percent", ""),
-                    "material_percent": employee.get("material_percent", ""),
-                    "repair_order_percent": employee.get("repair_order_percent", ""),
-                    "payroll_terms": employee.get("payroll_terms", []),
-                },
-                "period": period,
-                "rows": report["rows"],
-                "totals": report["totals"],
-                "meta": {
-                    "schema_version": "employee_salary_reconciliation.v1",
-                    "period_days": period_days,
-                    "period_mode": period_mode,
-                    "row_count": len(report["rows"]),
-                },
-            }
+            snapshot = detach_salary_ledger_inputs(bundle, employee_id=employee_id)
+        report = self._build_employee_salary_reconciliation(
+            snapshot["cards"],
+            snapshot["cashboxes"],
+            snapshot["cash_transactions"],
+            employee,
+            shift_accruals=shift_accruals,
+            repair_order_accruals=repair_order_accruals,
+            salary_balance_resets=salary_balance_resets,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        business_start = period_start.astimezone(business_timezone())
+        business_end = period_end.astimezone(business_timezone())
+        period = {
+            "date_from": business_start.date().isoformat(),
+            "date_to": business_end.date().isoformat(),
+            "label": f"{business_start.strftime('%d.%m.%Y')} - {business_end.strftime('%d.%m.%Y')}",
+            "days": period_days,
+            "mode": period_mode,
+            "generated_at": generated_at.isoformat(),
+        }
+        return {
+            "employee": {
+                "id": employee["id"],
+                "name": employee["name"],
+                "position": employee.get("position", ""),
+                "salary_mode": employee.get("salary_mode", ""),
+                "base_salary": employee.get("base_salary", ""),
+                "work_percent": employee.get("work_percent", ""),
+                "material_percent": employee.get("material_percent", ""),
+                "repair_order_percent": employee.get("repair_order_percent", ""),
+                "payroll_terms": employee.get("payroll_terms", []),
+            },
+            "period": period,
+            "rows": report["rows"],
+            "totals": report["totals"],
+            "meta": {
+                "schema_version": "employee_salary_reconciliation.v1",
+                "period_days": period_days,
+                "period_mode": period_mode,
+                "row_count": len(report["rows"]),
+            },
+        }
 
     def _employee_salary_report_decimal_minor(self, value: Decimal) -> int:
         return int((value * Decimal("100")).to_integral_value(rounding=ROUND_HALF_UP))

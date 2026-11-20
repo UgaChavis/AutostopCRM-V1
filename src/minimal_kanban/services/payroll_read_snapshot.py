@@ -49,6 +49,7 @@ class SalaryLedgerOrder:
     status: str
     closed_at: str
     vehicle: str
+    license_plate: str
     works: list[dict[str, Any]]
     materials: list[dict[str, Any]]
     payroll_postings: list[dict[str, Any]]
@@ -58,6 +59,8 @@ class SalaryLedgerOrder:
 class SalaryLedgerCard:
     id: str
     vehicle: str
+    display_vehicle: str
+    registration_plate: str
     repair_order: SalaryLedgerOrder
 
 
@@ -150,8 +153,8 @@ def detach_salary_ledger_inputs(
     bundle: dict[str, Any],
     *,
     employee_id: str,
-    revision_employee: dict[str, Any] | None,
-    revision_shifts: list[dict[str, Any]] | None,
+    revision_employee: dict[str, Any] | None = None,
+    revision_shifts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Keep every order source used by the ledger and its revision."""
     snapshot = _detach(
@@ -172,11 +175,14 @@ def detach_salary_ledger_inputs(
             SalaryLedgerCard(
                 id=card.id,
                 vehicle=card.vehicle,
+                display_vehicle=card.vehicle_display(),
+                registration_plate=card.vehicle_profile.registration_plate,
                 repair_order=SalaryLedgerOrder(
                     number=order.number,
                     status=order.status,
                     closed_at=order.closed_at,
                     vehicle=order.vehicle,
+                    license_plate=order.license_plate,
                     works=_salary_rows_snapshot(order.works),
                     materials=_salary_rows_snapshot(order.materials),
                     payroll_postings=_detach(order.payroll_postings, {}),
