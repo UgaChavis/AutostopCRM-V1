@@ -3565,18 +3565,20 @@
       modalEl.classList.add('is-open');
     }
 
+    function resetDesktopClientsOnClose() {
+      if (!state.mobileClientsLoading) {
+        window.clearTimeout(state.clientsSearchTimer);
+        state.clientsSearchTimer = null;
+        if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
+      }
+      if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
+      state.mobileClientProfileLoading = false;
+    }
+
     function popModal(key, options = {}) {
       const normalizedKey = String(key || '').trim();
       if (!normalizedKey) return;
-      if (normalizedKey === 'clients' && !options.keepOpen) {
-        if (!state.mobileClientsLoading) {
-          window.clearTimeout(state.clientsSearchTimer);
-          state.clientsSearchTimer = null;
-          if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
-        }
-        if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
-        state.mobileClientProfileLoading = false;
-      }
+      if (normalizedKey === 'clients' && !options.keepOpen) resetDesktopClientsOnClose();
       const stack = Array.isArray(state.modalStack) ? state.modalStack : [];
       const index = stack.findIndex((entry) => entry?.key === normalizedKey);
       const entry = index >= 0 ? stack[index] : null;
@@ -3592,15 +3594,7 @@
     function closeModalAndChildren(closeKey) {
       const normalizedKey = String(closeKey || '').trim();
       if (!normalizedKey) return false;
-      if (normalizedKey === 'clients') {
-        if (!state.mobileClientsLoading) {
-          window.clearTimeout(state.clientsSearchTimer);
-          state.clientsSearchTimer = null;
-          if (!state.clientsLoaded || state.clientsMetaState) state.clientsRequestSeq = (state.clientsRequestSeq || 0) + 1;
-        }
-        if (!state.clientMutationRequest) state.clientsProfileRequestSeq = (state.clientsProfileRequestSeq || 0) + 1;
-        state.mobileClientProfileLoading = false;
-      }
+      if (normalizedKey === 'clients') resetDesktopClientsOnClose();
       const closingKeys = new Set([normalizedKey]);
       let changed = true;
       while (changed) {
