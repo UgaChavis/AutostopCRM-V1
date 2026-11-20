@@ -6941,13 +6941,7 @@
         const transactions = visibleCashboxTransactions();
         const transactionHtml = transactions.length
           ? '<div class="mobile-cashbox-transactions">' + transactions.map((item) => {
-              const transactionId = String(item?.id || '').trim();
-              const notificationTone = normalizeCashboxNotificationTone(
-                state.cashboxNotificationHighlights.get(transactionId)
-              );
-              const notificationAttributes = notificationTone
-                ? ' data-cashbox-notification-tone="' + escapeHtml(notificationTone) + '" data-cashbox-notification-transaction-id="' + escapeHtml(transactionId) + '"'
-                : '';
+              const notificationAttributes = cashboxTransactionNotificationAttributes(String(item?.id || '').trim());
               const direction = item?.direction === 'expense' ? 'expense' : 'income';
               const note = String(item?.note || '').trim() || 'Без комментария';
               const amount = cashboxFormatMinorAmount(item?.amount_minor ?? 0).replace(/^-/, '');
@@ -16355,6 +16349,13 @@
       return ['income', 'transfer', 'expense'].includes(tone) ? tone : '';
     }
 
+    function cashboxTransactionNotificationAttributes(transactionId) {
+      const tone = normalizeCashboxNotificationTone(state.cashboxNotificationHighlights.get(transactionId));
+      return tone
+        ? ' data-cashbox-notification-tone="' + escapeHtml(tone) + '" data-cashbox-notification-transaction-id="' + escapeHtml(transactionId) + '"'
+        : '';
+    }
+
     function renderCashboxNotificationIndicator() {
       const notification = state.cashboxNotification || {};
       const tone = notification?.has_unread
@@ -16656,12 +16657,7 @@
       const meta = state.activeCashbox?.meta || {};
       const rowsHtml = transactions.length ? transactions.map((item) => {
         const transactionId = String(item?.id || '').trim();
-        const notificationTone = normalizeCashboxNotificationTone(
-          state.cashboxNotificationHighlights.get(transactionId)
-        );
-        const notificationAttributes = notificationTone
-          ? ' data-cashbox-notification-tone="' + escapeHtml(notificationTone) + '" data-cashbox-notification-transaction-id="' + escapeHtml(transactionId) + '"'
-          : '';
+        const notificationAttributes = cashboxTransactionNotificationAttributes(transactionId);
         const direction = item?.direction === 'expense' ? 'expense' : 'income';
         const note = String(item?.note || '').trim() || 'Без комментария';
         const actor = String(item?.actor_name || '').trim() || '—';
