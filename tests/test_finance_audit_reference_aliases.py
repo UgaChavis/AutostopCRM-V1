@@ -81,6 +81,25 @@ class FinanceAuditReferenceAliasesTests(CardServiceCase):
             result = service.apply_finance_audit_safe_fixes({"dry_run": False})
             self.assertTrue(any(fix["kind"] == "set_transaction_kind" for fix in result["applied"]))
 
+    def test_cashbox_details_refresh_order_context_when_only_the_card_changes(self):
+        with self._case("legacy") as (_, service, store, transaction_id):
+            bundle = deepcopy(store.read_bundle())
+            cashbox_id = bundle["cash_transactions"][0].cashbox_id
+
+            def entry():
+                transactions = service.get_cashbox({"cashbox_id": cashbox_id})["transactions"]
+                return next(item for item in transactions if item["id"] == transaction_id)
+
+            original = entry()
+            self.assertEqual(entry(), original)
+            bundle["cards"][0].repair_order.vehicle = "Synthetic updated vehicle"
+            store.write_bundle(**bundle)
+
+            current = entry()
+            self.assertEqual(current["repair_order_vehicle"], "Synthetic updated vehicle")
+            self.assertEqual(current["amount_minor"], original["amount_minor"])
+            self.assertEqual(current["link_status"], original["link_status"])
+
     def test_duplicate_exact_or_short_ownership_never_offers_payment_fixes(self):
         for duplicate_short in (False, True):
             with (

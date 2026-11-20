@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
+from copy import copy
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-from ..models import CashTransaction, business_timezone, normalize_actor_name
+from ..models import CashBox, CashTransaction, business_timezone, normalize_actor_name
 from ..operator_permissions import (
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
     operator_has_permission,
@@ -17,12 +18,23 @@ from ..storage.cashbox_receipts import (
     newer_cashbox_receipt,
 )
 
+if TYPE_CHECKING:
+    from ..storage.json_store import CashboxReceiptVersion
+
+
+class _CashboxDetails(NamedTuple):
+    version: CashboxReceiptVersion | None
+    cashboxes: list[CashBox]
+    transactions: list[CashTransaction]
+    order_context: dict[str, dict[str, object]]
+
 
 class FinanceReadCore:
     """Read-only finance orchestration behind CardService public facades."""
 
     def __init__(self, service: Any) -> None:
         self._service = service
+        self._cashbox_details: _CashboxDetails | None = None
 
     def list_cashboxes(self, payload: dict | None = None) -> dict:
         service = self._service
@@ -100,48 +112,79 @@ class FinanceReadCore:
             snapshot = store.read_cashbox_receipt_state()
         return snapshot, None
 
+    def _current_cashbox_details(self) -> _CashboxDetails | None:
+        store = self._service._store
+        cached = self._cashbox_details
+        source = store._cashbox_receipt_source
+        if (
+            cached is not None
+            and source is not None
+            and cached.version is not None
+            and cached.version is source[0]
+            and cached.version.content_digest is None
+            and store._cashbox_receipt_state_matches(cached.version)
+        ):
+            return cached
+        return None
+
+    def _read_cashbox_details(self) -> _CashboxDetails:
+        service = self._service
+        store = service._store
+        if cached := self._current_cashbox_details():
+            return cached
+        with service._lock:
+            if cached := self._current_cashbox_details():
+                return cached
+            # Read the bundle and its verified ledger provenance together.
+            with store._lock:
+                bundle = store.read_bundle()
+                source = store._cashbox_receipt_source
+            details = _CashboxDetails(
+                source[0] if source is not None else None,
+                service._ordered_cashboxes([copy(box) for box in bundle["cashboxes"]]),
+                [copy(transaction) for transaction in bundle["cash_transactions"]],
+                service._repair_order_transaction_context(
+                    bundle["cards"], bundle["cash_transactions"], bundle["cashboxes"]
+                ),
+            )
+            if details.version is not None and details.version.content_digest is None:
+                self._cashbox_details = details
+            return details
+
     def get_cashbox(self, payload: dict | None = None) -> dict:
         service = self._service
-        with service._lock:
-            payload = payload or {}
-            transaction_limit = service._validated_limit(
-                payload.get("transaction_limit"), default=300, maximum=5000
-            )
-            transaction_offset = _validated_offset(payload.get("transaction_offset"))
-            compact = service._validated_optional_bool(payload, "compact", default=False)
-            bundle = service._store.read_bundle()
-            cashboxes = service._ordered_cashboxes(bundle["cashboxes"])
-            cashbox = service._find_cashbox(cashboxes, payload.get("cashbox_id"))
-            transactions = service._cashbox_transactions(bundle["cash_transactions"], cashbox.id)
-            returned_transactions = transactions[
-                transaction_offset : transaction_offset + transaction_limit
-            ]
-            repair_order_transaction_context = service._repair_order_transaction_context(
-                bundle["cards"], bundle["cash_transactions"], bundle["cashboxes"]
-            )
-            serialize_transaction = (
-                service._serialize_cash_transaction_compact
-                if compact
-                else service._serialize_cash_transaction
-            )
-            return {
-                "cashbox": service._serialize_cashbox(cashbox, transactions),
-                "transactions": [
-                    serialize_transaction(
-                        item,
-                        repair_order_context=repair_order_transaction_context.get(item.id),
-                    )
-                    for item in returned_transactions
-                ],
-                "meta": {
-                    "transactions_total": len(transactions),
-                    "transaction_limit": transaction_limit,
-                    "transaction_offset": transaction_offset,
-                    "transactions_returned": len(returned_transactions),
-                    "has_more": transaction_offset + len(returned_transactions) < len(transactions),
-                    "compact": compact,
-                },
-            }
+        payload = payload or {}
+        transaction_limit = service._validated_limit(
+            payload.get("transaction_limit"), default=300, maximum=5000
+        )
+        transaction_offset = _validated_offset(payload.get("transaction_offset"))
+        compact = service._validated_optional_bool(payload, "compact", default=False)
+        details = self._read_cashbox_details()
+        cashbox = service._find_cashbox(details.cashboxes, payload.get("cashbox_id"))
+        transactions = service._cashbox_transactions(details.transactions, cashbox.id)
+        returned_transactions = transactions[
+            transaction_offset : transaction_offset + transaction_limit
+        ]
+        serialize_transaction = (
+            service._serialize_cash_transaction_compact
+            if compact
+            else service._serialize_cash_transaction
+        )
+        return {
+            "cashbox": service._serialize_cashbox(cashbox, transactions),
+            "transactions": [
+                serialize_transaction(item, repair_order_context=details.order_context.get(item.id))
+                for item in returned_transactions
+            ],
+            "meta": {
+                "transactions_total": len(transactions),
+                "transaction_limit": transaction_limit,
+                "transaction_offset": transaction_offset,
+                "transactions_returned": len(returned_transactions),
+                "has_more": transaction_offset + len(returned_transactions) < len(transactions),
+                "compact": compact,
+            },
+        }
 
     def get_cash_journal(self, payload: dict | None = None) -> dict:
         service = self._service
