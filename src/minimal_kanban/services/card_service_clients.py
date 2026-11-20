@@ -136,7 +136,9 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
                 for client in clients:
                     bundle.require_client_sort_key(client)
                 client_index = self._client_search_index_for(clients)
-                related, warnings = self._client_checked_search_cards(bundle, clients)
+                related, warnings = self._client_checked_search_cards(
+                    bundle, clients, client_index=client_index
+                )
                 related_fields = {
                     client.id: [
                         value
@@ -204,7 +206,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             }
         )
 
-    def _client_checked_search_cards(self, bundle, clients):
+    def _client_checked_search_cards(self, bundle, clients, *, client_index=None):
         def matching(service, card, related, client_ids_by_key):
             matched = {card.client_id} if card.client_id in related else set()
             for key in service._card_client_values(card):
@@ -212,7 +214,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             return matched
 
         related = client_readonly_related_cards(
-            self, bundle, clients, bundle["cards"], matcher=matching
+            self, bundle, clients, bundle["cards"], matcher=matching, client_index=client_index
         )
         checked_cards = set()
         checked_owners = {}
@@ -291,7 +293,9 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             if prepared is None:
                 clients = bundle["clients"]
                 client_index = self._client_search_index_for(clients)
-                related = self._client_readonly_related_cards(bundle, clients, bundle["cards"])
+                related = self._client_readonly_related_cards(
+                    bundle, clients, bundle["cards"], client_index=client_index
+                )
                 related_fields = {
                     client.id: [
                         value
@@ -336,8 +340,10 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             },
         }
 
-    def _client_readonly_related_cards(self, bundle, clients, cards):
-        return client_readonly_related_cards(self, bundle, clients, cards)
+    def _client_readonly_related_cards(self, bundle, clients, cards, *, client_index=None):
+        return client_readonly_related_cards(
+            self, bundle, clients, cards, client_index=client_index
+        )
 
     def _serialize_readonly_client(self, bundle, client, related, *, include_stats, query=""):
         bundle.require_client(client)
@@ -1409,10 +1415,17 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
         related.sort(key=lambda item: (item.updated_at, item.created_at, item.id), reverse=True)
         return related
 
-    def _client_ids_by_match_key(self, clients: list[ClientProfile]) -> dict[str, set[str]]:
+    def _client_ids_by_match_key(
+        self, clients: list[ClientProfile], *, client_index: dict[str, dict[str, Any]] | None = None
+    ) -> dict[str, set[str]]:
         client_ids_by_key: dict[str, set[str]] = {}
         for client in clients:
-            for key in self._client_match_keys(client):
+            keys = (
+                self._client_match_keys(client)
+                if client_index is None
+                else client_index[client.id]["match_keys"]
+            )
+            for key in keys:
                 if key:
                     client_ids_by_key.setdefault(key, set()).add(client.id)
         return client_ids_by_key

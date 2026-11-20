@@ -37,11 +37,17 @@ def _search_card_clients(service, card, related, client_ids_by_key):
     return matching
 
 
-def client_readonly_related_cards(service, bundle, clients, cards, *, matcher=None):
+def client_readonly_related_cards(
+    service, bundle, clients, cards, *, matcher=None, client_index=None
+):
     related = {client.id: [] for client in clients}
     if not related:
         return related
-    client_ids_by_key = service._client_ids_by_match_key(clients)
+    client_ids_by_key = (
+        service._client_ids_by_match_key(clients)
+        if client_index is None
+        else service._client_ids_by_match_key(clients, client_index=client_index)
+    )
     matcher = matcher or _search_card_clients
     if bundle.search_cards_need_retention:
         for card in cards:

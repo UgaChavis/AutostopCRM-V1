@@ -108,10 +108,14 @@ class ClientSearchIndexingTests(CardServiceCase):
             ]
         )
 
-        self.assertEqual(self.service.search_clients(query), checked)
-        self.assertEqual(
-            self.service.search_clients_readonly(query)["clients"][0]["id"], client["id"]
-        )
+        with patch.object(
+            self.service, "_client_match_keys", wraps=self.service._client_match_keys
+        ) as keys:
+            self.assertEqual(self.service.search_clients(query), checked)
+            self.assertEqual(
+                self.service.search_clients_readonly(query)["clients"][0]["id"], client["id"]
+            )
+            keys.assert_not_called()
         self.assertIs(self.service._client_search_index_cache[1], index)
 
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
