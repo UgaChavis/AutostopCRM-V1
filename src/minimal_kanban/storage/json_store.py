@@ -373,8 +373,11 @@ class StateWriteConflictError(RuntimeError):
     """Raised when a cached bundle no longer matches the on-disk state."""
 
 
+StateFileSignature = tuple[int, int, int, int, int]
+
+
 class CashboxReceiptVersion(NamedTuple):
-    signature: tuple[int, int, int, int, int]
+    signature: StateFileSignature
     content_digest: str | None
 
 
@@ -411,19 +414,19 @@ class JsonStore:
         self._committed_state_digest: str | None = None
         self._change_feed_store = ChangeFeedStore(self._state_file.with_name("change_feed.sqlite3"))
         self._change_feed_initialized = False
-        self._change_feed_state_signature: tuple[int, int, int, int] | None = None
-        self._read_cache_signature: tuple[int, int, int, int] | None = None
+        self._change_feed_state_signature: StateFileSignature | None = None
+        self._read_cache_signature: StateFileSignature | None = None
         self._read_cache_bundle: dict[str, Any] | None = None
-        self._repair_order_snapshot_signature: tuple[int, int, int, int, int] | None = None
+        self._repair_order_snapshot_signature: StateFileSignature | None = None
         self._repair_order_snapshot_cards: list[Card] | None = None
-        self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
-        self._context_snapshots: dict[tuple[str, ...], tuple[tuple[int, ...], Any]] = {}
+        self._context_snapshot_signature: StateFileSignature | None = None
+        self._context_snapshots: dict[tuple[str, ...], tuple[StateFileSignature, Any]] = {}
         self._context_snapshot_state: dict | None = None
         self._inventory_context_source = None
         self._search_client_profiles: _SearchClientProfiles | None = None
         self._committed_card_source = None
         self._pending_committed_payload = None
-        self._validated_state_signature: tuple[int, int, int, int] | None = None
+        self._validated_state_signature: StateFileSignature | None = None
         self._trusted_card_versions: dict[str, tuple[int, str]] = {}
         self._trusted_client_versions: dict[str, tuple[int, str]] = {}
         self._trusted_sticky_versions: dict[str, tuple[int, str]] = {}
@@ -488,7 +491,7 @@ class JsonStore:
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
 
-    def _current_read_bundle_cache_signature(self) -> tuple[int, int, int, int] | None:
+    def _current_read_bundle_cache_signature(self) -> StateFileSignature | None:
         """Check a cached response against the current POSIX state file."""
         if _SNAPSHOT_REQUIRES_FILE_LOCK:
             return None
@@ -764,11 +767,7 @@ class JsonStore:
             self._committed_card_source = None
             return
         signature = self._repair_order_file_signature()
-        if (
-            signature is None
-            or (signature[0], signature[1], signature[2], signature[4])
-            != self._validated_state_signature
-        ):
+        if signature is None or signature != self._validated_state_signature:
             self._committed_card_source = None
             return
         cached = self._committed_card_source
@@ -900,7 +899,7 @@ class JsonStore:
 
     def read_bundle_with_signature(
         self,
-    ) -> tuple[dict[str, Any], tuple[int, int, int, int] | None]:
+    ) -> tuple[dict[str, Any], StateFileSignature | None]:
         started_at = time.perf_counter()
         with self._lock:
             with self._process_lock.acquire():
@@ -1010,7 +1009,7 @@ class JsonStore:
         inventory_movements: list[InventoryMovement] | None = None,
         events: list[AuditEvent],
         settings: dict[str, Any] | None = None,
-        expected_signature: tuple[int, int, int, int] | None = None,
+        expected_signature: StateFileSignature | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         with self._lock:
@@ -1117,7 +1116,7 @@ class JsonStore:
         inventory_movements: list[InventoryMovement],
         events: list[AuditEvent],
         settings: dict[str, Any],
-        expected_signature: tuple[int, int, int, int] | None = None,
+        expected_signature: StateFileSignature | None = None,
     ) -> dict[str, Any]:
         """Persist a bundle already normalized by this store, failing closed on drift."""
 
@@ -1768,7 +1767,7 @@ class JsonStore:
             self._log_warning("Committed state verification deferred: %s", exc)
             written_signature = None
         self._change_feed_state_signature = written_signature
-        if written_signature is None or written_signature[3] != payload_bytes:
+        if written_signature is None or written_signature[-1] != payload_bytes:
             self._log_warning("Committed state needs readback; durable feed stage retained.")
             self._change_feed_state_signature = None
             self._validated_state_signature = None
@@ -1792,19 +1791,14 @@ class JsonStore:
             self._pending_committed_payload = payload
         return serialize_ms, write_ms
 
-    def _state_signature(self) -> tuple[int, int, int, int] | None:
+    def _state_signature(self) -> StateFileSignature | None:
         try:
-            stat = self._state_file.stat()
+            info = self._state_file.stat()
         except FileNotFoundError:
             return None
-        return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size
+        return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
 
-    def _repair_order_file_signature(self) -> tuple[int, int, int, int, int] | None:
-        try:
-            stat = self._state_file.stat()
-        except FileNotFoundError:
-            return None
-        return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+    _repair_order_file_signature = _state_signature
 
     def _state_file_fingerprint(self) -> str:
         payload = read_bytes_limited(
@@ -1840,15 +1834,15 @@ class JsonStore:
     def _cashbox_source_from_bundle(self, state, signature):
         # Retain only the cash domains of this already validated state. Build the
         # receipt models lazily, outside the business writer's lock.
-        full = self._repair_order_file_signature()
+        current = self._repair_order_file_signature()
         if (
-            full
-            and (full[0], full[1], full[2], full[4]) == signature
+            current is not None
+            and current == signature
             and signature == self._change_feed_state_signature
             and self._committed_state_digest is not None
         ):
             version = CashboxReceiptVersion(
-                full, self._committed_state_digest if _SNAPSHOT_REQUIRES_FILE_LOCK else None
+                current, self._committed_state_digest if _SNAPSHOT_REQUIRES_FILE_LOCK else None
             )
             return (
                 version,
@@ -1867,7 +1861,7 @@ class JsonStore:
     def _set_read_cache(
         self,
         bundle: dict[str, Any],
-        signature: tuple[int, int, int, int] | None,
+        signature: StateFileSignature | None,
         state: dict,
     ) -> None:
         # A newly loaded or committed bundle retires all independent snapshots.

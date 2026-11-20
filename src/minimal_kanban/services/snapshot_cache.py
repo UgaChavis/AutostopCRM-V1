@@ -8,9 +8,12 @@ from collections.abc import Callable, Iterator
 from copy import deepcopy
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..models import Card, Column, StickyNote
+
+if TYPE_CHECKING:
+    from ..storage.json_store import StateFileSignature
 
 SNAPSHOT_CACHE_MAX_ENTRIES = 32
 COMPACT_SNAPSHOT_CACHE_TTL_SECONDS = 1.5
@@ -65,7 +68,7 @@ class SnapshotResponseCache:
 
     def __init__(self, *, max_entries: int = SNAPSHOT_CACHE_MAX_ENTRIES) -> None:
         self._max_entries = max(1, max_entries)
-        self._signature: tuple[int, int, int, int] | None = None
+        self._signature: StateFileSignature | None = None
         self._entries: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
         self._lock = Lock()
 
@@ -99,7 +102,7 @@ class SnapshotResponseCache:
 
     def get(
         self,
-        signature: tuple[int, int, int, int] | None,
+        signature: StateFileSignature | None,
         key: tuple[Any, ...],
     ) -> dict[str, Any] | None:
         if signature is None:
@@ -114,7 +117,7 @@ class SnapshotResponseCache:
 
     def put(
         self,
-        signature: tuple[int, int, int, int] | None,
+        signature: StateFileSignature | None,
         key: tuple[Any, ...],
         entry: dict[str, Any],
     ) -> None:

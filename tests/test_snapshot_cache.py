@@ -6,7 +6,9 @@ import os
 import sys
 import tempfile
 import unittest
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Event
 from unittest.mock import patch
@@ -25,7 +27,7 @@ from minimal_kanban.services.snapshot_cache import (  # noqa: E402
     SnapshotResponseCache,
 )
 from minimal_kanban.storage import json_store  # noqa: E402
-from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
+from minimal_kanban.storage.json_store import JsonStore, StateWriteConflictError  # noqa: E402
 
 
 class SnapshotCacheTests(unittest.TestCase):
@@ -65,6 +67,38 @@ class SnapshotCacheTests(unittest.TestCase):
             }
         )
         return str(result["card"]["id"])
+
+    @contextmanager
+    def _external_state_with_new_ctime(self, payload: bytes) -> Iterator[None]:
+        with self.store._process_lock.acquire(existing_only=True):
+            before = self.state_file.stat()
+            self.assertEqual(len(payload), before.st_size)
+            self.assertNotEqual(payload, self.state_file.read_bytes())
+            self.state_file.write_bytes(payload)
+            os.utime(self.state_file, ns=(before.st_atime_ns, before.st_mtime_ns))
+            after = self.state_file.stat()
+        self.assertEqual(
+            (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns),
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+        )
+        stat_file = Path.stat
+
+        def stat_with_new_ctime(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+            info = stat_file(path, follow_symlinks=follow_symlinks)
+            if path != self.state_file:
+                return info
+            # Hold the supplied ctime independent of filesystem timestamp granularity.
+            return os.stat_result(
+                info,
+                {
+                    "st_atime_ns": info.st_atime_ns,
+                    "st_mtime_ns": info.st_mtime_ns,
+                    "st_ctime_ns": before.st_ctime_ns + 1,
+                },
+            )
+
+        with patch.object(Path, "stat", stat_with_new_ctime):
+            yield
 
     def test_repeated_revision_uses_cached_revision(self) -> None:
         view = self._compact_view()
@@ -178,16 +212,14 @@ class SnapshotCacheTests(unittest.TestCase):
         self._create_card(title="Before")
         view = self._compact_view()
         before = self.service.get_board_revision(view)
-        old_file = self.state_file.stat()
         original = self.state_file.read_bytes()
         external = original.replace(b'"title":"Before"', b'"title":"After!"').replace(
             b'"column":"inbox"', b'"column":"bogus"'
         )
         self.assertNotEqual(external, original)
-        self.state_file.write_bytes(external)
-        os.utime(self.state_file, ns=(old_file.st_atime_ns, old_file.st_mtime_ns))
+        replacement = self.state_file.with_suffix(".external")
+        replacement.write_bytes(external)
         stat_signature = self.store._state_signature
-        self.assertEqual(stat_signature(), self.store._read_cache_signature)
         published = False
 
         def stat_with_handoff():
@@ -195,6 +227,7 @@ class SnapshotCacheTests(unittest.TestCase):
             signature = stat_signature()
             if not published:
                 published = True
+                replacement.replace(self.state_file)
                 self.store.read_cashbox_references()
             return signature
 
@@ -204,6 +237,39 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertNotEqual(after["revision"], before["revision"])
         card = json.loads(self.state_file.read_bytes())["cards"][0]
         self.assertEqual((card["title"], card["column"]), ("After!", "inbox"))
+
+    def test_ctime_change_invalidates_bundle_and_board_cache(self) -> None:
+        self._create_card(title="Before")
+        view = self._compact_view()
+        revision = self.service.get_board_revision(view)["revision"]
+        self.assertEqual(self.service.get_board_snapshot(view)["cards"][0]["title"], "Before")
+        external = self.state_file.read_bytes().replace(b'"title":"Before"', b'"title":"After!"')
+        with self._external_state_with_new_ctime(external):
+            self.assertEqual(self.store.read_bundle()["cards"][0].title, "After!")
+            self.assertEqual(self.service.get_board_snapshot(view)["cards"][0]["title"], "After!")
+            self.assertNotEqual(self.service.get_board_revision(view)["revision"], revision)
+
+    def test_ctime_change_rejects_stale_bundle_writes(self) -> None:
+        for cached in (False, True):
+            with self.subTest(cached=cached):
+                card_id = self._create_card(title="Before")
+                draft = self.service._read_bundle_for_update(card_id=card_id)
+                next(card for card in draft["cards"] if card.id == card_id).title = "Draft!"
+                external = self.state_file.read_bytes().replace(
+                    b'"title":"Before"', b'"title":"After!"'
+                )
+                with (
+                    self._external_state_with_new_ctime(external),
+                    self.assertRaises(StateWriteConflictError),
+                ):
+                    if cached:
+                        self.store.write_cached_bundle(
+                            draft.source, **draft, expected_signature=draft.signature
+                        )
+                    else:
+                        self.store.write_bundle(**draft, expected_signature=draft.signature)
+                self.assertEqual(self.state_file.read_bytes(), external)
+                self.assertFalse(self.store.change_feed_store.has_pending_state_write())
 
     def test_restricted_card_views_count_events_without_copying_details(self) -> None:
         card_id = self._create_card()
