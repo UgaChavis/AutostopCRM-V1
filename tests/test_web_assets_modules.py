@@ -198,6 +198,18 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
             self.assertEqual(gzip.decompress(_board_asset_gzip_bytes(path)), raw)
             self.assertNotIn(source, BOARD_WEB_APP_JS)
 
+    def test_card_client_link_helpers_are_only_in_card_save_module(self) -> None:
+        module = BOARD_WEB_APP_MODULES[BOARD_WEB_APP_MODULE_MANIFEST["card_save"]]
+        for function in (
+            "vehiclePayloadFromProfile",
+            "normalizedCardClientCreatePayload",
+            "applyCardClientLinkResult",
+        ):
+            with self.subTest(function=function):
+                signature = f"function {function}("
+                self.assertNotIn(signature, BOARD_WEB_APP_JS)
+                self.assertIn(signature, module)
+
     def test_startup_javascript_stays_within_payload_budget(self) -> None:
         # Cashbox and permission updates bring the measured script to 1,001,502 bytes.
         self.assertLess(len(BOARD_WEB_APP_JS.encode("utf-8")), 1_002_000)

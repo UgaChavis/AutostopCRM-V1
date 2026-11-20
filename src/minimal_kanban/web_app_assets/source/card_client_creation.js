@@ -1,4 +1,71 @@
-    // @include card_client_controls.js
+    function vehiclePayloadFromProfile(profile) {
+      return {
+        vehicle: profile.display_name || vehicleDisplayFromProfile(profile) || '',
+        brand: profile.make_display || '',
+        model: profile.model_display || '',
+        year: profile.production_year ? String(profile.production_year) : '',
+        mileage: profile.mileage ? String(profile.mileage) : '',
+        vin: profile.vin || '',
+        license_plate: profile.registration_plate || '',
+        body_number: profile.body_number || '',
+        chassis_number: profile.chassis_number || '',
+        engine_code: profile.engine_code || '',
+        engine_model: profile.engine_model || '',
+        gearbox_type: profile.gearbox_type || '',
+        gearbox_model: profile.gearbox_model || '',
+        drivetrain: profile.drivetrain || '',
+      };
+    }
+
+    function normalizedCardClientCreatePayload(payload) {
+      const source = payload && typeof payload === 'object' ? payload : {};
+      const allowedTypes = new Set(['person', 'ip', 'ooo', 'company']);
+      const clientType = allowedTypes.has(String(source.client_type || '').trim()) ? String(source.client_type || '').trim() : 'person';
+      const phones = normalizePhoneList([
+        source.phone,
+        ...(Array.isArray(source.phones) ? source.phones : []),
+      ]);
+      const phone = phones[0] || String(source.phone || '').trim();
+      const displayName = String(source.display_name || source.short_name || source.legal_name || '').trim();
+      const request = {
+        ...source,
+        client_type: clientType,
+        display_name: displayName || phone,
+        phone,
+        phones,
+      };
+      if (clientType !== 'person' && request.display_name) {
+        if (!String(request.short_name || '').trim()) request.short_name = request.display_name;
+        if (!String(request.legal_name || '').trim()) request.legal_name = request.display_name;
+      }
+      return request;
+    }
+
+    function applyCardClientLinkResult(card) {
+      const previous = state.activeCard || {};
+      const draft = currentCardPayload();
+      const oldProfile = cloneVehicleProfile(previous.vehicle_profile);
+      const draftProfile = cloneVehicleProfile(draft.vehicle_profile);
+      const editedProfile = Object.keys(draftProfile).filter((key) => JSON.stringify(draftProfile[key]) !== JSON.stringify(oldProfile[key]));
+      const edited = ['title', 'vehicle', 'description'].filter((key) => String(draft[key] || '') !== String(previous[key] || ''));
+      const editedTags = JSON.stringify(normalizeDraftTags(draft.tags)) !== JSON.stringify(normalizeDraftTags(previous.tag_items || previous.tags));
+      applyCardModalState(card);
+      for (const key of edited) {
+        if (key === 'description') setCardDescriptionValue(draft.description);
+        else if (key === 'title') els.cardTitle.value = draft.title;
+        else els.cardVehicle.value = draft.vehicle;
+      }
+      if (editedProfile.length) {
+        const profile = cloneVehicleProfile(card.vehicle_profile);
+        editedProfile.forEach((key) => { profile[key] = draftProfile[key]; });
+        applyVehicleProfileToForm(profile);
+      }
+      if (editedTags) { state.draftTags = normalizeDraftTags(draft.tags); renderColorTags(); }
+      state.boardMutationGeneration += 1;
+      applySavedCardLocalPatch(card);
+      state.activeCard = card;
+      syncCardSaveDirtyState();
+    }
 
     const cardClientCreatePendingKey = 'autostop:card-client-create-pending';
     let cardClientCreateOwner = null;

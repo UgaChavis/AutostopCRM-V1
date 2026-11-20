@@ -97,6 +97,9 @@ class CardDescriptionPreservationBrowserTests(UiBrowserTestCase):
     def test_edit_undo_and_link_preserve_the_correct_baseline(self):
         description = "First\n\n\nFinal\u00a0part"
         card_id = self.create_card("Original", description=description)
+        client_id = self.runtime.service.create_client(
+            {"client_type": "person", "display_name": "SYNTHETIC LINKED CLIENT"}
+        )["client"]["id"]
         self.load_board()
         self.open_card(card_id)
         editor = self.page.locator("#cardDescriptionEditor")
@@ -111,7 +114,13 @@ class CardDescriptionPreservationBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.page.evaluate("getCardDescriptionValue()"), description)
         editor.fill("Edited description")
         self.assertEqual(self.page.evaluate("getCardDescriptionValue()"), "Edited description")
-        self.page.evaluate("applyCardClientLinkResult(state.activeCard)")
+        self.page.locator("#vehicleField_customer_name").fill("SYNTHETIC LINKED CLIENT")
+        self.page.locator(f'[data-client-suggestion="{client_id}"]').click()
+        self.page.wait_for_function(
+            "(clientId) => state.activeCard?.client_id === clientId && !state.cardClientMutationRequest",
+            arg=client_id,
+        )
+        self.assertEqual(self.writes.count("link_card_to_client"), 1)
         self.assertEqual(self.page.evaluate("getCardDescriptionValue()"), "Edited description")
         self.page.locator("#saveCardButton").click()
         self.finish_save()
