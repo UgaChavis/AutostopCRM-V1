@@ -61,6 +61,7 @@ from minimal_kanban.operator_auth import (
     OperatorAuthService,
     _password_hash,
     _verify_password,
+    read_operator_audit_events,
 )
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
@@ -3176,7 +3177,7 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
         self.assertFalse(worker_card["is_unread"])
         self.assertTrue(worker_card["has_unseen_update"])
 
-    def test_operator_user_listing_reads_board_bundle_once(self) -> None:
+    def test_operator_user_listing_indexes_audit_events_once(self) -> None:
         logged_in = self.operator_service.login({"username": "admin", "password": "admin"})
         session = logged_in["session"]
         self.operator_service.save_user(
@@ -3186,16 +3187,18 @@ class ApiServerTests(PrintingMoneyApiCases, unittest.TestCase):
                 "password": "1234",
             }
         )
-        bundle = self.store.read_bundle()
-        self.store.read_bundle = Mock(return_value=bundle)
         self.operator_service._build_event_activity_index = Mock(
             wraps=self.operator_service._build_event_activity_index
         )
 
-        listed = self.operator_service.list_users({"_operator_session": session})
+        with patch(
+            "minimal_kanban.operator_auth.read_operator_audit_events",
+            wraps=read_operator_audit_events,
+        ) as read_events:
+            listed = self.operator_service.list_users({"_operator_session": session})
 
         self.assertEqual(listed["meta"]["total"], 2)
-        self.assertEqual(self.store.read_bundle.call_count, 1)
+        read_events.assert_called_once_with(self.store)
         self.assertEqual(self.operator_service._build_event_activity_index.call_count, 1)
 
     def test_default_admin_accepts_admin_password_and_migrates_legacy_hash(self) -> None:
