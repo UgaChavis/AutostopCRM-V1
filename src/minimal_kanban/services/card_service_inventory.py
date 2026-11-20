@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from contextlib import contextmanager
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any
@@ -20,15 +21,30 @@ from ..repair_order import (
     RepairOrder,
     RepairOrderRow,
 )
+from ..storage import json_store
 
 
 class CardServiceInventoryMixin:
+    @contextmanager
+    def _inventory_read_bundle(self):
+        snapshot = None
+        if not json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
+            try:
+                snapshot = self._store._read_context_bundle_snapshot(domains=("inventory",))
+            except (FileNotFoundError, json_store.StateFileCorruptedError):
+                # The regular reader preserves the corrupt source for diagnosis.
+                pass
+        if snapshot is not None:
+            yield snapshot
+        else:
+            with self._lock:
+                yield self._store.read_bundle()
+
     def list_inventory_items(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            query = self._validated_search_query(payload.get("query"))
-            limit = self._validated_limit(payload.get("limit"), default=200, maximum=500)
-            bundle = self._store.read_bundle()
+        payload = payload or {}
+        query = self._validated_search_query(payload.get("query"))
+        limit = self._validated_limit(payload.get("limit"), default=200, maximum=500)
+        with self._inventory_read_bundle() as bundle:
             items = self._filtered_inventory_items(bundle["inventory_items"], query)
             return {
                 "items": [item.to_dict() for item in items[:limit]],
@@ -39,9 +55,8 @@ class CardServiceInventoryMixin:
         return self.list_inventory_items(payload)
 
     def get_inventory_item(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            bundle = self._store.read_bundle()
+        payload = payload or {}
+        with self._inventory_read_bundle() as bundle:
             item = self._find_inventory_item(bundle["inventory_items"], payload.get("item_id"))
             movements = self._inventory_movements_for_item(
                 bundle["inventory_movements"], item.id, limit=50
@@ -52,18 +67,19 @@ class CardServiceInventoryMixin:
             }
 
     def list_inventory_movements(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            item_id = normalize_text(payload.get("item_id"), default="", limit=128)
-            card_id = normalize_text(payload.get("card_id"), default="", limit=128)
-            limit = self._validated_limit(payload.get("limit"), default=200, maximum=500)
-            bundle = self._store.read_bundle()
-            movements = list(bundle["inventory_movements"])
-            if item_id:
-                movements = [movement for movement in movements if movement.item_id == item_id]
-            if card_id:
-                movements = [movement for movement in movements if movement.card_id == card_id]
-            movements.sort(key=lambda movement: (movement.created_at, movement.id))
+        payload = payload or {}
+        item_id = normalize_text(payload.get("item_id"), default="", limit=128)
+        card_id = normalize_text(payload.get("card_id"), default="", limit=128)
+        limit = self._validated_limit(payload.get("limit"), default=200, maximum=500)
+        with self._inventory_read_bundle() as bundle:
+            movements = bundle["inventory_movements"]
+            if item_id or card_id:
+                movements = [
+                    movement
+                    for movement in movements
+                    if (not item_id or movement.item_id == item_id)
+                    and (not card_id or movement.card_id == card_id)
+                ]
             return {
                 "movements": [movement.to_dict() for movement in movements[-limit:]],
                 "meta": {"total": len(movements), "limit": limit},
@@ -709,7 +725,6 @@ class CardServiceInventoryMixin:
         self, movements: list[InventoryMovement], item_id: str, *, limit: int
     ) -> list[InventoryMovement]:
         filtered = [movement for movement in movements if movement.item_id == item_id]
-        filtered.sort(key=lambda movement: (movement.created_at, movement.id))
         return filtered[-limit:]
 
     def _validated_inventory_quantity(self, value: Any) -> Decimal:

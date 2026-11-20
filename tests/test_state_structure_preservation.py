@@ -126,6 +126,7 @@ class StateStructureApiTests(unittest.TestCase):
         before_feed = self.store.change_feed_store.raw_events_for_test()
         for route, payload in (
             ("/api/get_cards", {}),
+            ("/api/list_inventory_items", {}),
             ("/api/update_card", {"card_id": card_id, "title": "Must not commit"}),
             ("/api/get_repair_order_print_workspace", {"card_id": card_id}),
         ):

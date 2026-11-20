@@ -474,7 +474,16 @@ class CommittedCardSource:
             raise StateFileCorruptedError("Снимок состояния поврежден.")
         self.context_state = {
             name: state[name]
-            for name in ("columns", "cards", "clients", "events", "settings", "stickies")
+            for name in (
+                "columns",
+                "cards",
+                "clients",
+                "events",
+                "settings",
+                "stickies",
+                "inventory_items",
+                "inventory_movements",
+            )
             if name in state
         }
         self._contexts = {}
@@ -559,6 +568,28 @@ def read_posix_committed_card_snapshot(store, card_id):
 
 
 def build_context_snapshot(store, state, domains, *, read_search_clients=None):
+    if domains == ("inventory",):
+        try:
+            validate_state_shape(state)
+        except ValueError:
+            return None
+        _validate_raw_financial_references(state)
+        _validate_cash_transaction_ids(state)
+        raw_inventory = (state.get("inventory_items", []), state.get("inventory_movements", []))
+        cached = store._inventory_context_source
+        if cached is not None and cached[0] == raw_inventory:
+            return cached[1]
+        items, _ = store._normalize_inventory_items(state)
+        movements, _ = store._normalize_inventory_movements(state)
+        # Legacy rows keep the regular reader's migration and identity handling.
+        if [item.to_storage_dict() for item in items] != raw_inventory[0]:
+            return None
+        if [row.to_storage_dict() for row in movements] != raw_inventory[1]:
+            return None
+        snapshot = {"inventory_items": items, "inventory_movements": movements}
+        # A board-only commit may change the file signature without changing stock.
+        store._inventory_context_source = raw_inventory, snapshot
+        return snapshot
     if domains == ("operator_audit_events",):
         try:
             validate_state_shape(state)

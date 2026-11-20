@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from minimal_kanban.repair_order import REPAIR_ORDER_ROWS_LIMIT
 from minimal_kanban.services.card_service import CardService
 from minimal_kanban.services.errors import ServiceError
+from minimal_kanban.storage import json_store
 from minimal_kanban.storage.json_store import JsonStore
 from tests.services_case import CardServiceCase
 
@@ -53,6 +55,55 @@ class InventoryOrderIntegrityTests(CardServiceCase):
             {path: path.read_bytes() for path in Path(self.temp_dir.name).rglob("*.txt")}, files
         )
         return caught.exception
+
+    def test_inventory_snapshot_preserves_order_orphan_and_unrelated_legacy_state(self) -> None:
+        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
+            self.skipTest("POSIX inventory snapshot")
+        written = self._write_off()
+        state = json.loads(self.state_file.read_bytes())
+        state["cards"][0]["title"] = "  Synthetic legacy title  "
+        incoming, outgoing = sorted(state["inventory_movements"], key=lambda row: row["created_at"])
+        timestamp = "2026-11-20T10:00:00+00:00"
+        incoming.update(id="synthetic-a", created_at=timestamp)
+        outgoing.update(id="synthetic-b", created_at=timestamp)
+        orphan = {**outgoing, "id": "synthetic-c", "item_id": "missing-item"}
+        state["inventory_movements"] = [incoming, outgoing, orphan]
+        self.state_file.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        before = self.state_file.read_bytes()
+        before_feed = self.store.change_feed_store.raw_events_for_test()
+
+        listed = self.service.list_inventory_items({"query": "synthetic oil"})
+        self.assertEqual(listed["items"], [written["item"]])
+        latest = self.service.list_inventory_movements({"limit": 2})
+        self.assertEqual(latest["meta"]["total"], 3)
+        self.assertEqual([row["id"] for row in latest["movements"]], ["synthetic-b", "synthetic-c"])
+        filtered = self.service.list_inventory_movements(
+            {"card_id": self.card_id, "item_id": self.item_id}
+        )
+        self.assertEqual([row["id"] for row in filtered["movements"]], ["synthetic-b"])
+        detail = self.service.get_inventory_item({"item_id": self.item_id})
+        self.assertEqual(detail["item"], written["item"])
+        self.assertEqual([row["id"] for row in detail["movements"]], ["synthetic-a", "synthetic-b"])
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(self.store.change_feed_store.raw_events_for_test(), before_feed)
+
+    def test_inventory_snapshot_reuses_stock_after_card_edit_and_refreshes_after_replenishment(
+        self,
+    ):
+        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
+            self.skipTest("POSIX inventory snapshot")
+        payload = {"item_id": self.item_id}
+        before = self.service.get_inventory_item(payload)
+        self.service.update_card({"card_id": self.card_id, "title": "Other synthetic title"})
+        with patch.object(self.store, "_normalize_inventory_movements") as normalize:
+            self.assertEqual(self.service.get_inventory_item(payload), before)
+            normalize.assert_not_called()
+
+        updated = self.service.replenish_inventory_item({**payload, "quantity": "2.5"})
+        actual = self.service.get_inventory_item(payload)
+        self.assertEqual(actual["item"], updated["item"])
+        self.assertEqual(actual["item"]["quantity"], "12.5")
+        self.assertEqual(actual["movements"][-1], updated["movement"])
 
     def test_return_rejects_another_card_without_restoring_stock(self) -> None:
         written = self._write_off()

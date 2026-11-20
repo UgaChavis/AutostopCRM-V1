@@ -419,6 +419,7 @@ class JsonStore:
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._context_snapshots: dict[tuple[str, ...], tuple[tuple[int, ...], Any]] = {}
         self._context_snapshot_state: dict | None = None
+        self._inventory_context_source = None
         self._search_client_profiles: _SearchClientProfiles | None = None
         self._committed_card_source = None
         self._pending_committed_payload = None

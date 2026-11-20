@@ -65,6 +65,28 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         )
         self.assertEqual([row["id"] for row in result["cards"]], [self.card_id])
 
+    def test_inventory_reads_do_not_queue_behind_an_unrelated_service_operation(self):
+        if json_store._SNAPSHOT_REQUIRES_FILE_LOCK:
+            self.skipTest("POSIX inventory snapshot")
+        created = self.service.save_inventory_item(
+            {"name": "Synthetic warehouse snapshot", "quantity": "1.25", "unit": "л"}
+        )
+        item = created["item"]
+        listed = self.assert_read_ignores_service_lock(
+            lambda: self.service.list_inventory_items({"query": "warehouse snapshot"})
+        )
+        detail = self.assert_read_ignores_service_lock(
+            lambda: self.service.get_inventory_item({"item_id": item["id"]}), hold_store=True
+        )
+        movements = self.assert_read_ignores_service_lock(
+            lambda: self.service.list_inventory_movements({"item_id": item["id"]}),
+            hold_store=True,
+        )
+        self.assertEqual(listed["items"], [item])
+        self.assertEqual(detail["item"], item)
+        self.assertEqual(detail["movements"], [created["movement"]])
+        self.assertEqual(movements["movements"], detail["movements"])
+
     def test_cashbox_details_do_not_queue_behind_an_unrelated_service_operation(self):
         from minimal_kanban.storage.json_store import _SNAPSHOT_REQUIRES_FILE_LOCK
 
