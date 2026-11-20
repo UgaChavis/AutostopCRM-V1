@@ -7,7 +7,7 @@ import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from threading import Barrier
+from threading import Barrier, Event
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -46,6 +46,31 @@ class CashboxReceiptStorageTests(CardServiceCase):
         store = JsonStore(self.state_file, self.logger)
         self.addCleanup(store.close)
         return CardService(store, self.logger)
+
+    def test_cash_journal_keeps_one_snapshot_without_blocking_writes_during_render(self):
+        first = self.movement(100)
+        rendering = Event()
+        resume = Event()
+        build = self.service._build_cash_journal
+
+        def pause_render(*args, **kwargs):
+            rendering.set()
+            self.assertTrue(resume.wait(10))
+            return build(*args, **kwargs)
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            with patch.object(self.service, "_build_cash_journal", side_effect=pause_render):
+                pending = workers.submit(self.service.get_cash_journal)
+                try:
+                    self.assertTrue(rendering.wait(5))
+                    later = workers.submit(self.movement, 200).result(timeout=5)
+                finally:
+                    resume.set()
+                journal = pending.result(timeout=5)
+
+        self.assertEqual([entry["id"] for entry in journal["entries"]], [first["id"]])
+        latest = self.service.get_cash_journal()
+        self.assertEqual([entry["id"] for entry in latest["entries"]], [later["id"], first["id"]])
 
     def test_advancing_uses_legacy_position_without_invalidating_state_or_feed(self):
         old = self.movement(100)
