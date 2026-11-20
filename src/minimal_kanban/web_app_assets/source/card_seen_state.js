@@ -16,6 +16,15 @@
       return true;
     }
 
+    function hasConfirmedCardSeenReceipt(cardId) {
+      const receipt = state.cardSeenSuppressions.get(cardId);
+      if (receipt?.pending !== false || !receipt.updated_at
+          || receipt.generation !== state.viewerStateGeneration || receipt.session !== state.operatorSessionToken) return false;
+      const views = [snapshotCardById(cardId), state.activeCard, state.mobileCard].filter(card => card?.id === cardId);
+      return views.length > 0
+        && views.every(card => card.updated_at === receipt.updated_at && !card.is_unread && !card.has_unseen_update);
+    }
+
     async function markCardSeen(cardId, { force = false } = {}) {
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return;
@@ -29,13 +38,7 @@
       const currentCard = snapshotCardById(normalizedCardId) || (state.activeCard?.id === normalizedCardId ? state.activeCard : null);
       if (!force && currentCard && !currentCard.is_unread && !currentCard.has_unseen_update) return;
       if (state.unreadSeenInFlight.has(normalizedCardId)) return;
-      if (force) {
-        const receipt = state.cardSeenSuppressions.get(normalizedCardId);
-        const views = [currentCard, state.activeCard, state.mobileCard].filter(card => card?.id === normalizedCardId);
-        if (receipt?.pending === false && receipt.updated_at && views.length
-            && receipt.generation === viewerStateGeneration && receipt.session === operatorSessionToken
-            && views.every(card => card.updated_at === receipt.updated_at && !card.is_unread && !card.has_unseen_update)) return;
-      }
+      if (force && hasConfirmedCardSeenReceipt(normalizedCardId)) return;
       if (!force) markCardSeenOptimistically(normalizedCardId);
       const suppression = state.cardSeenSuppressions.get(normalizedCardId);
       state.unreadSeenInFlight.add(normalizedCardId);

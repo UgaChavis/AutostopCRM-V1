@@ -1,5 +1,5 @@
 {
-  "content_hash": "5d712a328412e2297eefc8dc90127cfe69664efe400e8cd81d320233162ceadb",
+  "content_hash": "744123fc28acf778597b55bfc25988656999de364bc7ac1e56e414939262ea7b",
   "migration": {
     "old_to_new": {
       "E1": "E1",
@@ -338,9 +338,9 @@
       "input_notes": [
         "AUTONORMS makeNameSEO/modelId/motorId, raw workName/workTime и единица."
       ],
-      "instruction_hash": "041d348e1853bff2d26f209de88fa7b373332162b6f23938d4505a57ac1a129a",
+      "instruction_hash": "4951dd7397670498c17b5e7ee72953be1e76c90b10ef758cdf490456fc18e0a3",
       "instruction_ref": "docs/agent/modules/E12.md",
-      "instruction_text": "# E12 — Работы и нормочасы\n\nТочные операции, норматив и scope\nРодитель: [E1](E1.md). Устойчивый ключ: `labor_times`.\n\n## Входы\n\nAUTONORMS makeNameSEO/modelId/motorId, raw workName/workTime и единица.\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [GetNormsMakes](../tools/partsapi--get-norms-makes.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_makes` |\n| [GetNormsModels](../tools/partsapi--get-norms-models.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_models` |\n| [GetNormsMotors](../tools/partsapi--get-norms-motors.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_motors` |\n| [GetNormsTimes](../tools/partsapi--get-norms-times.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_times` |\n| [Время и scope переданных работ](../tools/manager-normalize-labor-time.md) | manager · pure · implemented | `normalize_labor_time` |\n\n## Достаточность и границы\n\n- Норматив не реальная длительность; overlap не считается дважды.\n\n## Следующий выбор\n\nГотовые нормочасы передай в [E13](E13.md), если нужна стоимость. Сохраняй исходную единицу, включённые операции и unresolved overlap; неизвестная единица не становится часами.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
+      "instruction_text": "# E12 — Работы и нормочасы\n\nТочные операции, норматив и scope\nРодитель: [E1](E1.md). Устойчивый ключ: `labor_times`.\n\n## Входы\n\nВыбери `makeNameSEO → modelId → motorId` в AUTONORMS. `GetNormsTimes` дополнительно\nтребует `TopCatId` и `SubCatId` одной подтверждённой ветки AUTONORMS. Подключённые\nметоды PartsAPI не выдают это дерево. `0/0` не подтверждает выбор нужной ветки,\nа пустой ответ относится только к переданной комбинации двигателя и категорий.\n[Контракт GetNormsTimes](https://partsapi.ru/method/doc/GetNormsTimes).\n\n## Отдельные инструменты\n\n| Инструмент / карточка | Служба | Вызов |\n| --- | --- | --- |\n| [GetNormsMakes](../tools/partsapi--get-norms-makes.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_makes` |\n| [GetNormsModels](../tools/partsapi--get-norms-models.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_models` |\n| [GetNormsMotors](../tools/partsapi--get-norms-motors.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_motors` |\n| [GetNormsTimes](../tools/partsapi--get-norms-times.md) | partsapi_ru · network_read · implemented | `partsapi_catalog_lookup · operation=norms_times` |\n| [Время и scope переданных работ](../tools/manager-normalize-labor-time.md) | manager · pure · implemented | `normalize_labor_time` |\n\n## Достаточность и границы\n\n- Норматив не реальная длительность; overlap не считается дважды.\n\n## Следующий выбор\n\nЕсли ID категорий недоступны, открой [Автонормы](https://autonorms.ru/) и выбери\nмарку, модель, модификацию и конкретную работу в дереве. Для расчёта используй\nстроку с доступным нормативом и единицей либо другой проверенный источник. Если\nдемо скрывает время, оставь норматив неизвестным.\n\nГотовые нормочасы передай в [E13](E13.md), если нужна стоимость. Сохраняй исходную единицу, включённые операции и unresolved overlap; неизвестная единица не становится часами.\n\nПодробный контракт: [справочник](../references/partsapi.md).\nОбщие правила, происхождение данных и полномочия — [E1](E1.md).\n",
       "module_key": "labor_times",
       "parent": "E1",
       "purpose": "Точные операции, норматив и scope",
@@ -5256,7 +5256,7 @@
     }
   ],
   "schema_version": "autostop.automotive-tools.bundle.v1",
-  "source_revision": "2a2eff72dc7dd61bbd7e89e14d8e79916cafbdbe",
+  "source_revision": "2011ed97991f4983d3b4d1308a080a2af831df28",
   "tools": [
     {
       "also_used_in": [],
@@ -5541,9 +5541,9 @@
         "lang"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "80916344c37b767b716a8f40b7ad392f210ee1da76a6308560def4d03106274a",
+      "instruction_hash": "c55b44711238199a2bc4bd14d6c1d703a5a7087ad25f62513d90dbabd23dd2d2",
       "instruction_ref": "docs/agent/tools/partsapi-get-partname-by-brand-number.md",
-      "instruction_text": "# partsapi.getPartnameByBrandNumber — getPartnameByBrandNumber\n\nВызвать getPartnameByBrandNumber; Part-name lookup by aftermarket brand and article number; article enrichment only.\n\nОсновной модуль: [E3](../modules/E3.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `part_name_by_brand_number`.\napi_method: `getPartnameByBrandNumber`.\n\nВходы: `brand`, `part_number`, `lang`.\nDefaults: `{\"lang\":\"ru\"}`.\nОбязательные facade поля: `operation`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"brand\":\"DEMO\",\"dry_run\":true,\"operation\":\"part_name_by_brand_number\",\"part_number\":\"DEMO-ARTICLE-001\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; специализированные profiles/tree/article/labor данные только для распознанных методов; generic payload сохраняется без выдуманных нормализованных полей.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Маркировка/EAN/наименование сами не становятся OEM.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md).\n",
+      "instruction_text": "# partsapi.getPartnameByBrandNumber — getPartnameByBrandNumber\n\nВызвать getPartnameByBrandNumber; Part-name lookup by aftermarket brand and article number; article enrichment only.\n\nОсновной модуль: [E3](../modules/E3.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `part_name_by_brand_number`.\napi_method: `getPartnameByBrandNumber`.\n\nВходы: `brand`, `part_number`, `lang`.\nDefaults: `{\"lang\":\"ru\"}`.\nОбязательные facade поля: `operation`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"brand\":\"DEMO\",\"dry_run\":true,\"operation\":\"part_name_by_brand_number\",\"part_number\":\"DEMO-ARTICLE-001\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; `article_candidates[].product_name` содержит первое название; необязательный `article_candidates[].product_name_variants` хранит несколько разных названий того же артикула в порядке поставщика, включая первое.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Маркировка/EAN/наименование сами не становятся OEM.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md).\n",
       "invalid_example": {
         "operation": []
       },
@@ -5560,8 +5560,8 @@
       ],
       "outputs": [
         "source/parser/outcome и raw payload",
-        "специализированные profiles/tree/article/labor данные только для распознанных методов",
-        "generic payload сохраняется без выдуманных нормализованных полей"
+        "`article_candidates[].product_name` содержит первое название",
+        "необязательный `article_candidates[].product_name_variants` хранит несколько разных названий того же артикула в порядке поставщика, включая первое"
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E3",
@@ -6112,8 +6112,8 @@
         "dry_run": true,
         "motor_id": "42",
         "operation": "norms_times",
-        "sub_category_id": "0",
-        "top_category_id": "0"
+        "sub_category_id": "20",
+        "top_category_id": "10"
       },
       "execution_kind": "network_read",
       "implementation_state": "implemented",
@@ -6123,9 +6123,9 @@
         "sub_category_id"
       ],
       "input_schema_ref": "partsapi_catalog_lookup",
-      "instruction_hash": "19d75512a2f0a7a35ebb0ac6069a836ea4806fb683027c62d2c37644833f3fd7",
+      "instruction_hash": "092ede0c9468ddc230c0ab72f8163d24d1b6a3aace067244bebfd570bb6c28ff",
       "instruction_ref": "docs/agent/tools/partsapi--get-norms-times.md",
-      "instruction_text": "# partsapi.GetNormsTimes — GetNormsTimes\n\nВызвать GetNormsTimes; AUTONORMS work list and norm-hours for one engine and work category.\n\nОсновной модуль: [E12](../modules/E12.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `norms_times`.\napi_method: `GetNormsTimes`.\n\nВходы: `motor_id`, `top_category_id`, `sub_category_id`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"motor_id\":\"42\",\"operation\":\"norms_times\",\"sub_category_id\":\"0\",\"top_category_id\":\"0\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: source/parser/outcome и raw payload; специализированные profiles/tree/article/labor данные только для распознанных методов; generic payload сохраняется без выдуманных нормализованных полей.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Норматив не реальная длительность; overlap не считается дважды.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические.\n\nПодробный контракт: [справочник](../references/partsapi.md).\n",
+      "instruction_text": "# partsapi.GetNormsTimes — GetNormsTimes\n\nВызвать GetNormsTimes; AUTONORMS work list and norm-hours for one engine and work category.\n\nОсновной модуль: [E12](../modules/E12.md); другие модули: нет.\nКлассификация: active. Состояние реализации: implemented.\nИсточник: partsapi_ru; первичная база: declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces. Исполнение: network_read.\n\nВызов: native Manager MCP `partsapi_catalog_lookup`.\noperation: `norms_times`.\napi_method: `GetNormsTimes`.\n\nВходы: `motor_id`, `top_category_id`, `sub_category_id`.\nDefaults: `{}`.\nОбязательные facade поля: `operation`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"dry_run\":true,\"motor_id\":\"42\",\"operation\":\"norms_times\",\"sub_category_id\":\"20\",\"top_category_id\":\"10\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":[]}\n```\n\nВыход: outcome и autonorms_rows с работами и исходным workTime для переданного двигателя и ветки; detail=full сохраняет сырой ответ провайдера.\nОшибки и неполнота: invalid_input сохраняет ошибочный вход как отказ; empty/partial/unsupported не success; configuration/auth/quota/provider/parse ошибки различаются для сетевого источника.\n\n- Норматив не реальная длительность; overlap не считается дважды.\n- API method отличается от facade operation; key назначает сервер, secrets не принимаются.\n- TopCatId и SubCatId берутся из одной подтверждённой ветки AUTONORMS. Пустая выдача относится только к отправленной комбинации двигателя и категорий.\n- ID в примере синтетические и предназначены для dry_run.\n\nПодробный контракт: [справочник](../references/partsapi.md).\n",
       "invalid_example": {
         "operation": []
       },
@@ -6138,12 +6138,12 @@
       "limitations": [
         "Норматив не реальная длительность; overlap не считается дважды.",
         "API method отличается от facade operation; key назначает сервер, secrets не принимаются.",
-        "TecDoc/maintenance/AUTONORMS ID namespace не взаимозаменяемы; указанные IDs в примере синтетические."
+        "TopCatId и SubCatId берутся из одной подтверждённой ветки AUTONORMS. Пустая выдача относится только к отправленной комбинации двигателя и категорий.",
+        "ID в примере синтетические и предназначены для dry_run."
       ],
       "outputs": [
-        "source/parser/outcome и raw payload",
-        "специализированные profiles/tree/article/labor данные только для распознанных методов",
-        "generic payload сохраняется без выдуманных нормализованных полей"
+        "outcome и autonorms_rows с работами и исходным workTime для переданного двигателя и ветки",
+        "detail=full сохраняет сырой ответ провайдера"
       ],
       "primary_data_source": "declared_by_provider; VIN/TecDoc/maintenance/AUTONORMS namespaces",
       "primary_module": "E12",
@@ -12400,7 +12400,7 @@
         "role": "M1"
       },
       "errors": [
-        "role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable"
+        "role_read_invalid при недопустимом запросе, role_item_not_found при отсутствии записи, automation_control_unavailable при недоступном контроллере"
       ],
       "example": {},
       "execution_kind": "composed",
@@ -12412,9 +12412,9 @@
         "limit"
       ],
       "input_schema_ref": "manager_roles",
-      "instruction_hash": "187df91e5caaa0135dc732296583680ff34083c29531c6b9515e6ff7d27be72b",
+      "instruction_hash": "99e45453e0b4d7b3ed69ac589f1c1ae4a15e95b64fabcfc4e26d21e5aebcc29c",
       "instruction_ref": "docs/agent/references/manager-manager_roles.md",
-      "instruction_text": "# manager.manager_roles — manager_roles\n\nРучной реестр задач, вопросов, согласований и знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_roles`.\n\nВходы: `operation`, `role`, `reference_id`, `limit`.\nDefaults: `{\"limit\":30,\"operation\":\"status\",\"reference_id\":\"\",\"role\":\"M1\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "instruction_text": "# manager.manager_roles — manager_roles\n\nРучной реестр задач, вопросов, согласований и знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_roles`.\n\nВходы: `operation`, `role`, `reference_id`, `limit`.\nDefaults: `{\"limit\":30,\"operation\":\"status\",\"reference_id\":\"\",\"role\":\"M1\"}`.\nОбязательные facade поля: нет; ограничения конкретной операции всё равно применяются.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok и roles для status, items для списков и отдельных записей, receipt для owner_receipt.\nОшибки и неполнота: role_read_invalid при недопустимом запросе, role_item_not_found при отсутствии записи, automation_control_unavailable при недоступном контроллере.\n\n- Чтение не создаёт хранилище реестра.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
       "invalid_example": {
         "operation": "__invalid__"
       },
@@ -12423,12 +12423,10 @@
         "transport": "manager_mcp"
       },
       "limitations": [
-        "Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.",
-        "Рабочие знания и наблюдения не расширяют полномочия.",
-        "Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу."
+        "Чтение не создаёт хранилище реестра."
       ],
       "outputs": [
-        "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
+        "ok и roles для status, items для списков и отдельных записей, receipt для owner_receipt"
       ],
       "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
       "primary_module": "outside",
@@ -12470,9 +12468,9 @@
         "expected_revision"
       ],
       "input_schema_ref": "manager_role_action",
-      "instruction_hash": "4d316a0f66d67759ee9a9a681d05f07cd46c457351d6818d7d20f291192f9b59",
+      "instruction_hash": "a7de8213d7e03b58517203c58181237cc5853d63801847bc12d1d2d5b26e0986",
       "instruction_ref": "docs/agent/references/manager-manager_role_action.md",
-      "instruction_text": "# manager.manager_role_action — manager_role_action\n\nРучное ведение задач, решений и рабочих знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_role_action`.\n\nВходы: `operation`, `role`, `actor`, `idempotency_key`, `payload`, `expected_revision`.\nDefaults: `{\"expected_revision\":null,\"payload\":null}`.\nОбязательные facade поля: `operation`, `role`, `actor`, `idempotency_key`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"actor\":\"M1\",\"idempotency_key\":\"synthetic-note-1\",\"operation\":\"note\",\"payload\":{\"kind\":\"idea\",\"source_ref\":\"test:1\",\"text\":\"Synthetic operational idea\"},\"role\":\"M1\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok and roles/items/receipt for reads; ok and role/item for an accepted action.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
+      "instruction_text": "# manager.manager_role_action — manager_role_action\n\nРучное ведение задач, решений и рабочих знаний M1/M2\n\nОсновной модуль: outside; другие модули: нет.\nКлассификация: outside. Состояние реализации: implemented.\nИсточник: manager; первичная база: Manager role tables in the existing scheduler registry; exact source references. Исполнение: composed.\n\nВызов: native Manager MCP `manager_role_action`.\n\nВходы: `operation`, `role`, `actor`, `idempotency_key`, `payload`, `expected_revision`.\nDefaults: `{\"expected_revision\":null,\"payload\":null}`.\nОбязательные facade поля: `operation`, `role`, `actor`, `idempotency_key`.\nТекущая inputSchema и проверка версии — [D1](../modules/D1.md).\n\nСинтетический вход (форма, не утверждение о реальном автомобиле/артикуле):\n```json\n{\"actor\":\"M1\",\"idempotency_key\":\"synthetic-note-1\",\"operation\":\"note\",\"payload\":{\"kind\":\"idea\",\"source_ref\":\"test:1\",\"text\":\"Synthetic operational idea\"},\"role\":\"M1\"}\n```\nВход, отклоняемый схемой до исполнения инструмента:\n```json\n{\"operation\":\"__invalid__\"}\n```\n\nВыход: ok и role или item для принятого изменения.\nОшибки и неполнота: role_revision_conflict, role_idempotency_conflict, role_owner_required, role_approval_stale; automation_control_unavailable.\n\n- Изменение роли не заменяет разрешение владельца на финансовое действие, отправку сотруднику или выпуск.\n- Рабочие знания и наблюдения не расширяют полномочия.\n- Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу.\n\nПодробный контракт: [справочник](manager-roles.md).\n",
       "invalid_example": {
         "operation": "__invalid__"
       },
@@ -12486,7 +12484,7 @@
         "Реестр не закрепляет чаты, не создаёт цели и не запускает фоновую работу."
       ],
       "outputs": [
-        "ok and roles/items/receipt for reads; ok and role/item for an accepted action"
+        "ok и role или item для принятого изменения"
       ],
       "primary_data_source": "Manager role tables in the existing scheduler registry; exact source references",
       "primary_module": "outside",

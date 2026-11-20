@@ -99,18 +99,40 @@ class CardBadgesBrowserTests(UiBrowserTestCase):
         self.assertFalse(self.page.evaluate("id => state.unreadSeenInFlight.has(id)", card_id))
         held.pop().abort("failed")
 
-    def test_opening_new_card_acknowledges_seen_and_survives_reload(self) -> None:
+    def test_opening_new_card_acknowledges_seen_once_and_survives_reload(self) -> None:
         card_id = self.create_card("Unread opening must be durable", source="mcp")
         self.load_board()
-        self.page.locator(f'.card[data-card-id="{card_id}"]').click()
-        self.page.wait_for_function("state.activeCardIsFull === true")
-        self.page.wait_for_timeout(1100)
-        self.assertFalse(self.stored_card(card_id)["is_unread"])
-        self.load_board()
-        self.assertEqual(
-            self.page.locator(f'.card[data-card-id="{card_id}"] .card__unread-badge').count(),
-            0,
+        card = self.page.locator(f'.card[data-card-id="{card_id}"]')
+        with self.page.expect_response("**/api/mark_card_seen") as read:
+            card.click()
+        self.assertTrue(read.value.json()["data"]["meta"]["changed"])
+        self.page.wait_for_function(
+            "id => state.activeCardIsFull && !state.unreadSeenInFlight.has(id)", arg=card_id
         )
+        self.assertFalse(self.stored_card(card_id)["is_unread"])
+
+        self.page.locator("#cardModalCloseButtonTop").click()
+        with self.page.expect_response("**/api/open_card"):
+            card.click()
+        self.assertEqual(self.writes.count("mark_card_seen"), 1)
+
+        self.load_board()
+        self.assertEqual(card.locator(".card__unread-badge").count(), 0)
+
+    def test_opening_mobile_card_acknowledges_seen_once(self) -> None:
+        card_id = self.create_card("Unread mobile opening must be durable", source="mcp")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.load_board()
+        card = self.page.locator(f'[data-mobile-card-id="{card_id}"]')
+        with self.page.expect_response("**/api/mark_card_seen") as read:
+            card.click()
+        self.assertTrue(read.value.json()["data"]["meta"]["changed"])
+        self.assertFalse(self.stored_card(card_id)["is_unread"])
+
+        self.page.locator("#mobileCardBackButton").click()
+        with self.page.expect_response("**/api/open_card"):
+            card.click()
+        self.assertEqual(self.writes.count("mark_card_seen"), 1)
 
     def test_deferred_open_deduplicates_only_a_confirmed_visible_revision(self) -> None:
         pattern = "**/api/mark_card_seen"

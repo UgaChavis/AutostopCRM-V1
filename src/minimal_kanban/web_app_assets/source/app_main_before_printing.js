@@ -3641,6 +3641,10 @@
         .filter((entry) => modalElementForKey(entry?.key)?.classList.contains('is-open'));
       const top = stack[stack.length - 1] || null;
       if (!top?.key) return false;
+      if (top.key === 'card' && (state.clientSuggestTimer || state.clientSuggestionRequests.size)) {
+        hideClientSuggestions();
+        return true;
+      }
       closeNamedModal(top.key);
       return true;
     }
@@ -5209,10 +5213,15 @@
       const profile = readVehicleProfileForm();
       const signature = clientSuggestionContextSignature(profile);
       if (!retry && state.clientSuggestionSignature === signature) return;
+      const candidates = clientSuggestionQueryCandidates(profile);
+      if (!candidates.length) {
+        hideClientSuggestions();
+        return;
+      }
       state.clientSuggestionSignature = signature;
       state.clientSuggestionGeneration++;
       window.clearTimeout(state.clientSuggestTimer);
-      cancelObsoleteClientSuggestionRequests(clientSuggestionQueryCandidates(profile));
+      cancelObsoleteClientSuggestionRequests(candidates);
       clearClientSuggestionResults();
       state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 450);
     }
@@ -10666,8 +10675,9 @@
       } else if (['display_name', 'make_display', 'model_display', 'production_year', 'chassis_number'].includes(fieldName)
           && state.clientSuggestionSignature !== null
           && state.clientSuggestionSignature !== clientSuggestionContextSignature(readVehicleProfileForm())) {
-        // These fields contribute to the query without starting their own search.
-        hideClientSuggestions();
+        // Update a pending lookup without starting one for vehicle fields alone.
+        if (state.clientSuggestTimer || state.clientSuggestionRequests.size) scheduleClientSuggestionsForCard();
+        else hideClientSuggestions();
       }
     }
 
@@ -15593,6 +15603,7 @@
       const normalizedCardId = String(cardId || '').trim();
       if (!normalizedCardId) return false;
       clearUnreadHoverTimer(normalizedCardId);
+      if (hasConfirmedCardSeenReceipt(normalizedCardId)) return false;
       const currentCard = snapshotCardById(normalizedCardId);
       const cardElements = boardCardElementsById(normalizedCardId);
       const suppressionUpdatedAt = currentCard?.updated_at || (state.activeCard?.id === normalizedCardId ? state.activeCard.updated_at : '');

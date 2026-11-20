@@ -80,6 +80,48 @@ class CardClientSuggestionsBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.failed["SHARED SECOND"], 1)
         self.assertEqual(self.failed["SHARED"], 0)
 
+    def test_vehicle_field_change_keeps_pending_lookup(self):
+        self.page.clock.install()
+        year = self.page.locator("#vehicleField_production_year")
+        year.fill("2023")
+        self.page.clock.run_for(500)
+        self.assertEqual(self.requests["2023"], 0)
+
+        self.name.fill("SYNTHETIC")
+        year.fill("2024")
+        self.page.clock.run_for(500)
+        self.reply("SYNTHETIC", [])
+        self.reply("2024", [{"id": "vehicle-match", "display_name": "Synthetic match"}])
+        self.page.locator('[data-client-suggestion="vehicle-match"]').wait_for()
+        self.assertEqual(self.requests["2023"], 0)
+        self.assertEqual(self.requests["2024"], 1)
+
+    def test_escape_dismisses_pending_suggestions_without_closing_draft(self):
+        title = self.page.locator("#cardTitle")
+        title.fill("Synthetic unsaved draft")
+        self.enter("SYNTHETIC")
+        self.reply("SYNTHETIC", [{"id": "prior", "display_name": "Synthetic prior"}])
+        prior = self.page.locator('[data-client-suggestion="prior"]')
+        prior.wait_for()
+
+        self.page.clock.install()
+        self.name.fill("REFINED")
+        self.assertFalse(prior.is_visible())
+        self.name.press("Escape")
+        self.assert_card_open()
+        self.page.clock.run_for(500)
+        self.assertEqual(self.requests["REFINED"], 0)
+
+        self.enter("INFLIGHT")
+        with self.page.expect_event(
+            "requestfailed", predicate=lambda request: query(request.url) == "INFLIGHT"
+        ):
+            self.name.press("Escape")
+        self.assert_card_open()
+        self.assertEqual(title.input_value(), "Synthetic unsaved draft")
+        self.assertEqual(self.name.input_value(), "INFLIGHT")
+        self.assertFalse(self.page.locator("#clientMatchPanel").is_visible())
+
     def test_close_then_reopen_and_retry_after_network_failure(self):
         self.enter("SYNTHETIC")
         with self.page.expect_event(
