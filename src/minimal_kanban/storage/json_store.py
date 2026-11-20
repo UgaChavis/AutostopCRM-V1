@@ -535,13 +535,14 @@ class JsonStore:
             return CashboxReceiptVersion(signature, digest), raw
 
     def _read_cashbox_source(
-        self, cached_version: CashboxReceiptVersion | None
+        self, cached_version: CashboxReceiptVersion | None, *, full_state: bool = False
     ) -> tuple[CashboxReceiptVersion, dict | None]:
         guard = self._process_lock.acquire() if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext()
         with guard:
             if cached_version is not None and self._cashbox_receipt_state_matches(cached_version):
                 return cached_version, None
-            for source in (self._cashbox_receipt_source, self._pending_cashbox_state):
+            receipt = None if full_state else self._cashbox_receipt_source
+            for source in (receipt, self._pending_cashbox_state):
                 if source is not None and self._cashbox_receipt_state_matches(source[0]):
                     return source
             try:

@@ -65,7 +65,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         )
         self.assertEqual([row["id"] for row in result["cards"]], [self.card_id])
 
-    def test_warm_cashbox_details_do_not_queue_behind_an_unrelated_service_operation(self):
+    def test_cashbox_details_do_not_queue_behind_an_unrelated_service_operation(self):
         from minimal_kanban.storage.json_store import _SNAPSHOT_REQUIRES_FILE_LOCK
 
         if _SNAPSHOT_REQUIRES_FILE_LOCK:
@@ -77,12 +77,17 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         self.service.create_cash_transaction(
             {"cashbox_id": box_id, "direction": "income", "amount_minor": 750}
         )
-        expected = self.service.get_cashbox(payload)
-
-        actual = self.assert_read_ignores_service_lock(
+        with self.store._lock:
+            self.store._invalidate_read_cache()
+            self.service._finance_read_core._cashbox_details = None
+        first = self.assert_read_ignores_service_lock(
             lambda: self.service.get_cashbox(payload), hold_store=True
         )
-        self.assertEqual(actual, expected)
+        second = self.assert_read_ignores_service_lock(
+            lambda: self.service.get_cashbox(payload), hold_store=True
+        )
+        self.assertEqual(first["cashbox"]["statistics"]["balance_minor"], 750)
+        self.assertEqual(second, first)
 
     def test_an_older_card_search_remains_consistent_across_a_card_edit(self):
         index = self.service._snapshot_service._card_search_index

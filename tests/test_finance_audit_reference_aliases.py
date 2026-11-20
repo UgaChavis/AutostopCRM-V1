@@ -90,7 +90,10 @@ class FinanceAuditReferenceAliasesTests(CardServiceCase):
                 transactions = service.get_cashbox({"cashbox_id": cashbox_id})["transactions"]
                 return next(item for item in transactions if item["id"] == transaction_id)
 
+            with store._lock:
+                store._invalidate_read_cache()
             original = entry()
+            self.assertEqual(original["repair_order_number"], "214")
             self.assertEqual(entry(), original)
             bundle["cards"][0].repair_order.vehicle = "Synthetic updated vehicle"
             store.write_bundle(**bundle)

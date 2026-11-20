@@ -29,6 +29,27 @@ class FinanceClientReadIndexTests(unittest.TestCase):
         self.store = JsonStore(self.state_file, logger)
         self.service = CardService(self.store, logger)
 
+    def test_cold_cashbox_detail_skips_unrelated_board_normalization(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX committed file capture")
+        box_id = self.service.create_cashbox({"name": "Synthetic cold projection"})["cashbox"]["id"]
+        self.service.create_cash_transaction(
+            {"cashbox_id": box_id, "direction": "income", "amount_minor": 750}
+        )
+        reader = JsonStore(self.state_file)
+        self.addCleanup(reader.close)
+        service = CardService(reader, logging.getLogger(self.id()))
+        original = self.state_file.read_bytes()
+
+        with patch.object(
+            reader, "_normalize_cards", side_effect=AssertionError("full board read")
+        ):
+            details = service.get_cashbox({"cashbox_id": box_id})
+
+        self.assertEqual(details["cashbox"]["statistics"]["balance_minor"], 750)
+        self.assertEqual(details["meta"]["transactions_total"], 1)
+        self.assertEqual(self.state_file.read_bytes(), original)
+
     def test_cold_cashbox_detail_uses_list_decode_and_detects_intervening_write(self) -> None:
         box_id = self.service.create_cashbox({"name": "Cold read"})["cashbox"]["id"]
         payload = {"cashbox_id": box_id, "compact": True, "transaction_limit": 100}
@@ -44,7 +65,16 @@ class FinanceClientReadIndexTests(unittest.TestCase):
                         self.service.create_cash_transaction(
                             {"cashbox_id": box_id, "direction": "income", "amount_minor": 750}
                         )
-                    detail = service.get_cashbox(payload)
+                    with patch.object(
+                        reader,
+                        "_normalize_cash_transactions",
+                        wraps=reader._normalize_cash_transactions,
+                    ) as normalized:
+                        detail = service.get_cashbox(payload)
+                        if not changed and os.name != "nt":
+                            normalized.assert_not_called()
+                    self.assertEqual(decode.call_count, 2 if changed else 1)
+                    reader.read_bundle()
                     self.assertEqual(decode.call_count, 2 if changed else 1)
                 self.assertEqual(
                     detail["cashbox"]["statistics"]["balance_minor"], 750 if changed else 0

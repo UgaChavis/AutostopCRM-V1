@@ -5,11 +5,12 @@ from copy import copy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from ..models import CashBox, CashTransaction, business_timezone, normalize_actor_name
+from ..models import Card, CashBox, CashTransaction, business_timezone, normalize_actor_name
 from ..operator_permissions import (
     EMPLOYEES_CASHBOXES_ACCESS_PERMISSION,
     operator_has_permission,
 )
+from ..storage import json_store
 from ..storage.cashbox_receipts import (
     CASHBOX_NOTIFICATION_SEEN_SETTING_KEY as CASHBOX_NOTIFICATION_SEEN_SETTING_KEY,
 )
@@ -115,23 +116,71 @@ class FinanceReadCore:
     def _current_cashbox_details(self) -> _CashboxDetails | None:
         store = self._service._store
         cached = self._cashbox_details
-        source = store._cashbox_receipt_source
         if (
             cached is not None
-            and source is not None
             and cached.version is not None
-            and cached.version is source[0]
             and cached.version.content_digest is None
             and store._cashbox_receipt_state_matches(cached.version)
         ):
             return cached
         return None
 
+    def _read_cold_cashbox_details(self) -> _CashboxDetails | None:
+        service = self._service
+        store = service._store
+        with store._cashbox_receipt_snapshot_lock:
+            if cached := self._current_cashbox_details():
+                return cached
+            try:
+                version, state = store._read_cashbox_source(None, full_state=True)
+                receipt = store._cashbox_receipt_snapshot
+                if receipt is not None and receipt.version == version and receipt.dates_valid:
+                    cashboxes = list(receipt.cashboxes)
+                    transactions = list(receipt.transactions)
+                else:
+                    cashboxes, _ = store._normalize_cashboxes(state)
+                    transactions, _ = store._normalize_cash_transactions(state)
+                # Preserve the existing migration path for legacy ledgers.
+                if [box.to_storage_dict() for box in cashboxes] != state.get("cashboxes", []):
+                    return None
+                if [item.to_storage_dict() for item in transactions] != state.get(
+                    "cash_transactions", []
+                ):
+                    return None
+                # A legacy prepayment can synthesize a payment, but has no
+                # transaction reference. Only explicit payments can link a row.
+                cards = []
+                for raw_card in state.get("cards", []):
+                    order = raw_card.get("repair_order")
+                    if isinstance(order, dict) and order.get(
+                        "payments", order.get("payment_history")
+                    ):
+                        card = Card.from_dict(raw_card)
+                        if card.id != raw_card.get("id"):
+                            return None
+                        cards.append(card)
+            except (ValueError, TypeError, OverflowError, json_store.StateFileCorruptedError):
+                return None
+            details = _CashboxDetails(
+                version,
+                service._ordered_cashboxes(cashboxes),
+                transactions,
+                service._repair_order_transaction_context(cards, transactions, cashboxes),
+            )
+            self._cashbox_details = details
+            return details
+
     def _read_cashbox_details(self) -> _CashboxDetails:
         service = self._service
         store = service._store
         if cached := self._current_cashbox_details():
             return cached
+        source = store._cashbox_receipt_source
+        if not json_store._SNAPSHOT_REQUIRES_FILE_LOCK and (
+            source is None or not store._cashbox_receipt_state_matches(source[0])
+        ):
+            if details := self._read_cold_cashbox_details():
+                return details
         with service._lock:
             if cached := self._current_cashbox_details():
                 return cached
