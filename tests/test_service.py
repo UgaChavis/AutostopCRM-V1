@@ -7091,6 +7091,57 @@ class CardServiceTests(CardServiceCase):
         self.assertTrue(any(item["type"] == "card_archived" for item in review["recent_events"]))
         self.assertIn("[BOARD REVIEW]", review["text"])
 
+    def test_review_board_redacts_only_displayed_events_and_ignores_private_activity(self) -> None:
+        moment = utc_now()
+        self.service.create_card({"title": "Synthetic inactive card"})
+        bundle = self.store.read_bundle()
+        card = bundle["cards"][0]
+        card.created_at = card.updated_at = (moment - timedelta(hours=50)).isoformat()
+        rows = [
+            ("old-activity", -48, "card_moved", card.id),
+            ("older-noise", -5, "column_updated", None),
+            ("selected", -4, "repair_order_updated", None),
+            ("noise-a", -3, "column_updated", None),
+            ("noise-b", -2, "column_updated", None),
+            ("private-activity", -1, "cash_transaction_created", card.id),
+        ]
+        bundle["events"] = [
+            AuditEvent(
+                id=event_id,
+                timestamp=(moment + timedelta(hours=hours)).isoformat(),
+                actor_name="Operator",
+                source="api",
+                action=action,
+                message=event_id,
+                details=(
+                    {"status": "draft", "payroll_postings": ["private-test-value"]}
+                    if event_id == "selected"
+                    else {}
+                ),
+                card_id=card_id,
+            )
+            for event_id, hours, action, card_id in rows
+        ]
+        self.store.write_bundle(**bundle)
+
+        request = {"stale_hours": 24, "recent_event_limit": 1}
+        with patch(
+            "minimal_kanban.services.snapshot_service.visible_audit_events",
+            wraps=visible_audit_events,
+        ) as project:
+            restricted = self.service.review_board(
+                {**request, "_operator_session": {"role": "operator", "permissions": {}}}
+            )
+        self.assertEqual(restricted["summary"]["stale_cards"], 1)
+        self.assertEqual([event["text"] for event in restricted["recent_events"]], ["selected"])
+        self.assertEqual(restricted["recent_events"][0]["related_to"], "status=draft")
+        project.assert_called_once()
+        self.assertEqual([event.id for event in project.call_args.args[1]], ["selected"])
+
+        full = self.service.review_board(request)
+        self.assertEqual(full["summary"]["stale_cards"], 0)
+        self.assertIn("private-test-value", full["recent_events"][0]["related_to"])
+
     def test_legacy_combined_title_is_split_on_load(self) -> None:
         card = Card.from_dict(
             {

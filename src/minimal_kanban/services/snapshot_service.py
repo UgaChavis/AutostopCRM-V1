@@ -34,6 +34,7 @@ from .operator_visibility import (
     project_operator_result,
     public_snapshot_settings,
     restricted_operator_event_visible,
+    visible_audit_event_sources,
     visible_audit_events,
 )
 from .readonly_context_helpers import card_sample, detached_card_response
@@ -535,7 +536,7 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             columns = bundle["columns"]
             cards = bundle["cards"]
-            events = visible_audit_events(payload, bundle["events"])
+            events = visible_audit_event_sources(payload, bundle["events"])
             now = utc_now()
             column_labels = self._column_labels(columns)
             cards_by_id = {card.id: card for card in cards}
@@ -612,6 +613,7 @@ class SnapshotService:
             ]
             recent_events = self._review_recent_events(
                 events,
+                payload=payload,
                 cards_by_id=cards_by_id,
                 column_labels=column_labels,
                 limit=recent_event_limit,
@@ -683,11 +685,7 @@ class SnapshotService:
             wall_events = []
             events_total = 0
             if section != "board_content":
-                visible_events = events
-                if not include_private:
-                    visible_events = [
-                        event for event in events if restricted_operator_event_visible(event)
-                    ]
+                visible_events = visible_audit_event_sources(payload, events)
                 events_total = len(visible_events)
                 ordered_events = sorted(
                     visible_events, key=lambda event: event.timestamp, reverse=True
@@ -1255,33 +1253,35 @@ class SnapshotService:
         self,
         events: list[AuditEvent],
         *,
+        payload: dict,
         cards_by_id: dict[str, Card],
         column_labels: dict[str, str],
         limit: int,
     ) -> list[dict[str, Any]]:
         ordered_events = sorted(events, key=lambda event: event.timestamp, reverse=True)
-        reviewable = self._wall_events(ordered_events[: limit * 4], cards_by_id, column_labels)
-        result: list[dict[str, Any]] = []
-        for event in reviewable:
-            if not self._is_review_relevant_event(event):
-                continue
-            result.append(
-                {
-                    "type": event.get("action"),
-                    "timestamp": event.get("timestamp"),
-                    "actor_name": event.get("actor_name"),
-                    "card_id": event.get("card_id"),
-                    "card_short_id": event.get("card_short_id"),
-                    "text": event.get("message"),
-                    "related_to": event.get("card_heading") or event.get("details_text") or "",
-                }
-            )
-            if len(result) >= limit:
-                break
-        return result
+        selected = [
+            event
+            for event in ordered_events[: limit * 4]
+            if self._is_review_relevant_event(event.action)
+        ][:limit]
+        reviewable = self._wall_events(
+            visible_audit_events(payload, selected), cards_by_id, column_labels
+        )
+        return [
+            {
+                "type": event.get("action"),
+                "timestamp": event.get("timestamp"),
+                "actor_name": event.get("actor_name"),
+                "card_id": event.get("card_id"),
+                "card_short_id": event.get("card_short_id"),
+                "text": event.get("message"),
+                "related_to": event.get("card_heading") or event.get("details_text") or "",
+            }
+            for event in reviewable
+        ]
 
-    def _is_review_relevant_event(self, event: dict[str, Any]) -> bool:
-        action = str(event.get("action") or "").strip().lower()
+    def _is_review_relevant_event(self, action: str) -> bool:
+        action = str(action or "").strip().lower()
         if action in {
             "card_created",
             "card_moved",

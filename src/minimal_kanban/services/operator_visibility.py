@@ -130,6 +130,15 @@ def restricted_operator_event_visible(event: AuditEvent) -> bool:
     return action == "repair_order_updated" or not is_private_employee_cashbox_event(event)
 
 
+def visible_audit_event_sources(
+    payload: dict[str, Any] | None, events: list[AuditEvent]
+) -> list[AuditEvent]:
+    """Select event sources for internal use, before projecting any returned details."""
+    if operator_can_access_employees_cashboxes(payload):
+        return events
+    return [event for event in events if restricted_operator_event_visible(event)]
+
+
 def audit_event_counts(
     events: Iterable[AuditEvent], *, include_private: bool = True
 ) -> dict[str, int]:
