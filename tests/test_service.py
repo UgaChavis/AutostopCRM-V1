@@ -28,6 +28,7 @@ from minimal_kanban.agent.config import get_agent_name
 from minimal_kanban.repair_order import RepairOrder
 from minimal_kanban.services.card_service import CardService, ServiceError
 from minimal_kanban.services.finance_read_core import FinanceReadCore
+from minimal_kanban.services.operator_visibility import visible_audit_events
 from minimal_kanban.services.payroll_constants import EMPLOYEES_MAX_COUNT
 from minimal_kanban.storage.financial_history_cleanup import sanitize_financial_history_state
 from minimal_kanban.storage.json_store import JsonStore
@@ -254,6 +255,27 @@ class CardServiceTests(CardServiceCase):
             collected[0]["actor_key"],
         )
         self.assertTrue(all(item["is_financial_action"] for item in collected))
+
+        restricted_view = {"limit": 2, "_operator_session": {"permissions": []}}
+        with patch(
+            "minimal_kanban.services.snapshot_service.visible_audit_events",
+            wraps=visible_audit_events,
+        ) as project:
+            first = self.service.get_board_event_page(restricted_view)
+            following = self.service.get_board_event_page(
+                {**restricted_view, "cursor": first["next_cursor"]}
+            )
+        self.assertEqual(
+            [[event.id for event in call.args[1]] for call in project.call_args_list],
+            [["event-0", "event-1"], ["event-3", "event-4"]],
+        )
+        self.assertTrue(first["has_more"])
+        self.assertFalse(following["has_more"])
+        self.assertEqual(first["total_count"], 4)
+        self.assertEqual(following["total_count"], 4)
+        for item in first["events"] + following["events"]:
+            self.assertFalse(item["is_financial_action"])
+            self.assertEqual(item["changed_field_categories"], ["repair_order"])
 
     def test_money_minor_normalization_preserves_decimal_zero(self) -> None:
         self.assertEqual(normalize_money_minor(Decimal("0"), default=500), 0)

@@ -838,27 +838,27 @@ class SnapshotService:
         with self._lock:
             bundle = self._store.read_bundle()
             archived_by_card_id = {card.id: card.archived for card in bundle["cards"]}
-            visible_events = visible_audit_events(payload, bundle["events"])
-            events = [
-                event
-                for event in visible_events
-                if include_archived or not archived_by_card_id.get(event.card_id or "", False)
+            include_private = operator_can_access_employees_cashboxes(payload)
+            keyed_events = [
+                (event_page_key(event), event)
+                for event in bundle["events"]
+                if (include_archived or not archived_by_card_id.get(event.card_id or "", False))
+                and (include_private or restricted_operator_event_visible(event))
             ]
-            ordered = sorted(events, key=event_page_key)
+            total_count = len(keyed_events)
             if cursor_key is not None:
-                ordered = [event for event in ordered if event_page_key(event) > cursor_key]
-            page_events = ordered[:limit]
-            has_more = len(ordered) > len(page_events)
-            next_cursor = (
-                encode_event_page_cursor(event_page_key(page_events[-1]))
-                if has_more and page_events
-                else None
+                keyed_events = [entry for entry in keyed_events if entry[0] > cursor_key]
+            keyed_events.sort(key=lambda entry: entry[0])
+            has_more = len(keyed_events) > limit
+            next_cursor = encode_event_page_cursor(keyed_events[limit - 1][0]) if has_more else None
+            page_events = visible_audit_events(
+                payload, [event for _, event in keyed_events[:limit]]
             )
             return {
                 "events": [redacted_event_page_item(event) for event in page_events],
                 "next_cursor": next_cursor,
                 "has_more": has_more,
-                "total_count": len(events),
+                "total_count": total_count,
                 "schema_version": "board_event_page.v1",
             }
 
