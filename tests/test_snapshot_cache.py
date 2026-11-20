@@ -465,6 +465,42 @@ class SnapshotCacheTests(unittest.TestCase):
         card = next(item for item in public["cards"] if item["id"] == card_id)
         self.assertEqual(card["title"], "Snapshot cache card")
 
+    def test_warm_http_snapshots_use_current_file_while_writer_holds_both_locks(self) -> None:
+        self._create_card()
+        full = self._compact_view()
+        restricted = {**full, "_operator_session": {"permissions": []}}
+        started, release = Event(), Event()
+
+        def write():
+            with self.service._lock, self.store._lock:
+                started.set()
+                if not release.wait(5):
+                    raise TimeoutError("Synthetic writer was not released")
+                self._create_card(title="Next board generation")
+
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+            patch.object(snapshot_service_module.time, "monotonic", return_value=100.0),
+            patch.object(
+                snapshot_service_module, "utc_now_iso", return_value="2026-01-01T00:00:00Z"
+            ),
+            ThreadPoolExecutor(max_workers=3) as pool,
+        ):
+            read = self.service.get_board_snapshot_for_http
+            full_before, restricted_before = read(full), read(restricted)
+            writer = pool.submit(write)
+            try:
+                self.assertTrue(started.wait(2))
+                full_read = pool.submit(read, full)
+                restricted_read = pool.submit(read, restricted)
+                self.assertIs(full_read.result(timeout=2), full_before)
+                self.assertEqual(restricted_read.result(timeout=2), restricted_before)
+            finally:
+                release.set()
+            writer.result(timeout=5)
+            self.assertEqual(len(read(restricted)["cards"]), 2)
+            self.assertIsNot(read(full), full_before)
+
     def test_compact_snapshot_cache_expires_after_monotonic_ttl(self) -> None:
         self._create_card()
         view = self._compact_view()

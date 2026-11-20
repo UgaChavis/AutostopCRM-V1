@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
+from copy import deepcopy
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any
@@ -36,6 +38,26 @@ def build_prepared_snapshot_data(
         heavy_bytes[:-1] + b',"meta":' + meta_bytes[:-1] + meta_separator + b'"generated_at":'
     )
     return PreparedSnapshotData(payload_prefix=payload_prefix)
+
+
+def restore_compact_snapshot(
+    entry: dict[str, Any] | None, *, prepared: bool, generated_at: Callable[[], str]
+) -> dict | PreparedSnapshotData | None:
+    if entry is None:
+        return None
+    snapshot = entry.get("snapshot")
+    cached_at = float(entry.get("snapshot_cached_at") or 0.0)
+    if (
+        isinstance(snapshot, dict)
+        and time.monotonic() - cached_at <= COMPACT_SNAPSHOT_CACHE_TTL_SECONDS
+    ):
+        encoded = entry.get("prepared_snapshot")
+        if prepared and isinstance(encoded, PreparedSnapshotData):
+            return encoded
+        result = deepcopy(snapshot)
+        result["meta"]["generated_at"] = generated_at()
+        return result
+    return None
 
 
 class SnapshotResponseCache:

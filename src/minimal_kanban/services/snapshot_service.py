@@ -39,12 +39,12 @@ from .operator_visibility import (
 )
 from .readonly_context_helpers import card_sample, detached_card_response
 from .snapshot_cache import (
-    COMPACT_SNAPSHOT_CACHE_TTL_SECONDS,
     PreparedSnapshotData,
     SnapshotResponseCache,
     build_prepared_snapshot_data,
     build_snapshot_meta,
     build_snapshot_revision,
+    restore_compact_snapshot,
 )
 from .snapshot_event_page import (
     encode_event_page_cursor,
@@ -269,43 +269,42 @@ class SnapshotService:
         *,
         prepared: bool,
     ) -> dict | PreparedSnapshotData:
+        payload = payload or {}
+        compact_cards = self._validated_optional_bool(payload, "compact", default=False)
+        include_archive = self._validated_optional_bool(payload, "include_archive", default=True)
+        archive_limit = (
+            self._validated_limit(
+                payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
+            )
+            if include_archive
+            else 0
+        )
+        viewer_username = self._viewer_username(payload)
+        employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
+        cache_key = self._snapshot_cache.key(
+            viewer_username=viewer_username,
+            employees_cashboxes_access=employees_cashboxes_access,
+            compact_cards=compact_cards,
+            include_archive=include_archive,
+            archive_limit=archive_limit,
+        )
+        if compact_cards:
+            signature = self._store._current_read_bundle_cache_signature()
+            result = restore_compact_snapshot(
+                self._snapshot_cache.get(signature, cache_key),
+                prepared=prepared,
+                generated_at=utc_now_iso,
+            )
+            if result is not None:
+                return result
         with self._lock:
-            payload = payload or {}
-            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
-            include_archive = self._validated_optional_bool(
-                payload, "include_archive", default=True
-            )
-            archive_limit = (
-                self._validated_limit(
-                    payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
-                )
-                if include_archive
-                else 0
-            )
             bundle, signature = self._store.read_bundle_with_signature()
-            viewer_username = self._viewer_username(payload)
-            employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
-            cache_key = self._snapshot_cache.key(
-                viewer_username=viewer_username,
-                employees_cashboxes_access=employees_cashboxes_access,
-                compact_cards=compact_cards,
-                include_archive=include_archive,
-                archive_limit=archive_limit,
-            )
             cache_entry = self._snapshot_cache.get(signature, cache_key)
-            if compact_cards and cache_entry is not None:
-                cached_snapshot = cache_entry.get("snapshot")
-                cached_at = float(cache_entry.get("snapshot_cached_at") or 0.0)
-                if (
-                    isinstance(cached_snapshot, dict)
-                    and time.monotonic() - cached_at <= COMPACT_SNAPSHOT_CACHE_TTL_SECONDS
-                ):
-                    if prepared:
-                        cached_prepared = cache_entry.get("prepared_snapshot")
-                        if isinstance(cached_prepared, PreparedSnapshotData):
-                            return cached_prepared
-                    result = deepcopy(cached_snapshot)
-                    result["meta"]["generated_at"] = utc_now_iso()
+            if compact_cards:
+                result = restore_compact_snapshot(
+                    cache_entry, prepared=prepared, generated_at=utc_now_iso
+                )
+                if result is not None:
                     return result
             cards = self._visible_cards(bundle["cards"], include_archived=False)
             archived_cards_total = sum(1 for card in bundle["cards"] if card.archived)
