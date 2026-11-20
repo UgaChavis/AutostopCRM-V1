@@ -169,7 +169,7 @@ class SnapshotShallowJsonGuardTests(unittest.TestCase):
                 self.assertEqual(seen[0], clients)
                 self.assertEqual(seen[0] is not clients, should_copy)
 
-    def test_profile_snapshot_uses_old_copy_when_guard_rejects(self):
+    def test_profile_snapshot_copies_deep_cards_without_comparing_storage(self):
         for depth, should_copy in ((2, False), (33, True)):
             with self.subTest(depth=depth):
                 cards = [{"id": "synthetic-card", "unused": nested_containers(depth)}]
@@ -181,7 +181,7 @@ class SnapshotShallowJsonGuardTests(unittest.TestCase):
                 self.assertEqual(received, cards)
                 self.assertEqual(received is not cards, should_copy)
                 self.assertEqual(detach, not should_copy)
-                self.assertEqual(compare_storage, should_copy)
+                self.assertFalse(compare_storage)
 
 
 if __name__ == "__main__":
