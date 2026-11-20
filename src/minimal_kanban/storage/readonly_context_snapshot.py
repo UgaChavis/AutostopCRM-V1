@@ -446,7 +446,7 @@ _ENCODER_ENFORCES_STATE_DEPTH = encoder_enforces_state_depth()
 
 
 class CommittedCardSource:
-    """Private, decoded bytes from a verified local write, indexed for one-card reads."""
+    """Detached context from a verified local write, indexed for one-card reads."""
 
     def __init__(self, store, state):
         cards = state.get("cards")
@@ -459,6 +459,11 @@ class CommittedCardSource:
             or not isinstance(events, list)
         ):
             raise StateFileCorruptedError("Снимок состояния поврежден.")
+        self.context_state = {
+            name: state[name]
+            for name in ("columns", "cards", "clients", "events", "settings", "stickies")
+            if name in state
+        }
         self._cards = _index(cards)
         self._clients = _index(clients)
         self._positions = {}

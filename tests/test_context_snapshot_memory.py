@@ -224,15 +224,24 @@ class ContextSnapshotMemoryTests(CardServiceCase):
         self.assertEqual(other.active_correction["synthetic"]["value"], "SYNTHETIC_ORIGINAL")
         self.assertEqual(self.store._context_snapshot_state, raw)
 
-    def test_service_write_drops_all_shared_raw_and_domain_caches(self):
+    def test_service_write_retires_old_context_and_reuses_verified_new_source(self):
         previous = self.snapshots()
         old_raw = self.store._context_snapshot_state
-        self.service.update_card({"card_id": self.card_id, "title": "SYNTHETIC_AFTER"})
+        self.service.update_card(
+            {
+                "card_id": self.card_id,
+                "title": "SYNTHETIC_AFTER",
+                "repair_order": {"client": "SYNTHETIC"},
+            }
+        )
         self.assertIsNone(self.store._context_snapshot_state)
         self.assertEqual(self.store._context_snapshots, {})
+        self.assertIsNotNone(self.store._committed_card_source)
         with patch.object(self.store, "_read_state", wraps=self.store._read_state) as read:
+            orders = self.store.read_repair_order_cards_snapshot()
             current = self.snapshots()
-            self.assertEqual(read.call_count, 1)
+            read.assert_not_called()
+        self.assertEqual(orders[0].title, "SYNTHETIC_AFTER")
         self.assertIsNot(self.store._context_snapshot_state, old_raw)
         for before, after in zip(previous, current, strict=True):
             self.assertIsNot(before, after)

@@ -51,7 +51,10 @@ class RepairOrderSnapshotCacheTests(CardServiceCase):
 
     def test_snapshot_cache_repeat_and_object_isolation(self):
         before = self.files()
-        with patch.object(self.store, "_read_state", wraps=self.store._read_state) as read:
+        with (
+            patch.object(self.store, "_committed_card_source", None),
+            patch.object(self.store, "_read_state", wraps=self.store._read_state) as read,
+        ):
             first = self.store.read_repair_order_cards_snapshot()
             next(card for card in first if card.id == self.card_id).title = "MUTATED_BY_CALLER"
             second = self.store.read_repair_order_cards_snapshot()

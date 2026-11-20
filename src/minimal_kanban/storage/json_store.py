@@ -655,13 +655,12 @@ class JsonStore:
                     cached = self._context_snapshots.get(domain_key)
                     if cached is not None:
                         return cached
-                    state = self._context_snapshot_state
                 else:
                     # Release the previous generation before allocating the next.
                     self._context_snapshots.clear()
                     self._context_snapshot_state = None
                     self._context_snapshot_signature = None
-                    state = None
+                state = self._decoded_context_for_signature(signature)
             # POSIX writers replace the file atomically. Parse this independent
             # version outside the store lock; publish only if it is still current.
             with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
@@ -680,6 +679,17 @@ class JsonStore:
                     self._context_snapshot_state = state
                     self._context_snapshots[domain_key] = snapshot
             return snapshot
+
+    def _decoded_context_for_signature(self, signature):
+        # Called under the store lock. A missing signature keeps the file-lock path.
+        if signature is None:
+            return None
+        if signature == self._context_snapshot_signature:
+            return self._context_snapshot_state
+        committed = self._committed_card_source
+        if committed is not None and signature == committed[0]:
+            return committed[2].context_state
+        return None
 
     def _read_search_client_profiles(self, rows: list[dict]) -> list[ClientProfile]:
         from .readonly_context_snapshot import _reuse_search_client_profiles
@@ -795,11 +805,7 @@ class JsonStore:
                     if signature is not None and signature == self._repair_order_snapshot_signature
                     else None
                 )
-                shared_state = (
-                    self._context_snapshot_state
-                    if signature is not None and signature == self._context_snapshot_signature
-                    else None
-                )
+                shared_state = self._decoded_context_for_signature(signature)
             if cards is None:
                 state = shared_state
                 if _SNAPSHOT_REQUIRES_FILE_LOCK:
