@@ -165,6 +165,43 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         self.assertEqual(old["cards"][0].title, "BEFORE")
         self.assertEqual(snapshot()["cards"][0].title, "AFTER")
 
+    def test_warm_reads_do_not_wait_for_unrelated_cold_snapshot(self):
+        self.service.create_client({"display_name": "SYNTHETIC CUSTOMER"})
+
+        def clients():
+            return self.service.search_clients({"query": "SYNTHETIC CUSTOMER"})
+
+        def orders():
+            return self.service.list_repair_orders({"status": "all", "compact": True})
+
+        normalize = self.store._normalize_cards
+        with patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False):
+            for warm, cold in ((clients, orders), (orders, clients)):
+                with self.subTest(warm=warm.__name__):
+                    self.service.update_card({"card_id": self.card_id, "title": warm.__name__})
+                    expected = warm()
+                    parsing, release = threading.Event(), threading.Event()
+
+                    def pause(*args, **kwargs):
+                        if threading.current_thread().name == "cold-snapshot_0":
+                            parsing.set()
+                            if not release.wait(5):
+                                raise TimeoutError("Cold snapshot was not released")
+                        return normalize(*args, **kwargs)
+
+                    with (
+                        patch.object(self.store, "_normalize_cards", side_effect=pause),
+                        ThreadPoolExecutor(1, thread_name_prefix="cold-snapshot") as cold_worker,
+                        ThreadPoolExecutor(1) as warm_worker,
+                    ):
+                        building = cold_worker.submit(cold)
+                        try:
+                            self.assertTrue(parsing.wait(2))
+                            self.assertEqual(warm_worker.submit(warm).result(timeout=2), expected)
+                        finally:
+                            release.set()
+                        self.assertTrue(building.result(timeout=5))
+
     def test_context_load_does_not_hold_service_lock_while_parsing(self):
         def read():
             return self.service.get_card_context(

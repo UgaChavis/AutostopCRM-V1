@@ -627,6 +627,17 @@ class JsonStore:
         from .readonly_context_snapshot import build_context_snapshot
 
         domain_key = tuple(sorted(domains))
+        if not _SNAPSHOT_REQUIRES_FILE_LOCK:
+            # Ready snapshots need no serialization with an unrelated build.
+            with self._lock:
+                cached = self._context_snapshots.get(domain_key)
+                signature = self._context_snapshot_signature
+                if (
+                    cached is not None
+                    and signature is not None
+                    and signature == self._repair_order_file_signature()
+                ):
+                    return cached
         guard = (
             self._process_lock.acquire(existing_only=True)
             if _SNAPSHOT_REQUIRES_FILE_LOCK
@@ -785,6 +796,14 @@ class JsonStore:
         POSIX caches an atomic file version while its signature remains current.
         Windows retains the existing writer/file-lock boundary.
         """
+        if not _SNAPSHOT_REQUIRES_FILE_LOCK:
+            cards = None
+            with self._lock:
+                signature = self._repair_order_snapshot_signature
+                if signature is not None and signature == self._repair_order_file_signature():
+                    cards = self._repair_order_snapshot_cards
+            if cards is not None:
+                return projector(cards)
         guard = (
             self._process_lock.acquire(existing_only=True)
             if _SNAPSHOT_REQUIRES_FILE_LOCK
