@@ -5,6 +5,7 @@ import binascii
 import json
 import mimetypes
 import os
+import stat
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -146,9 +147,12 @@ class SharedFilesService:
     def list_shared_files(self, payload: dict | None = None) -> dict:
         del payload
         with self._locked_files() as files:
+            rows = [self._public_file_dict(item) for item in files]
             return {
-                "files": [self._public_file_dict(item) for item in files],
-                "storage": self._storage_payload(files),
+                "files": rows,
+                "storage": self._storage_payload(
+                    files, used_bytes=sum(row["size_bytes"] for row in rows)
+                ),
             }
 
     def get_shared_file_info(self, payload: dict | None = None) -> dict:
@@ -315,13 +319,14 @@ class SharedFilesService:
     def copy_shared_file(self, payload: dict | None = None) -> dict:
         with self._locked_files() as files:
             item = self._find_file(files, (payload or {}).get("file_id"))
+            public_file = self._public_file_dict(item)
             return {
                 "clipboard": {
                     "source_id": item.id,
                     "file_name": item.original_name,
-                    "size_bytes": self._effective_file_size(item),
+                    "size_bytes": public_file["size_bytes"],
                 },
-                "file": self._public_file_dict(item),
+                "file": public_file,
             }
 
     def paste_shared_file(self, payload: dict | None = None) -> dict:
@@ -569,16 +574,17 @@ class SharedFilesService:
 
     def _public_file_dict(self, item: SharedFile) -> dict[str, Any]:
         payload = item.to_dict()
-        payload["size_bytes"] = self._effective_file_size(item)
+        disk_size = self._regular_file_size(self._storage_path(item.stored_name))
+        payload["size_bytes"] = max(_normalize_byte_count(item.size_bytes), disk_size or 0)
         payload["download_path"] = f"/api/shared_file?file_id={item.id}"
         payload["open_path"] = f"/api/shared_file?file_id={item.id}&disposition=inline"
-        payload["exists_on_disk"] = self._storage_is_regular_file(
-            self._storage_path(item.stored_name)
-        )
+        payload["exists_on_disk"] = disk_size is not None
         return payload
 
-    def _storage_payload(self, files: list[SharedFile]) -> dict[str, Any]:
-        used = self._used_bytes(files)
+    def _storage_payload(
+        self, files: list[SharedFile], *, used_bytes: int | None = None
+    ) -> dict[str, Any]:
+        used = self._used_bytes(files) if used_bytes is None else used_bytes
         return {
             "used_bytes": used,
             "limit_bytes": self._storage_limit_bytes,
@@ -596,9 +602,15 @@ class SharedFilesService:
             path = self._storage_path(item.stored_name)
         except ServiceError:
             return metadata_size
-        if not self._storage_is_regular_file(path):
-            return metadata_size
-        return max(metadata_size, self._file_size_on_disk(path, fallback=metadata_size))
+        return max(metadata_size, self._regular_file_size(path) or 0)
+
+    @staticmethod
+    def _regular_file_size(path: Path) -> int | None:
+        try:
+            info = path.lstat()
+        except OSError:
+            return None
+        return _normalize_byte_count(info.st_size) if stat.S_ISREG(info.st_mode) else None
 
     def _file_size_on_disk(self, path: Path, *, fallback: int = 0) -> int:
         try:

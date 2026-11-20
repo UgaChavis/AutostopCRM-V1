@@ -430,6 +430,27 @@ class SharedFilesServiceTests(unittest.TestCase):
         self.assertEqual(limit_error.exception.code, "storage_limit_exceeded")
         self.assertEqual(self.service.list_shared_files({})["storage"]["used_bytes"], 120)
 
+    def test_list_reports_quota_from_the_same_file_sizes_as_its_rows(self) -> None:
+        uploaded = self.service.upload_shared_file(
+            {"file_name": "changed.txt", "content_base64": b64(b"old")}
+        )
+        stored_path = self.service.storage_dir / uploaded["file"]["stored_name"]
+        serialize = self.service._public_file_dict
+
+        def grow_after_serializing(item):
+            row = serialize(item)
+            stored_path.write_bytes(b"new contents")
+            return row
+
+        with patch.object(self.service, "_public_file_dict", side_effect=grow_after_serializing):
+            first = self.service.list_shared_files()
+
+        self.assertEqual(first["files"][0]["size_bytes"], 3)
+        self.assertEqual(first["storage"]["used_bytes"], 3)
+        next_list = self.service.list_shared_files()
+        self.assertEqual(next_list["files"][0]["size_bytes"], len(b"new contents"))
+        self.assertEqual(next_list["storage"]["used_bytes"], len(b"new contents"))
+
     def test_paste_shared_file_counts_actual_source_size_when_index_size_is_stale(self) -> None:
         uploaded = self.service.upload_shared_file(
             {"file_name": "stale-copy.txt", "content_base64": b64(b"12")}
