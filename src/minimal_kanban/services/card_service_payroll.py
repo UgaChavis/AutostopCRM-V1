@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -55,6 +55,7 @@ from .payroll_read_snapshot import (
     SalaryLedgerCard,
     SalaryReportCard,
     detach_employee_list_inputs,
+    detach_salary_ledger_cards,
     detach_salary_ledger_inputs,
     detach_salary_report_cards,
 )
@@ -642,19 +643,31 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             )
             month = self._validated_payroll_month(payload.get("month"))
             employee_id = normalize_text(payload.get("employee_id"), default="", limit=64)
-            report = self._build_payroll_report(
-                bundle["cards"],
-                employees,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
-                month=month,
-                employee_id=employee_id or None,
+            month_key = month.replace("-", "")
+            # Postings are dated independently of the order's closing month.
+            # Their presence can also suppress an older accrual for the same order.
+            cards = detach_salary_ledger_cards(
+                card
+                for card in bundle["cards"]
+                if card.repair_order.payroll_postings
+                or (
+                    card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                    and self._repair_order_closed_sort_value(card).startswith(month_key)
+                )
             )
-            return {
-                "month": month,
-                "summary": report["summary"],
-                "detail_rows": report["detail_rows"],
-            }
+        report = self._build_payroll_report(
+            cards,
+            employees,
+            shift_accruals=shift_accruals,
+            repair_order_accruals=repair_order_accruals,
+            month=month,
+            employee_id=employee_id or None,
+        )
+        return {
+            "month": month,
+            "summary": report["summary"],
+            "detail_rows": report["detail_rows"],
+        }
 
     @staticmethod
     def _legacy_overall_accruals_without_postings(
@@ -3707,7 +3720,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
 
     def _apply_line_payroll_postings_to_report(
         self,
-        cards: list[Card],
+        cards: Sequence[Card | PayrollReadCard | SalaryLedgerCard],
         *,
         selected_employee_id: str,
         period_start: datetime,
@@ -3827,7 +3840,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
 
     def _build_payroll_report(
         self,
-        cards: list[Card],
+        cards: Sequence[Card | PayrollReadCard | SalaryLedgerCard],
         employees: list[dict[str, Any]],
         *,
         shift_accruals: list[dict[str, Any]] | None = None,

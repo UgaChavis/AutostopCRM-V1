@@ -8,6 +8,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,7 +37,7 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
             self.service.get_employee_salary_report,
             "_build_employee_salary_report",
             {"month": "2026-11"},
-            "shift_accrual_total_minor",
+            lambda report: report["totals"]["shift_accrual_total_minor"],
         )
 
     def test_salary_reconciliation_uses_one_snapshot_while_new_accrual_is_saved(self) -> None:
@@ -44,10 +45,18 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
             self.service.get_employee_salary_reconciliation,
             "_build_employee_salary_reconciliation",
             {"date_from": "2026-11-01", "date_to": "2026-11-30"},
-            "accrued_total_minor",
+            lambda report: report["totals"]["accrued_total_minor"],
         )
 
-    def _check_accrual_report_snapshot(self, read, builder, period, total_key) -> None:
+    def test_payroll_report_uses_one_snapshot_while_new_accrual_is_saved(self) -> None:
+        self._check_accrual_report_snapshot(
+            self.service.get_payroll_report,
+            "_build_payroll_report",
+            {"month": "2026-11"},
+            lambda report: Decimal(report["summary"][0]["shift_accrued_total"]) * 100,
+        )
+
+    def _check_accrual_report_snapshot(self, read, builder, period, total) -> None:
         employee = self.service.save_employee(
             {"name": "Synthetic employee", "salary_mode": "none"}
         )["employee"]
@@ -75,8 +84,8 @@ class ListEmployeesSnapshotTests(unittest.TestCase):
                     resume.set()
                 report = pending.result(timeout=5)
 
-        self.assertEqual(report["totals"][total_key], 100)
-        self.assertEqual(read(query)["totals"][total_key], 300)
+        self.assertEqual(total(report), 100)
+        self.assertEqual(total(read(query)), 300)
 
     def test_detached_projection_matches_deepcopy_and_preserves_shared_nested_sources(self) -> None:
         employee = self.service.save_employee(

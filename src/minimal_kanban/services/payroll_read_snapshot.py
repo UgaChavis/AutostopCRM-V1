@@ -168,10 +168,17 @@ def detach_salary_ledger_inputs(
         },
         {},
     )
-    cards = []
-    for card in bundle["cards"]:
+    snapshot["cards"] = detach_salary_ledger_cards(bundle["cards"])
+    return snapshot
+
+
+def detach_salary_ledger_cards(cards: Iterable[Card]) -> list[SalaryLedgerCard]:
+    """Copy order rows, postings and vehicle labels for payroll calculations."""
+    results = []
+    for card in cards:
         order = card.repair_order
-        cards.append(
+        postings = _detach(order.payroll_postings, {})
+        results.append(
             SalaryLedgerCard(
                 id=card.id,
                 vehicle=card.vehicle,
@@ -183,14 +190,13 @@ def detach_salary_ledger_inputs(
                     closed_at=order.closed_at,
                     vehicle=order.vehicle,
                     license_plate=order.license_plate,
-                    works=_salary_rows_snapshot(order.works),
-                    materials=_salary_rows_snapshot(order.materials),
-                    payroll_postings=_detach(order.payroll_postings, {}),
+                    works=[] if postings else _salary_rows_snapshot(order.works),
+                    materials=[] if postings else _salary_rows_snapshot(order.materials),
+                    payroll_postings=postings,
                 ),
             )
         )
-    snapshot["cards"] = cards
-    return snapshot
+    return results
 
 
 def detach_salary_report_cards(cards: Iterable[Card]) -> list[SalaryReportCard]:
