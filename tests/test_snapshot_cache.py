@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +24,7 @@ from minimal_kanban.services.snapshot_cache import (  # noqa: E402
     PreparedSnapshotData,
     SnapshotResponseCache,
 )
+from minimal_kanban.storage import json_store  # noqa: E402
 from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
@@ -137,6 +141,69 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(visible_cards.call_count, 1)
         self.assertEqual(archived_cards.call_count, 1)
         self.assertEqual(stickies.call_count, 1)
+
+    def test_warm_revision_reads_current_file_while_writer_holds_both_locks(self) -> None:
+        view = self._compact_view()
+        self._create_card()
+        started, release = Event(), Event()
+
+        def write():
+            with self.service._lock, self.store._lock:
+                started.set()
+                if not release.wait(5):
+                    raise TimeoutError("Synthetic writer was not released")
+                self._create_card(title="Published after the wait")
+
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            before = self.service.get_board_revision(view)
+            writer = pool.submit(write)
+            try:
+                self.assertTrue(started.wait(2))
+                during = pool.submit(self.service.get_board_revision, view).result(timeout=2)
+            finally:
+                release.set()
+            writer.result(timeout=5)
+            after = self.service.get_board_revision(view)
+
+        self.assertEqual(during["revision"], before["revision"])
+        self.assertEqual(during["counts"], before["counts"])
+        self.assertNotEqual(after["revision"], before["revision"])
+        self.assertEqual(after["counts"]["cards"], 2)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX cached revision only")
+    def test_revision_uses_cashbox_handoff_published_during_file_check(self) -> None:
+        self._create_card(title="Before")
+        view = self._compact_view()
+        before = self.service.get_board_revision(view)
+        old_file = self.state_file.stat()
+        original = self.state_file.read_bytes()
+        external = original.replace(b'"title":"Before"', b'"title":"After!"').replace(
+            b'"column":"inbox"', b'"column":"bogus"'
+        )
+        self.assertNotEqual(external, original)
+        self.state_file.write_bytes(external)
+        os.utime(self.state_file, ns=(old_file.st_atime_ns, old_file.st_mtime_ns))
+        stat_signature = self.store._state_signature
+        self.assertEqual(stat_signature(), self.store._read_cache_signature)
+        published = False
+
+        def stat_with_handoff():
+            nonlocal published
+            signature = stat_signature()
+            if not published:
+                published = True
+                self.store.read_cashbox_references()
+            return signature
+
+        with patch.object(self.store, "_state_signature", side_effect=stat_with_handoff):
+            after = self.service.get_board_revision(view)
+
+        self.assertNotEqual(after["revision"], before["revision"])
+        card = json.loads(self.state_file.read_bytes())["cards"][0]
+        self.assertEqual((card["title"], card["column"]), ("After!", "inbox"))
 
     def test_restricted_card_views_count_events_without_copying_details(self) -> None:
         card_id = self._create_card()

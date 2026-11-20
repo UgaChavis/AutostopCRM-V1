@@ -487,6 +487,19 @@ class JsonStore:
     def read_bundle(self) -> dict[str, Any]:
         return self.read_bundle_with_signature()[0]
 
+    def _current_read_bundle_cache_signature(self) -> tuple[int, int, int, int] | None:
+        """Check a cached response against the current POSIX state file."""
+        if _SNAPSHOT_REQUIRES_FILE_LOCK:
+            return None
+        cached = self._read_cache_signature
+        if cached is None or cached != self._state_signature():
+            return None
+        # Check the handoff after stat as the ordinary bundle read does.
+        with self._cashbox_handoff_lock:
+            if self._pending_cashbox_state is None:
+                return cached
+        return None
+
     def _cashbox_receipt_state_matches(self, version: CashboxReceiptVersion) -> bool:
         if self._repair_order_file_signature() != version.signature:
             return False

@@ -376,7 +376,7 @@ class SnapshotService:
                 "settings": serialized_settings,
                 "meta": meta,
             }
-            entry = cache_entry or {}
+            entry = dict(cache_entry or {})
             entry.update(
                 {
                     "revision": revision,
@@ -407,29 +407,32 @@ class SnapshotService:
             return result
 
     def get_board_revision(self, payload: dict | None = None) -> dict:
+        payload = payload or {}
+        compact_cards = self._validated_optional_bool(payload, "compact", default=False)
+        include_archive = self._validated_optional_bool(payload, "include_archive", default=True)
+        archive_limit = (
+            self._validated_limit(
+                payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
+            )
+            if include_archive
+            else 0
+        )
+        viewer_username = self._viewer_username(payload)
+        employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
+        cache_key = self._snapshot_cache.key(
+            viewer_username=viewer_username,
+            employees_cashboxes_access=employees_cashboxes_access,
+            compact_cards=compact_cards,
+            include_archive=include_archive,
+            archive_limit=archive_limit,
+        )
+        signature = self._store._current_read_bundle_cache_signature()
+        cache_entry = self._snapshot_cache.get(signature, cache_key)
+        if cache_entry is not None:
+            return self._board_revision_response(cache_entry)
+
         with self._lock:
-            payload = payload or {}
-            compact_cards = self._validated_optional_bool(payload, "compact", default=False)
-            include_archive = self._validated_optional_bool(
-                payload, "include_archive", default=True
-            )
-            archive_limit = (
-                self._validated_limit(
-                    payload.get("archive_limit"), default=ARCHIVE_PREVIEW_LIMIT, maximum=50
-                )
-                if include_archive
-                else 0
-            )
             bundle, signature = self._store.read_bundle_with_signature()
-            viewer_username = self._viewer_username(payload)
-            employees_cashboxes_access = operator_can_access_employees_cashboxes(payload)
-            cache_key = self._snapshot_cache.key(
-                viewer_username=viewer_username,
-                employees_cashboxes_access=employees_cashboxes_access,
-                compact_cards=compact_cards,
-                include_archive=include_archive,
-                archive_limit=archive_limit,
-            )
             cache_entry = self._snapshot_cache.get(signature, cache_key)
             if cache_entry is None or not cache_entry.get("revision"):
                 cards = self._visible_cards(bundle["cards"], include_archived=False)
@@ -477,15 +480,17 @@ class SnapshotService:
                     "meta": meta,
                 }
                 self._snapshot_cache.put(signature, cache_key, cache_entry)
-            revision = str(cache_entry["revision"])
-            counts = deepcopy(cache_entry["counts"])
-            meta = deepcopy(cache_entry["meta"])
-            meta["generated_at"] = utc_now_iso()
-            return {
-                "revision": revision,
-                "counts": counts,
-                "meta": meta,
-            }
+        return self._board_revision_response(cache_entry)
+
+    @staticmethod
+    def _board_revision_response(cache_entry: dict[str, Any]) -> dict:
+        meta = deepcopy(cache_entry["meta"])
+        meta["generated_at"] = utc_now_iso()
+        return {
+            "revision": str(cache_entry["revision"]),
+            "counts": deepcopy(cache_entry["counts"]),
+            "meta": meta,
+        }
 
     def get_board_context(self, payload: dict | None = None) -> dict:
         with self._lock:

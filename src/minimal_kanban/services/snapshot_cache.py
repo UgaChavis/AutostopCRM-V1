@@ -5,6 +5,7 @@ import json
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any
 
 from ..models import Card, Column, StickyNote
@@ -38,18 +39,21 @@ def build_prepared_snapshot_data(
 
 
 class SnapshotResponseCache:
-    """Bounded cache invalidated by the atomically observed state signature."""
+    """Bounded cache of immutable published entries, keyed by state signature."""
 
     def __init__(self, *, max_entries: int = SNAPSHOT_CACHE_MAX_ENTRIES) -> None:
         self._max_entries = max(1, max_entries)
         self._signature: tuple[int, int, int, int] | None = None
         self._entries: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
+        self._lock = Lock()
 
     def __len__(self) -> int:
-        return len(self._entries)
+        with self._lock:
+            return len(self._entries)
 
     def __iter__(self) -> Iterator[tuple[Any, ...]]:
-        return iter(self._entries)
+        with self._lock:
+            return iter(tuple(self._entries))
 
     @staticmethod
     def key(
@@ -77,17 +81,14 @@ class SnapshotResponseCache:
         key: tuple[Any, ...],
     ) -> dict[str, Any] | None:
         if signature is None:
-            self._signature = None
-            self._entries.clear()
             return None
-        if signature != self._signature:
-            self._signature = signature
-            self._entries.clear()
-            return None
-        entry = self._entries.get(key)
-        if entry is not None:
-            self._entries.move_to_end(key)
-        return entry
+        with self._lock:
+            if signature != self._signature:
+                return None
+            entry = self._entries.get(key)
+            if entry is not None:
+                self._entries.move_to_end(key)
+            return entry
 
     def put(
         self,
@@ -97,13 +98,14 @@ class SnapshotResponseCache:
     ) -> None:
         if signature is None:
             return
-        if signature != self._signature:
-            self._signature = signature
-            self._entries.clear()
-        self._entries[key] = entry
-        self._entries.move_to_end(key)
-        while len(self._entries) > self._max_entries:
-            self._entries.popitem(last=False)
+        with self._lock:
+            if signature != self._signature:
+                self._signature = signature
+                self._entries.clear()
+            self._entries[key] = entry
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
 
 
 def build_snapshot_meta(
