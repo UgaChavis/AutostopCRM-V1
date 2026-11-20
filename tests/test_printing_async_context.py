@@ -540,10 +540,34 @@ function setStatus(message,isError){statuses.push({message,isError});}
 
     def test_all_emitted_async_printing_requests_use_operation_guards(self) -> None:
         names = re.findall(r"^    async function (\w+)\(", PRINTING_WEB_MODULE_SCRIPT, re.MULTILINE)
-        self.assertEqual(len(names), 24)
+        self.assertEqual(len(names), 25)
         for name in names:
             with self.subTest(name=name):
                 source = function_source(name)
                 self.assertIn("capturePrintOperation(", source)
                 self.assertNotIn("await api(", source)
                 self.assertNotRegex(source, r"await (?!operation\.)(?:[\w.]+)\(")
+
+    def test_inspection_sheet_action_does_not_report_error_into_a_new_editor(self) -> None:
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:0,editingId:'A'};
+const repairOrderPrintState={mode:'card'};
+const statuses=[];
+function setStatus(...status){statuses.push(status);}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + """
+(async()=>{
+  let rejectOld;
+  const footer={textContent:'new editor'};
+  const pending=runInspectionSheetAction(()=>new Promise((_,reject)=>{rejectOld=reject;}),footer);
+  invalidatePrintInspectionContext();
+  rejectOld(new Error('old save failed'));
+  await pending;
+  assert.equal(footer.textContent,'new editor');
+  assert.deepEqual(statuses,[]);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )

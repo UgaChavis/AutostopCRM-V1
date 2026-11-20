@@ -25,6 +25,18 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
       printInspectionGeneration += 1;
     }
 
+    async function runInspectionSheetAction(action, statusElement) {
+      const operation = capturePrintOperation('', { inspection: true });
+      try {
+        return await operation.wait(action());
+      } catch (error) {
+        if (!operation.current() || error?.code === 'stale_print_operation') return;
+        const message = error?.message || 'Не удалось выполнить операцию с ведомостью.';
+        if (statusElement) statusElement.textContent = message;
+        setStatus(message, true);
+      }
+    }
+
     function scheduleCurrentPrintOperation(callback, delay, options = {}) {
       const operation = capturePrintOperation('', options);
       return window.setTimeout(() => { if (operation.current()) callback(); }, delay);

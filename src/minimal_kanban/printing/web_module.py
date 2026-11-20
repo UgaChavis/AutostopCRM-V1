@@ -136,7 +136,7 @@ PRINTING_WEB_MODULE_HTML = r"""
         </section>
       </div>
       <div class="dialog__foot repair-order-print-footer dialog__floating-actions">
-        <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
+        <div class="repair-order-print-preview__meta" id="repairOrderPrintFooterMeta" role="status">PDF генерируется из шаблона и текущих данных заказ-наряда.</div>
         <div class="repair-order-print-footer__actions"><button class="btn btn--ghost" id="repairOrderPrintRetryButton" type="button" hidden>ПОВТОРИТЬ</button><button class="btn btn--ghost" id="repairOrderPrintExportButton" type="button">PDF</button><button class="btn" id="repairOrderPrintRunButton" type="button">ПЕЧАТЬ</button></div>
       </div>
     </div>
@@ -232,7 +232,7 @@ PRINTING_WEB_MODULE_HTML = r"""
         </div>
       </div>
       <div class="dialog__foot inspection-sheet-form__footer dialog__floating-actions">
-        <div class="inspection-sheet-form__hint" id="inspectionSheetFormFooterMeta">После применения предпросмотр и печать будут использовать заполненную ведомость.</div>
+        <div class="inspection-sheet-form__hint" id="inspectionSheetFormFooterMeta" role="status">После применения предпросмотр и печать будут использовать заполненную ведомость.</div>
         <div class="inspection-sheet-form__actions">
           <button class="btn btn--ghost" id="inspectionSheetFormAutofillButton" type="button">АВТОЗАПОЛНЕНИЕ</button>
           <button class="btn btn--ghost" id="inspectionSheetFormSaveButton" type="button">СОХРАНИТЬ</button>
@@ -1111,7 +1111,8 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     function handleRepairOrderPrintDocumentsActionClick() {
-      openInspectionSheetForm();
+      invalidatePrintInspectionContext();
+      runInspectionSheetAction(openInspectionSheetForm, printEls.footerMeta);
     }
 
     function renderRepairOrderPrintTemplateSelect() {
@@ -1312,7 +1313,6 @@ _PRINTING_SCRIPT_PART2 = r"""
     }
 
     async function openInspectionSheetForm() {
-      invalidatePrintInspectionContext();
       const operation = capturePrintOperation('', { inspection: true });
       repairOrderPrintState.selectedDocumentIds = ['inspection_sheet'];
       repairOrderPrintState.activeDocumentId = 'inspection_sheet';
@@ -1652,8 +1652,12 @@ _PRINTING_SCRIPT_PART3 += (
     if (printEls.inspectionSheetMaterialRows) printEls.inspectionSheetMaterialRows.addEventListener('click', handleInspectionSheetTableRowsClick);
     if (printEls.inspectionSheetAddWorkRowButton) printEls.inspectionSheetAddWorkRowButton.addEventListener('click', () => { appendInspectionSheetTableRow('works'); });
     if (printEls.inspectionSheetAddMaterialRowButton) printEls.inspectionSheetAddMaterialRowButton.addEventListener('click', () => { appendInspectionSheetTableRow('materials'); });
-    if (printEls.inspectionSheetSaveButton) printEls.inspectionSheetSaveButton.addEventListener('click', () => { saveInspectionSheetFormDraft(); });
-    if (printEls.inspectionSheetApplyButton) printEls.inspectionSheetApplyButton.addEventListener('click', () => { saveInspectionSheetFormDraft({ closeAfter: true }); });
+    if (printEls.inspectionSheetSaveButton) printEls.inspectionSheetSaveButton.addEventListener('click', () => {
+      runInspectionSheetAction(saveInspectionSheetFormDraft, printEls.inspectionSheetFooterMeta);
+    });
+    if (printEls.inspectionSheetApplyButton) printEls.inspectionSheetApplyButton.addEventListener('click', () => {
+      runInspectionSheetAction(() => saveInspectionSheetFormDraft({ closeAfter: true }), printEls.inspectionSheetFooterMeta);
+    });
     if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.addEventListener('click', autofillInspectionSheetFormDraft);
     bindCompletionActMoneyControls();
     if (printEls.templateCloseX) printEls.templateCloseX.addEventListener('click', closePrintTemplateEditor);

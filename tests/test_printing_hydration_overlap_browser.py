@@ -38,7 +38,7 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         cls.runtime = start_temp_runtime(start_port=44931)
         cls.addClassCleanup(cls.runtime.close)
 
-    def test_full_card_is_loaded_before_opening_print_documents(self) -> None:
+    def operator_context(self):
         context = self.browser.new_context(
             viewport={"width": 1440, "height": 960},
             extra_http_headers=self.runtime.auth_headers,
@@ -51,6 +51,10 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         context.add_init_script(
             "localStorage.setItem('kanban-operator-session', " + json.dumps(session) + ");"
         )
+        return context
+
+    def test_full_card_is_loaded_before_opening_print_documents(self) -> None:
+        context = self.operator_context()
         page = context.new_page()
         errors: list[str] = []
         responses: list[tuple[str, int]] = []
@@ -131,6 +135,62 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         self.assertIn(
             (self.runtime.base_url + "/api/get_repair_order_print_workspace", 200), responses
         )
+        self.assertEqual(errors, [])
+
+    def test_inspection_sheet_failures_keep_the_action_available_for_retry(self) -> None:
+        from playwright.sync_api import expect
+
+        page = self.operator_context().new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        remaining_failures = {
+            "get_inspection_sheet_form": "Синтетический сбой загрузки ведомости",
+            "save_inspection_sheet_form": "Синтетический сбой сохранения ведомости",
+        }
+
+        def fail_once(route) -> None:
+            endpoint = route.request.url.rsplit("/", 1)[-1]
+            if message := remaining_failures.pop(endpoint, None):
+                route.fulfill(
+                    status=503,
+                    json={"ok": False, "error": {"code": "synthetic_failure", "message": message}},
+                )
+            else:
+                route.continue_()
+
+        for endpoint in remaining_failures:
+            page.route(f"**/api/{endpoint}", fail_once)
+        page.goto(self.runtime.browser_url)
+        page.wait_for_function(
+            "() => state.snapshot && state.operatorSessionToken && window.__AUTOSTOP_UI_BOUND__ === true"
+        )
+        page.locator(f'.card[data-card-id="{self.runtime.client_card_id}"]').click()
+        page.locator("#repairOrderButton").click()
+        page.locator("#repairOrderPrintButton").click()
+        page.locator('#repairOrderPrintDocuments [data-print-document="inspection_sheet"]').click()
+        action = page.locator("#repairOrderPrintDocumentsAction")
+        action.click()
+        footer = page.locator("#repairOrderPrintFooterMeta")
+        expect(footer).to_have_text("Синтетический сбой загрузки ведомости", timeout=3000)
+        expect(footer).to_be_visible()
+        self.assertEqual(errors, [])
+
+        action.click()
+        form = page.locator("#inspectionSheetFormModal.is-open")
+        expect(form).to_be_visible()
+        findings = form.locator("#inspectionSheetFindings")
+        findings.fill("Проверка повторного сохранения")
+        apply_button = form.locator("#inspectionSheetFormApplyButton")
+        apply_button.click()
+        expect(form.locator("#inspectionSheetFormFooterMeta")).to_have_text(
+            "Синтетический сбой сохранения ведомости"
+        )
+        expect(findings).to_have_value("Проверка повторного сохранения")
+        apply_button.click()
+        expect(form).to_have_count(0)
+        action.click()
+        expect(findings).to_have_value("Проверка повторного сохранения")
+        self.assertEqual(remaining_failures, {})
         self.assertEqual(errors, [])
 
 
