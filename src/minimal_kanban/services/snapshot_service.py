@@ -145,7 +145,6 @@ class SnapshotService:
         self,
         cards: list[Card],
         *,
-        events: list[AuditEvent] | tuple[AuditEvent, ...] = (),
         column_labels: dict[str, str],
         event_counts: dict[str, int],
         viewer_username: str | None,
@@ -154,7 +153,6 @@ class SnapshotService:
         return [
             self._serialize_card(
                 card,
-                events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
@@ -173,7 +171,11 @@ class SnapshotService:
     ) -> tuple[dict[str, str], dict[str, int]]:
         if not cards:
             return {}, {}
-        return self._column_labels(columns), _event_counts(events, include_private=include_private)
+        card_ids = {card.id for card in cards}
+        relevant_events = (event for event in events if event.card_id in card_ids)
+        return self._column_labels(columns), _event_counts(
+            relevant_events, include_private=include_private
+        )
 
     def _snapshot_revision(
         self,
@@ -217,18 +219,17 @@ class SnapshotService:
             )
             compact_cards = self._validated_optional_bool(payload, "compact", default=False)
             bundle = self._store.read_bundle()
-            events = visible_audit_events(payload, bundle["events"])
             cards = self._visible_cards(bundle["cards"], include_archived=include_archived)
             cards, total_cards = card_sample(cards, payload, self._validated_limit)
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 cards,
                 columns=bundle["columns"],
-                events=events,
+                events=bundle["events"],
+                include_private=operator_can_access_employees_cashboxes(payload),
             )
             serialized_cards = self._serialize_cards_payload(
                 cards,
-                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
@@ -664,7 +665,6 @@ class SnapshotService:
             wall_cards = (
                 self._serialize_cards_payload(
                     ordered_cards,
-                    events=events,
                     column_labels=column_labels,
                     event_counts=_event_counts(events),
                     viewer_username=viewer_username,
@@ -894,20 +894,16 @@ class SnapshotService:
             bundle = self._store.read_bundle()
             archived_total = sum(1 for card in bundle["cards"] if card.archived)
             archived = self._archived_cards(bundle["cards"], limit=limit)
-            archived_ids = {card.id for card in archived}
-            events = visible_audit_events(
-                payload, (event for event in bundle["events"] if event.card_id in archived_ids)
-            )
             viewer_username = self._viewer_username(payload)
             column_labels, event_counts = self._card_serialization_context(
                 archived,
                 columns=bundle["columns"],
-                events=events,
+                events=bundle["events"],
+                include_private=operator_can_access_employees_cashboxes(payload),
             )
             return {
                 "cards": self._serialize_cards_payload(
                     archived,
-                    events=events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
@@ -931,7 +927,6 @@ class SnapshotService:
             limit = self._validated_limit(payload.get("limit"), default=20, maximum=100)
             bundle, signature = self._store.read_bundle_with_signature()
             columns = bundle["columns"]
-            events = visible_audit_events(payload, bundle["events"])
             viewer_username = self._viewer_username(payload)
             query = self._validated_search_query(payload.get("query"))
             column = self._validated_optional_column(payload.get("column"), columns)
@@ -971,12 +966,12 @@ class SnapshotService:
             column_labels, event_counts = self._card_serialization_context(
                 limited_cards,
                 columns=columns,
-                events=events,
+                events=bundle["events"],
+                include_private=operator_can_access_employees_cashboxes(payload),
             )
             for score, card, fields in limited_matches:
                 serialized = self._serialize_card(
                     card,
-                    events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,
@@ -1014,7 +1009,6 @@ class SnapshotService:
                 payload, "include_archived", default=False
             )
             bundle = self._store.read_bundle()
-            events = visible_audit_events(payload, bundle["events"])
             viewer_username = self._viewer_username(payload)
             overdue_cards = [
                 card
@@ -1025,12 +1019,12 @@ class SnapshotService:
             column_labels, event_counts = self._card_serialization_context(
                 overdue_cards,
                 columns=bundle["columns"],
-                events=events,
+                events=bundle["events"],
+                include_private=operator_can_access_employees_cashboxes(payload),
             )
             return {
                 "cards": self._serialize_cards_payload(
                     overdue_cards,
-                    events=events,
                     column_labels=column_labels,
                     event_counts=event_counts,
                     viewer_username=viewer_username,

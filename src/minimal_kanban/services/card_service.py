@@ -5087,7 +5087,7 @@ class CardService(
     def _serialize_card(
         self,
         card: Card,
-        events: list[AuditEvent] | tuple[AuditEvent, ...],
+        events: list[AuditEvent] | tuple[AuditEvent, ...] = (),
         *,
         column_labels: dict[str, str] | None = None,
         event_counts: dict[str, int] | None = None,

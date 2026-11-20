@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
 from minimal_kanban.models import AuditEvent, Card
-from minimal_kanban.services.operator_visibility import visible_audit_events
+from minimal_kanban.services.operator_visibility import audit_event_counts, visible_audit_events
 
 
 class ArchiveEventScopeTests(CardServiceCase):
@@ -71,13 +71,11 @@ class ArchiveEventScopeTests(CardServiceCase):
         service = self.service._snapshot_service
         events = visible_audit_events(payload, bundle["events"])
         archived = service._archived_cards(bundle["cards"], limit=payload["limit"])
-        labels, counts = service._card_serialization_context(
-            archived, columns=bundle["columns"], events=events
-        )
+        labels = service._column_labels(bundle["columns"])
+        counts = audit_event_counts(events)
         return {
             "cards": service._serialize_cards_payload(
                 archived,
-                events=events,
                 column_labels=labels,
                 event_counts=counts,
                 viewer_username=service._viewer_username(payload),
@@ -105,15 +103,15 @@ class ArchiveEventScopeTests(CardServiceCase):
                     expected = self.legacy_result(bundle, payload)
                     seen = []
 
-                    def inspect_visible(request, events):
+                    def inspect_counts(events, *, include_private):
                         seen.extend(events)
-                        return visible_audit_events(request, seen)
+                        return audit_event_counts(seen, include_private=include_private)
 
                     with (
                         patch.object(self.store, "read_bundle", return_value=bundle),
                         patch(
-                            "minimal_kanban.services.snapshot_service.visible_audit_events",
-                            side_effect=inspect_visible,
+                            "minimal_kanban.services.snapshot_service._event_counts",
+                            side_effect=inspect_counts,
                         ),
                     ):
                         result = self.service.list_archived_cards(payload)
@@ -128,19 +126,10 @@ class ArchiveEventScopeTests(CardServiceCase):
         bundle = self.make_bundle(empty=True)
         payload = {"limit": 2, "compact": True, "_operator_session": {"permissions": []}}
         expected = self.legacy_result(bundle, payload)
-        seen = []
-
-        def inspect_visible(request, events):
-            seen.extend(events)
-            return visible_audit_events(request, seen)
-
         with (
             patch.object(self.store, "read_bundle", return_value=bundle),
-            patch(
-                "minimal_kanban.services.snapshot_service.visible_audit_events",
-                side_effect=inspect_visible,
-            ),
+            patch("minimal_kanban.services.snapshot_service._event_counts") as count_events,
         ):
             result = self.service.list_archived_cards(payload)
         self.assertEqual(result, expected)
-        self.assertEqual(seen, [])
+        count_events.assert_not_called()

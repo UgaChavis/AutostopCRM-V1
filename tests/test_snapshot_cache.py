@@ -138,7 +138,7 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(archived_cards.call_count, 1)
         self.assertEqual(stickies.call_count, 1)
 
-    def test_restricted_snapshot_and_revision_count_events_without_copying_details(self) -> None:
+    def test_restricted_card_views_count_events_without_copying_details(self) -> None:
         card_id = self._create_card()
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
         for action in ("repair_order_updated", "employee_salary_updated"):
@@ -167,12 +167,21 @@ class SnapshotCacheTests(unittest.TestCase):
             restricted = self.service.get_board_snapshot(view)
             self.snapshot_service._snapshot_cache = SnapshotResponseCache()
             revision = self.service.get_board_revision(view)
+            listed = self.service.get_cards(view)
+            found = self.service.search_cards({**view, "query": "Snapshot cache card"})
+            overdue = self.service.list_overdue_cards(view)
         project_events.assert_not_called()
         allowed = self.service.get_board_snapshot(self._compact_view())
         self.assertEqual(
             restricted["cards"][0]["events_count"] + 1, allowed["cards"][0]["events_count"]
         )
         self.assertEqual(revision["revision"], restricted["meta"]["revision"])
+        for result in (listed, found):
+            self.assertEqual(result["cards"][0]["id"], card_id)
+            self.assertEqual(
+                result["cards"][0]["events_count"], restricted["cards"][0]["events_count"]
+            )
+        self.assertEqual(overdue["cards"], [])
 
     def test_external_store_write_changes_signature_and_invalidates_revision(self) -> None:
         view = self._compact_view()
