@@ -67,7 +67,11 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             root = Path(name)
             self.assertEqual(
                 cohorts.run_core(
-                    ids, root=ROOT, environment=self._environment(root), budget=30, workers=2
+                    ids,
+                    root=ROOT,
+                    environment={**self._environment(root), "TMPDIR": str(root)},
+                    budget=30,
+                    workers=2,
                 ),
                 0,
             )

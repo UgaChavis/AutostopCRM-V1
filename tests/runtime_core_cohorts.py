@@ -156,6 +156,7 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
                 private.mkdir(mode=0o700)
                 child_environment = {
                     **environment,
+                    "TMPDIR": str(private),
                     "TEMP": str(private),
                     "TMP": str(private),
                     "PYTHONUTF8": "1",
