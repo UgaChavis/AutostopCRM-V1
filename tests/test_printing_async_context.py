@@ -460,6 +460,7 @@ function applyRepairOrderPrintWorkspace(data){applied.push(data);repairOrderPrin
 function refreshRepairOrderPrintPreview(){return Promise.resolve({});}
 function repairOrderPrintRequestPayload(data){return data;}
 function applyInspectionSheetFormToInputs(data){applied.push(data);}
+function readInspectionSheetFormFromInputs(){return {};}
 function blankInspectionSheetForm(){return {};}
 function setStatus(message){statuses.push(message);}
 """
@@ -580,11 +581,12 @@ const state={viewerStateGeneration:0,editingId:'A'};
 const repairOrderPrintState={mode:'card',previewByDocument:{inspection_sheet:{},invoice:{}}};
 const printEls={inspectionSheetFooterMeta:{},inspectionSheetAutofillButton:{disabled:false}};
 const statuses=[],applied=[];
-let renders=0;
+let renders=0,draft={},nextDraft=null;
 function setStatus(...status){statuses.push(status);}
 function applyInspectionSheetFormToInputs(form){applied.push(form);}
 function repairOrderPrintRequestPayload(data){return data;}
-async function api(){return {form:{findings:'Saved form'}};}
+function readInspectionSheetFormFromInputs(){return draft;}
+async function api(){if(nextDraft) draft=nextDraft;return {form:{findings:'Saved form'}};}
 async function refreshRepairOrderPrintPreview(){return null;}
 function renderRepairOrderPrintPreview(){renders++;}
 """
@@ -600,6 +602,12 @@ function renderRepairOrderPrintPreview(){renders++;}
   assert.deepEqual(statuses,[[message,true]]);
   assert.equal(printEls.inspectionSheetAutofillButton.disabled,false);
   assert.equal(renders,1);
+  nextDraft={findings:'Later local draft'};
+  await autofillInspectionSheetFormDraft();
+  assert.deepEqual(applied,[{findings:'Saved form'}]);
+  assert.equal(draft.findings,'Later local draft');
+  assert.equal(printEls.inspectionSheetFooterMeta.textContent,
+    'Автозаполнение сохранено. Новые изменения ещё не сохранены. Предпросмотр не обновился.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

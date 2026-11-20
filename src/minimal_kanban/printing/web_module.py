@@ -1344,33 +1344,9 @@ _PRINTING_SCRIPT_PART2 = r"""
       printEls.inspectionSheetModal?.classList.remove('is-open');
     }
 
-    async function saveInspectionSheetFormDraft({ closeAfter = false } = {}) {
-      const operation = capturePrintOperation('', { inspection: true });
-      const data = await operation.request('/api/save_inspection_sheet_form', {
-        method: 'POST',
-        body: repairOrderPrintRequestPayload({
-          selected_document_ids: ['inspection_sheet'],
-          active_document_id: 'inspection_sheet',
-          form_source: 'manual',
-          form_data: readInspectionSheetFormFromInputs(),
-        }),
-      });
-      applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
-      const previewReady = await operation.wait(refreshInspectionSheetPreview());
-      if (!previewReady) {
-        showInspectionSheetPreviewFailure('Ведомость сохранена.');
-        return data;
-      }
-      if (printEls.inspectionSheetFooterMeta) {
-        printEls.inspectionSheetFooterMeta.textContent = 'Ведомость сохранена и применена к предпросмотру.';
-      }
-      if (closeAfter) closeInspectionSheetForm();
-      setStatus('Ведомость сохранена.', false);
-      return data;
-    }
-
     async function autofillInspectionSheetFormDraft() {
       const operation = capturePrintOperation('', { inspection: true });
+      const submitted = JSON.stringify(readInspectionSheetFormFromInputs());
       if (printEls.inspectionSheetAutofillButton) printEls.inspectionSheetAutofillButton.disabled = true;
       try {
         const data = await operation.request('/api/autofill_inspection_sheet_form', {
@@ -1380,8 +1356,9 @@ _PRINTING_SCRIPT_PART2 = r"""
             active_document_id: 'inspection_sheet',
           }),
         });
-        applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
         const previewReady = await operation.wait(refreshInspectionSheetPreview());
+        if (preserveLaterInspectionSheetEdits(submitted, 'Автозаполнение сохранено.', previewReady)) return;
+        applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
         if (!previewReady) {
           showInspectionSheetPreviewFailure('Автозаполнение сохранено.');
           return;

@@ -253,6 +253,53 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         self.assertEqual(saves, 1)
         self.assertEqual(errors, [])
 
+    def test_inspection_save_keeps_later_local_edits_in_the_open_form(self) -> None:
+        from playwright.sync_api import expect
+
+        page = self.operator_context().new_page()
+        errors: list[str] = []
+        held = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+
+        def hold_first_save(route) -> None:
+            if held:
+                route.continue_()
+                return
+            held.append((route, route.fetch()))
+            page.evaluate("window.__inspectionSaveHeld = true")
+
+        page.route("**/api/save_inspection_sheet_form", hold_first_save)
+        page.goto(self.runtime.browser_url)
+        page.wait_for_function(
+            "() => state.snapshot && state.operatorSessionToken && window.__AUTOSTOP_UI_BOUND__ === true"
+        )
+        page.locator(f'.card[data-card-id="{self.runtime.client_card_id}"]').click()
+        page.locator("#repairOrderButton").click()
+        page.locator("#repairOrderPrintButton").click()
+        page.locator('#repairOrderPrintDocuments [data-print-document="inspection_sheet"]').click()
+        action = page.locator("#repairOrderPrintDocumentsAction")
+        action.click()
+        form = page.locator("#inspectionSheetFormModal.is-open")
+        findings = form.locator("#inspectionSheetFindings")
+        findings.fill("Первая версия ведомости")
+        form.locator("#inspectionSheetFormApplyButton").click()
+        page.wait_for_function("() => window.__inspectionSaveHeld === true")
+        findings.fill("Текст, введённый после нажатия")
+        route, response = held[0]
+        self.assertTrue(response.ok)
+        route.fulfill(response=response)
+
+        expect(form.locator("#inspectionSheetFormFooterMeta")).to_have_text(
+            "Предыдущая версия ведомости сохранена. Новые изменения ещё не сохранены.",
+            timeout=3000,
+        )
+        expect(findings).to_have_value("Текст, введённый после нажатия")
+        form.locator("#inspectionSheetFormApplyButton").click()
+        expect(form).to_have_count(0)
+        action.click()
+        expect(findings).to_have_value("Текст, введённый после нажатия")
+        self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,10 +49,49 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
       return false;
     }
 
-    function showInspectionSheetPreviewFailure(savedMessage) {
-      const message = savedMessage + ' Предпросмотр не обновился.';
+    function showInspectionSheetFeedback(message, isError) {
       if (printEls.inspectionSheetFooterMeta) printEls.inspectionSheetFooterMeta.textContent = message;
-      setStatus(message, true);
+      setStatus(message, isError);
+    }
+
+    function showInspectionSheetPreviewFailure(savedMessage) {
+      showInspectionSheetFeedback(savedMessage + ' Предпросмотр не обновился.', true);
+    }
+
+    function preserveLaterInspectionSheetEdits(submitted, savedMessage, previewReady) {
+      if (JSON.stringify(readInspectionSheetFormFromInputs()) === submitted) return false;
+      const message = savedMessage + ' Новые изменения ещё не сохранены.';
+      if (previewReady) showInspectionSheetFeedback(message, false);
+      else showInspectionSheetPreviewFailure(message);
+      return true;
+    }
+
+    async function saveInspectionSheetFormDraft({ closeAfter = false } = {}) {
+      const operation = capturePrintOperation('', { inspection: true });
+      const form = readInspectionSheetFormFromInputs();
+      const submitted = JSON.stringify(form);
+      const data = await operation.request('/api/save_inspection_sheet_form', {
+        method: 'POST',
+        body: repairOrderPrintRequestPayload({
+          selected_document_ids: ['inspection_sheet'],
+          active_document_id: 'inspection_sheet',
+          form_source: 'manual',
+          form_data: form,
+        }),
+      });
+      const previewReady = await operation.wait(refreshInspectionSheetPreview());
+      if (preserveLaterInspectionSheetEdits(submitted, 'Предыдущая версия ведомости сохранена.', previewReady)) return data;
+      applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
+      if (!previewReady) {
+        showInspectionSheetPreviewFailure('Ведомость сохранена.');
+        return data;
+      }
+      if (printEls.inspectionSheetFooterMeta) {
+        printEls.inspectionSheetFooterMeta.textContent = 'Ведомость сохранена и применена к предпросмотру.';
+      }
+      if (closeAfter) closeInspectionSheetForm();
+      setStatus('Ведомость сохранена.', false);
+      return data;
     }
 
     function scheduleCurrentPrintOperation(callback, delay, options = {}) {
