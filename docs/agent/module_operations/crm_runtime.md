@@ -39,10 +39,11 @@ errors; system-job output remains in the corresponding server journal.
 
 If G1 is unavailable, compare the API status response, operator permissions,
 Manager socket mount and scheduler state. The socket timeout covers the entire
-request, including connection and all response chunks. A stale response disables mutations;
-wait for a fresh status after recovery. A desired/actual mismatch requires
-scheduler reconciliation, not repeated clicks. Use the release runbook for
-service recovery. Synthetic keyboard/mobile and line-label collision checks
+request, including connection and all response chunks. A stale response disables
+mutations until a fresh readback. A desired/actual mismatch requires scheduler
+reconciliation. G1 shows an explicit Manager readiness failure even if the
+individual checks pass. Use the release runbook for service recovery.
+Synthetic keyboard/mobile and line-label collision checks
 live in [`test_module_map_browser.py`](https://github.com/UgaChavis/AutostopCRM-V1/blob/autostopcrm-v1/tests/test_module_map_browser.py).
 
 1. Compare authoritative DNS, external TCP/TLS, Nginx response, host 8000

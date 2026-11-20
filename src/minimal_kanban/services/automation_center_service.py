@@ -333,7 +333,9 @@ class AutomationCenterService:
         )
         controller["hold"] = hold
         readiness_source = data.get("readiness")
+        manager_ready = None
         if isinstance(readiness_source, Mapping):
+            manager_ready = readiness_source.get("ready")
             checks = readiness_source.get("checks")
             if isinstance(checks, Mapping):
                 readiness_source = [
@@ -406,7 +408,8 @@ class AutomationCenterService:
                     template["max_every_minutes"] = limits.get("maximum_every_minutes")
                 template_rows.append(template)
         jobs = _safe_rows(data.get("jobs"), _SAFE_JOB_KEYS, limit=64)
-        readiness = _safe_rows(readiness_source, _SAFE_READINESS_KEYS, limit=64)
+        readiness_limit = 64
+        readiness = _safe_rows(readiness_source, _SAFE_READINESS_KEYS, limit=readiness_limit)
         error_states = {"error", "failed", "blocked", "unhealthy"}
         applying_states = {"applying", "pending", "starting", "stopping", "backoff", "queued"}
         ready_states = {"ready", "ok", "healthy", "pass", "available", "configured"}
@@ -482,6 +485,13 @@ class AutomationCenterService:
             overall_state = "stale"
         else:
             overall_state = "on" if enabled_jobs else "off"
+        if overall_state in {"on", "off"} and manager_ready is False:
+            readiness.insert(
+                0, {"id": "manager_readiness", "label": "Готовность Manager", "state": "blocked"}
+            )
+            del readiness[readiness_limit:]
+            error_count += 1
+            overall_state = "error"
         controller.update(
             overall_state=overall_state,
             enabled_jobs=enabled_jobs,

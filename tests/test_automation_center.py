@@ -167,6 +167,46 @@ class AutomationCenterServiceTests(unittest.TestCase):
         self.assertEqual("drift", result["system_timers"][0]["reconcile_state"])
         self.assertEqual(15, result["system_timers"][0]["actual_period_minutes"])
 
+    def test_explicit_manager_readiness_refusal_reaches_both_operator_views(self) -> None:
+        cases = [
+            (False, False, "active", "error"),
+            (True, False, "active", "on"),
+            (None, False, "active", "on"),
+            (False, True, "held", "applying"),
+            (False, False, "stale", "stale"),
+        ]
+        for ready, hold, state, expected in cases:
+            readiness = {"checks": {"schema": "ready", "notification_transport": "ready"}}
+            if ready is not None:
+                readiness["ready"] = ready
+            service = AutomationCenterService(
+                _FakeClient(
+                    {
+                        "controller": {"state": state},
+                        "global_hold": {"enabled": hold},
+                        "jobs": [
+                            {
+                                "desired_state": "on",
+                                "actual_state": "idle",
+                                "reconcile_state": "in_sync",
+                            }
+                        ],
+                        "readiness": readiness,
+                    }
+                )
+            )
+            for is_admin in (False, True):
+                with self.subTest(ready=ready, hold=hold, state=state, is_admin=is_admin):
+                    result = service.status(
+                        {"_operator_session": {"username": "operator", "is_admin": is_admin}}
+                    )
+                    self.assertEqual(expected, result["controller"]["overall_state"])
+                    self.assertEqual(int(expected == "error"), result["controller"]["error_count"])
+                    if not is_admin:
+                        self.assertEqual([], result["readiness"])
+                    elif expected == "error":
+                        self.assertIn("blocked", [check["state"] for check in result["readiness"]])
+
     def test_control_requires_admin_allowlist_command_id_and_ignores_browser_actor(self) -> None:
         client = _FakeClient({"job": {"job_id": "crm-digest", "revision": 2}})
         service = AutomationCenterService(client)  # type: ignore[arg-type]
