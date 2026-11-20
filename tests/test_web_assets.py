@@ -5334,15 +5334,9 @@ class WebAssetsTests(unittest.TestCase):
             "function setModalTextError(metaEl, textEl, metaText, bodyText)", BOARD_WEB_APP_HTML
         )
         self.assertIn("lastSnapshotRevision: ''", BOARD_WEB_APP_HTML)
+        self.assertIn("const nextRevision = data?.meta?.revision;", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const previousRevision = String(state.lastSnapshotRevision || '');", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            "const nextRevision = String(nextSnapshot?.meta?.revision || '');", BOARD_WEB_APP_HTML
-        )
-        self.assertIn(
-            "const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;",
-            BOARD_WEB_APP_HTML,
+            "const boardChanged = state.lastSnapshotRevision !== nextRevision;", BOARD_WEB_APP_HTML
         )
         self.assertIn("if (boardChanged) {", BOARD_WEB_APP_HTML)
         self.assertIn("state.lastSnapshotRevision = nextRevision;", BOARD_WEB_APP_HTML)

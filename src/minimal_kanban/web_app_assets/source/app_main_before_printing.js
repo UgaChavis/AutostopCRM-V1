@@ -15232,10 +15232,14 @@
             if (!isCurrent()
               || boardMutationGeneration !== state.boardMutationGeneration
               || state.boardMoveRequest) return;
+            const nextRevision = data?.meta?.revision;
+            if (![data?.columns, data?.cards, data?.archive, data?.stickies].every(Array.isArray)
+              || !data.settings || typeof data.settings !== 'object' || Array.isArray(data.settings)
+              || typeof nextRevision !== 'string' || !nextRevision) {
+              throw new Error('СНИМОК ДОСКИ НЕ ПОДТВЕРЖДЁН.');
+            }
             const nextSnapshot = applyCardSeenSuppressionsToSnapshot(data);
-            const previousRevision = String(state.lastSnapshotRevision || '');
-            const nextRevision = String(nextSnapshot?.meta?.revision || '');
-            const boardChanged = !previousRevision || !nextRevision || previousRevision !== nextRevision;
+            const boardChanged = state.lastSnapshotRevision !== nextRevision;
             state.snapshot = nextSnapshot;
             applyBoardScalePreference({ fallbackValue: state.snapshot?.settings?.board_scale ?? 1, syncInput: true, persistFallback: true });
             if (boardChanged) {

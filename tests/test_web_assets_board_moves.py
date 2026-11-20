@@ -24,6 +24,67 @@ def section(source: str, start: str, end: str) -> str:
 
 @unittest.skipUnless(shutil.which("node"), "Node.js is required")
 class BoardMoveRuntimeTests(unittest.TestCase):
+    def test_incomplete_snapshot_preserves_confirmed_board_until_a_valid_refresh(self) -> None:
+        code = section(
+            read_board_source("app_main_before_printing.js"),
+            "    async function refreshSnapshot(",
+            "    async function refreshSnapshotRevision(",
+        )
+        script = (
+            """
+const assert = require('node:assert/strict');
+const snapshot = {
+  columns: [{id: 'inbox'}], cards: [{id: 'A'}], archive: [], stickies: [],
+  settings: {board_scale: 0.9}, meta: {revision: 'confirmed'},
+};
+const state = {snapshot, lastSnapshotRevision: 'confirmed', boardMutationGeneration: 0};
+const modal = {classList: {contains: () => false}};
+const els = {statusLine: {dataset: {}}, archiveModal: modal, gptWallModal: modal};
+const rendered = [], errors = [], scales = [];
+let reply;
+function perfMeasureAsync(_name, callback) { return callback(); }
+async function api() { return reply; }
+function applyCardSeenSuppressionsToSnapshot(data) { return data; }
+function applyBoardScalePreference(options) { scales.push(options.fallbackValue); }
+function renderBoard() { rendered.push(state.snapshot.columns.map(column => column.id)); }
+function primeBoardViewport() {}
+function updateSnapshotStatusLine() {}
+function setStatus(message, error) { if (error) errors.push(message); }
+"""
+            + code
+            + """
+(async () => {
+  for (const malformed of [{}, {...snapshot, stickies: null}, {...snapshot, settings: []}, {...snapshot, meta: {revision: ''}}]) {
+    reply = malformed;
+    await refreshSnapshot();
+    assert.equal(state.snapshot, snapshot);
+    assert.equal(state.lastSnapshotRevision, 'confirmed');
+    assert.equal(state.refreshInFlight, null);
+  }
+  assert.deepEqual(rendered, []);
+  assert.deepEqual(scales, []);
+  assert.equal(errors.length, 4);
+  assert.ok(errors.every(message => message.includes('СНИМОК ДОСКИ')));
+  reply = {...snapshot, columns: [{id: 'ready'}], meta: {revision: 'fresh'}};
+  await refreshSnapshot();
+  assert.equal(state.snapshot, reply);
+  assert.equal(state.lastSnapshotRevision, 'fresh');
+  assert.deepEqual(rendered, [['ready']]);
+  assert.deepEqual(scales, [0.9]);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+        )
+        result = subprocess.run(
+            ["node"],
+            input=script,
+            encoding="utf-8",
+            text=True,
+            capture_output=True,
+            timeout=15,
+            cwd=ROOT,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_full_snapshot_started_before_move_does_not_restore_old_order(self) -> None:
         source = read_board_source("app_main_before_printing.js")
         code = section(
@@ -34,7 +95,8 @@ class BoardMoveRuntimeTests(unittest.TestCase):
         script = (
             """
 const assert=require('node:assert/strict');
-const state={viewerStateGeneration:1,boardMutationGeneration:0,snapshot:{cards:['old']}};
+const snapshot=revision=>({columns:[],cards:[revision],archive:[],stickies:[],settings:{},meta:{revision}});
+const state={viewerStateGeneration:1,boardMutationGeneration:0,snapshot:snapshot('old')};
 const els={statusLine:{dataset:{}},archiveModal:{classList:{contains:()=>false}},gptWallModal:{classList:{contains:()=>false}}};
 let reply;const rendered=[];
 function perfMeasureAsync(name,work){return work();}
@@ -50,10 +112,10 @@ function setStatus(){}
             + """
 (async()=>{
   const old=refreshSnapshot();
-  state.boardMutationGeneration+=2;state.snapshot={cards:['moved']};
-  reply({cards:['old'],meta:{revision:'old'}});await old;
+  state.boardMutationGeneration+=2;state.snapshot=snapshot('moved');
+  reply(snapshot('old'));await old;
   assert.deepEqual(state.snapshot.cards,['moved']);assert.deepEqual(rendered,[]);
-  const fresh=refreshSnapshot();reply({cards:['new'],meta:{revision:'new'}});await fresh;
+  const fresh=refreshSnapshot();reply(snapshot('new'));await fresh;
   assert.deepEqual(state.snapshot.cards,['new']);assert.equal(rendered.length,1);
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
