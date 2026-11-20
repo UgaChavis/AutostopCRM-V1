@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
+import stat
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterator
 from datetime import timedelta
 from logging import Logger
 from pathlib import Path
+from threading import Lock
 from typing import Any, BinaryIO
 
 from .config import get_operator_activity_dir
@@ -30,6 +34,10 @@ OPERATOR_ACTIVITY_AGGREGATE_MAX_BYTES = 1 * 1024 * 1024
 OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES = 5 * 1024 * 1024
 OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES = 2 * 1024 * 1024
 OPERATOR_ACTIVITY_JSONL_DISCARD_CHUNK_BYTES = 64 * 1024
+_ACTIVITY_LIST_CACHE_MAX_BYTES = 12 * 1024 * 1024
+_ACTIVITY_LIST_CACHE_MAX_ROWS = 50_000
+_ACTIVITY_LIST_CACHE_MAX_FILES = 16
+_FileVersion = tuple[int, int, int, int, int]
 REDACTED_SECRET_VALUE = "<redacted>"
 SENSITIVE_DETAIL_KEY_FRAGMENTS = frozenset(
     {
@@ -117,6 +125,10 @@ def _json_dumps(
     )
 
 
+def _file_version(info: os.stat_result) -> _FileVersion:
+    return info.st_dev, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
+
+
 class OperatorActivityService:
     def __init__(self, *, activity_dir: Path | None = None, logger: Logger | None = None) -> None:
         self._activity_dir = activity_dir or get_operator_activity_dir()
@@ -125,6 +137,10 @@ class OperatorActivityService:
         self._aggregates_dir = self._activity_dir / "aggregates"
         self._logger = logger
         self._lock = ProcessFileLock(self._activity_dir / ".operator-activity.lock")
+        self._listing_cache_lock = Lock()
+        self._listing_cache: OrderedDict[Path, tuple[_FileVersion, list[dict[str, Any]]]] = (
+            OrderedDict()
+        )
 
     @property
     def activity_dir(self) -> Path:
@@ -163,9 +179,9 @@ class OperatorActivityService:
                 maximum=MAX_ACTIVITY_PAGE_SIZE,
             ),
         )
-        rows = [row for row in self._read_current_rows() if self._row_matches(row, payload)]
+        rows = self._filtered_current_rows(payload, cached=True)
         rows.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
-        page = rows[offset : offset + limit]
+        page = [dict(row) for row in rows[offset : offset + limit]]
         return {
             "activities": page,
             "meta": {
@@ -199,7 +215,7 @@ class OperatorActivityService:
 
     def get_activity_aggregates(self, payload: dict | None = None) -> dict:
         payload = payload or {}
-        rows = [row for row in self._read_current_rows() if self._row_matches(row, payload)]
+        rows = self._filtered_current_rows(payload)
         by_user: dict[str, int] = self._aggregate_counts("by_user", payload)
         by_module: dict[str, int] = self._aggregate_counts("by_module", payload)
         by_action: dict[str, int] = self._aggregate_counts("by_action", payload)
@@ -338,13 +354,13 @@ class OperatorActivityService:
         self._append_jsonl(details_file, record)
         return f"{details_file.name}#{row['id']}"
 
-    def _read_current_rows(self) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        if not self._current_dir.exists():
-            return rows
-        for path in sorted(self._current_dir.glob("*.jsonl")):
-            rows.extend(self._read_jsonl(path))
-        return rows
+    def _read_current_rows(self, *, cached: bool = False) -> list[dict[str, Any]]:
+        paths = sorted(self._current_dir.glob("*.jsonl"))
+        if cached:
+            with self._listing_cache_lock:
+                for path in self._listing_cache.keys() - set(paths):
+                    del self._listing_cache[path]
+        return [row for path in paths for row in self._read_jsonl(path, cached=cached)]
 
     def _aggregate_counts(self, key: str, payload: dict[str, Any] | None = None) -> dict[str, int]:
         counts: dict[str, int] = {}
@@ -532,37 +548,36 @@ class OperatorActivityService:
         )
         return str(backup_dir)
 
-    def _row_matches(self, row: dict[str, Any], payload: dict[str, Any]) -> bool:
-        username = _normalized_username(payload.get("username"))
-        if username and str(row.get("username") or "") != username:
-            return False
-        for field in ("module", "action", "source"):
-            expected = _normalized_slug(payload.get(field), default="", limit=80)
-            if expected and str(row.get(field) or "") != expected:
-                return False
-        if not self._row_in_period(row, payload):
-            return False
-        query = str(payload.get("query") or payload.get("search") or "").strip().lower()
-        if query and query not in self._row_search_text(row):
-            return False
-        return True
-
-    def _row_in_period(self, row: dict[str, Any], payload: dict[str, Any]) -> bool:
-        timestamp = parse_datetime(row.get("timestamp"))
-        if timestamp is None:
-            return False
+    def _filtered_current_rows(self, payload: dict[str, Any], *, cached: bool = False):
+        filters = [("username", _normalized_username(payload.get("username")))]
+        filters.extend(
+            (field, _normalized_slug(payload.get(field), default="", limit=80))
+            for field in ("module", "action", "source")
+        )
+        filters = [(field, value) for field, value in filters if value]
         date_from = parse_datetime(
             payload.get("date_from") or payload.get("from") or payload.get("start")
         )
         date_to = parse_datetime(payload.get("date_to") or payload.get("to") or payload.get("end"))
         days = _non_negative_int(payload.get("days"), default=0, maximum=MAX_ACTIVITY_FILTER_DAYS)
-        if days > 0 and timestamp < utc_now() - timedelta(days=days):
-            return False
-        if date_from and timestamp < date_from:
-            return False
-        if date_to and timestamp > date_to:
-            return False
-        return True
+        if days > 0:
+            cutoff = utc_now() - timedelta(days=days)
+            date_from = max(date_from, cutoff) if date_from else cutoff
+        query = str(payload.get("query") or payload.get("search") or "").strip().lower()
+
+        rows = []
+        for row in self._read_current_rows(cached=cached):
+            if any(str(row.get(field) or "") != value for field, value in filters):
+                continue
+            timestamp = parse_datetime(row.get("timestamp"))
+            if timestamp is None or (date_from and timestamp < date_from):
+                continue
+            if (date_to and timestamp > date_to) or (
+                query and query not in self._row_search_text(row)
+            ):
+                continue
+            rows.append(row)
+        return rows
 
     def _find_activity(
         self, *, activity_id: str = "", details_ref: str = ""
@@ -598,11 +613,25 @@ class OperatorActivityService:
         with path.open("ab") as handle:
             handle.write(payload)
 
-    def _read_jsonl(self, path: Path) -> list[dict[str, Any]]:
+    def _read_jsonl(self, path: Path, *, cached: bool = False) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         try:
             with path.open("rb") as handle:
-                size = path.stat().st_size
+                info = os.fstat(handle.fileno())
+                size = info.st_size
+                version = None
+                if cached and os.name != "nt":
+                    if (
+                        stat.S_ISREG(info.st_mode)
+                        and size <= OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES
+                    ):
+                        version = _file_version(info)
+                    with self._listing_cache_lock:
+                        entry = self._listing_cache.get(path)
+                        if version is not None and entry is not None and entry[0] == version:
+                            self._listing_cache.move_to_end(path)
+                            return entry[1]
+                        self._listing_cache.pop(path, None)
                 if size > OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES:
                     handle.seek(size - OPERATOR_ACTIVITY_JSONL_TAIL_MAX_BYTES)
                     discarded = handle.readline(OPERATOR_ACTIVITY_JSONL_LINE_MAX_BYTES + 1)
@@ -619,10 +648,31 @@ class OperatorActivityService:
                     payload = self._decode_jsonl_record(path, raw_line)
                     if payload is not None:
                         rows.append(payload)
+                if version is not None and version == _file_version(os.fstat(handle.fileno())):
+                    self._remember_listing_rows(path, version, rows)
         except OSError as exc:
             if self._logger is not None:
                 self._logger.warning("operator_activity_read_failed path=%s error=%s", path, exc)
         return rows
+
+    def _remember_listing_rows(self, path: Path, version: _FileVersion, rows: list[dict[str, Any]]):
+        # Current compact records have scalar fields only. Imported nested data
+        # keeps the ordinary parser path without sharing mutable payloads.
+        if len(rows) > _ACTIVITY_LIST_CACHE_MAX_ROWS or any(
+            isinstance(value, (dict, list)) for row in rows for value in row.values()
+        ):
+            return
+        with self._listing_cache_lock:
+            self._listing_cache[path] = (version, rows)
+            self._listing_cache.move_to_end(path)
+            while (
+                len(self._listing_cache) > _ACTIVITY_LIST_CACHE_MAX_FILES
+                or sum(file_version[-1] for file_version, _ in self._listing_cache.values())
+                > _ACTIVITY_LIST_CACHE_MAX_BYTES
+                or sum(len(items) for _, items in self._listing_cache.values())
+                > _ACTIVITY_LIST_CACHE_MAX_ROWS
+            ):
+                self._listing_cache.popitem(last=False)
 
     def _decode_jsonl_record(self, path: Path, raw_line: bytes) -> dict[str, Any] | None:
         try:

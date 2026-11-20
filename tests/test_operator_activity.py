@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import tempfile
 import unittest
@@ -76,6 +77,57 @@ class OperatorActivityServiceTests(unittest.TestCase):
         details = self.service.get_activity_details({"activity_id": first["id"]})
         self.assertEqual(details["activity"]["id"], first["id"])
         self.assertEqual(details["details"]["note"], "Покупка расходников")
+
+    def test_activity_list_reuses_unchanged_files_and_reads_a_replacement(self) -> None:
+        current = self.activity_dir / "current"
+        current.mkdir(parents=True)
+        file_path = current / "2026-05.jsonl"
+        original = (
+            b'{"id":"fixture","timestamp":"2026-05-23T10:41:00Z","username":"OPERATOR","value":1}\n'
+        )
+        file_path.write_bytes(original)
+        with patch.object(
+            self.service, "_decode_jsonl_record", wraps=self.service._decode_jsonl_record
+        ) as decode:
+            first = self.service.list_activity({"username": "operator"})
+            first["activities"][0]["value"] = 7
+            second = self.service.list_activity({"username": "operator"})
+        self.assertEqual(second["activities"][0]["value"], 1)
+        self.assertEqual(decode.call_count, 2 if sys.platform == "win32" else 1)
+
+        previous = file_path.stat()
+        file_path.write_bytes(original.replace(b'"value":1', b'"value":2'))
+        os.utime(file_path, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+        self.assertEqual(file_path.stat().st_size, previous.st_size)
+        self.assertEqual(file_path.stat().st_mtime_ns, previous.st_mtime_ns)
+        refreshed = self.service.list_activity({"username": "operator"})
+        self.assertEqual(refreshed["activities"][0]["value"], 2)
+
+    def test_legacy_nested_history_uses_fresh_rows(self) -> None:
+        current = self.activity_dir / "current"
+        current.mkdir(parents=True)
+        file_path = current / "2026-05.jsonl"
+        original = b'{"id":"fixture","timestamp":"2026-05-23T10:41:00Z","legacy":{"value":1}}\n'
+        file_path.write_bytes(original)
+        first = self.service.list_activity()
+        first["activities"][0]["legacy"]["value"] = 7
+        self.assertEqual(self.service.list_activity()["activities"][0]["legacy"]["value"], 1)
+        self.assertEqual(file_path.read_bytes(), original)
+
+    def test_interrupted_activity_read_does_not_cache_partial_rows(self) -> None:
+        for day in (22, 23):
+            self.service.record_activity(
+                {"username": "operator", "timestamp": f"2026-05-{day}T10:41:00Z"}
+            )
+        iter_lines = self.service._iter_jsonl_lines
+
+        def interrupted(handle):
+            yield next(iter_lines(handle))
+            raise OSError("synthetic read failure")
+
+        with patch.object(self.service, "_iter_jsonl_lines", side_effect=interrupted):
+            self.assertEqual(self.service.list_activity()["meta"]["total"], 1)
+        self.assertEqual(self.service.list_activity()["meta"]["total"], 2)
 
     def test_record_activity_sanitizes_nonfinite_details(self) -> None:
         recorded = self.service.record_activity(
