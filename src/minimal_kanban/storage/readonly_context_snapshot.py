@@ -438,7 +438,7 @@ class CommittedCardSource:
         )
 
 
-def build_context_snapshot(store, state, domains):
+def build_context_snapshot(store, state, domains, *, read_search_clients=None):
     needs_cards = "client_search" not in domains or "client_search_cards" in domains
     raw_cards = state.get("cards") if needs_cards else None
     if needs_cards and (
@@ -458,8 +458,10 @@ def build_context_snapshot(store, state, domains):
     if "client_search" in domains:
         _require_raw_search_identities(raw_clients, unique=True)
         # Deep or unusual input retains the original deepcopy and its failures.
-        source = raw_clients if _safe_to_detach_shallow_json(raw_clients) else deepcopy(raw_clients)
-        clients = _search_clients(source)
+        if _safe_to_detach_shallow_json(raw_clients):
+            clients = (read_search_clients or _search_clients)(raw_clients)
+        else:
+            clients = _search_clients(deepcopy(raw_clients))
     if "client_search_cards" in domains:
         _require_raw_search_identities(raw_cards, unique=False)
         # Capture collisions from the unnormalized source, including entries that

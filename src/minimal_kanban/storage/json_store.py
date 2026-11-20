@@ -416,6 +416,7 @@ class JsonStore:
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._context_snapshots: dict[tuple[str, ...], Any] = {}
         self._context_snapshot_state: dict | None = None
+        self._search_client_profiles: tuple[bytes, list[ClientProfile]] | None = None
         self._committed_card_source = None
         self._pending_committed_payload = None
         self._validated_state_signature: tuple[int, int, int, int] | None = None
@@ -652,7 +653,9 @@ class JsonStore:
             with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
                 if state is None:
                     state = self._read_state(preserve_corrupted=False)
-                snapshot = build_context_snapshot(self, state, domain_key)
+                snapshot = build_context_snapshot(
+                    self, state, domain_key, read_search_clients=self._read_search_client_profiles
+                )
             with self._lock:
                 if signature is not None and signature == self._repair_order_file_signature():
                     if signature != self._context_snapshot_signature:
@@ -663,6 +666,42 @@ class JsonStore:
                     self._context_snapshot_state = state
                     self._context_snapshots[domain_key] = snapshot
             return snapshot
+
+    def _read_search_client_profiles(self, rows: list[dict]) -> list[ClientProfile]:
+        from .readonly_context_snapshot import _search_clients
+
+        # The caller holds _snapshot_lock and has checked that these are detached
+        # JSON inputs. Preserve order and JSON scalar types in the cache key.
+        checksum = hashlib.sha256()
+        for row in rows:
+            checksum.update(
+                json.dumps(row, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+            )
+            checksum.update(b"\n")
+        digest = checksum.digest()
+        cached = self._search_client_profiles
+        if cached is not None and cached[0] == digest:
+            return cached[1]
+
+        clients = _search_clients(rows)
+        # Missing dates and vehicle IDs can be generated during legacy reads.
+        # Cache only source profiles whose normalization has stable inputs.
+        for row in rows:
+            if any(
+                not isinstance(row.get(key), str) or not row[key].strip()
+                for key in ("created_at", "updated_at")
+            ):
+                return clients
+            vehicles = row.get("vehicles", [])
+            if not isinstance(vehicles, list) or any(
+                not isinstance(vehicle, dict)
+                or not isinstance(vehicle.get("id"), str)
+                or not vehicle["id"].strip()
+                for vehicle in vehicles
+            ):
+                return clients
+        self._search_client_profiles = (digest, clients)
+        return clients
 
     def _read_single_card_snapshot(self, card_id):
         """Use an independently verified local commit, or the normal safe snapshot."""

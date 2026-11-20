@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+# Fixture import selects this checkout before importing application modules.
+# ruff: noqa: I001
 import json
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
+from minimal_kanban.storage import json_store, readonly_context_snapshot
 
 
 class ClientSearchIndexingTests(CardServiceCase):
@@ -130,6 +133,80 @@ class ClientSearchIndexingTests(CardServiceCase):
                 self.assertEqual(search(query)["clients"], [])
                 self.assertEqual(search({"query": "JUNIPER"})["clients"][0]["id"], client["id"])
         self.assertIsNot(self.service._client_search_index_cache[1], index)
+
+    def test_snapshot_reuses_profiles_but_reads_current_card_relations(self) -> None:
+        client = self.service.create_client({"display_name": "SYNTHETIC PROFILE"})["client"]
+        query = {"query": "SYNTHETIC PROFILE"}
+        search_clients = readonly_context_snapshot._search_clients
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+            patch.object(
+                readonly_context_snapshot, "_safe_to_detach_shallow_json", return_value=True
+            ),
+            patch.object(
+                readonly_context_snapshot, "_search_clients", wraps=search_clients
+            ) as normalize,
+        ):
+            before = self.service.search_clients(query)["clients"][0]
+            self.service.create_card(
+                {
+                    "title": "SYNTHETIC CARD",
+                    "vehicle_profile": {"customer_name": "SYNTHETIC PROFILE"},
+                }
+            )
+            after = self.service.search_clients(query)["clients"][0]
+            self.assertEqual(before["stats"]["cards_total"], 0)
+            self.assertEqual(after["stats"]["cards_total"], 1)
+            self.assertEqual(after["id"], client["id"])
+            normalize.assert_called_once()
+
+            state = json.loads(self.state_file.read_text(encoding="utf-8"))
+            state["clients"][0]["display_name"] = "RENAMED PROFILE"
+            replacement = self.state_file.with_suffix(".new")
+            replacement.write_text(json.dumps(state), encoding="utf-8")
+            replacement.replace(self.state_file)
+            renamed = self.service.search_clients({"query": "RENAMED PROFILE"})["clients"][0]
+            self.assertEqual(renamed["id"], client["id"])
+            self.assertEqual(renamed["name"], "RENAMED PROFILE")
+            self.assertEqual(normalize.call_count, 2)
+
+    def test_legacy_profiles_keep_synthesizing_missing_dates_and_vehicles(self) -> None:
+        self.service.create_client({"display_name": "SYNTHETIC LEGACY"})
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        client = state["clients"][0]
+        original = dict(client)
+        for missing in ("created_at", "vehicle_id"):
+            with self.subTest(missing=missing):
+                client.update(original)
+                if missing == "created_at":
+                    del client["created_at"]
+                else:
+                    client["vehicles"] = [{"vehicle": "SYNTHETIC VEHICLE"}]
+                text = json.dumps(state)
+
+                def read_snapshot():
+                    replacement = self.state_file.with_suffix(".new")
+                    replacement.write_text(text, encoding="utf-8")
+                    replacement.replace(self.state_file)
+                    return self.store._read_context_bundle_snapshot(
+                        domains=("clients", "client_search")
+                    )["clients"][0]
+
+                with (
+                    patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False),
+                    patch.object(
+                        readonly_context_snapshot, "_safe_to_detach_shallow_json", return_value=True
+                    ),
+                    patch(
+                        "minimal_kanban.models.utc_now_iso",
+                        side_effect=("2026-01-01", "2026-01-02"),
+                    ),
+                ):
+                    before, after = read_snapshot(), read_snapshot()
+                if missing == "created_at":
+                    self.assertNotEqual(before.created_at, after.created_at)
+                else:
+                    self.assertNotEqual(before.vehicles[0].id, after.vehicles[0].id)
 
     def test_manager_client_link_query_prefers_one_strong_identifier(self) -> None:
         created = self.service.create_card(

@@ -50,8 +50,8 @@ class FakeStore:
     def _normalize_columns(self, state):
         return [], False
 
-    def _normalize_cards(self, state, columns, *, detach_order_history=False):
-        self.calls.append((state["cards"], detach_order_history))
+    def _normalize_cards(self, state, columns, *, detach_order_history=False, compare_storage=True):
+        self.calls.append((state["cards"], detach_order_history, compare_storage))
         return [], False
 
 
@@ -177,10 +177,11 @@ class SnapshotShallowJsonGuardTests(unittest.TestCase):
                 store = FakeStore()
                 snapshots.build_context_snapshot(store, state, ("client_profile",))
                 self.assertEqual(len(store.calls), 1)
-                received, detach = store.calls[0]
+                received, detach, compare_storage = store.calls[0]
                 self.assertEqual(received, cards)
                 self.assertEqual(received is not cards, should_copy)
                 self.assertEqual(detach, not should_copy)
+                self.assertEqual(compare_storage, should_copy)
 
 
 if __name__ == "__main__":
