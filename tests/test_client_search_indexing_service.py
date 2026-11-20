@@ -146,6 +146,7 @@ class ClientSearchIndexingTests(CardServiceCase):
 
     def test_snapshot_reuses_profiles_but_reads_current_card_relations(self) -> None:
         client = self.service.create_client({"display_name": "SYNTHETIC PROFILE"})["client"]
+        self.service.create_client({"display_name": "SYNTHETIC ANOTHER PROFILE"})
         query = {"query": "SYNTHETIC PROFILE"}
         search_clients = readonly_context_snapshot._search_clients
         with (
@@ -171,11 +172,15 @@ class ClientSearchIndexingTests(CardServiceCase):
             normalize.assert_called_once()
 
             state = json.loads(self.state_file.read_text(encoding="utf-8"))
-            state["clients"][0]["display_name"] = "RENAMED PROFILE"
+            row = next(row for row in state["clients"] if row["id"] == client["id"])
+            row["display_name"] = "RENAMED PROFILE"
             replacement = self.state_file.with_suffix(".new")
             replacement.write_text(json.dumps(state), encoding="utf-8")
             replacement.replace(self.state_file)
-            renamed = self.service.search_clients({"query": "RENAMED PROFILE"})["clients"][0]
+            profile_model = readonly_context_snapshot.ClientProfile
+            with patch.object(profile_model, "from_dict", wraps=profile_model.from_dict) as parse:
+                renamed = self.service.search_clients({"query": "RENAMED PROFILE"})["clients"][0]
+                parse.assert_called_once_with(row)
             self.assertEqual(renamed["id"], client["id"])
             self.assertEqual(renamed["name"], "RENAMED PROFILE")
             self.assertEqual(normalize.call_count, 2)

@@ -1,5 +1,7 @@
 """Independent context-read models with checks against unsaved legacy identities."""
 
+import hashlib
+import json
 import sys
 from copy import deepcopy
 from threading import Lock
@@ -90,17 +92,72 @@ def _safe_to_detach_shallow_json(value):
     return True
 
 
-def _search_clients(raw_clients):
+def _search_clients(raw_clients, *, known_clients=None):
     clients = []
     for raw in raw_clients:
-        try:
-            client = ClientProfile.from_dict(raw)
-        except (OverflowError, TypeError, ValueError):
-            raise StateFileCorruptedError("Исходная запись клиента повреждена.") from None
+        client = known_clients.get(raw["id"]) if known_clients is not None else None
+        if client is None:
+            try:
+                client = ClientProfile.from_dict(raw)
+            except (OverflowError, TypeError, ValueError):
+                raise StateFileCorruptedError("Исходная запись клиента повреждена.") from None
         if client.id != raw["id"]:
             raise StateFileCorruptedError("Недостоверный идентификатор клиента в поиске.")
         clients.append(client)
     return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))
+
+
+_SearchClientProfiles = tuple[
+    tuple[bytes, ...], list[ClientProfile] | None, dict[bytes, ClientProfile]
+]
+
+
+def _reuse_search_client_profiles(
+    rows: list[dict], cached: _SearchClientProfiles | None
+) -> tuple[list[ClientProfile], _SearchClientProfiles]:
+    # The caller has validated detached JSON inputs. Preserve object key order
+    # and JSON scalar types in each fingerprint.
+    fingerprints = tuple(
+        hashlib.sha256(
+            json.dumps(row, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+        ).digest()
+        for row in rows
+    )
+    previous = {}
+    if cached is not None:
+        old_fingerprints, complete_profiles, previous = cached
+        if complete_profiles is not None and old_fingerprints == fingerprints:
+            return complete_profiles, cached
+
+    known = {
+        row["id"]: previous[fingerprint]
+        for row, fingerprint in zip(rows, fingerprints, strict=True)
+        if fingerprint in previous
+    }
+    clients = _search_clients(rows, known_clients=known)
+    by_id = {client.id: client for client in clients}
+    stable = {}
+    # Missing dates and vehicle IDs can be generated during legacy reads.
+    for row, fingerprint in zip(rows, fingerprints, strict=True):
+        if fingerprint in previous:
+            stable[fingerprint] = previous[fingerprint]
+            continue
+        if any(
+            not isinstance(row.get(key), str) or not row[key].strip()
+            for key in ("created_at", "updated_at")
+        ):
+            continue
+        vehicles = row.get("vehicles", [])
+        if not isinstance(vehicles, list) or any(
+            not isinstance(vehicle, dict)
+            or not isinstance(vehicle.get("id"), str)
+            or not vehicle["id"].strip()
+            for vehicle in vehicles
+        ):
+            continue
+        stable[fingerprint] = by_id[row["id"]]
+    complete = clients if len(stable) == len(rows) else None
+    return clients, (fingerprints, complete, stable)
 
 
 def _search_cards_before_retention(raw_cards, columns):

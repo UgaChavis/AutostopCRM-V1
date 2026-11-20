@@ -17,7 +17,7 @@ from decimal import Decimal, InvalidOperation
 from logging import Logger
 from pathlib import Path
 from threading import Lock, RLock
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
 import orjson
@@ -67,6 +67,9 @@ from .change_feed_store import ChangeFeedPendingWriteError, ChangeFeedStore
 from .file_lock import ProcessFileLock
 from .limited_io import read_bytes_limited, read_text_limited
 from .state_shape import validate_state_shape
+
+if TYPE_CHECKING:
+    from .readonly_context_snapshot import _SearchClientProfiles
 
 SLOW_STORAGE_OPERATION_MS = 250.0
 JSON_STORE_STATE_MAX_BYTES = 100 * 1024 * 1024
@@ -416,7 +419,7 @@ class JsonStore:
         self._context_snapshot_signature: tuple[int, int, int, int, int] | None = None
         self._context_snapshots: dict[tuple[str, ...], Any] = {}
         self._context_snapshot_state: dict | None = None
-        self._search_client_profiles: tuple[bytes, list[ClientProfile]] | None = None
+        self._search_client_profiles: _SearchClientProfiles | None = None
         self._committed_card_source = None
         self._pending_committed_payload = None
         self._validated_state_signature: tuple[int, int, int, int] | None = None
@@ -679,39 +682,12 @@ class JsonStore:
             return snapshot
 
     def _read_search_client_profiles(self, rows: list[dict]) -> list[ClientProfile]:
-        from .readonly_context_snapshot import _search_clients
+        from .readonly_context_snapshot import _reuse_search_client_profiles
 
-        # The caller holds _snapshot_lock and has checked that these are detached
-        # JSON inputs. Preserve order and JSON scalar types in the cache key.
-        checksum = hashlib.sha256()
-        for row in rows:
-            checksum.update(
-                json.dumps(row, ensure_ascii=True, separators=(",", ":")).encode("ascii")
-            )
-            checksum.update(b"\n")
-        digest = checksum.digest()
-        cached = self._search_client_profiles
-        if cached is not None and cached[0] == digest:
-            return cached[1]
-
-        clients = _search_clients(rows)
-        # Missing dates and vehicle IDs can be generated during legacy reads.
-        # Cache only source profiles whose normalization has stable inputs.
-        for row in rows:
-            if any(
-                not isinstance(row.get(key), str) or not row[key].strip()
-                for key in ("created_at", "updated_at")
-            ):
-                return clients
-            vehicles = row.get("vehicles", [])
-            if not isinstance(vehicles, list) or any(
-                not isinstance(vehicle, dict)
-                or not isinstance(vehicle.get("id"), str)
-                or not vehicle["id"].strip()
-                for vehicle in vehicles
-            ):
-                return clients
-        self._search_client_profiles = (digest, clients)
+        # The caller holds _snapshot_lock, so the new cache replaces one generation.
+        clients, self._search_client_profiles = _reuse_search_client_profiles(
+            rows, self._search_client_profiles
+        )
         return clients
 
     def _read_single_card_snapshot(self, card_id):
