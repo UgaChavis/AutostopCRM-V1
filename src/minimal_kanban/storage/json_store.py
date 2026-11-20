@@ -819,20 +819,28 @@ class JsonStore:
                     if signature is not None and signature == self._repair_order_snapshot_signature
                     else None
                 )
+                shared_state = (
+                    self._context_snapshot_state
+                    if signature is not None and signature == self._context_snapshot_signature
+                    else None
+                )
             if cards is None:
+                state = shared_state
                 if _SNAPSHOT_REQUIRES_FILE_LOCK:
                     with self._lock, guard:
                         state = self._read_state(preserve_corrupted=False)
-                    cards = self._build_repair_order_cards_snapshot(state)
-                else:
-                    cards = self._build_repair_order_cards_snapshot()
+                cards = self._build_repair_order_cards_snapshot(
+                    state, detach_order_history=shared_state is not None
+                )
                 with self._lock:
                     if signature is not None and signature == self._repair_order_file_signature():
                         self._repair_order_snapshot_signature = signature
                         self._repair_order_snapshot_cards = cards
         return projector(cards)
 
-    def _build_repair_order_cards_snapshot(self, state: dict | None = None) -> list[Card]:
+    def _build_repair_order_cards_snapshot(
+        self, state: dict | None = None, *, detach_order_history: bool = False
+    ) -> list[Card]:
         if state is None:
             state = self._read_state(preserve_corrupted=False)
         raw_cards = state.get("cards")
@@ -875,7 +883,10 @@ class JsonStore:
                 identities[normalized_id] = identities.get(normalized_id, False) or has_order
             repair_orders.append(order)
         columns, _ = self._normalize_columns(state)
-        cards, _ = self._normalize_cards(state, columns, _repair_orders=repair_orders)
+        # A repair order can retain nested references to its source history.
+        cards, _ = self._normalize_cards(
+            state, columns, _repair_orders=repair_orders, detach_order_history=detach_order_history
+        )
         cards = [card for card in cards if not card.repair_order.is_empty()]
         return cards
 

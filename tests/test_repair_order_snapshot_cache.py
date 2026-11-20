@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
+from minimal_kanban.storage import json_store
 from minimal_kanban.storage.json_store import StateFileCorruptedError
 from tests.snapshot_lock_helpers import (
     assert_fresh_under_file_lock,
@@ -57,6 +58,23 @@ class RepairOrderSnapshotCacheTests(CardServiceCase):
             self.assertEqual(self.title(second), "CACHE_TITLE_ONE")
             self.assertEqual(read.call_count, 2 if sys.platform == "win32" else 1)
         self.assertEqual(before, self.files())
+
+    def test_cold_orders_reuse_current_context_parse_then_read_new_file(self):
+        with patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", False):
+            self.service.search_clients({"query": "SYNTHETIC_CLIENT"})
+            with patch.object(self.store, "_read_state", wraps=self.store._read_state) as read:
+                first = self.service.list_repair_orders({"status": "all", "compact": True})
+                self.assertIn("CACHE_TITLE_ONE", first["repair_orders"][0]["heading"])
+                read.assert_not_called()
+
+                replacement = self.state_file.with_suffix(".new")
+                replacement.write_bytes(self.changed_bytes())
+                replacement.replace(self.state_file)
+
+                second = self.service.list_repair_orders({"status": "all", "compact": True})
+                self.assertIn("CACHE_TITLE_TWO", second["repair_orders"][0]["heading"])
+                self.assertIn("CACHE_TITLE_ONE", first["repair_orders"][0]["heading"])
+                read.assert_called_once_with(preserve_corrupted=False)
 
     def test_snapshot_cache_external_atomic_replace_invalidates(self):
         self.assertEqual(
