@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import math
-from copy import copy
-from datetime import datetime, timedelta
+from collections import OrderedDict
+from copy import copy, deepcopy
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, tzinfo
+from threading import Lock
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ..models import Card, CashBox, CashTransaction, business_timezone, normalize_actor_name
@@ -30,12 +33,22 @@ class _CashboxDetails(NamedTuple):
     order_context: dict[str, dict[str, object]]
 
 
+@dataclass
+class _CashboxListMemo:
+    transactions: tuple[CashTransaction, ...]
+    timezone: tzinfo
+    boxes: tuple[list[CashBox], list[dict]] | None = None
+    notices: OrderedDict[str, tuple[dict | None, dict]] = field(default_factory=OrderedDict)
+
+
 class FinanceReadCore:
     """Read-only finance orchestration behind CardService public facades."""
 
     def __init__(self, service: Any) -> None:
         self._service = service
         self._cashbox_details: _CashboxDetails | None = None
+        self._cashbox_list_memo: _CashboxListMemo | None = None
+        self._cashbox_list_lock = Lock()
 
     def list_cashboxes(self, payload: dict | None = None) -> dict:
         service = self._service
@@ -60,10 +73,17 @@ class FinanceReadCore:
                     "references_only": True,
                 },
             }
-        snapshot, notification = self._cashbox_list_view(actor_key)
+        snapshot, receipt, notification_available = self._cashbox_list_view(actor_key)
         cashboxes = service._ordered_cashboxes(snapshot.cashboxes)
-        transactions = snapshot.transactions
-        serialized = service._serialize_cashboxes(cashboxes[:limit], transactions)
+        memo = self._cashbox_list_memo_for(snapshot.transactions)
+        boxes = memo.boxes
+        if boxes is None or boxes[0] != cashboxes:
+            boxes = (cashboxes, service._serialize_cashboxes(cashboxes, memo.transactions))
+            memo.boxes = boxes
+        serialized = deepcopy(boxes[1][:limit])
+        notification = (
+            self._cashbox_list_notice(memo, actor_key, receipt) if notification_available else None
+        )
         active_revision = {}
         if active_id := payload.get("cashbox_id"):
             active_revision["active_cashbox_updated_at"] = next(
@@ -74,7 +94,7 @@ class FinanceReadCore:
             "notification": notification,
             "meta": {
                 "total": len(cashboxes),
-                "transactions_total": len(transactions),
+                "transactions_total": len(snapshot.transactions),
                 "limit": limit,
                 "returned": len(serialized),
                 "has_more": len(cashboxes) > len(serialized),
@@ -82,6 +102,39 @@ class FinanceReadCore:
                 **({"notification_unavailable": True} if notification is None else {}),
             },
         }
+
+    def _cashbox_list_memo_for(self, transactions: tuple[CashTransaction, ...]) -> _CashboxListMemo:
+        zone = business_timezone()
+        with self._cashbox_list_lock:
+            memo = self._cashbox_list_memo
+            # The store reuses this detached tuple across unrelated board writes.
+            if memo is None or memo.transactions is not transactions or memo.timezone != zone:
+                memo = _CashboxListMemo(transactions, zone)
+                self._cashbox_list_memo = memo
+            return memo
+
+    def _cashbox_list_notice(
+        self, memo: _CashboxListMemo, actor_key: str, receipt: dict | None
+    ) -> dict:
+        # The receipt has just been read and checked around the ledger read.
+        with self._cashbox_list_lock:
+            cached = memo.notices.get(actor_key)
+            if cached is not None and cached[0] == receipt:
+                memo.notices.move_to_end(actor_key)
+            else:
+                cached = None
+        if cached is None:
+            notice = self._service._cashbox_notification_summary(
+                memo.transactions, actor_key, receipt
+            )
+            with self._cashbox_list_lock:
+                memo.notices[actor_key] = (receipt, notice)
+                memo.notices.move_to_end(actor_key)
+                if len(memo.notices) > 16:
+                    memo.notices.popitem(last=False)
+        else:
+            notice = cached[1]
+        return deepcopy(notice)
 
     def _cashbox_list_view(self, actor_key: str):
         service = self._service
@@ -103,15 +156,13 @@ class FinanceReadCore:
                         ),
                         service._registered_cashbox_receipt(snapshot.transactions, after),
                     )
-                    return snapshot, service._cashbox_notification_summary(
-                        snapshot.transactions, actor_key, receipt
-                    )
+                    return snapshot, receipt, True
                 before = after
         except CashboxReceiptStoreError:
             service._logger.warning("cashbox_notification_receipt_unavailable")
         if snapshot is None:
             snapshot = store.read_cashbox_receipt_state()
-        return snapshot, None
+        return snapshot, None, False
 
     def _current_cashbox_details(self) -> _CashboxDetails | None:
         store = self._service._store

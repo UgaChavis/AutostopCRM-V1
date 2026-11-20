@@ -441,6 +441,54 @@ class CashboxReceiptStorageTests(CardServiceCase):
         self.store.write_bundle(**bundle)
         self.assertEqual(self.store.read_cashbox_receipt_state().transactions[0].amount_minor, 200)
 
+    def test_cashbox_list_reuses_ledger_calculations_and_reads_each_operators_receipt(self):
+        first = self.movement(100)
+        peer = self.open_another_service()
+        for actor in (self.viewer, "synthetic other"):
+            peer.mark_cashbox_notifications_seen(
+                {**self.acknowledgement(first), "actor_name": actor}
+            )
+        recent = self.movement(200)
+
+        with (
+            patch.object(
+                self.service, "_serialize_cashboxes", wraps=self.service._serialize_cashboxes
+            ) as balances,
+            patch.object(
+                self.service,
+                "_cashbox_notification_summary",
+                wraps=self.service._cashbox_notification_summary,
+            ) as notices,
+        ):
+            read = self.service.list_cashboxes
+            viewer = read({"actor_name": self.viewer})
+            self.assertEqual(viewer["notification"]["unread_count"], 1)
+            self.assertEqual(
+                read({"actor_name": "synthetic other"})["notification"]["unread_count"], 0
+            )
+            viewer["cashboxes"][0]["statistics"]["balance_minor"] = -1
+            viewer["notification"]["by_cashbox"][self.box]["unread_transaction_ids"].clear()
+            self.service.create_card({"title": "Unrelated synthetic card"})
+            again = read({"actor_name": self.viewer})
+            self.assertEqual(again["cashboxes"][0]["statistics"]["balance_minor"], 300)
+            self.assertEqual(
+                again["notification"]["by_cashbox"][self.box]["unread_transaction_ids"],
+                [recent["id"]],
+            )
+            balances.assert_called_once()
+            self.assertEqual(notices.call_count, 2)
+
+            peer.mark_cashbox_notifications_seen(self.acknowledgement(recent))
+            self.assertEqual(read({"actor_name": self.viewer})["notification"]["unread_count"], 0)
+            self.assertEqual(notices.call_count, 3)
+            balances.assert_called_once()
+            self.movement(400)
+            new = read({"actor_name": self.viewer})
+            self.assertEqual(new["cashboxes"][0]["statistics"]["balance_minor"], 700)
+            self.assertEqual(new["notification"]["unread_count"], 1)
+            self.assertEqual(balances.call_count, 2)
+            self.assertEqual(notices.call_count, 4)
+
     def test_references_do_not_build_transactions_even_after_a_cash_write(self):
         self.movement(100)
         peer = self.open_another_service()
