@@ -930,88 +930,86 @@ class SnapshotService:
             }
 
     def search_cards(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            include_archived = self._validated_optional_bool(
-                payload, "include_archived", default=False
+        payload = payload or {}
+        include_archived = self._validated_optional_bool(payload, "include_archived", default=False)
+        limit = self._validated_limit(payload.get("limit"), default=20, maximum=100)
+        bundle = self._store._read_context_bundle_snapshot(domains=("events",))
+        columns = bundle["columns"]
+        viewer_username = self._viewer_username(payload)
+        query = self._validated_search_query(payload.get("query"))
+        column = self._validated_optional_column(payload.get("column"), columns)
+        tag = self._validated_optional_tag(payload.get("tag"))
+        indicator = self._validated_optional_indicator(payload.get("indicator"))
+        status = self._validated_optional_status(payload.get("status"))
+
+        if not any([query, column, tag, indicator, status]):
+            self._fail(
+                "validation_error",
+                "Для поиска нужно передать query или хотя бы один фильтр: column, tag, indicator, status.",
+                details={"fields": ["query", "column", "tag", "indicator", "status"]},
             )
-            limit = self._validated_limit(payload.get("limit"), default=20, maximum=100)
-            bundle, signature = self._store.read_bundle_with_signature()
-            columns = bundle["columns"]
-            viewer_username = self._viewer_username(payload)
-            query = self._validated_search_query(payload.get("query"))
-            column = self._validated_optional_column(payload.get("column"), columns)
-            tag = self._validated_optional_tag(payload.get("tag"))
-            indicator = self._validated_optional_indicator(payload.get("indicator"))
-            status = self._validated_optional_status(payload.get("status"))
 
-            if not any([query, column, tag, indicator, status]):
-                self._fail(
-                    "validation_error",
-                    "Для поиска нужно передать query или хотя бы один фильтр: column, tag, indicator, status.",
-                    details={"fields": ["query", "column", "tag", "indicator", "status"]},
-                )
+        match_card = self._card_search_index.matcher(bundle, query)
+        matches: list[tuple[int, Card, list[str]]] = []
+        for card in bundle["cards"]:
+            if card.archived and not include_archived:
+                continue
+            if column and card.column != column:
+                continue
+            if tag and tag not in card.tag_labels():
+                continue
+            if status and card.status() != status:
+                continue
+            if indicator and card.indicator() != indicator:
+                continue
+            score, fields = match_card(card)
+            if query and score <= 0:
+                continue
+            matches.append((score, card, fields))
 
-            match_card = self._card_search_index.matcher(bundle, signature, query)
-            matches: list[tuple[int, Card, list[str]]] = []
-            for card in bundle["cards"]:
-                if card.archived and not include_archived:
-                    continue
-                if column and card.column != column:
-                    continue
-                if tag and tag not in card.tag_labels():
-                    continue
-                if status and card.status() != status:
-                    continue
-                if indicator and card.indicator() != indicator:
-                    continue
-                score, fields = match_card(card)
-                if query and score <= 0:
-                    continue
-                matches.append((score, card, fields))
-
-            matches.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
-            limited_matches = matches[:limit]
-            cards_payload: list[dict] = []
-            limited_cards = [card for _, card, _ in limited_matches]
-            column_labels, event_counts = self._card_serialization_context(
-                limited_cards,
-                columns=columns,
-                events=bundle["events"],
-                include_private=operator_can_access_employees_cashboxes(payload),
+        matches.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
+        limited_matches = matches[:limit]
+        cards_payload: list[dict] = []
+        limited_cards = [card for _, card, _ in limited_matches]
+        column_labels, event_counts = self._card_serialization_context(
+            limited_cards,
+            columns=columns,
+            events=bundle["events"],
+            include_private=operator_can_access_employees_cashboxes(payload),
+        )
+        for score, card, fields in limited_matches:
+            bundle.require_card_identity(card)
+            serialized = self._serialize_card(
+                card,
+                column_labels=column_labels,
+                event_counts=event_counts,
+                viewer_username=viewer_username,
             )
-            for score, card, fields in limited_matches:
-                serialized = self._serialize_card(
-                    card,
-                    column_labels=column_labels,
-                    event_counts=event_counts,
-                    viewer_username=viewer_username,
-                )
-                serialized["match"] = {
-                    "score": score,
-                    "fields": fields,
-                    "query": query,
-                    "tag": tag,
-                }
-                cards_payload.append(serialized)
-
-            return {
-                "cards": cards_payload,
-                "meta": {
-                    "query": query,
-                    "limit": limit,
-                    "total_matches": len(matches),
-                    "returned": len(cards_payload),
-                    "has_more": len(matches) > len(cards_payload),
-                    "include_archived": include_archived,
-                    "filters": {
-                        "column": column,
-                        "tag": tag,
-                        "indicator": indicator,
-                        "status": status,
-                    },
-                },
+            serialized["match"] = {
+                "score": score,
+                "fields": fields,
+                "query": query,
+                "tag": tag,
             }
+            cards_payload.append(serialized)
+
+        return {
+            "cards": cards_payload,
+            "meta": {
+                "query": query,
+                "limit": limit,
+                "total_matches": len(matches),
+                "returned": len(cards_payload),
+                "has_more": len(matches) > len(cards_payload),
+                "include_archived": include_archived,
+                "filters": {
+                    "column": column,
+                    "tag": tag,
+                    "indicator": indicator,
+                    "status": status,
+                },
+            },
+        }
 
     def list_overdue_cards(self, payload: dict | None = None) -> dict:
         with self._lock:

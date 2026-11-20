@@ -690,7 +690,8 @@ class JsonStore:
             with self._lock, self._process_lock.acquire(existing_only=True):
                 source = None
                 cached = self._committed_card_source
-                if cached is not None and sys.platform == "win32" and "client_search" in domain_key:
+                native_context = "client_search" in domain_key or domain_key == ("events",)
+                if cached is not None and sys.platform == "win32" and native_context:
                     with verified_committed_file(self._state_file, cached[1]) as verified:
                         if verified is not None and verified.current():
                             source = cached[2]
@@ -704,7 +705,7 @@ class JsonStore:
                         read_search_clients=self._read_search_client_profiles,
                     )
             # The verified source is detached from subsequent writes.
-            return source.for_client_search(self, domain_key)
+            return source.for_context(self, domain_key)
 
     def _decoded_context_for_signature(self, signature):
         # Called under the store lock. A missing signature keeps the file-lock path.

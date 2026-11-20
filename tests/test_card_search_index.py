@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import tempfile
 import unittest
-from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import Card
 from minimal_kanban.services.card_service import CardService
-from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.json_store import JsonStore, StateFileCorruptedError
+from minimal_kanban.storage.readonly_context_snapshot import build_context_snapshot
 
 
 class CardSearchIndexTests(unittest.TestCase):
@@ -166,14 +167,40 @@ class CardSearchIndexTests(unittest.TestCase):
         self.assertEqual(len(expired["cards"]), 5)
         self.assertEqual(current["cards"], [])
 
-    def test_new_bundle_identity_invalidates_even_with_identical_file_signature(self) -> None:
+    def test_card_search_does_not_repair_legacy_state_or_publish_the_change_feed(self) -> None:
+        state = json.loads(self.state_file.read_bytes())
+        state["cards"][0]["title"] = "  Synthetic legacy title  "
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        original = self.state_file.read_bytes()
+        original_mtime = self.state_file.stat().st_mtime_ns
+        events = self.store.change_feed_store.raw_events_for_test()
+
+        found = self.service.search_cards({"query": "Synthetic legacy title"})
+
+        self.assertEqual([row["id"] for row in found["cards"]], ["search-card-0"])
+        self.assertEqual(found["cards"][0]["title"], "Synthetic legacy title")
+        self.assertEqual(self.state_file.read_bytes(), original)
+        self.assertEqual(self.state_file.stat().st_mtime_ns, original_mtime)
+        self.assertEqual(self.store.change_feed_store.raw_events_for_test(), events)
+
+    def test_card_search_rejects_an_ambiguous_result_without_rewriting_state(self) -> None:
+        state = json.loads(self.state_file.read_bytes())
+        state["cards"][1]["id"] = state["cards"][0]["id"]
+        state["cards"][1]["title"] = "Synthetic duplicate identity"
+        self.state_file.write_text(json.dumps(state), encoding="utf-8")
+        original = self.state_file.read_bytes()
+
+        with self.assertRaises(StateFileCorruptedError):
+            self.service.search_cards({"query": "Synthetic duplicate identity"})
+
+        self.assertEqual(self.state_file.read_bytes(), original)
+
+    def test_new_snapshot_identity_invalidates_the_index(self) -> None:
         self.service.search_cards({"query": "Диагностика"})
-        bundle, signature = self.store.read_bundle_with_signature()
-        replacement = deepcopy(bundle)
-        replacement["cards"][0].title = "ReNormalizedTitle"
-        with patch.object(
-            self.store, "read_bundle_with_signature", return_value=(replacement, signature)
-        ):
+        source = json.loads(self.state_file.read_bytes())
+        source["cards"][0]["title"] = "ReNormalizedTitle"
+        replacement = build_context_snapshot(self.store, source, ("events",))
+        with patch.object(self.store, "_read_context_bundle_snapshot", return_value=replacement):
             result = self.service.search_cards({"query": "ReNormalizedTitle"})
         self.assertEqual([card["id"] for card in result["cards"]], ["search-card-0"])
 

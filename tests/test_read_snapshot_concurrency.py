@@ -59,6 +59,41 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         )
         self.assertEqual(result["repair_orders"][0]["card_id"], self.card_id)
 
+    def test_card_search_does_not_queue_behind_an_unrelated_service_operation(self):
+        result = self.assert_read_ignores_service_lock(
+            lambda: self.service.search_cards({"query": "BEFORE"})
+        )
+        self.assertEqual([row["id"] for row in result["cards"]], [self.card_id])
+
+    def test_an_older_card_search_remains_consistent_across_a_card_edit(self):
+        index = self.service._snapshot_service._card_search_index
+        match_fields = index._match_fields
+        matching, release = threading.Event(), threading.Event()
+
+        def paused(fields, prepared):
+            if threading.current_thread().name.startswith("old-card-search"):
+                matching.set()
+                self.assertTrue(release.wait(5))
+            return match_fields(fields, prepared)
+
+        with (
+            patch.object(index, "_match_fields", side_effect=paused),
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="old-card-search") as reader,
+            ThreadPoolExecutor(max_workers=1) as updater,
+        ):
+            old = reader.submit(self.service.search_cards, {"query": "BEFORE"})
+            try:
+                self.assertTrue(matching.wait(2))
+                updater.submit(
+                    self.service.update_card, {"card_id": self.card_id, "title": "AFTER"}
+                ).result(2)
+                fresh = self.service.search_cards({"query": "AFTER"})
+            finally:
+                release.set()
+            self.assertEqual(old.result(2)["cards"][0]["title"], "BEFORE")
+        self.assertEqual(fresh["cards"][0]["title"], "AFTER")
+        self.assertEqual(self.service.search_cards({"query": "BEFORE"})["cards"], [])
+
     def test_print_workspace_uses_verified_card_while_service_is_busy(self):
         original = self.state_file.read_bytes()
         with patch("minimal_kanban.printing.service.list_printers", return_value=[]):

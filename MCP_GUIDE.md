@@ -104,6 +104,11 @@ card-derived vehicle fields are marked `vehicle_relation=unverified`. An older
 backend without the dedicated routes returns an error instead of using a
 potentially mutating fallback.
 
+Card searches through `agent_search(entity="card")` and `search_cards` read
+from a detached board snapshot. They never apply state repairs or publish
+change-feed events. A matching card with an ambiguous stored identity produces
+a controlled state error. Search ranking and operator visibility still apply.
+
 Use only enough calls to establish the target and perform the useful next step.
 A workflow can be helpful for an auditable multi-step task, but is not required
 for simple context, analysis, or a normal customer reply.

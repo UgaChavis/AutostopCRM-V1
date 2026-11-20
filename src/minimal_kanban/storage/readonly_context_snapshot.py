@@ -477,7 +477,7 @@ class CommittedCardSource:
             for name in ("columns", "cards", "clients", "events", "settings", "stickies")
             if name in state
         }
-        self._client_search_snapshots = {}
+        self._contexts = {}
         self._cards = _index(cards)
         self._clients = _index(clients)
         self._positions = {}
@@ -493,9 +493,9 @@ class CommittedCardSource:
                     self._events_by_card.setdefault(card_id, []).append(event)
         self._columns, _ = store._normalize_columns(state)
 
-    def for_client_search(self, store, domains):
-        """Reuse search projections while the caller retains this verified generation."""
-        snapshot = self._client_search_snapshots.get(domains)
+    def for_context(self, store, domains):
+        """Reuse context projections while the caller retains this verified generation."""
+        snapshot = self._contexts.get(domains)
         if snapshot is None:
             snapshot = build_context_snapshot(
                 store,
@@ -503,7 +503,7 @@ class CommittedCardSource:
                 domains,
                 read_search_clients=store._read_search_client_profiles,
             )
-            self._client_search_snapshots[domains] = snapshot
+            self._contexts[domains] = snapshot
         return snapshot
 
     def for_card(self, store, requested_id):
@@ -603,9 +603,9 @@ def build_context_snapshot(store, state, domains, *, read_search_clients=None):
             # can remove one side of a collision.
             cards = _search_cards_before_retention(deepcopy(raw_cards), columns)
             search_cards_need_retention = True
-        elif (tuple(domains) == ("client_profile",) or "client_search_cards" in domains) and (
-            _safe_to_detach_shallow_json(raw_cards)
-        ):
+        elif (
+            tuple(domains) in (("client_profile",), ("events",)) or "client_search_cards" in domains
+        ) and _safe_to_detach_shallow_json(raw_cards):
             # Detach nested order history without serializing cards for a repair check.
             cards, _ = store._normalize_cards(
                 {"cards": raw_cards},
@@ -614,7 +614,9 @@ def build_context_snapshot(store, state, domains, *, read_search_clients=None):
                 compare_storage=False,
             )
         else:
-            cards, _ = store._normalize_cards({"cards": deepcopy(raw_cards)}, columns)
+            cards, _ = store._normalize_cards(
+                {"cards": deepcopy(raw_cards)}, columns, compare_storage=False
+            )
     else:
         columns, cards = [], []
     if "clients" in domains and "client_search" not in domains:
