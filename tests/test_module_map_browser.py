@@ -410,6 +410,13 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     self.assertLessEqual(box["x"] + box["width"], width)
                     self.page.keyboard.press("Space")
                     self.assertFalse(help_panel.is_visible())
+        self.page.get_by_role("button", name="Справка: database_backup", exact=True).click()
+        backup_help = self.page.locator("#automation-help-timer-database_backup").inner_text()
+        self.assertIn("База PostgreSQL, файлы и настройки Store.", backup_help)
+        self.assertIn(
+            "Одна проверенная копия. Предыдущая сохраняется до проверки и публикации новой.",
+            backup_help,
+        )
         digest = self.page.get_by_role("button", name="Справка: CRM: краткий дайджест изменений")
         digest.click()
         help_panel = self.page.locator("#" + digest.get_attribute("aria-controls"))

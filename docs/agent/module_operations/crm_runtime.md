@@ -16,12 +16,16 @@ open CRM records or inspect private logs for a general health check.
 | Store adapter | Gateway → [`store_gateway.py`](../../../src/minimal_kanban/mcp/store_gateway.py) → Manager adapter → `http://autostop-app:8000/internal/agent/v1/...`; Store owns quotes, stock and orders | `scripts/validate_production_env.py --require-production --require-store` validates names/config without printing tokens. Official `--require-store` Gateway smoke checks scoped live read and flags. | Reads or guarded Store writes; no direct Store DB connection. |
 | Change feed | CRM commit → [`change_feed_gateway.py`](../../../src/minimal_kanban/mcp/change_feed_gateway.py) and `/api/change_feed/{bootstrap,read,ack,register,summarize}` → Manager scheduler; CRM owns feed, Manager owns consumer cursor | `POST /api/change_feed/readiness` is technical readiness. Bootstrap/ACK/register alter consumer state; the maintenance-safe release probe handles them with its own consumer. | Readiness R; cursor operations T, exact ACK and readback. |
 | G1 automation panel | [`module_map.html`](../../../src/minimal_kanban/web_app_assets/source/module_map.html) → [`automation_center.py`](../../../src/minimal_kanban/api/automation_center.py) → Manager control socket; Manager owns schedules and execution | Open `/module-map`, select G1 and use **i** beside any job or system timer. Help explains the action, live schedule, data, output and switch; opening it sends no control command. | Help rendering and status on a prepared registry are R. A missing or older supported registry may be initialized on first use. Switches and schedule edits are T and require an admin session and revision guard. |
-| J1 public-web dependency | Gateway → [`web_gateway.py`](../../../src/minimal_kanban/mcp/web_gateway.py) → `searxng` and pinned HTTP extraction; public web is untrusted evidence | `docker compose ps searxng`; official `--require-web` smoke checks static and browser paths separately; browser stays guarded unavailable until verified isolation. Health alone does not prove research. | R externally; no fitment confirmation from web alone. |
+| Public-web tools | CRM Gateway → [`web_gateway.py`](../../../src/minimal_kanban/mcp/web_gateway.py) → `searxng` and pinned HTTP extraction | `docker compose ps searxng` checks the search service. The `--require-web` smoke checks static reads and accepts the expected CRM browser refusal `browser_egress_isolation_required`. | R externally. Confirm fitment with vehicle-specific evidence. |
 | OAuth | Owner client → [`oauth_provider.py`](../../../src/minimal_kanban/mcp/oauth_provider.py) → CRM protected state | `python scripts/configure_mcp_oauth.py check --env-file .env` checks configuration; official `check_mcp_oauth.py` checks live authorization/refresh in a release. Never print state key/tokens. | Config check R; `ensure` and authorization mutate protected state. |
 | Browser and Windows clients | UI/API → shared services; desktop entry [`main.py`](../../../main.py), MCP entry [`main_mcp.py`](../../../main_mcp.py) | `scripts/browser_smoke.py --profile core --attempts 1` uses disposable synthetic CRM; portable binary requires `run_quality_pass.ps1`. | Synthetic; local pass is not deployed UI proof. |
 
-The Compose project has two services: `autostopcrm` and `searxng` (container
-`autostop-searxng`). Store and PostgreSQL are separate projects. Legacy
+The CRM Compose project runs `autostopcrm` and `searxng` (container
+`autostop-searxng`). Manager runs the J1 renderer and egress proxy in the
+separate `autostop-j1-browser` Compose project. For a rendering check, use
+the native Manager browser probe in `docs/agent/references/web-research.md`
+under the [selected installed Manager root](../../OPERATIONS_RUNBOOK.md#manager-instruction-roots).
+Store and PostgreSQL are in the Store Compose project. Legacy
 Crawl4AI is not a runtime dependency. Any remaining host cleanup follows the
 [offline maintenance procedure](../../OPERATIONS_RUNBOOK.md#deploy) after checking
 actual use. Source tests do not establish live removal or health.
@@ -32,10 +36,11 @@ G1 reads the current schedule and actual state from Manager. Its **i** buttons
 work with Enter or Space, remain available in read-only mode, and keep their
 expanded state while status refreshes. The CRM digest uses new CRM change-feed
 events and sends a summary to the configured owner's Telegram dialogue only
-when there are changes. The database-backup timer protects the Store PostgreSQL
-database; it does not back up CRM. Unknown future jobs explicitly show missing
-descriptions instead of guessing their purpose. The panel shows run times and
-errors; system-job output remains in the corresponding server journal.
+when there are changes. The Store backup timer captures PostgreSQL, Store files
+and settings together. It retains the current verified generation until its
+replacement is published. CRM uses its own backup. Unknown future jobs explicitly
+show missing descriptions instead of guessing their purpose. The panel shows run
+times and errors. System-job output remains in the corresponding server journal.
 
 If G1 is unavailable, compare the API status response, operator permissions,
 Manager socket mount and scheduler state. The socket timeout covers the entire
