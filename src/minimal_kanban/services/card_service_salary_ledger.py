@@ -33,6 +33,7 @@ from .payroll_constants import (
 from .payroll_constants import (
     repair_order_payroll_scheme as _repair_order_payroll_scheme,
 )
+from .payroll_read_snapshot import detach_salary_ledger_inputs
 
 EMPLOYEE_SALARY_BALANCE_RESETS_SETTING_KEY = "employee_salary_balance_resets"
 
@@ -788,21 +789,28 @@ class CardServiceSalaryLedgerMixin:
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
-            ledger = self._build_employee_salary_ledger(
-                bundle["cards"],
-                bundle["cashboxes"],
-                bundle["cash_transactions"],
-                employee,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
-                salary_balance_resets=salary_balance_resets,
-                months=months,
+            snapshot = detach_salary_ledger_inputs(
+                bundle,
+                employee_id=employee_id,
                 revision_employee=self._legacy_salary_revision_employee(
                     bundle["settings"], employee
                 ),
                 revision_shifts=self._legacy_salary_revision_shifts(bundle["settings"], employee),
             )
-            return ledger
+            as_of = model_helpers.utc_now()
+        return self._build_employee_salary_ledger(
+            snapshot["cards"],
+            snapshot["cashboxes"],
+            snapshot["cash_transactions"],
+            employee,
+            shift_accruals=shift_accruals,
+            repair_order_accruals=repair_order_accruals,
+            salary_balance_resets=salary_balance_resets,
+            months=months,
+            as_of=as_of,
+            revision_employee=snapshot["revision_employee"],
+            revision_shifts=snapshot["revision_shifts"],
+        )
 
     def _employee_salary_balance_minor_from_bundle(
         self,

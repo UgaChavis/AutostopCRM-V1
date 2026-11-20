@@ -5,8 +5,10 @@ import logging
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +35,43 @@ class SalaryBalanceResetTests(unittest.TestCase):
         self.logger.propagate = False
         self.store = JsonStore(state_file=self.state_file, logger=self.logger)
         self.service = CardService(self.store, self.logger)
+
+    def test_salary_ledger_uses_one_revision_while_new_accrual_is_saved(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Synthetic employee", "salary_mode": "none"}
+        )["employee"]
+        query = {"employee_id": employee["id"]}
+        self.service.create_employee_shift_accrual({**query, "amount_minor": 100})
+        before = self.service.get_employee_salary_ledger(query)
+        entered = Event()
+        resume = Event()
+        build = self.service._build_employee_salary_ledger
+
+        def pause_ledger(*args, **kwargs):
+            entered.set()
+            self.assertTrue(resume.wait(10))
+            return build(*args, **kwargs)
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            with patch.object(
+                self.service, "_build_employee_salary_ledger", side_effect=pause_ledger
+            ):
+                pending = workers.submit(self.service.get_employee_salary_ledger, query)
+                try:
+                    self.assertTrue(entered.wait(5))
+                    workers.submit(
+                        self.service.create_employee_shift_accrual, {**query, "amount_minor": 200}
+                    ).result(timeout=5)
+                finally:
+                    resume.set()
+                snapshot = pending.result(timeout=5)
+
+        self.assertEqual(snapshot["balance_minor"], 100)
+        self.assertEqual(snapshot["balance_revision"], before["balance_revision"])
+        self.assertEqual(snapshot["journal_rows"], before["journal_rows"])
+        latest = self.service.get_employee_salary_ledger(query)
+        self.assertEqual(latest["balance_minor"], 300)
+        self.assertNotEqual(latest["balance_revision"], snapshot["balance_revision"])
 
     def _build_service(self) -> CardService:
         return CardService(

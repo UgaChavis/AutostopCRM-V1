@@ -44,6 +44,24 @@ class SalaryReportCard:
 
 
 @dataclass(frozen=True, slots=True)
+class SalaryLedgerOrder:
+    number: str
+    status: str
+    closed_at: str
+    vehicle: str
+    works: list[dict[str, Any]]
+    materials: list[dict[str, Any]]
+    payroll_postings: list[dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class SalaryLedgerCard:
+    id: str
+    vehicle: str
+    repair_order: SalaryLedgerOrder
+
+
+@dataclass(frozen=True, slots=True)
 class SalaryBalanceReadTransaction:
     employee_id: str
     transaction_kind: str
@@ -128,6 +146,47 @@ def detach_employee_list_inputs(bundle: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def detach_salary_ledger_inputs(
+    bundle: dict[str, Any],
+    *,
+    employee_id: str,
+    revision_employee: dict[str, Any] | None,
+    revision_shifts: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Keep every order source used by the ledger and its revision."""
+    snapshot = _detach(
+        {
+            "cashboxes": bundle["cashboxes"],
+            "cash_transactions": [
+                item for item in bundle["cash_transactions"] if item.employee_id == employee_id
+            ],
+            "revision_employee": revision_employee,
+            "revision_shifts": revision_shifts,
+        },
+        {},
+    )
+    cards = []
+    for card in bundle["cards"]:
+        order = card.repair_order
+        cards.append(
+            SalaryLedgerCard(
+                id=card.id,
+                vehicle=card.vehicle,
+                repair_order=SalaryLedgerOrder(
+                    number=order.number,
+                    status=order.status,
+                    closed_at=order.closed_at,
+                    vehicle=order.vehicle,
+                    works=_salary_rows_snapshot(order.works),
+                    materials=_salary_rows_snapshot(order.materials),
+                    payroll_postings=_detach(order.payroll_postings, {}),
+                ),
+            )
+        )
+    snapshot["cards"] = cards
+    return snapshot
+
+
 def detach_salary_report_cards(cards: Iterable[Card]) -> list[SalaryReportCard]:
     """Detach the orders and vehicle labels required by one monthly report."""
     results = []
@@ -141,12 +200,12 @@ def detach_salary_report_cards(cards: Iterable[Card]) -> list[SalaryReportCard]:
                 vehicle=order.vehicle or card.vehicle_display(),
                 license_plate=order.license_plate,
                 registration_plate=card.vehicle_profile.registration_plate,
-                works=_salary_report_rows(order.works),
-                materials=_salary_report_rows(order.materials),
+                works=_salary_rows_snapshot(order.works),
+                materials=_salary_rows_snapshot(order.materials),
             )
         )
     return results
 
 
-def _salary_report_rows(rows: Iterable[RepairOrderRow]) -> list[dict[str, Any]]:
+def _salary_rows_snapshot(rows: Iterable[RepairOrderRow]) -> list[dict[str, Any]]:
     return [row.to_dict() if isinstance(row, RepairOrderRow) else _detach(row, {}) for row in rows]
