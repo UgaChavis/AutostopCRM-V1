@@ -270,7 +270,6 @@ class CardServiceClientSearchMixin:
                 for value in [*searchable, *vehicle_searchable]
                 if value
             ]
-            compact_searchable = list(dict.fromkeys(compact_searchable))
             phone_variants: set[str] = set()
             for phone in [client.phone, *client.phones]:
                 phone_variants.update(self._phone_search_variants(phone))
@@ -279,7 +278,7 @@ class CardServiceClientSearchMixin:
                 "searchable_counts": self._search_value_counts(searchable),
                 "vehicle_searchable": vehicle_searchable,
                 "vehicle_searchable_counts": self._search_value_counts(vehicle_searchable),
-                "compact_searchable": compact_searchable,
+                "compact_searchable_text": " ".join(dict.fromkeys(compact_searchable)),
                 "digits_blob": self._client_search_digits_blob(client),
                 "direct_digit_values": self._client_direct_digit_values(client),
                 "match_keys": self._client_match_keys(client),
@@ -455,7 +454,6 @@ class CardServiceClientSearchMixin:
         indexed = client_search_index.get(client.id, {})
         searchable = indexed.get("searchable", [])
         vehicle_searchable = indexed.get("vehicle_searchable", [])
-        compact_searchable = indexed.get("compact_searchable", [])
         searchable_counts = indexed.get("searchable_counts")
         vehicle_searchable_counts = indexed.get("vehicle_searchable_counts")
         score = 0
@@ -463,7 +461,7 @@ class CardServiceClientSearchMixin:
             query_variants,
             searchable=searchable,
             vehicle_searchable=vehicle_searchable,
-            compact_searchable=compact_searchable,
+            compact_searchable_text=indexed.get("compact_searchable_text", ""),
             searchable_counts=searchable_counts,
             vehicle_searchable_counts=vehicle_searchable_counts,
         )
@@ -495,19 +493,20 @@ class CardServiceClientSearchMixin:
         *,
         searchable: list[str],
         vehicle_searchable: list[str],
-        compact_searchable: list[str],
+        compact_searchable_text: str,
         searchable_counts: dict[str, int] | None = None,
         vehicle_searchable_counts: dict[str, int] | None = None,
     ) -> int:
         score = 0
         for variant in query_variants:
-            if not variant:
+            # Removing separators preserves each alphanumeric substring in its original field.
+            if not variant or (variant.isalnum() and variant not in compact_searchable_text):
                 continue
             score += self._score_client_text_variant(
                 variant,
                 searchable=searchable,
                 vehicle_searchable=vehicle_searchable,
-                compact_searchable=compact_searchable,
+                compact_searchable_text=compact_searchable_text,
                 searchable_counts=searchable_counts,
                 vehicle_searchable_counts=vehicle_searchable_counts,
             )
@@ -519,7 +518,7 @@ class CardServiceClientSearchMixin:
         *,
         searchable: list[str],
         vehicle_searchable: list[str],
-        compact_searchable: list[str],
+        compact_searchable_text: str,
         searchable_counts: dict[str, int] | None = None,
         vehicle_searchable_counts: dict[str, int] | None = None,
     ) -> int:
@@ -549,6 +548,6 @@ class CardServiceClientSearchMixin:
                 score += 5 * count
             elif parts is not None and all(part in value for part in parts):
                 score += 3 * count
-        if compact_variant and any(compact_variant in value for value in compact_searchable):
+        if compact_variant and compact_variant in compact_searchable_text:
             score += 5
         return score

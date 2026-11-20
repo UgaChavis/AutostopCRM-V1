@@ -182,6 +182,9 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
             "9991112233",
             "Toyota",
             "Corolla",
+            "ToyotaCorolla",
+            "Corolla Toyota",
+            "NoMatchingProfile123",
             "",
             "Иванова",
         )
@@ -239,6 +242,12 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
                 )
             else:
                 indexed = client_index.get(client.id, {})
+                compact_values = [
+                    re.sub(r"[\W_]+", "", value)
+                    for field in ("searchable", "vehicle_searchable")
+                    for value in indexed.get(field, [])
+                    if value
+                ]
                 score = 0
                 for variant in query_variants:
                     if not variant:
@@ -260,7 +269,7 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
                         elif all(part in value for part in parts):
                             score += 3
                     if compact_variant and any(
-                        compact_variant in value for value in indexed.get("compact_searchable", [])
+                        compact_variant in value for value in compact_values
                     ):
                         score += 5
                 if len(query_digits) >= 4:
