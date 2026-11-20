@@ -9,9 +9,22 @@ from threading import Lock
 import orjson
 
 from ..json_safety import DEFAULT_JSON_MAX_DEPTH
-from ..models import Card, ClientProfile, normalize_text, parse_datetime, short_entity_id
+from ..models import (
+    AuditEvent,
+    Card,
+    ClientProfile,
+    normalize_text,
+    parse_datetime,
+    short_entity_id,
+)
 from ..repair_order import RepairOrderPayment, RepairOrderRow, normalize_repair_order_payments
-from .json_store import StateFileCorruptedError, _validate_snapshot_financial_fields
+from .json_store import (
+    StateFileCorruptedError,
+    _validate_cash_transaction_ids,
+    _validate_raw_financial_references,
+    _validate_snapshot_financial_fields,
+)
+from .state_shape import validate_state_shape
 
 
 def _index(raw, *, alias=None):
@@ -514,7 +527,32 @@ class CommittedCardSource:
         )
 
 
+def read_operator_audit_events(store) -> list[AuditEvent]:
+    """Read the current audit stream for operator statistics."""
+    if sys.platform == "win32":
+        return store.read_bundle()["events"]
+    with store._lock:
+        bundle = store._read_cache_bundle
+        if bundle is not None and store._current_read_bundle_cache_signature() is not None:
+            return bundle["events"]
+    try:
+        events = store._read_context_bundle_snapshot(domains=("operator_audit_events",))["events"]
+    except (FileNotFoundError, StateFileCorruptedError):
+        events = None
+    # Preserve the full reader's recovery and persistence for legacy events.
+    return events if events is not None else store.read_bundle()["events"]
+
+
 def build_context_snapshot(store, state, domains, *, read_search_clients=None):
+    if domains == ("operator_audit_events",):
+        try:
+            validate_state_shape(state)
+        except ValueError:
+            return {"events": None}
+        _validate_raw_financial_references(state)
+        _validate_cash_transaction_ids(state)
+        events, repaired = store._normalize_events(state)
+        return {"events": None if repaired else events}
     needs_cards = "client_search" not in domains or "client_search_cards" in domains
     raw_cards = state.get("cards") if needs_cards else None
     if needs_cards and (

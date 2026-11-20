@@ -45,6 +45,7 @@ from .storage.change_feed_projection import (
 from .storage.file_lock import ProcessFileLock
 from .storage.json_store import JsonStore
 from .storage.limited_io import read_bytes_limited, read_text_limited
+from .storage.readonly_context_snapshot import read_operator_audit_events
 
 USER_ROLE_VALUES = frozenset({"operator", "admin"})
 OPERATOR_AUTH_STATE_MAX_BYTES = 1 * 1024 * 1024
@@ -326,12 +327,11 @@ class OperatorAuthService:
         self._required_admin_session(payload)
         with self._locked_state() as state:
             users = [deepcopy(item) for item in state["users"]]
-        bundle = self._state_store.read_bundle()
-        event_activity_index = self._build_event_activity_index(bundle["events"])
+        event_activity_index = self._build_event_activity_index(
+            read_operator_audit_events(self._state_store)
+        )
         rows = [
-            self._serialize_user_summary(
-                user, bundle=bundle, event_activity_index=event_activity_index
-            )
+            self._serialize_user_summary(user, event_activity_index=event_activity_index)
             for user in users
         ]
         rows.sort(key=lambda item: (0 if item["role"] == "admin" else 1, item["username"]))
@@ -1055,12 +1055,10 @@ class OperatorAuthService:
         self,
         user: dict[str, Any],
         *,
-        bundle: dict[str, Any] | None = None,
         event_activity_index: dict[str, dict[str, Any]] | None = None,
     ) -> dict:
         user_payload = self._user_payload_with_stats(
             user,
-            bundle=bundle,
             event_activity_index=event_activity_index,
         )
         return {
@@ -1073,12 +1071,10 @@ class OperatorAuthService:
         self,
         user: dict[str, Any],
         *,
-        bundle: dict[str, Any] | None = None,
         event_activity_index: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         stats_payload = self._build_user_stats(
             user,
-            bundle=bundle,
             event_activity_index=event_activity_index,
         )
         return {
@@ -1092,13 +1088,13 @@ class OperatorAuthService:
         self,
         user: dict[str, Any],
         *,
-        bundle: dict[str, Any] | None = None,
         event_activity_index: dict[str, dict[str, Any]] | None = None,
     ) -> dict:
         username = user["username"]
-        bundle = bundle or self._state_store.read_bundle()
         if event_activity_index is None:
-            event_activity_index = self._build_event_activity_index(bundle["events"])
+            event_activity_index = self._build_event_activity_index(
+                read_operator_audit_events(self._state_store)
+            )
         actor = _normalized_username(username)
         window_start = utc_now() - timedelta(days=STATS_WINDOW_DAYS)
         stats = {
@@ -1258,8 +1254,7 @@ class OperatorAuthService:
             user = self._user_snapshot(state["users"], username)
         if user is None:
             self._fail("not_found", "Пользователь не найден.", status_code=404)
-        bundle = self._state_store.read_bundle()
-        user_payload = self._user_payload_with_stats(user, bundle=bundle)
+        user_payload = self._user_payload_with_stats(user)
         return {
             "username": user["username"],
             "file_name": self._user_report_file_name(user["username"]),

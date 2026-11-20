@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import sys
@@ -781,6 +782,54 @@ class ChangeFeedProducerContractTests(unittest.TestCase):
             )
 
         self.assertNotIn(b"PRIVATE-EXTRA-TAG-7F2A", self.feed_database_bytes())
+
+    def test_cold_operator_profile_reads_board_events_without_normalizing_cards(self) -> None:
+        users_file = self.base_dir / "users.json"
+        state_file = self.base_dir / "state.json"
+        environment = {
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_USERNAME": "profile-fixture-admin",
+            "MINIMAL_KANBAN_DEFAULT_ADMIN_PASSWORD": "profile-fixture-password-31",
+        }
+        with patch.dict(os.environ, environment):
+            self.service.create_card(
+                {"title": "Operator profile fixture", "actor_name": "profile-fixture-admin"}
+            )
+            operators = OperatorAuthService(
+                self.store, self.service, users_file=users_file, logger=self.logger
+            )
+            profile = operators.login(
+                {"username": "profile-fixture-admin", "password": "profile-fixture-password-31"}
+            )
+            payload = {"_operator_session": profile["session"]}
+            expected = operators.get_profile(payload)
+            self.assertEqual(expected["stats"]["cards_created"], 1)
+
+            reopened = JsonStore(state_file, logger=self.logger)
+            operators = OperatorAuthService(
+                reopened,
+                CardService(reopened, self.logger),
+                users_file=users_file,
+                logger=self.logger,
+            )
+            original = state_file.read_bytes()
+            if sys.platform == "win32":
+                self.assertEqual(operators.get_profile(payload), expected)
+            else:
+                with patch.object(
+                    reopened, "_normalize_cards", side_effect=AssertionError("unused card models")
+                ):
+                    self.assertEqual(operators.get_profile(payload), expected)
+            self.assertEqual(state_file.read_bytes(), original)
+
+            legacy = json.loads(original)
+            legacy["events"][0].pop("timestamp")
+            replacement = state_file.with_suffix(".replacement")
+            replacement.write_text(json.dumps(legacy), encoding="utf-8")
+            replacement.replace(state_file)
+            with patch.object(reopened, "read_bundle", wraps=reopened.read_bundle) as full_read:
+                self.assertEqual(operators.get_profile(payload)["stats"]["cards_created"], 1)
+            full_read.assert_called_once()
+            self.assertIn("timestamp", json.loads(state_file.read_bytes())["events"][0])
 
     def test_agent_runtime_routes_are_external_authority_and_do_not_forge_crm_events(self) -> None:
         class ExternalAgentControl:
