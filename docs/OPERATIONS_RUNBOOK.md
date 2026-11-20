@@ -159,6 +159,10 @@ stopped, removing stale WAL/SHM files before replacement. Do not replace a live
 store's database file in place or overlay newer data. For the shared backup and
 restore procedure, use the selected Manager root's M2 instruction; see [Deploy](#deploy).
 
+The release backup helper allows 60 seconds for each SQLite copy. A copy
+timeout discards the incomplete bundle. Published copies use DELETE journal
+mode so each database can be read on its own from read-only storage.
+
 ### Cashbox viewing receipts
 
 The CRM stores each operator's viewing positions for individual cashboxes in

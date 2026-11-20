@@ -110,6 +110,83 @@ class AgentReleaseBackupTests(unittest.TestCase):
             "receipts": {},
         }
 
+    def test_bundle_snapshots_wal_sources_as_standalone_databases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            crm_data, manager_db, output_root = self._fixture(Path(temp_dir))
+            feed_db = crm_data / self.module.CHANGE_FEED_BACKUP_NAME
+            with (
+                closing(sqlite3.connect(feed_db)) as feed,
+                closing(sqlite3.connect(manager_db)) as manager,
+            ):
+                for connection in (feed, manager):
+                    self.assertEqual(
+                        connection.execute("PRAGMA journal_mode=WAL").fetchone(), ("wal",)
+                    )
+                    connection.execute("PRAGMA wal_autocheckpoint=0")
+                feed.execute("UPDATE consumers SET acked_sequence=42")
+                manager.execute("UPDATE manager_runs SET status='synthetic WAL update'")
+                feed.commit()
+                manager.commit()
+                created = self.module.create_backup(
+                    output_root=output_root,
+                    crm_data_dir=crm_data,
+                    manager_db=manager_db,
+                    backup_id="wal-bundle",
+                )
+                for connection in (feed, manager):
+                    self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone(), ("wal",))
+
+            backup = Path(created["backup_dir"])
+            for name, query, expected in (
+                (
+                    self.module.CHANGE_FEED_BACKUP_NAME,
+                    "SELECT acked_sequence FROM consumers",
+                    (42,),
+                ),
+                (
+                    self.module.MANAGER_BACKUP_NAME,
+                    "SELECT status FROM manager_runs",
+                    ("synthetic WAL update",),
+                ),
+            ):
+                with self.subTest(artifact=name):
+                    path = backup / name
+                    self.assertEqual(path.read_bytes()[18:20], b"\x01\x01")
+                    self.assertEqual(list(backup.glob(f"{name}-*")), [])
+                    with closing(sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)) as copy:
+                        self.assertEqual(copy.execute(query).fetchone(), expected)
+            self.assertTrue(self.module.verify_backup(backup)["ok"])
+
+    def test_locked_sqlite_source_aborts_before_publishing_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            crm_data, manager_db, output_root = self._fixture(Path(temp_dir))
+            probe = """
+import sys
+from pathlib import Path
+from scripts import agent_release_backup as backup
+
+backup.SQLITE_COPY_TIMEOUT_SECONDS = 0.08
+crm_data, manager_db, output_root = map(Path, sys.argv[1:])
+try:
+    backup.create_backup(output_root=output_root, crm_data_dir=crm_data,
+                         manager_db=manager_db, backup_id='locked-sqlite')
+except backup.BackupError as error:
+    print(error)
+    raise SystemExit(17)
+"""
+            with closing(sqlite3.connect(manager_db)) as writer:
+                writer.execute("BEGIN EXCLUSIVE")
+                result = subprocess.run(
+                    [sys.executable, "-c", probe, str(crm_data), str(manager_db), str(output_root)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                )
+            self.assertEqual(result.returncode, 17, result.stderr + result.stdout)
+            self.assertIn("SQLite backup copy timed out for manager.sqlite3", result.stdout)
+            self.assertEqual(list(output_root.iterdir()), [])
+
     def _cashbox_receipt_fixture(self, crm_data: Path, actor: str, transaction: str) -> Path:
         directory = self.module.cashbox_receipt_directory(crm_data / "state.json")
         directory.mkdir(mode=0o700, exist_ok=True)

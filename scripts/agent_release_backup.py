@@ -11,7 +11,8 @@ import stat
 import sys
 import tarfile
 import tempfile
-from contextlib import nullcontext
+import time
+from contextlib import closing, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,7 @@ COMPLETION_ACT_RECORD_FILE_RE = re.compile(r"\A[0-9a-f]{64}\.json\Z")
 COMPLETION_ACT_TEMP_FILE_RE = re.compile(r"\A\.[0-9a-f]{64}\.[0-9a-f]{32}\.tmp\Z")
 CASHBOX_RECEIPTS_MAX_BYTES = 64 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
+SQLITE_COPY_TIMEOUT_SECONDS = 60.0
 MAX_RESTORE_ID = (1 << 32) - 2
 ARTIFACT_FILE_NAMES = {
     "state": STATE_BACKUP_NAME,
@@ -669,14 +671,20 @@ def _sqlite_integrity_check(path: Path) -> None:
 def _copy_sqlite(source: Path, destination: Path) -> bool:
     if not source.is_file():
         return False
-    source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
-    destination_connection = sqlite3.connect(destination)
-    try:
-        source_connection.backup(destination_connection)
-        destination_connection.execute("PRAGMA wal_checkpoint(FULL)")
-    finally:
-        destination_connection.close()
-        source_connection.close()
+    deadline = time.monotonic() + SQLITE_COPY_TIMEOUT_SECONDS
+
+    def check_deadline(_status: int, _remaining: int, _total: int) -> None:
+        if time.monotonic() >= deadline:
+            raise BackupError(f"SQLite backup copy timed out for {source.name}")
+
+    with (
+        closing(sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=1.0)) as origin,
+        closing(sqlite3.connect(destination)) as snapshot,
+    ):
+        origin.backup(snapshot, pages=128, progress=check_deadline, sleep=0.05)
+        # The copied SQLite header can inherit WAL mode from the source.
+        if snapshot.execute("PRAGMA journal_mode=DELETE").fetchone() != ("delete",):
+            raise BackupError(f"SQLite backup could not be made standalone for {source.name}")
     _sqlite_integrity_check(destination)
     _fsync_file(destination)
     return True
