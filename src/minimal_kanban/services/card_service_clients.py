@@ -1066,70 +1066,59 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             }
 
     def suggest_clients_for_card(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
-            limit = self._validated_limit(payload.get("limit"), default=8, maximum=30)
-            bundle = self._store._read_context_bundle_snapshot(
-                domains=("clients", "client_search", "client_search_cards")
+        payload = payload or {}
+        limit = self._validated_limit(payload.get("limit"), default=8, maximum=30)
+        bundle = self._store._read_context_bundle_snapshot(
+            domains=("clients", "client_search", "client_search_cards")
+        )
+        cards = bundle["cards"]
+        if bundle.search_cards_need_retention:
+            retained, _ = self._store._apply_card_retention(cards)
+            least_pressure, _ = self._store._apply_card_retention(_least_retention_pressure(cards))
+            requested_id = str(payload.get("card_id") or "")
+            if any(card.id == requested_id for card in retained) != any(
+                card.id == requested_id for card in least_pressure
+            ):
+                raise StateFileCorruptedError("Дубли карточек влияют на результат архива.")
+            cards = retained
+        card = self._find_card(cards, payload.get("card_id"))
+        bundle.require_card(card)
+        if bundle.search_cards_need_retention:
+            column_cards = [copy(item) for item in cards if item.column == card.column]
+            self._store._normalize_card_positions(column_cards)
+            card = next(item for item in column_cards if item.id == card.id)
+        events = bundle.normalized_events(self._store)
+        query = normalize_text(payload.get("query"), default="", limit=240)
+        if not query:
+            query = " ".join(
+                part
+                for part in (
+                    card.vehicle_profile.customer_name,
+                    card.vehicle_profile.customer_phone,
+                    *list(card.vehicle_profile.customer_phones or []),
+                    card.repair_order.client,
+                    card.repair_order.phone,
+                    card.vehicle_profile.vin,
+                    card.repair_order.vin,
+                    card.repair_order.license_plate,
+                    card.vehicle_profile.registration_plate,
+                )
+                if part
             )
-            cards = bundle["cards"]
-            if bundle.search_cards_need_retention:
-                retained, _ = self._store._apply_card_retention(cards)
-                least_pressure, _ = self._store._apply_card_retention(
-                    _least_retention_pressure(cards)
-                )
-                requested_id = str(payload.get("card_id") or "")
-                if any(card.id == requested_id for card in retained) != any(
-                    card.id == requested_id for card in least_pressure
-                ):
-                    raise StateFileCorruptedError("Дубли карточек влияют на результат архива.")
-                cards = retained
-            card = self._find_card(cards, payload.get("card_id"))
-            bundle.require_card(card)
-            if bundle.search_cards_need_retention:
-                column_cards = [copy(item) for item in cards if item.column == card.column]
-                self._store._normalize_card_positions(column_cards)
-                card = next(item for item in column_cards if item.id == card.id)
-            events = bundle.normalized_events(self._store)
-            query = normalize_text(payload.get("query"), default="", limit=240)
-            if not query:
-                query = " ".join(
-                    part
-                    for part in (
-                        card.vehicle_profile.customer_name,
-                        card.vehicle_profile.customer_phone,
-                        *list(card.vehicle_profile.customer_phones or []),
-                        card.repair_order.client,
-                        card.repair_order.phone,
-                        card.vehicle_profile.vin,
-                        card.repair_order.vin,
-                        card.repair_order.license_plate,
-                        card.vehicle_profile.registration_plate,
-                    )
-                    if part
-                )
-            if not query.strip():
-                return {
-                    "card": self._serialize_card(
-                        card,
-                        events,
-                        column_labels=self._column_labels(bundle["columns"]),
-                        compact=True,
-                    ),
-                    "clients": [],
-                    "meta": {"query": query, "total": 0, "returned": 0},
-                }
+        if query.strip():
             result = self._checked_search_clients(bundle, query, limit)
-            return {
-                "card": self._serialize_card(
-                    card,
-                    events,
-                    column_labels=self._column_labels(bundle["columns"]),
-                    compact=True,
-                ),
-                "clients": result["clients"],
-                "meta": {key: result["meta"][key] for key in ("query", "total", "returned")},
-            }
+        else:
+            result = {"clients": [], "meta": {"query": query, "total": 0, "returned": 0}}
+        return {
+            "card": self._serialize_card(
+                card,
+                events,
+                column_labels=self._column_labels(bundle["columns"]),
+                compact=True,
+            ),
+            "clients": result["clients"],
+            "meta": {key: result["meta"][key] for key in ("query", "total", "returned")},
+        }
 
     def _ordered_clients(self, clients: list[ClientProfile]) -> list[ClientProfile]:
         return sorted(clients, key=lambda item: (item.name().casefold(), item.created_at, item.id))

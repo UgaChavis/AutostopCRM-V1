@@ -175,6 +175,23 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         self.assertEqual(old["card"]["title"], "BEFORE")
         self.assertEqual(read()["card"]["title"], "AFTER")
 
+    def test_saved_card_client_suggestions_do_not_block_card_writes(self):
+        client_id = self.service.create_client({"display_name": "SYNTHETIC CUSTOMER"})["client"][
+            "id"
+        ]
+
+        def read():
+            return self.service.suggest_clients_for_card(
+                {"card_id": self.card_id, "query": "SYNTHETIC CUSTOMER"}
+            )
+
+        old = self.assert_parse_allows_commit(read)
+        current = read()
+        self.assertEqual(old["card"]["title"], "BEFORE")
+        self.assertEqual(current["card"]["title"], "AFTER")
+        self.assertEqual([item["id"] for item in old["clients"]], [client_id])
+        self.assertEqual([item["id"] for item in current["clients"]], [client_id])
+
     def test_client_reads_and_readonly_card_context_ignore_service_lock(self):
         client = self.service.create_client({"display_name": "SYNTHETIC CLIENT"})["client"]
         for list_clients in (self.service.list_clients, self.service.list_clients_readonly):
@@ -197,9 +214,14 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
 
     def test_client_search_leaves_cashbox_and_writer_free_throughout_search(self):
         cashbox = self.service.create_cashbox({"name": "SYNTHETIC CASHBOX"})["cashbox"]
-        for search, prepare in (
-            (self.service.search_clients, "_client_checked_search_cards"),
-            (self.service.search_clients_readonly, "_client_readonly_related_cards"),
+        for search, prepare, scope in (
+            (self.service.search_clients, "_client_checked_search_cards", {}),
+            (self.service.search_clients_readonly, "_client_readonly_related_cards", {}),
+            (
+                self.service.suggest_clients_for_card,
+                "_client_checked_search_cards",
+                {"card_id": self.card_id},
+            ),
         ):
             for owner, method in (
                 (self.store, "_read_context_bundle_snapshot"),
@@ -210,7 +232,7 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
                     client = self.service.create_client({"display_name": "SYNTHETIC BEFORE"})[
                         "client"
                     ]
-                    payload = {"query": "SYNTHETIC"}
+                    payload = {"query": "SYNTHETIC", **scope}
                     paused, release = threading.Event(), threading.Event()
                     original = getattr(owner, method)
 
