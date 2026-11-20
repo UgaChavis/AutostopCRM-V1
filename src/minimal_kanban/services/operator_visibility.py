@@ -130,6 +130,16 @@ def restricted_operator_event_visible(event: AuditEvent) -> bool:
     return action == "repair_order_updated" or not is_private_employee_cashbox_event(event)
 
 
+def audit_event_counts(
+    events: Iterable[AuditEvent], *, include_private: bool = True
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for event in events:
+        if event.card_id and (include_private or restricted_operator_event_visible(event)):
+            counts[event.card_id] = counts.get(event.card_id, 0) + 1
+    return counts
+
+
 def visible_audit_events(
     payload: dict[str, Any] | None,
     events: Iterable[AuditEvent],

@@ -138,6 +138,42 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(archived_cards.call_count, 1)
         self.assertEqual(stickies.call_count, 1)
 
+    def test_restricted_revision_counts_events_without_copying_details(self) -> None:
+        card_id = self._create_card()
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        for action in ("repair_order_updated", "employee_salary_updated"):
+            state["events"].append(
+                {
+                    "id": f"test-{action}",
+                    "timestamp": state["cards"][0]["created_at"],
+                    "actor_name": "TEST",
+                    "source": "system",
+                    "action": action,
+                    "message": "Synthetic event",
+                    "card_id": card_id,
+                    "details": {"number": "TEST-01", "salary": "synthetic private value"},
+                }
+            )
+        replacement = self.state_file.with_suffix(".replacement")
+        replacement.write_text(json.dumps(state), encoding="utf-8")
+        replacement.replace(self.state_file)
+
+        view = {**self._compact_view(), "_operator_session": {"permissions": []}}
+        restricted = self.service.get_board_snapshot(view)
+        allowed = self.service.get_board_snapshot(self._compact_view())
+        self.assertEqual(
+            restricted["cards"][0]["events_count"] + 1, allowed["cards"][0]["events_count"]
+        )
+        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
+        with patch.object(
+            snapshot_service_module,
+            "visible_audit_events",
+            wraps=snapshot_service_module.visible_audit_events,
+        ) as project_events:
+            revision = self.service.get_board_revision(view)
+        project_events.assert_not_called()
+        self.assertEqual(revision["revision"], restricted["meta"]["revision"])
+
     def test_external_store_write_changes_signature_and_invalidates_revision(self) -> None:
         view = self._compact_view()
         _, before_signature = self.store.read_bundle_with_signature()

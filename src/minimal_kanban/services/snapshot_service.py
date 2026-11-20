@@ -27,6 +27,9 @@ from .board_read_projection import BoardReadProjection
 from .card_log_projection import CARD_JOURNAL_COMPACT_DEFAULT_LIMIT, CardLogProjection
 from .card_search_index import CardSearchIndex
 from .operator_visibility import (
+    audit_event_counts as _event_counts,
+)
+from .operator_visibility import (
     operator_can_access_employees_cashboxes,
     project_operator_result,
     public_snapshot_settings,
@@ -72,14 +75,6 @@ def _json_dumps(
         separators=separators,
         allow_nan=False,
     )
-
-
-def _event_counts(events: list[AuditEvent]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for event in events:
-        if event.card_id:
-            counts[event.card_id] = counts.get(event.card_id, 0) + 1
-    return counts
 
 
 class SnapshotService:
@@ -444,14 +439,14 @@ class SnapshotService:
                     else []
                 )
                 stickies = self._stickies(bundle["stickies"])
-                events = visible_audit_events(payload, bundle["events"])
+                events = bundle["events"] if cards or archive else ()
                 revision = self._snapshot_revision(
                     payload=payload,
                     columns=bundle["columns"],
                     cards=cards,
                     archive=archive,
                     stickies=stickies,
-                    event_counts=_event_counts(events) if cards or archive else {},
+                    event_counts=_event_counts(events, include_private=employees_cashboxes_access),
                     settings=bundle["settings"],
                     viewer_username=viewer_username,
                     compact_cards=compact_cards,
