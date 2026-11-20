@@ -2,7 +2,9 @@
 
 from __future__ import annotations  # noqa: I001
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -133,6 +135,46 @@ class AttachmentWriteIntegrityTests(CardServiceCase):
         self.assertEqual(len(attachments), 1)
         path, _ = reopened.get_attachment_download(self.card_id, attachments[0]["id"])
         self.assertEqual(path.read_bytes(), b"Synthetic attachment")
+
+    def test_attachment_preview_uses_one_file_snapshot_while_removal_proceeds(self) -> None:
+        attachment_id = self.upload()["attachment"]["id"]
+        query = {"card_id": self.card_id, "attachment_id": attachment_id}
+        entered, resume = Event(), Event()
+        extract = self.service._attachment_content_payload
+
+        def paused_extraction(**kwargs):
+            entered.set()
+            self.assertTrue(resume.wait(10), "Synthetic extraction was not released")
+            return extract(**kwargs)
+
+        with (
+            patch.object(
+                self.service, "_attachment_content_payload", side_effect=paused_extraction
+            ),
+            patch.object(
+                self.service,
+                "_read_attachment_file_bytes",
+                wraps=self.service._read_attachment_file_bytes,
+            ) as read_file,
+            ThreadPoolExecutor(max_workers=2) as workers,
+        ):
+            preview = workers.submit(self.service.read_card_attachment, query)
+            try:
+                self.assertTrue(entered.wait(5), "Attachment extraction not entered")
+                workers.submit(self.service.remove_card_attachment, query).result(5)
+            finally:
+                resume.set()
+            captured = preview.result(5)
+        self.assertEqual(captured["content"]["text"], "Synthetic attachment")
+        self.assertEqual(captured["attachment"]["sha256"], captured["content"]["sha256"])
+        self.assertFalse(captured["attachment"]["removed"])
+        self.assertTrue(captured["attachment"]["exists_on_disk"])
+        self.assertEqual([item["id"] for item in captured["card"]["attachments"]], [attachment_id])
+        read_file.assert_called_once()
+        self.assertEqual(self.files(), [])
+        with self.assertRaises(ServiceError) as removed:
+            self.service.read_card_attachment(query)
+        self.assertEqual(removed.exception.code, "not_found")
 
     def test_utf16_bom_text_is_decoded_before_single_byte_fallback(self) -> None:
         text = "Заказ 123 — готов\nПроверка текста"

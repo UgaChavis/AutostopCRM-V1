@@ -402,54 +402,57 @@ class CardAttachmentsMixin:
         if mode == "base64":
             include_base64 = True
 
-        with self._lock:
-            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            attachment = self._find_attachment(card, payload.get("attachment_id"))
-            if attachment.removed:
-                self._fail(
-                    "not_found",
-                    "Файл был удалён из карточки.",
-                    status_code=404,
-                    details={"attachment_id": attachment.id},
+        # Keep one extraction in flight per service without holding up card operations.
+        with self._attachment_read_lock:
+            with self._lock:
+                bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
+                card = self._find_card(bundle["cards"], payload.get("card_id"))
+                attachment = self._find_attachment(card, payload.get("attachment_id"))
+                if attachment.removed:
+                    self._fail(
+                        "not_found",
+                        "Файл был удалён из карточки.",
+                        status_code=404,
+                        details={"attachment_id": attachment.id},
+                    )
+                attachment_path = self._require_attachment_file(card.id, attachment)
+                content = self._read_attachment_file_bytes(attachment_path, attachment)
+                _, repaired, file_repair = self._repair_attachment_metadata(
+                    card.id, attachment, attachment_path, content=content
                 )
-            attachment_path = self._require_attachment_file(card.id, attachment)
-            attachment_path, repaired, file_repair = self._repair_attachment_metadata(
-                card.id, attachment, attachment_path
-            )
-            if repaired:
-                self._save_attachment_metadata_repair(
-                    bundle, card_id=card.id, file_repair=file_repair
+                if repaired:
+                    self._save_attachment_metadata_repair(
+                        bundle, card_id=card.id, file_repair=file_repair
+                    )
+                attachment_meta = self._attachment_agent_dict(card.id, attachment)
+                card_payload = self._serialize_card(
+                    card,
+                    bundle["events"],
+                    column_labels=self._column_labels(bundle["columns"]),
                 )
-            content = self._read_attachment_file_bytes(attachment_path, attachment)
-            attachment_meta = self._attachment_agent_dict(
-                card.id, attachment, attachment_path=attachment_path
-            )
             content_payload = self._attachment_content_payload(
-                attachment=attachment,
+                attachment_type=attachment_meta["content_type"],
+                mime_type=attachment_meta["mime_type"],
                 content=content,
                 mode=mode,
                 max_chars=max_chars,
                 include_base64=include_base64,
                 max_base64_bytes=max_base64_bytes,
             )
-            return {
-                "card": self._serialize_card(
-                    card,
-                    bundle["events"],
-                    column_labels=self._column_labels(bundle["columns"]),
-                ),
-                "attachment": attachment_meta,
-                "content": content_payload,
-                "meta": {
-                    "card_id": card.id,
-                    "attachment_id": attachment.id,
-                    "mode": mode,
-                    "max_chars": max_chars,
-                    "include_base64": include_base64,
-                    "max_base64_bytes": max_base64_bytes,
-                },
-            }
+        attachment_meta.update(exists_on_disk=True, sha256=content_payload["sha256"])
+        return {
+            "card": card_payload,
+            "attachment": attachment_meta,
+            "content": content_payload,
+            "meta": {
+                "card_id": attachment_meta["card_id"],
+                "attachment_id": attachment_meta["id"],
+                "mode": mode,
+                "max_chars": max_chars,
+                "include_base64": include_base64,
+                "max_base64_bytes": max_base64_bytes,
+            },
+        }
 
     def _find_attachment(self, card: Card, attachment_id: str | None) -> Attachment:
         if not attachment_id:
@@ -531,14 +534,14 @@ class CardAttachmentsMixin:
     def _attachment_content_payload(
         self,
         *,
-        attachment: Attachment,
+        attachment_type: str,
+        mime_type: str,
         content: bytes,
         mode: str,
         max_chars: int,
         include_base64: bool,
         max_base64_bytes: int,
     ) -> dict[str, Any]:
-        attachment_type = self._attachment_type_from_metadata(attachment)
         content_kind = self._attachment_content_kind(attachment_type)
         payload: dict[str, Any] = {
             "mode": mode,
@@ -592,9 +595,10 @@ class CardAttachmentsMixin:
         if include_base64:
             if len(content) <= max_base64_bytes:
                 encoded = base64.b64encode(content).decode("ascii")
-                mime_type = attachment.mime_type or "application/octet-stream"
                 payload["base64"] = encoded
-                payload["data_url"] = f"data:{mime_type};base64,{encoded}"
+                payload["data_url"] = (
+                    f"data:{mime_type or 'application/octet-stream'};base64,{encoded}"
+                )
                 payload["base64_included"] = True
             else:
                 payload["base64_omitted_reason"] = (
@@ -1177,10 +1181,16 @@ class CardAttachmentsMixin:
         return file_name, spec["canonical_mime"], requested_extension
 
     def _repair_attachment_metadata(
-        self, card_id: str, attachment: Attachment, attachment_path: Path
+        self,
+        card_id: str,
+        attachment: Attachment,
+        attachment_path: Path,
+        *,
+        content: bytes | None = None,
     ) -> tuple[Path, bool, _AttachmentFileRepair | None]:
         source_path = attachment_path
-        content = self._read_attachment_file_bytes(attachment_path, attachment)
+        if content is None:
+            content = self._read_attachment_file_bytes(attachment_path, attachment)
         detected_type = self._detect_attachment_type(content)
         if not detected_type:
             self._fail(

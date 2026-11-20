@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, DecimalException
 from logging import Logger
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from ..agent.knowledge import build_ai_chat_knowledge_packet
@@ -446,6 +447,7 @@ class CardService(
         self._store = store
         self._logger = logger
         self._lock = MeasuredRLock("service_lock")
+        self._attachment_read_lock = Lock()
         self._agent_control: Any | None = None
         self._client_search_index_cache: (
             tuple[tuple[tuple[Any, ...], ...], dict[str, dict[str, Any]]] | None

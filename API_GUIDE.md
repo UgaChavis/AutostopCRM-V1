@@ -212,7 +212,9 @@ Removing an attachment commits its tombstone before deleting file bytes.
 
 `read_card_attachment` decodes TXT files with a UTF-16 byte-order mark as UTF-16;
 UTF-8 and Windows-1251 remain supported. Text limits apply to decoded characters.
-The original download bytes are unchanged by text extraction.
+The digest and extracted content describe the same captured file bytes. A read
+that has captured the file may finish while the attachment is being removed.
+Subsequent reads of the removed attachment return `not_found`.
 
 Shared-file deletion commits the index removal before unlinking bytes. A cleanup
 failure is logged; the removed file remains inaccessible through the API.
