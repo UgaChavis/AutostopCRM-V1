@@ -1,14 +1,15 @@
-"""Single-card reads scope events before applying the existing permission filter."""
+"""Single-card reads count and project only the events needed for each response."""
 
 # The fixture selects this checkout before importing application modules.
 # ruff: noqa: I001
 import base64
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
-from minimal_kanban.models import AuditEvent
-from minimal_kanban.services.operator_visibility import visible_audit_events
+from minimal_kanban.models import AuditEvent, utc_now
+from minimal_kanban.services.operator_visibility import audit_event_counts, visible_audit_events
 from minimal_kanban.services.readonly_context_helpers import detached_card_response
 from minimal_kanban.storage.readonly_context_snapshot import ReadonlyContextSnapshot
 
@@ -71,9 +72,9 @@ class CardEventScopeTests(CardServiceCase):
                     expected = detached_card_response(expected_card, ["synthetic_warning"])
                     seen = []
 
-                    def inspect_visible(request, events):
+                    def inspect_counts(events, *, include_private):
                         seen.extend(events)
-                        return visible_audit_events(request, seen)
+                        return audit_event_counts(seen, include_private=include_private)
 
                     with (
                         patch.object(self.store, "_read_single_card_snapshot", return_value=bundle),
@@ -81,7 +82,11 @@ class CardEventScopeTests(CardServiceCase):
                         patch.object(bundle, "card_link_warnings", return_value=[]),
                         patch(
                             "minimal_kanban.services.snapshot_service.visible_audit_events",
-                            side_effect=inspect_visible,
+                            side_effect=AssertionError("single-card read only needs event counts"),
+                        ),
+                        patch(
+                            "minimal_kanban.services.snapshot_service._event_counts",
+                            side_effect=inspect_counts,
                         ),
                     ):
                         result = self.service.get_card(payload)
@@ -95,3 +100,51 @@ class CardEventScopeTests(CardServiceCase):
                         "exists_on_disk" in result["card"]["attachments"][0], attachment_status
                     )
                     self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_card_context_redacts_only_the_requested_visible_events(self):
+        card_id = self.service.create_card({"title": "Synthetic card"})["card"]["id"]
+        now = utc_now()
+        self.store.write_events(
+            [
+                AuditEvent(
+                    id=event_id,
+                    timestamp=(now - timedelta(seconds=offset)).isoformat(),
+                    actor_name="Operator",
+                    source="api",
+                    action=action,
+                    message="Synthetic event",
+                    details={"status": "draft", "payroll_postings": ["private test detail"]},
+                    card_id=card_id,
+                )
+                for event_id, offset, action in (
+                    ("older", 2, "repair_order_updated"),
+                    ("selected", 1, "repair_order_updated"),
+                    ("private", 0, "cashbox_updated"),
+                )
+            ]
+        )
+        payload = {
+            "card_id": card_id,
+            "read_only": True,
+            "event_limit": 1,
+            "include_repair_order_text": False,
+        }
+        with patch(
+            "minimal_kanban.services.readonly_context_helpers.visible_audit_events",
+            wraps=visible_audit_events,
+        ) as project:
+            result = self.service.get_card_context(
+                {**payload, "_operator_session": {"permissions": []}}
+            )
+
+        project.assert_called_once()
+        self.assertEqual([event.id for event in project.call_args.args[1]], ["selected"])
+        self.assertEqual(result["card"]["events_count"], 2)
+        self.assertEqual(result["meta"]["events_total"], 2)
+        self.assertTrue(result["meta"]["has_more_events"])
+        self.assertEqual(result["events"][0]["details"], {"status": "draft"})
+        self.assertNotIn("private test detail", json.dumps(result))
+
+        full = self.service.get_card_context(payload)
+        self.assertEqual(full["meta"]["events_total"], 3)
+        self.assertEqual(full["events"][0]["id"], "private")

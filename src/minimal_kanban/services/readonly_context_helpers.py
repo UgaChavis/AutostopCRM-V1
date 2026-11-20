@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from ..models import normalize_actor_name, parse_datetime
 from ..storage.json_store import StateFileCorruptedError
-from .operator_visibility import visible_audit_events
+from .operator_visibility import visible_audit_event_sources, visible_audit_events
 
 
 def _retention_choice_key(card):
@@ -104,9 +104,9 @@ def ranked_context_clients(service, card, clients):
 
 
 def validate_context_relations(
-    service, bundle, events, event_limit, linked_client, matches, read_warnings, strict_links
+    service, bundle, events, linked_client, matches, read_warnings, strict_links
 ):
-    for event in events[:event_limit]:
+    for event in events:
         bundle.require_event(event)
     related_by_client = {}
     for client in [linked_client, *(client for _, client in matches)]:
@@ -191,11 +191,12 @@ def get_card_context(service, payload):
             bundle["stickies"],
             bundle["settings"],
         )
-        card_events = visible_audit_events(
+        card_events = visible_audit_event_sources(
             payload,
             service._events_for_card(bundle["events"], card.id),
         )
-        events = [event.to_dict() for event in card_events[:event_limit]]
+        recent_events = visible_audit_events(payload, card_events[:event_limit])
+        events = [event.to_dict() for event in recent_events]
         active_attachments = [attachment.to_dict() for attachment in card.active_attachments()]
         removed_attachments = [
             attachment.to_dict() for attachment in card.attachments if attachment.removed
@@ -209,8 +210,7 @@ def get_card_context(service, payload):
             related_by_client = validate_context_relations(
                 service,
                 bundle,
-                card_events,
-                event_limit,
+                recent_events,
                 linked_client,
                 matches,
                 read_warnings,
@@ -221,7 +221,6 @@ def get_card_context(service, payload):
                 **({"read_warnings": read_warnings} if read_warnings else {}),
                 "card": service._serialize_card(
                     card,
-                    bundle["events"],
                     column_labels=column_labels,
                     event_counts={card.id: len(card_events)},
                     include_removed_attachments=True,

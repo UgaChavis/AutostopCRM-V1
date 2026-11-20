@@ -1043,14 +1043,13 @@ class SnapshotService:
         card = self._find_card(bundle["cards"], payload.get("card_id"))
         bundle.require_card(card, include_attachments=True)
         read_warnings = bundle.card_warnings(card) + bundle.card_link_warnings(card)
-        events = visible_audit_events(
-            payload, (event for event in bundle["events"] if event.card_id == card.id)
-        )
-        column_labels = self._column_labels(bundle["columns"])
+        card_events = (event for event in bundle["events"] if event.card_id == card.id)
         card_data = self._serialize_card(
             card,
-            events,
-            column_labels=column_labels,
+            column_labels=self._column_labels(bundle["columns"]),
+            event_counts=_event_counts(
+                card_events, include_private=operator_can_access_employees_cashboxes(payload)
+            ),
             include_removed_attachments=True,
             include_attachment_status=self._validated_optional_bool(
                 payload, "include_attachment_status", default=True
@@ -1076,11 +1075,9 @@ class SnapshotService:
             )
             bundle = self._store.read_bundle()
             card = self._find_card(bundle["cards"], payload.get("card_id"))
-            card_events = self._events_for_card(bundle["events"], card.id)
-            if not operator_can_access_employees_cashboxes(payload):
-                card_events = [
-                    event for event in card_events if restricted_operator_event_visible(event)
-                ]
+            card_events = visible_audit_event_sources(
+                payload, self._events_for_card(bundle["events"], card.id)
+            )
             full_details_included = bool(
                 include_full_details and operator_can_access_employees_cashboxes(payload)
             )
