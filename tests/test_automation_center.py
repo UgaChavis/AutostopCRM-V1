@@ -236,6 +236,60 @@ class AutomationCenterServiceTests(unittest.TestCase):
 
 class AutomationControlClientTests(unittest.TestCase):
     @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
+    def test_control_timeout_covers_connect_send_and_all_response_chunks(self) -> None:
+        for budget in (1.0, 2.0):
+            with (
+                self.subTest(budget=budget),
+                patch("minimal_kanban.services.automation_center_service.socket.socket") as factory,
+                patch("minimal_kanban.services.automation_center_service.monotonic") as clock,
+            ):
+                connection = factory.return_value.__enter__.return_value
+                elapsed = 0.0
+                chunks: list[bytes] = []
+
+                def advance(seconds: float) -> None:
+                    nonlocal elapsed
+                    available = connection.settimeout.call_args.args[0]
+                    if seconds > available:
+                        elapsed += available
+                        raise TimeoutError("synthetic test timeout")
+                    elapsed += seconds
+
+                def send(request: bytes) -> None:
+                    advance(0.3)
+                    reply = {
+                        "protocol": AUTOMATION_CONTROL_PROTOCOL,
+                        "request_id": json.loads(request)["request_id"],
+                        "ok": True,
+                        "data": {"confirmed": True},
+                    }
+                    encoded = json.dumps(reply).encode() + b"\n"
+                    chunks.extend((encoded[:12], encoded[12:]))
+
+                def receive(_size: int) -> bytes:
+                    advance(0.4)
+                    return chunks.pop(0)
+
+                clock.side_effect = lambda: elapsed
+                connection.connect.side_effect = lambda _path: advance(0.2)
+                connection.sendall.side_effect = send
+                connection.recv.side_effect = receive
+                client = AutomationControlClient(
+                    Path("/synthetic/control.sock"), timeout_seconds=budget
+                )
+                actor = {"id": "operator", "is_admin": False}
+                if budget == 1.0:
+                    with self.assertRaises(AutomationControlError) as error:
+                        client.request("status", {}, actor=actor)
+                    self.assertEqual(error.exception.code, "automation_control_unavailable")
+                    self.assertEqual(error.exception.status_code, 503)
+                    self.assertAlmostEqual(elapsed, 1.0)
+                else:
+                    self.assertEqual(client.request("status", {}, actor=actor), {"confirmed": True})
+                    self.assertAlmostEqual(elapsed, 1.3)
+                self.assertEqual(connection.sendall.call_count, 1)
+
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "Unix-domain sockets are unavailable")
     def test_bounded_protocol_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "control.sock"

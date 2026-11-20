@@ -38,7 +38,8 @@ descriptions instead of guessing their purpose. The panel shows run times and
 errors; system-job output remains in the corresponding server journal.
 
 If G1 is unavailable, compare the API status response, operator permissions,
-Manager socket mount and scheduler state. A stale response disables mutations;
+Manager socket mount and scheduler state. The socket timeout covers the entire
+request, including connection and all response chunks. A stale response disables mutations;
 wait for a fresh status after recovery. A desired/actual mismatch requires
 scheduler reconciliation, not repeated clicks. Use the release runbook for
 service recovery. Synthetic keyboard/mobile and line-label collision checks

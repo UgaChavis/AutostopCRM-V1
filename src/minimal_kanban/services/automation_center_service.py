@@ -6,6 +6,7 @@ import socket
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -176,17 +177,28 @@ class AutomationControlClient:
                 "Команда Центра автоматизаций превышает допустимый размер.",
                 status_code=400,
             )
+        deadline = monotonic() + self.timeout_seconds
+
+        def remaining_time() -> float:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Automation control request deadline exceeded")
+            return remaining
+
         try:
             address_family = getattr(socket, "AF_UNIX", None)
             if address_family is None:
                 raise OSError("Unix-domain sockets are unavailable")
             with socket.socket(address_family, socket.SOCK_STREAM) as connection:
-                connection.settimeout(self.timeout_seconds)
+                connection.settimeout(remaining_time())
                 connection.connect(str(self.socket_path))
+                connection.settimeout(remaining_time())
                 connection.sendall(encoded)
                 response = bytearray()
                 while len(response) <= AUTOMATION_CONTROL_MAX_RESPONSE_BYTES:
-                    chunk = connection.recv(min(65536, AUTOMATION_CONTROL_MAX_RESPONSE_BYTES + 1))
+                    connection.settimeout(remaining_time())
+                    remaining_bytes = AUTOMATION_CONTROL_MAX_RESPONSE_BYTES + 1 - len(response)
+                    chunk = connection.recv(min(65536, remaining_bytes))
                     if not chunk:
                         break
                     response.extend(chunk)
