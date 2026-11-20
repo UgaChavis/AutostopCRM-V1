@@ -407,28 +407,32 @@ class SharedFilesService:
         with self._locked_files() as files:
             item = self._find_file(files, payload.get("file_id"))
             path = self._require_file_on_disk(item)
-            actual_size = path.stat().st_size
+            file_bytes = None
+            try:
+                actual_size = path.stat().st_size
+                if include_base64 and actual_size <= max_base64_bytes:
+                    try:
+                        file_bytes = read_bytes_limited(
+                            path,
+                            max_bytes=max_base64_bytes,
+                            label="shared file content",
+                        )
+                    except ValueError:
+                        actual_size = path.stat().st_size
+            except (FileNotFoundError, NotADirectoryError, IsADirectoryError) as exc:
+                raise self._missing_file_error(item) from exc
             content: dict[str, Any] = {
                 "base64_included": False,
                 "size_bytes": actual_size,
                 "max_base64_bytes": max_base64_bytes,
             }
-            if include_base64 and actual_size <= max_base64_bytes:
-                try:
-                    payload = read_bytes_limited(
-                        path,
-                        max_bytes=max_base64_bytes,
-                        label="shared file content",
-                    )
-                except ValueError:
-                    try:
-                        content["size_bytes"] = path.stat().st_size
-                    except OSError:
-                        pass
-                else:
-                    content["base64"] = base64.b64encode(payload).decode("ascii")
-                    content["base64_included"] = True
-                    content["encoding"] = "base64"
+            if file_bytes is not None:
+                content.update(
+                    base64=base64.b64encode(file_bytes).decode("ascii"),
+                    base64_included=True,
+                    encoding="base64",
+                    size_bytes=len(file_bytes),
+                )
             return {
                 "file": self._public_file_dict(item),
                 "content": content,
@@ -564,13 +568,17 @@ class SharedFilesService:
     def _require_file_on_disk(self, item: SharedFile) -> Path:
         path = self._storage_path(item.stored_name)
         if not self._storage_is_regular_file(path):
-            raise ServiceError(
-                "not_found",
-                "Файл не найден на диске.",
-                status_code=HTTPStatus.NOT_FOUND,
-                details={"file_id": item.id},
-            )
+            raise self._missing_file_error(item)
         return path
+
+    @staticmethod
+    def _missing_file_error(item: SharedFile) -> ServiceError:
+        return ServiceError(
+            "not_found",
+            "Файл не найден на диске.",
+            status_code=HTTPStatus.NOT_FOUND,
+            details={"file_id": item.id},
+        )
 
     def _public_file_dict(self, item: SharedFile) -> dict[str, Any]:
         payload = item.to_dict()

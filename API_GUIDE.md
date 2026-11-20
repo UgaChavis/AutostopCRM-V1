@@ -218,6 +218,9 @@ Subsequent reads of the removed attachment return `not_found`.
 
 The shared files list calculates `storage.used_bytes` from the file sizes in
 the same response. A missing file still counts at its indexed size.
+When `fetch_shared_file` includes Base64 content, `content.size_bytes` is the
+length of the decoded bytes. A file that disappears during the read returns
+HTTP 404 with `not_found`.
 
 Shared-file deletion commits the index removal before unlinking bytes. A cleanup
 failure is logged; the removed file remains inaccessible through the API.

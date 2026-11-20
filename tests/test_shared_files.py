@@ -29,6 +29,7 @@ from minimal_kanban.services.shared_files_service import (
     SharedFilesService,
 )
 from minimal_kanban.storage.json_store import JsonStore
+from minimal_kanban.storage.limited_io import read_bytes_limited
 
 
 def b64(content: bytes) -> str:
@@ -714,6 +715,53 @@ class SharedFilesApiTests(unittest.TestCase):
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def test_fetch_returns_not_found_if_file_disappears_during_read(self) -> None:
+        shared = self.shared_files
+        target = shared.upload_shared_file(
+            {"file_name": "example.txt", "content_base64": b64(b"example")}
+        )["file"]
+        stored = (shared.storage_dir / target["stored_name"]).resolve(strict=True)
+
+        def remove_before_read(path, **kwargs):
+            if path == stored:
+                path.unlink()
+            return read_bytes_limited(path, **kwargs)
+
+        with patch(
+            "minimal_kanban.services.shared_files_service.read_bytes_limited",
+            side_effect=remove_before_read,
+        ):
+            status, response = self.request("/api/fetch_shared_file", {"file_id": target["id"]})
+        self.assertEqual(status, 404)
+        self.assertEqual(response["error"]["code"], "not_found")
+        self.assertEqual(response["error"]["details"]["file_id"], target["id"])
+        self.assertFalse(
+            shared.get_shared_file_info({"file_id": target["id"]})["file"]["exists_on_disk"]
+        )
+
+    def test_fetch_reports_the_size_of_the_bytes_it_returns(self) -> None:
+        shared = self.shared_files
+        target = shared.upload_shared_file(
+            {"file_name": "example.txt", "content_base64": b64(b"initial")}
+        )["file"]
+        stored = (shared.storage_dir / target["stored_name"]).resolve(strict=True)
+        updated = b"updated contents"
+
+        def replace_before_read(path, **kwargs):
+            if path == stored:
+                path.write_bytes(updated)
+            return read_bytes_limited(path, **kwargs)
+
+        with patch(
+            "minimal_kanban.services.shared_files_service.read_bytes_limited",
+            side_effect=replace_before_read,
+        ):
+            status, response = self.request("/api/fetch_shared_file", {"file_id": target["id"]})
+        self.assertEqual(status, 200)
+        content = response["data"]["content"]
+        self.assertEqual(base64.b64decode(content["base64"]), updated)
+        self.assertEqual(content["size_bytes"], len(updated))
 
     def test_shared_files_api_roundtrip_and_download_route(self) -> None:
         status, upload = self.request(
