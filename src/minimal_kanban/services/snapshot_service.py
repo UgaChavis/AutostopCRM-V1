@@ -657,52 +657,61 @@ class SnapshotService:
             columns = bundle["columns"]
             cards = bundle["cards"]
             stickies = bundle["stickies"]
-            events = visible_audit_events(payload, bundle["events"])
+            events = bundle["events"]
+            include_private = operator_can_access_employees_cashboxes(payload)
             column_labels = self._column_labels(columns)
-            cards_by_id = {card.id: card for card in cards}
-            ordered_cards = self._cards_for_wall(cards, columns, include_archived=include_archived)
-            viewer_username = self._viewer_username(payload)
-            wall_cards = (
-                self._serialize_cards_payload(
+            wall_cards, wall_stickies = [], []
+            board_context, board_context_counts = {}, {}
+            if section != "event_log":
+                ordered_cards = self._cards_for_wall(
+                    cards, columns, include_archived=include_archived
+                )
+                wall_cards = self._serialize_cards_payload(
                     ordered_cards,
                     column_labels=column_labels,
-                    event_counts=_event_counts(events),
-                    viewer_username=viewer_username,
+                    event_counts=_event_counts(events, include_private=include_private),
+                    viewer_username=self._viewer_username(payload),
                     compact=compact_cards,
                 )
-                if section != "event_log"
-                else []
-            )
-            visible_stickies = self._stickies(stickies)
-            wall_stickies = (
-                [self._serialize_sticky(sticky) for sticky in visible_stickies]
-                if section != "event_log"
-                else []
-            )
-            wall_events = (
-                self._wall_events(events, cards_by_id, column_labels, limit=event_limit)
-                if section != "board_content"
-                else []
-            )
-            board_context = self._build_board_context_payload(
-                columns, cards, stickies, bundle["settings"]
-            )
-            board_context_counts = board_context["context"]
+                wall_stickies = [
+                    self._serialize_sticky(sticky) for sticky in self._stickies(stickies)
+                ]
+                board_context = self._build_board_context_payload(
+                    columns, cards, stickies, bundle["settings"]
+                )
+                board_context_counts = board_context["context"]
+            wall_events = []
+            events_total = 0
+            if section != "board_content":
+                visible_events = events
+                if not include_private:
+                    visible_events = [
+                        event for event in events if restricted_operator_event_visible(event)
+                    ]
+                events_total = len(visible_events)
+                ordered_events = sorted(
+                    visible_events, key=lambda event: event.timestamp, reverse=True
+                )[:event_limit]
+                wall_events = self._wall_events(
+                    visible_audit_events(payload, ordered_events),
+                    {card.id: card for card in cards},
+                    column_labels,
+                )
             meta = {
                 "generated_at": utc_now_iso(),
                 "text_format": "markdown",
                 "section_kind": "gpt_wall",
                 "event_order": "newest_first",
                 "columns": len(columns),
-                "active_cards": board_context_counts["active_cards_total"],
-                "archived_cards": board_context_counts["archived_cards_total"],
-                "stickies": len(visible_stickies),
-                "cards_returned": len(ordered_cards),
-                "stickies_returned": len(visible_stickies),
+                "active_cards": board_context_counts.get("active_cards_total", 0),
+                "archived_cards": board_context_counts.get("archived_cards_total", 0),
+                "stickies": len(wall_stickies),
+                "cards_returned": len(wall_cards),
+                "stickies_returned": len(wall_stickies),
                 "cards_compact": compact_cards,
-                "events_total": len(events),
+                "events_total": events_total,
                 "events_returned": len(wall_events),
-                "has_more_events": len(events) > len(wall_events),
+                "has_more_events": events_total > len(wall_events),
                 "event_limit": event_limit,
                 "include_archived": include_archived,
             }
@@ -1250,9 +1259,8 @@ class SnapshotService:
         column_labels: dict[str, str],
         limit: int,
     ) -> list[dict[str, Any]]:
-        reviewable = self._wall_events(
-            events, cards_by_id, column_labels, limit=max(limit * 4, limit)
-        )
+        ordered_events = sorted(events, key=lambda event: event.timestamp, reverse=True)
+        reviewable = self._wall_events(ordered_events[: limit * 4], cards_by_id, column_labels)
         result: list[dict[str, Any]] = []
         for event in reviewable:
             if not self._is_review_relevant_event(event):

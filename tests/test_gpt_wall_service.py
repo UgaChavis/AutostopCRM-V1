@@ -3,6 +3,7 @@ from __future__ import annotations
 # The fixture import sets up the src path before importing the application module.
 # ruff: noqa: I001
 from tests.services_case import CardServiceCase
+from datetime import timedelta
 from unittest.mock import patch
 
 from minimal_kanban.models import AuditEvent, utc_now
@@ -13,6 +14,11 @@ class GptWallServiceTests(CardServiceCase):
     def test_content_read_skips_event_projection_and_event_markdown(self) -> None:
         snapshot = self.service._snapshot_service
         with (
+            patch.object(
+                snapshot_service_module,
+                "visible_audit_events",
+                side_effect=AssertionError("board content only needs event counts"),
+            ),
             patch.object(snapshot, "_wall_events", side_effect=AssertionError("unused events")),
             patch.object(
                 snapshot._board_read_projection,
@@ -28,6 +34,11 @@ class GptWallServiceTests(CardServiceCase):
         snapshot = self.service._snapshot_service
         with (
             patch.object(
+                snapshot,
+                "_build_board_context_payload",
+                side_effect=AssertionError("unused board context"),
+            ),
+            patch.object(
                 snapshot, "_serialize_cards_payload", side_effect=AssertionError("unused cards")
             ),
             patch.object(
@@ -42,6 +53,47 @@ class GptWallServiceTests(CardServiceCase):
             result = self.service.get_board_events({})
         self.assertEqual(result["meta"]["section_kind"], "event_log")
         self.assertIn("## Events", result["text"])
+
+    def test_restricted_event_read_redacts_only_selected_visible_events(self) -> None:
+        card_id = self.service.create_card({"title": "Synthetic card"})["card"]["id"]
+        bundle = self.store.read_bundle()
+        moment = utc_now()
+        rows = [
+            ("older", -2, "repair_order_updated"),
+            ("selected", -1, "repair_order_updated"),
+            ("tie-second", -1, "repair_order_updated"),
+            ("hidden", 0, "cash_transaction_created"),
+        ]
+        bundle["events"] = [
+            AuditEvent(
+                id=event_id,
+                timestamp=(moment + timedelta(seconds=offset)).isoformat(),
+                actor_name="Operator",
+                source="api",
+                action=action,
+                message="Synthetic event",
+                details={"status": "draft", "payroll_postings": ["private test value"]},
+                card_id=card_id,
+            )
+            for event_id, offset, action in rows
+        ]
+        self.store.write_bundle(**bundle)
+
+        view = {"_operator_session": {"role": "operator", "permissions": {}}}
+        with patch.object(
+            snapshot_service_module,
+            "visible_audit_events",
+            wraps=snapshot_service_module.visible_audit_events,
+        ) as project:
+            result = self.service.get_board_events({**view, "event_limit": 1})
+
+        self.assertEqual(result["meta"]["events_total"], 3)
+        self.assertEqual([event["id"] for event in result["events"]], ["selected"])
+        self.assertEqual(result["events"][0]["details"], {"status": "draft"})
+        self.assertNotIn("private test value", result["text"])
+        project.assert_called_once()
+        self.assertEqual([event.id for event in project.call_args.args[1]], ["selected"])
+        self.assertEqual(self.service.get_board_content(view)["cards"][0]["events_count"], 3)
 
     def test_section_reads_match_full_wall_sections_with_same_view(self) -> None:
         created = self.service.create_card(

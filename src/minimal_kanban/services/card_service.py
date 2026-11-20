@@ -5310,12 +5310,9 @@ class CardService(
         events: list[AuditEvent],
         cards_by_id: dict[str, Card],
         column_labels: dict[str, str],
-        *,
-        limit: int,
     ) -> list[dict]:
-        ordered_events = sorted(events, key=lambda item: item.timestamp, reverse=True)[:limit]
         payloads: list[dict] = []
-        for event in ordered_events:
+        for event in events:
             payload = event.to_dict()
             payload["actor_name"] = self._repair_mojibake_text(payload.get("actor_name"))
             payload["message"] = self._repair_mojibake_text(payload.get("message"))
