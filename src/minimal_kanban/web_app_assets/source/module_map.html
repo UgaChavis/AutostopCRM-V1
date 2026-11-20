@@ -830,9 +830,9 @@
       else if(automationLastError)setAutomationBanner('error','Состояние не подтверждено',automationLastError);
       else if(automationIsHeld())setAutomationBanner('applying','Глобальная пауза','Запуски и управление временно остановлены на время обслуживания.');
       else if(automationIsStale())setAutomationBanner('stale','Данные устарели','Управление временно заблокировано до свежего readback.');
-      else if(!status.canManage)setAutomationBanner('ready','Режим просмотра','Изменять задания может только администратор.');
       else if(state==='error')setAutomationBanner('error','Есть ошибка','Проверьте задания и готовность контура.');
       else if(state==='applying')setAutomationBanner('applying','Изменение применяется','Ждём совпадения требуемого и фактического режима.');
+      else if(!status.canManage)setAutomationBanner('ready','Режим просмотра','Изменять задания может только администратор.');
       else setAutomationBanner('ready','Состояние подтверждено','Переключатели показывают требуемый режим, лампы — фактический.');
       $('automationUpdated').textContent=status.generatedAt?`Обновлено ${displayTime(status.generatedAt)}`:'';
       const canMutate=automationCanMutate();

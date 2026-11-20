@@ -365,6 +365,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     "id": timer_id,
                     "name": timer_id,
                     "mutable": timer_id.startswith("managed_pc"),
+                    "desired_state": "on",
                     "actual_state": "healthy",
                     "schedule": schedule,
                 }
@@ -726,6 +727,20 @@ class ManagerMapBrowserTests(unittest.TestCase):
             self.page.locator('[data-job-id="crm-digest"] [role="switch"]').is_disabled()
         )
         self.assertTrue(self.page.locator("#addAutomation").is_disabled())
+
+        jobs = status["jobs"]
+        status["jobs"] = []
+        for health, label in (("error", "Есть ошибка"), ("applying", "Изменение применяется")):
+            with self.subTest(read_only_health=health):
+                status["controller"]["overall_state"] = health
+                self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+                self.page.locator("#automationStateTitle").get_by_text(label).wait_for(timeout=3000)
+                self.assertEqual(
+                    self.page.locator("#automationState").get_attribute("data-state"), health
+                )
+                self.assertTrue(self.page.locator("#addAutomation").is_disabled())
+        status["controller"].pop("overall_state")
+        status["jobs"] = jobs
 
         mode.update(state="stale", can_manage=True)
         self.page.evaluate("window.dispatchEvent(new Event('focus'))")
