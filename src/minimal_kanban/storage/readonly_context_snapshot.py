@@ -464,6 +464,7 @@ class CommittedCardSource:
             for name in ("columns", "cards", "clients", "events", "settings", "stickies")
             if name in state
         }
+        self._client_search_snapshots = {}
         self._cards = _index(cards)
         self._clients = _index(clients)
         self._positions = {}
@@ -478,6 +479,19 @@ class CommittedCardSource:
                 if card_id:
                     self._events_by_card.setdefault(card_id, []).append(event)
         self._columns, _ = store._normalize_columns(state)
+
+    def for_client_search(self, store, domains):
+        """Reuse search projections while the caller retains this verified generation."""
+        snapshot = self._client_search_snapshots.get(domains)
+        if snapshot is None:
+            snapshot = build_context_snapshot(
+                store,
+                self.context_state,
+                domains,
+                read_search_clients=store._read_search_client_profiles,
+            )
+            self._client_search_snapshots[domains] = snapshot
+        return snapshot
 
     def for_card(self, store, requested_id):
         key = str(requested_id) if requested_id else ""

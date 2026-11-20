@@ -646,22 +646,16 @@ class JsonStore:
         from .readonly_context_snapshot import build_context_snapshot
 
         domain_key = tuple(sorted(domains))
-        if not _SNAPSHOT_REQUIRES_FILE_LOCK:
-            # Capture the file signature and its detached snapshot as one pair.
-            # A writer preparing a replacement can leave this version current.
-            cached = self._context_snapshots.get(domain_key)
-            if cached is not None and cached[0] == self._repair_order_file_signature():
-                return cached[1]
-        guard = (
-            self._process_lock.acquire(existing_only=True)
-            if _SNAPSHOT_REQUIRES_FILE_LOCK
-            else nullcontext()
-        )
+        if _SNAPSHOT_REQUIRES_FILE_LOCK:
+            return self._read_file_locked_context_snapshot(domain_key)
+        # Capture the file signature and its detached snapshot as one pair.
+        # A writer preparing a replacement can leave this version current.
+        cached = self._context_snapshots.get(domain_key)
+        if cached is not None and cached[0] == self._repair_order_file_signature():
+            return cached[1]
         with self._snapshot_lock:
             with self._lock:
-                signature = (
-                    None if _SNAPSHOT_REQUIRES_FILE_LOCK else self._repair_order_file_signature()
-                )
+                signature = self._repair_order_file_signature()
                 if signature is not None and signature == self._context_snapshot_signature:
                     cached = self._context_snapshots.get(domain_key)
                     if cached is not None:
@@ -674,22 +668,43 @@ class JsonStore:
                 state = self._decoded_context_for_signature(signature)
             # POSIX writers replace the file atomically. Parse this independent
             # version outside the store lock; publish only if it is still current.
-            with self._lock if _SNAPSHOT_REQUIRES_FILE_LOCK else nullcontext(), guard:
-                if state is None:
-                    state = self._read_state(preserve_corrupted=False)
-                snapshot = build_context_snapshot(
-                    self, state, domain_key, read_search_clients=self._read_search_client_profiles
-                )
+            if state is None:
+                state = self._read_state(preserve_corrupted=False)
+            snapshot = build_context_snapshot(
+                self, state, domain_key, read_search_clients=self._read_search_client_profiles
+            )
             with self._lock:
                 if signature is not None and signature == self._repair_order_file_signature():
-                    if signature != self._context_snapshot_signature:
-                        self._context_snapshots.clear()
                     self._context_snapshot_signature = signature
                     # Each variant indexes the same immutable raw dictionaries,
                     # rather than retaining another decoded full state file.
                     self._context_snapshot_state = state
                     self._context_snapshots[domain_key] = (signature, snapshot)
             return snapshot
+
+    def _read_file_locked_context_snapshot(self, domain_key):
+        from .readonly_context_snapshot import build_context_snapshot
+        from .windows_state_verifier import verified_committed_file
+
+        with self._snapshot_lock:
+            with self._lock, self._process_lock.acquire(existing_only=True):
+                source = None
+                cached = self._committed_card_source
+                if cached is not None and sys.platform == "win32" and "client_search" in domain_key:
+                    with verified_committed_file(self._state_file, cached[1]) as verified:
+                        if verified is not None and verified.current():
+                            source = cached[2]
+                    if source is None:
+                        self._committed_card_source = None
+                if source is None:
+                    return build_context_snapshot(
+                        self,
+                        self._read_state(preserve_corrupted=False),
+                        domain_key,
+                        read_search_clients=self._read_search_client_profiles,
+                    )
+            # The verified source is detached from subsequent writes.
+            return source.for_client_search(self, domain_key)
 
     def _decoded_context_for_signature(self, signature):
         # Called under the store lock. A missing signature keeps the file-lock path.

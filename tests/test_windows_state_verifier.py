@@ -6,12 +6,13 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
-from minimal_kanban.storage import json_store, windows_state_verifier
+from minimal_kanban.storage import json_store, readonly_context_snapshot, windows_state_verifier
 from minimal_kanban.storage.file_lock import ProcessFileLock
 
 
@@ -220,3 +221,91 @@ class WindowsCommittedCardLockTests(CardServiceCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows share modes")
     def test_native_windows_read_holds_existing_lock(self):
         self._assert_verified_read_holds_lock()
+
+    def _assert_client_search_reuses_verified_snapshot(self):
+        self.service.create_client({"display_name": "SYNTHETIC_WIN_ONE"})
+        self.assertIsNotNone(self.store._committed_card_source)
+        peer = ProcessFileLock(self.state_file.with_suffix(".lock"), timeout_seconds=0)
+        original_verify = windows_state_verifier.verified_committed_file
+        original_build = readonly_context_snapshot.build_context_snapshot
+
+        @contextmanager
+        def verify_while_locked(*args):
+            with self.assertRaises(TimeoutError):
+                with peer.acquire(existing_only=True):
+                    pass
+            with original_verify(*args) as verified:
+                yield verified
+
+        def build_without_file_lock(*args, **kwargs):
+            with peer.acquire(existing_only=True):
+                return original_build(*args, **kwargs)
+
+        with (
+            patch.object(windows_state_verifier, "verified_committed_file", verify_while_locked),
+            patch.object(
+                readonly_context_snapshot,
+                "build_context_snapshot",
+                side_effect=build_without_file_lock,
+            ) as build,
+            patch.object(self.store, "_read_state", wraps=self.store._read_state) as read,
+        ):
+            for search in (self.service.search_clients, self.service.search_clients_readonly):
+                first = search({"query": "SYNTHETIC_WIN_ONE"})
+                first["clients"][0]["name"] = "SYNTHETIC_CALLER_EDIT"
+                fresh = search({"query": "SYNTHETIC_WIN_ONE"})
+                self.assertEqual(fresh["clients"][0]["name"], "SYNTHETIC_WIN_ONE")
+        read.assert_not_called()
+        build.assert_called_once()
+
+        lock_path = self.state_file.with_suffix(".lock")
+        lock_path.unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.service.search_clients({"query": "SYNTHETIC_WIN_ONE"})
+        self.assertFalse(lock_path.exists())
+
+    def test_simulated_windows_client_search_reuses_verified_snapshot(self):
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(json_store.sys, "platform", "win32"),
+            patch.object(
+                windows_state_verifier,
+                "_open_read_without_writers",
+                side_effect=lambda path: path.open("rb"),
+            ),
+        ):
+            self._assert_client_search_reuses_verified_snapshot()
+
+    def test_windows_client_search_rechecks_bytes_after_restored_mtime(self):
+        self.service.create_client({"display_name": "SYNTHETIC_WIN_ONE"})
+        old_query = {"query": "SYNTHETIC_WIN_ONE"}
+        new_query = {"query": "SYNTHETIC_WIN_TWO"}
+        search = self.service.search_clients_readonly
+        with (
+            patch.object(json_store, "_SNAPSHOT_REQUIRES_FILE_LOCK", True),
+            patch.object(json_store.sys, "platform", "win32"),
+            patch.object(
+                windows_state_verifier,
+                "_open_read_without_writers",
+                side_effect=lambda path: path.open("rb"),
+            ),
+            patch.object(self.store, "_read_state", wraps=self.store._read_state) as read,
+        ):
+            self.assertEqual(search(old_query)["clients"][0]["name"], "SYNTHETIC_WIN_ONE")
+            read.assert_not_called()
+            previous = self.state_file.stat()
+            changed = self.state_file.read_bytes().replace(
+                b"SYNTHETIC_WIN_ONE", b"SYNTHETIC_WIN_TWO"
+            )
+            self.assertEqual(len(changed), previous.st_size)
+            self.state_file.write_bytes(changed)
+            os.utime(self.state_file, ns=(previous.st_atime_ns, previous.st_mtime_ns))
+            self.assertEqual(self.state_file.stat().st_mtime_ns, previous.st_mtime_ns)
+            self.assertEqual(search(new_query)["clients"][0]["name"], "SYNTHETIC_WIN_TWO")
+            self.assertIsNone(self.store._committed_card_source)
+            read.assert_called_once_with(preserve_corrupted=False)
+        self.assertEqual(self.state_file.read_bytes(), changed)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows share modes")
+    def test_native_windows_client_search_reuses_verified_snapshot(self):
+        self._assert_client_search_reuses_verified_snapshot()

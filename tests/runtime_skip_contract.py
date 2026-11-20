@@ -49,6 +49,10 @@ LINUX_WINDOWS_SHARE_CASES = frozenset(
     {
         ("VerifiedWindowsFileTests", "test_native_handle_excludes_writes_and_rename"),
         ("WindowsCommittedCardLockTests", "test_native_windows_read_holds_existing_lock"),
+        (
+            "WindowsCommittedCardLockTests",
+            "test_native_windows_client_search_reuses_verified_snapshot",
+        ),
     }
 )
 
