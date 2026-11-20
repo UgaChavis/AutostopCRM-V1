@@ -113,6 +113,12 @@ class BoardModuleAssetsTests(unittest.TestCase):
                     BOARD_WEB_APP_JS,
                 )
             )
+            expected.update(
+                re.findall(
+                    rf"boardModuleRecords\.get\(['\"]{re.escape(group)}['\"]\)\?\.exports\?\.([A-Za-z_$][\w$]*)\(",
+                    BOARD_WEB_APP_JS,
+                )
+            )
             if group in {"printing", "auxiliary", "cashbox_ops", "payroll", "inventory"}:
                 expected.add("resetViewer")
             self.assertEqual(actual, expected, group)
@@ -209,6 +215,50 @@ assert.deepEqual(calls, [null, prepared, unsaved]);
                 signature = f"function {function}("
                 self.assertNotIn(signature, BOARD_WEB_APP_JS)
                 self.assertIn(signature, module)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required")
+    def test_cold_card_seen_receipt_check_is_synchronous_and_passive(self) -> None:
+        proxy = re.search(
+            r"^    function hasConfirmedCardSeenReceipt\(\.\.\.args\) .*?$",
+            BOARD_WEB_APP_JS,
+            re.M,
+        )
+        self.assertIsNotNone(proxy)
+        optimistic = functions("app_main_before_printing.js", "markCardSeenOptimistically")
+        script = f"""
+const assert = require('node:assert/strict');
+const boardModuleRecords = new Map();
+const card = {{id: 'card', updated_at: 'revision', is_unread: true, has_unseen_update: true}};
+const state = {{activeCard: card}};
+const suppressions = [];
+function invokeBoardModule() {{ throw new Error('Unexpected module load'); }}
+function clearUnreadHoverTimer() {{}}
+function snapshotCardById() {{ return card; }}
+function boardCardElementsById() {{ return []; }}
+function recordCardSeenSuppression(...args) {{ suppressions.push(args); }}
+{proxy.group()}
+{optimistic}
+assert.equal(hasConfirmedCardSeenReceipt('card'), false);
+boardModuleRecords.set('card_save', {{exports: null}});
+assert.equal(markCardSeenOptimistically('card'), true);
+assert.deepEqual(suppressions, [['card', 'revision']]);
+assert.equal(card.is_unread, false);
+assert.equal(card.has_unseen_update, false);
+boardModuleRecords.get('card_save').exports = {{hasConfirmedCardSeenReceipt: id => id === 'card'}};
+assert.equal(hasConfirmedCardSeenReceipt('other'), false);
+assert.equal(markCardSeenOptimistically('card'), false);
+assert.equal(suppressions.length, 1);
+"""
+        result = subprocess.run(
+            ["node"],
+            input=script,
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=15,
+            encoding="utf-8",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_startup_javascript_stays_within_payload_budget(self) -> None:
         # Cashbox and permission updates bring the measured script to 1,001,502 bytes.

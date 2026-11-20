@@ -140,11 +140,21 @@ _CASH_JOURNAL_CORE = _function_chunk(_read_source_chunk("cash_journal.js"), "cas
 
 
 def _module_proxies(group: str, source: str, public_names: set[str]) -> str:
-    return "\n".join(
-        f"    function {name}(...args) {{ return invokeBoardModule({json.dumps(group)}, {json.dumps(name)}, args{', true' if name.startswith('close') or name in _PASSIVE_MODULE_FUNCTIONS else ''}); }}"
-        for name in _function_names(source)
-        if name != "cashJournalLinkFlags" and name in public_names
-    )
+    proxies = []
+    module_name = json.dumps(group)
+    for name in _function_names(source):
+        if name == "cashJournalLinkFlags" or name not in public_names:
+            continue
+        if (group, name) == ("card_save", "hasConfirmedCardSeenReceipt"):
+            # Opening a card checks this synchronously before any receipt can exist.
+            call = f"boardModuleRecords.get({module_name})?.exports?.{name}(...args) ?? false"
+        else:
+            passive = (
+                ", true" if name.startswith("close") or name in _PASSIVE_MODULE_FUNCTIONS else ""
+            )
+            call = f"invokeBoardModule({module_name}, {json.dumps(name)}, args{passive})"
+        proxies.append(f"    function {name}(...args) {{ return {call}; }}")
+    return "\n".join(proxies)
 
 
 def _expand_board_source(

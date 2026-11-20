@@ -107,7 +107,7 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
         self.assertIn("НЕВОЗМОЖНО ПРОВЕРИТЬ", self.page.locator("#statusLine").inner_text())
 
     def test_mobile_save_cold_module_cannot_write_after_viewer_reset(self):
-        card_id = self.create_card("SYNTHETIC COLD MOBILE")
+        card_id = self.create_card("SYNTHETIC COLD MOBILE", mark_unread=False)
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.load_board()
         self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
@@ -115,9 +115,7 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
             "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
         )
         self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC COLD DRAFT")
-        self.assertFalse(
-            self.page.evaluate("Boolean(boardModuleRecords.get('card_save')?.exports)")
-        )
+        self.assertFalse(self.page.evaluate("boardModuleRecords.has('card_save')"))
         held = []
         module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
         self.page.route("**" + module_path, lambda route: held.append(route))
@@ -134,7 +132,7 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.stored_card(card_id)["title"], "SYNTHETIC COLD MOBILE")
 
     def test_mobile_save_module_load_error_is_local_and_preserves_draft(self):
-        card_id = self.create_card("SYNTHETIC MOBILE MODULE")
+        card_id = self.create_card("SYNTHETIC MOBILE MODULE", mark_unread=False)
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.load_board()
         self.page.locator(f'[data-mobile-card-id="{card_id}"]').click()
@@ -142,9 +140,11 @@ class CardClientLinkReceiptBrowserTests(UiBrowserTestCase):
             "id => state.mobileCardId === id && !state.mobileCardLoading", arg=card_id
         )
         self.page.locator("#mobileCardTitleInput").fill("SYNTHETIC MODULE DRAFT")
+        self.assertFalse(self.page.evaluate("boardModuleRecords.has('card_save')"))
         module_path = self.page.evaluate("BOARD_MODULE_MANIFEST.card_save")
         self.page.route("**" + module_path, lambda route: route.abort("failed"))
-        self.page.locator("#mobileCardSaveButton").click()
+        with self.page.expect_request("**" + module_path):
+            self.page.locator("#mobileCardSaveButton").click()
         self.page.wait_for_function("!state.mobileCardSaving")
         self.assertEqual(self.writes.count("update_card"), 0)
         self.assertFalse(
