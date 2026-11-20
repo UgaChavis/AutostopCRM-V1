@@ -122,6 +122,21 @@ class CardClientSuggestionsBrowserTests(UiBrowserTestCase):
         self.assertEqual(self.name.input_value(), "INFLIGHT")
         self.assertFalse(self.page.locator("#clientMatchPanel").is_visible())
 
+        title.click()
+        self.page.clock.run_for(500)
+        self.assertEqual(self.requests["INFLIGHT"], 1)
+        self.assertFalse(self.page.locator("#clientMatchPanel").is_visible())
+
+        self.enter("EDITED")
+        self.reply("EDITED", [{"id": "edited", "display_name": "Synthetic edited"}])
+        edited = self.page.locator('[data-client-suggestion="edited"]')
+        edited.wait_for()
+        self.name.press("Escape")
+        title.click()
+        self.page.clock.run_for(500)
+        self.assertEqual(self.requests["EDITED"], 1)
+        self.assertFalse(edited.is_visible())
+
     def test_close_then_reopen_and_retry_after_network_failure(self):
         self.enter("SYNTHETIC")
         with self.page.expect_event(

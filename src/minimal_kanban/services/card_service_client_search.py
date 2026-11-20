@@ -91,7 +91,8 @@ class CardServiceClientSearchMixin:
                     vehicle.drivetrain,
                 ]
             )
-        return "".join(re.sub(r"\D+", "", str(value or "")) for value in values)
+        # Preserve field boundaries so a query cannot match digits from two fields.
+        return " ".join(re.sub(r"\D+", "", str(value or "")) for value in values)
 
     def _client_direct_digit_values(self, client: ClientProfile) -> set[str]:
         values = [

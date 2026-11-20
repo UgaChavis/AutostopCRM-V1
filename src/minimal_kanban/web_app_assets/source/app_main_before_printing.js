@@ -3642,7 +3642,7 @@
       const top = stack[stack.length - 1] || null;
       if (!top?.key) return false;
       if (top.key === 'card' && (state.clientSuggestTimer || state.clientSuggestionRequests.size)) {
-        hideClientSuggestions();
+        hideClientSuggestions({ preserveSignature: true });
         return true;
       }
       closeNamedModal(top.key);
@@ -4818,9 +4818,9 @@
       }
     }
 
-    function hideClientSuggestions() {
+    function hideClientSuggestions({ preserveSignature = false } = {}) {
       state.clientSuggestionGeneration++;
-      state.clientSuggestionSignature = null;
+      if (!preserveSignature) state.clientSuggestionSignature = null;
       window.clearTimeout(state.clientSuggestTimer);
       state.clientSuggestTimer = null;
       cancelObsoleteClientSuggestionRequests();
@@ -5357,7 +5357,7 @@
       if (!els.clientMatchPanel?.classList.contains('is-visible')) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        hideClientSuggestions();
+        hideClientSuggestions({ preserveSignature: true });
         return;
       }
       if (event.key === 'ArrowDown') {

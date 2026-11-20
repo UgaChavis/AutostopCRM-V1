@@ -35,6 +35,24 @@ class ClientVehicleSearchTests(CardServiceCase):
         self.assertEqual(search["clients"][0]["vehicles_preview"][0]["vehicle"], "Toyota Probox")
         self.assertTrue(search["clients"][0]["vehicles_preview"][0]["id"])
 
+    def test_numeric_search_does_not_join_separate_vehicle_fields(self) -> None:
+        client = self.service.create_client(
+            {
+                "display_name": "Синтетический клиент",
+                "vehicles": [
+                    {"vehicle": "Тестовый автомобиль", "year": 2020, "chassis_number": "731859"}
+                ],
+            }
+        )["client"]
+
+        for search in (self.service.search_clients, self.service.search_clients_readonly):
+            with self.subTest(search=search.__name__):
+                self.assertEqual(search({"query": "207318"})["clients"], [])
+                for query in ("2020", "31859"):
+                    self.assertEqual(
+                        [item["id"] for item in search({"query": query})["clients"]], [client["id"]]
+                    )
+
     def test_suggest_clients_for_card_uses_related_card_vehicle_fields(self) -> None:
         client = self.service.create_client({"display_name": "Клиент из истории VIN"})["client"]
         self.service.create_card(
