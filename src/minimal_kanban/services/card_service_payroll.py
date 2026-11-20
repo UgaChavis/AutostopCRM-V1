@@ -49,7 +49,11 @@ from .payroll_constants import (
 from .payroll_constants import (
     repair_order_payroll_scheme as _repair_order_payroll_scheme,
 )
-from .payroll_read_snapshot import detach_employee_list_inputs
+from .payroll_read_snapshot import (
+    SalaryReportCard,
+    detach_employee_list_inputs,
+    detach_salary_report_cards,
+)
 from .payroll_report_text import employee_salary_report_text
 from .payroll_snapshot_preservation import preserve_repair_order_payroll_snapshots
 
@@ -1431,7 +1435,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
 
     def _build_employee_salary_report(
         self,
-        cards: list[Card],
+        cards: list[SalaryReportCard],
         employee: dict[str, Any],
         *,
         month: str,
@@ -1441,7 +1445,6 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
         employee_id = employee["id"]
         period = self._employee_salary_report_period(month)
         period_start, period_end = self._payroll_month_bounds(period["month"])
-        month_key = period["month"].replace("-", "")
         grouped_days: dict[str, dict[str, Any]] = {}
 
         for accrual in self._employee_weekly_base_salary_accruals(
@@ -1531,13 +1534,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             day_payload["_shift_accrual_total"] += amount
 
         for card in cards:
-            order = card.repair_order
-            if order.status != REPAIR_ORDER_STATUS_CLOSED:
-                continue
-            closed_sort_key = self._repair_order_closed_sort_value(card)
-            if not closed_sort_key.startswith(month_key):
-                continue
-            closed_at = self._parse_repair_order_business_datetime(order.closed_at)
+            closed_at = self._parse_repair_order_business_datetime(card.closed_at)
             if closed_at is None:
                 continue
             works: list[dict[str, Any]] = []
@@ -1548,10 +1545,8 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             material_cost_total = Decimal("0")
             material_profit_total = Decimal("0")
             material_accrued_total = Decimal("0")
-            for source_row in order.works:
-                row = RepairOrderRow.from_dict(
-                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
-                )
+            for source_row in card.works:
+                row = RepairOrderRow.from_dict(source_row)
                 if self._work_salary_employee_id(row) != employee_id or not row.salary_accrued_at:
                     continue
                 row_total = self._work_salary_total(row)
@@ -1583,10 +1578,8 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 )
                 work_total += row_total
                 work_accrued_total += row_accrued
-            for source_row in order.materials:
-                row = RepairOrderRow.from_dict(
-                    source_row.to_dict() if isinstance(source_row, RepairOrderRow) else source_row
-                )
+            for source_row in card.materials:
+                row = RepairOrderRow.from_dict(source_row)
                 if (
                     self._material_salary_employee_id(row) != employee_id
                     or not row.material_salary_accrued_at
@@ -1643,11 +1636,11 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                 continue
 
             plate = (
-                normalize_license_plate(order.license_plate, limit=40)
-                or normalize_license_plate(card.vehicle_profile.registration_plate, limit=40)
+                normalize_license_plate(card.license_plate, limit=40)
+                or normalize_license_plate(card.registration_plate, limit=40)
                 or "-"
             )
-            vehicle = order.vehicle or card.vehicle_display() or "-"
+            vehicle = card.vehicle or "-"
             order_totals = self._employee_salary_report_totals_payload(
                 repair_order_count=1,
                 work_count=len(works),
@@ -1661,7 +1654,7 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
             )
             order_payload = {
                 "card_id": card.id,
-                "repair_order_number": order.number or "-",
+                "repair_order_number": card.number or "-",
                 "closed_at": closed_at.strftime("%d.%m.%Y %H:%M"),
                 "closed_at_iso": closed_at.isoformat(),
                 "vehicle": vehicle,
@@ -1866,34 +1859,41 @@ class CardServicePayrollMixin(CardServiceSalaryLedgerMixin):
                     status_code=404,
                     details={"employee_id": employee_id},
                 )
-            report = self._build_employee_salary_report(
-                bundle["cards"],
-                employee,
-                month=month,
-                shift_accruals=shift_accruals,
-                repair_order_accruals=repair_order_accruals,
+            month_key = month.replace("-", "")
+            cards = detach_salary_report_cards(
+                card
+                for card in bundle["cards"]
+                if card.repair_order.status == REPAIR_ORDER_STATUS_CLOSED
+                and self._repair_order_closed_sort_value(card).startswith(month_key)
             )
-            return {
-                "employee_id": employee_id,
-                "employee_name": employee["name"],
-                "period": report["period"],
-                "file_name": normalize_file_name(
-                    f"employee-accrual-report-{employee['name']}-{report['period']['month']}.md"
-                ),
-                "text": report["text"],
-                "markdown": report["markdown"],
-                "days": report["days"],
-                "totals": report["totals"],
-                "meta": {
-                    "schema_version": "employee_salary_report.v3",
-                    "month": report["period"]["month"],
-                    "days_total": len(report["days"]),
-                    "repair_order_total": report["totals"]["repair_order_count"],
-                    "work_count": report["totals"]["work_count"],
-                    "repair_order_accrual_count": report["totals"]["repair_order_accrual_count"],
-                    "accrued_total": report["totals"]["accrued_total"],
-                },
-            }
+        report = self._build_employee_salary_report(
+            cards,
+            employee,
+            month=month,
+            shift_accruals=shift_accruals,
+            repair_order_accruals=repair_order_accruals,
+        )
+        return {
+            "employee_id": employee_id,
+            "employee_name": employee["name"],
+            "period": report["period"],
+            "file_name": normalize_file_name(
+                f"employee-accrual-report-{employee['name']}-{report['period']['month']}.md"
+            ),
+            "text": report["text"],
+            "markdown": report["markdown"],
+            "days": report["days"],
+            "totals": report["totals"],
+            "meta": {
+                "schema_version": "employee_salary_report.v3",
+                "month": report["period"]["month"],
+                "days_total": len(report["days"]),
+                "repair_order_total": report["totals"]["repair_order_count"],
+                "work_count": report["totals"]["work_count"],
+                "repair_order_accrual_count": report["totals"]["repair_order_accrual_count"],
+                "accrued_total": report["totals"]["accrued_total"],
+            },
+        }
 
     def list_employees(self, payload: dict | None = None) -> dict:
         payload = payload or {}

@@ -1,4 +1,4 @@
-"""Detach the inputs consumed by employee-list payroll reads, under the service lock.
+"""Detach the inputs consumed by payroll reads, under the service lock.
 
 Card activity, attachments and unrelated settings are deliberately outside this
 read model. Repair orders and salary sources remain complete independent copies;
@@ -7,12 +7,13 @@ the existing calculators continue to own every financial rule.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass, fields
 from functools import lru_cache
 from typing import Any
 
-from ..models import CashBox, CashTransaction
+from ..models import Card, CashBox, CashTransaction
 from ..repair_order import RepairOrder, RepairOrderPayment, RepairOrderRow, RepairOrderTag
 
 PAYROLL_READ_SETTING_KEYS = (
@@ -28,6 +29,18 @@ class PayrollReadCard:
     id: str
     vehicle: str
     repair_order: RepairOrder
+
+
+@dataclass(frozen=True, slots=True)
+class SalaryReportCard:
+    id: str
+    number: str
+    closed_at: str
+    vehicle: str
+    license_plate: str
+    registration_plate: str
+    works: list[dict[str, Any]]
+    materials: list[dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,3 +126,27 @@ def detach_employee_list_inputs(bundle: dict[str, Any]) -> dict[str, Any]:
         },
         {},
     )
+
+
+def detach_salary_report_cards(cards: Iterable[Card]) -> list[SalaryReportCard]:
+    """Detach the orders and vehicle labels required by one monthly report."""
+    results = []
+    for card in cards:
+        order = card.repair_order
+        results.append(
+            SalaryReportCard(
+                id=card.id,
+                number=order.number,
+                closed_at=order.closed_at,
+                vehicle=order.vehicle or card.vehicle_display(),
+                license_plate=order.license_plate,
+                registration_plate=card.vehicle_profile.registration_plate,
+                works=_salary_report_rows(order.works),
+                materials=_salary_report_rows(order.materials),
+            )
+        )
+    return results
+
+
+def _salary_report_rows(rows: Iterable[RepairOrderRow]) -> list[dict[str, Any]]:
+    return [row.to_dict() if isinstance(row, RepairOrderRow) else _detach(row, {}) for row in rows]

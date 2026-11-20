@@ -31,6 +31,40 @@ from minimal_kanban.storage.json_store import JsonStore  # noqa: E402
 
 
 class ListEmployeesSnapshotTests(unittest.TestCase):
+    def test_salary_report_uses_one_snapshot_while_new_accrual_is_saved(self) -> None:
+        employee = self.service.save_employee(
+            {"name": "Synthetic employee", "salary_mode": "none"}
+        )["employee"]
+        query = {"employee_id": employee["id"], "month": "2026-11"}
+        accrual = {"employee_id": employee["id"], "created_at": "2026-11-20T12:00:00+07:00"}
+        self.service.create_employee_shift_accrual({**accrual, "amount_minor": 100})
+        started = threading.Event()
+        resume = threading.Event()
+        build = self.service._build_employee_salary_report
+
+        def pause_report(*args, **kwargs):
+            started.set()
+            self.assertTrue(resume.wait(10))
+            return build(*args, **kwargs)
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            with patch.object(
+                self.service, "_build_employee_salary_report", side_effect=pause_report
+            ):
+                pending = workers.submit(self.service.get_employee_salary_report, query)
+                try:
+                    self.assertTrue(started.wait(5))
+                    workers.submit(
+                        self.service.create_employee_shift_accrual, {**accrual, "amount_minor": 200}
+                    ).result(timeout=5)
+                finally:
+                    resume.set()
+                report = pending.result(timeout=5)
+
+        self.assertEqual(report["totals"]["shift_accrual_total_minor"], 100)
+        latest = self.service.get_employee_salary_report(query)
+        self.assertEqual(latest["totals"]["shift_accrual_total_minor"], 300)
+
     def test_detached_projection_matches_deepcopy_and_preserves_shared_nested_sources(self) -> None:
         employee = self.service.save_employee(
             {"name": "Общие вложенные данные", "salary_mode": "none"}
