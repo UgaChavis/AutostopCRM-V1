@@ -7,8 +7,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import ModuleType
-from unittest.mock import patch
+from types import ModuleType, SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "check_live_connector.py"
@@ -72,6 +72,64 @@ class OversizedResponse(FakeResponse):
         if size is None or size < 0:
             size = 1
         return b"x" * size
+
+
+class LiveConnectorMcpTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcp_probe_requires_backend_checks_and_reports_maintenance_separately(self):
+        module = load_live_connector_module()
+        names = (
+            "ping_connector",
+            "agent_bootstrap",
+            "agent_board_digest",
+            "get_runtime_status",
+            "get_connector_identity",
+            *(f"synthetic_tool_{index}" for index in range(19)),
+        )
+        metadata = {"securitySchemes": [{"type": "oauth2", "scopes": module.DEFAULT_KANBAN_SCOPES}]}
+        tools = SimpleNamespace(tools=[SimpleNamespace(name=name, meta=metadata) for name in names])
+        for condition in ("ready", "maintenance", "legacy", "health_failed", "context_failed"):
+            with self.subTest(condition=condition):
+                runtime = {
+                    "api_health": {"status": "ok", "maintenance_mode": condition == "maintenance"},
+                    "board_context": {"context": {}},
+                }
+                if condition == "health_failed":
+                    runtime.update(api_health=None, api_health_error={"code": "synthetic"})
+                if condition == "context_failed":
+                    runtime.update(board_context=None, board_context_error={"code": "synthetic"})
+                readiness = "ready" if condition == "ready" else "degraded"
+                payload = {
+                    "ok": True,
+                    "status": readiness,
+                    "data": {"runtime_status": runtime},
+                }
+                if condition == "legacy":
+                    payload.pop("status")
+
+                async def call_tool(name, _arguments):
+                    return SimpleNamespace(
+                        isError=False,
+                        structuredContent=payload if name == "get_runtime_status" else {"ok": True},
+                    )
+
+                session = SimpleNamespace(
+                    list_tools=AsyncMock(return_value=tools), call_tool=call_tool
+                )
+                result = await module._collect_mcp_probe_result(session, {"checked": True})
+                confirmed = condition in ("ready", "maintenance", "legacy")
+                self.assertEqual(confirmed, result["runtime_ok"])
+                self.assertEqual(confirmed, result["ok"])
+                self.assertEqual(payload, result["runtime_data"])
+                if confirmed:
+                    output = io.StringIO()
+                    with patch.object(sys, "stdout", output):
+                        module._print_mcp(result)
+                    if condition == "legacy":
+                        self.assertIn("runtime_status: ok", output.getvalue())
+                    else:
+                        self.assertIn(f"runtime_readiness: {readiness}", output.getvalue())
+                else:
+                    self.assertEqual("mcp_runtime_probe_failed", result["error"])
 
 
 class LiveConnectorOutputTests(unittest.TestCase):

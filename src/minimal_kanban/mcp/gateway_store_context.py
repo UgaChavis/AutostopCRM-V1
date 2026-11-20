@@ -59,6 +59,21 @@ def bootstrap_store_context_summary(
     return summary, [] if ready else ["store_context_degraded"]
 
 
+def crm_runtime_probes_ok(runtime: object) -> bool:
+    """Confirm the API and board reads, including when maintenance blocks writes."""
+    if not isinstance(runtime, Mapping):
+        return False
+    health = runtime.get("api_health")
+    board = runtime.get("board_context")
+    return (
+        isinstance(health, Mapping)
+        and health.get("status") in ("ok", "healthy")
+        and isinstance(board, Mapping)
+        and isinstance(board.get("context"), Mapping)
+        and not (runtime.get("api_health_error") or runtime.get("board_context_error"))
+    )
+
+
 def runtime_status_payload(
     crm_payload: dict[str, Any], store_payload: dict[str, Any], *, store_requested: bool
 ) -> dict[str, Any]:
@@ -67,16 +82,9 @@ def runtime_status_payload(
     store_ok = bool(store_payload.get("ok"))
     data = dict(crm_payload.get("data") or {}) if isinstance(crm_payload.get("data"), dict) else {}
     runtime = data.get("runtime_status")
-    runtime = runtime if isinstance(runtime, Mapping) else {}
-    health = runtime.get("api_health")
-    board = runtime.get("board_context")
     crm_ready = (
-        isinstance(health, Mapping)
-        and health.get("status") in ("ok", "healthy")
-        and health.get("maintenance_mode", False) is False
-        and isinstance(board, Mapping)
-        and isinstance(board.get("context"), Mapping)
-        and not (runtime.get("api_health_error") or runtime.get("board_context_error"))
+        crm_runtime_probes_ok(runtime)
+        and runtime["api_health"].get("maintenance_mode", False) is False
     )
     data["store"] = {
         "ok": store_ok if store_requested else None,

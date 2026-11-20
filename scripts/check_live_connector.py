@@ -33,6 +33,7 @@ from minimal_kanban.config import (
 )
 from minimal_kanban.json_safety import reject_deeply_nested_json
 from minimal_kanban.mcp.client import discover_board_api
+from minimal_kanban.mcp.gateway_store_context import crm_runtime_probes_ok
 from minimal_kanban.mcp.oauth_provider import DEFAULT_KANBAN_SCOPES
 from minimal_kanban.settings_models import IntegrationSettings
 from minimal_kanban.web_assets import BOARD_WEB_APP_JS_PATH
@@ -948,6 +949,12 @@ async def _collect_mcp_probe_result(
         await _capture_mcp_tool_result(
             session, result, "get_runtime_status", "runtime_ok", "runtime_data"
         )
+        envelope = result["runtime_data"] or {}
+        data = envelope.get("data", envelope)
+        runtime = data.get("runtime_status") if isinstance(data, dict) else None
+        if result["runtime_ok"] and not crm_runtime_probes_ok(runtime):
+            result["runtime_ok"] = False
+            result["error"] = "mcp_runtime_probe_failed"
 
     if result["has_get_connector_identity"]:
         await _capture_mcp_tool_result(
@@ -972,7 +979,7 @@ async def _collect_mcp_probe_result(
         ]
     )
     if not result["ok"]:
-        result["error"] = "mcp_surface_incomplete"
+        result["error"] = result.get("error") or "mcp_surface_incomplete"
     return result
 
 
@@ -1141,6 +1148,9 @@ def _print_mcp(report: dict[str, Any]) -> None:
         )
         print(f"connector_scope: {connector_scope}")
         print(f"runtime_status: {runtime_api_status}")
+        readiness = runtime_payload.get("status")
+        if readiness in ("ready", "degraded", "failed"):
+            print(f"runtime_readiness: {readiness}")
         print(f"gateway_format: {bootstrap_data.get('format', '<unknown>')}")
         summary = digest_data.get("summary") or {}
         print(f"digest_cards: {summary.get('returned', 0)}")

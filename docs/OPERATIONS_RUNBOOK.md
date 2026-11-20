@@ -899,6 +899,10 @@ docker compose exec -T autostopcrm python scripts/check_mcp_oauth.py --mcp-url h
 docker compose exec -T autostopcrm python scripts/docs_audit.py --format text
 ```
 
+The public connector check requires successful CRM API health and board
+context probes. During maintenance the read probes may pass while the report
+shows `runtime_readiness: degraded`.
+
 For deploy-persistence proof, save the smoke refresh state in a private
 mode-`0600` file with `--state-out`, redeploy, then pass the same path with
 `--refresh-from`. Omit `--state-out` on the last run so the smoke token family
