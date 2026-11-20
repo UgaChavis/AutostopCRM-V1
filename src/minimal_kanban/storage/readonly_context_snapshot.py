@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sys
+from collections import defaultdict
 from copy import deepcopy
 from threading import Lock
 
@@ -487,19 +488,20 @@ class CommittedCardSource:
             if name in state
         }
         self._contexts = {}
-        self._cards = _index(cards)
+        self._cards = defaultdict(list)
         self._clients = _index(clients)
         self._positions = {}
         for position, card in enumerate(cards):
             card_id = normalize_text(card.get("id"), limit=128)
             if card_id:
+                self._cards[card_id].append(card)
                 self._positions.setdefault(card_id, position)
-        self._events_by_card = {}
+        self._events_by_card = defaultdict(list)
         for event in events:
             if isinstance(event, dict):
                 card_id = normalize_text(event.get("card_id"), limit=128)
                 if card_id:
-                    self._events_by_card.setdefault(card_id, []).append(event)
+                    self._events_by_card[card_id].append(event)
         self._columns, _ = store._normalize_columns(state)
 
     def for_context(self, store, domains):
