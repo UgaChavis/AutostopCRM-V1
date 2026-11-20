@@ -138,7 +138,7 @@ class SnapshotCacheTests(unittest.TestCase):
         self.assertEqual(archived_cards.call_count, 1)
         self.assertEqual(stickies.call_count, 1)
 
-    def test_restricted_revision_counts_events_without_copying_details(self) -> None:
+    def test_restricted_snapshot_and_revision_count_events_without_copying_details(self) -> None:
         card_id = self._create_card()
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
         for action in ("repair_order_updated", "employee_salary_updated"):
@@ -159,19 +159,19 @@ class SnapshotCacheTests(unittest.TestCase):
         replacement.replace(self.state_file)
 
         view = {**self._compact_view(), "_operator_session": {"permissions": []}}
-        restricted = self.service.get_board_snapshot(view)
-        allowed = self.service.get_board_snapshot(self._compact_view())
-        self.assertEqual(
-            restricted["cards"][0]["events_count"] + 1, allowed["cards"][0]["events_count"]
-        )
-        self.snapshot_service._snapshot_cache = SnapshotResponseCache()
         with patch.object(
             snapshot_service_module,
             "visible_audit_events",
             wraps=snapshot_service_module.visible_audit_events,
         ) as project_events:
+            restricted = self.service.get_board_snapshot(view)
+            self.snapshot_service._snapshot_cache = SnapshotResponseCache()
             revision = self.service.get_board_revision(view)
         project_events.assert_not_called()
+        allowed = self.service.get_board_snapshot(self._compact_view())
+        self.assertEqual(
+            restricted["cards"][0]["events_count"] + 1, allowed["cards"][0]["events_count"]
+        )
         self.assertEqual(revision["revision"], restricted["meta"]["revision"])
 
     def test_external_store_write_changes_signature_and_invalidates_revision(self) -> None:

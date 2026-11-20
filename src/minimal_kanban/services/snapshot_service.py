@@ -145,7 +145,7 @@ class SnapshotService:
         self,
         cards: list[Card],
         *,
-        events: list[AuditEvent],
+        events: list[AuditEvent] | tuple[AuditEvent, ...] = (),
         column_labels: dict[str, str],
         event_counts: dict[str, int],
         viewer_username: str | None,
@@ -169,10 +169,11 @@ class SnapshotService:
         *,
         columns: list[Column],
         events: list[AuditEvent],
+        include_private: bool = True,
     ) -> tuple[dict[str, str], dict[str, int]]:
         if not cards:
             return {}, {}
-        return self._column_labels(columns), _event_counts(events)
+        return self._column_labels(columns), _event_counts(events, include_private=include_private)
 
     def _snapshot_revision(
         self,
@@ -312,11 +313,11 @@ class SnapshotService:
                 else []
             )
             stickies = self._stickies(bundle["stickies"])
-            events = visible_audit_events(payload, bundle["events"])
             column_labels, event_counts = self._card_serialization_context(
                 cards + archive,
                 columns=bundle["columns"],
-                events=events,
+                events=bundle["events"],
+                include_private=employees_cashboxes_access,
             )
             revision = str((cache_entry or {}).get("revision") or "")
             if not revision:
@@ -336,7 +337,6 @@ class SnapshotService:
             serialized_columns = [column.to_dict() for column in bundle["columns"]]
             serialized_cards = self._serialize_cards_payload(
                 cards,
-                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
@@ -344,7 +344,6 @@ class SnapshotService:
             )
             serialized_archive = self._serialize_cards_payload(
                 archive,
-                events=events,
                 column_labels=column_labels,
                 event_counts=event_counts,
                 viewer_username=viewer_username,
