@@ -37,6 +37,24 @@ PRINTING_ASYNC_CONTEXT_SCRIPT = r"""
       }
     }
 
+    async function refreshInspectionSheetPreview() {
+      const operation = capturePrintOperation('', { inspection: true });
+      const preview = await operation.wait(refreshRepairOrderPrintPreview({
+        selected_document_ids: ['inspection_sheet'],
+        active_document_id: 'inspection_sheet',
+      }));
+      if (preview?.documents?.some((document) => document.id === 'inspection_sheet')) return true;
+      delete repairOrderPrintState.previewByDocument?.inspection_sheet;
+      renderRepairOrderPrintPreview();
+      return false;
+    }
+
+    function showInspectionSheetPreviewFailure(savedMessage) {
+      const message = savedMessage + ' Предпросмотр не обновился.';
+      if (printEls.inspectionSheetFooterMeta) printEls.inspectionSheetFooterMeta.textContent = message;
+      setStatus(message, true);
+    }
+
     function scheduleCurrentPrintOperation(callback, delay, options = {}) {
       const operation = capturePrintOperation('', options);
       return window.setTimeout(() => { if (operation.current()) callback(); }, delay);

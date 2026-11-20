@@ -193,6 +193,66 @@ class PrintingHydrationOverlapBrowserTests(unittest.TestCase):
         self.assertEqual(remaining_failures, {})
         self.assertEqual(errors, [])
 
+    def test_acknowledged_inspection_save_survives_preview_failure(self) -> None:
+        from playwright.sync_api import expect
+
+        page = self.operator_context().new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        fail_next_preview = False
+        preview_failed = False
+        saves = 0
+
+        def save(route) -> None:
+            nonlocal saves, fail_next_preview
+            saves += 1
+            response = route.fetch()
+            fail_next_preview = response.ok
+            route.fulfill(response=response)
+
+        def preview(route) -> None:
+            nonlocal fail_next_preview, preview_failed
+            if fail_next_preview:
+                fail_next_preview = False
+                preview_failed = True
+                route.fulfill(
+                    status=503,
+                    json={"ok": False, "error": {"code": "synthetic_failure"}},
+                )
+            else:
+                route.continue_()
+
+        page.route("**/api/save_inspection_sheet_form", save)
+        page.route("**/api/preview_repair_order_print_documents", preview)
+        page.goto(self.runtime.browser_url)
+        page.wait_for_function(
+            "() => state.snapshot && state.operatorSessionToken && window.__AUTOSTOP_UI_BOUND__ === true"
+        )
+        page.locator(f'.card[data-card-id="{self.runtime.client_card_id}"]').click()
+        page.locator("#repairOrderButton").click()
+        page.locator("#repairOrderPrintButton").click()
+        page.locator('#repairOrderPrintDocuments [data-print-document="inspection_sheet"]').click()
+        action = page.locator("#repairOrderPrintDocumentsAction")
+        action.click()
+        form = page.locator("#inspectionSheetFormModal.is-open")
+        findings = form.locator("#inspectionSheetFindings")
+        findings.fill("Ведомость сохранена до сбоя чтения")
+        form.locator("#inspectionSheetFormApplyButton").click()
+        expect(form.locator("#inspectionSheetFormFooterMeta")).to_have_text(
+            "Ведомость сохранена. Предпросмотр не обновился.", timeout=3000
+        )
+        self.assertTrue(preview_failed)
+        expect(findings).to_have_value("Ведомость сохранена до сбоя чтения")
+        preview_body = page.frame_locator("#repairOrderPrintPreviewFrame").locator("body")
+        expect(preview_body).to_have_text("Выберите документ для предпросмотра.")
+
+        form.locator("#inspectionSheetFormCloseX").click()
+        action.click()
+        expect(findings).to_have_value("Ведомость сохранена до сбоя чтения")
+        expect(preview_body).to_contain_text("Ведомость сохранена до сбоя чтения")
+        self.assertEqual(saves, 1)
+        self.assertEqual(errors, [])
+
 
 if __name__ == "__main__":
     unittest.main()

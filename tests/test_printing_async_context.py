@@ -540,7 +540,7 @@ function setStatus(message,isError){statuses.push({message,isError});}
 
     def test_all_emitted_async_printing_requests_use_operation_guards(self) -> None:
         names = re.findall(r"^    async function (\w+)\(", PRINTING_WEB_MODULE_SCRIPT, re.MULTILINE)
-        self.assertEqual(len(names), 25)
+        self.assertEqual(len(names), 26)
         for name in names:
             with self.subTest(name=name):
                 source = function_source(name)
@@ -568,6 +568,38 @@ function setStatus(...status){statuses.push(status);}
   await pending;
   assert.equal(footer.textContent,'new editor');
   assert.deepEqual(statuses,[]);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        )
+
+    def test_autofill_keeps_saved_form_when_rendering_the_preview_fails(self) -> None:
+        self.run_javascript(
+            """
+const assert=require('node:assert/strict');
+const state={viewerStateGeneration:0,editingId:'A'};
+const repairOrderPrintState={mode:'card',previewByDocument:{inspection_sheet:{},invoice:{}}};
+const printEls={inspectionSheetFooterMeta:{},inspectionSheetAutofillButton:{disabled:false}};
+const statuses=[],applied=[];
+let renders=0;
+function setStatus(...status){statuses.push(status);}
+function applyInspectionSheetFormToInputs(form){applied.push(form);}
+function repairOrderPrintRequestPayload(data){return data;}
+async function api(){return {form:{findings:'Saved form'}};}
+async function refreshRepairOrderPrintPreview(){return null;}
+function renderRepairOrderPrintPreview(){renders++;}
+"""
+            + PRINTING_ASYNC_CONTEXT_SCRIPT
+            + function_source("autofillInspectionSheetFormDraft")
+            + """
+(async()=>{
+  await autofillInspectionSheetFormDraft();
+  assert.deepEqual(applied,[{findings:'Saved form'}]);
+  assert.deepEqual(repairOrderPrintState.previewByDocument,{invoice:{}});
+  const message='Автозаполнение сохранено. Предпросмотр не обновился.';
+  assert.equal(printEls.inspectionSheetFooterMeta.textContent,message);
+  assert.deepEqual(statuses,[[message,true]]);
+  assert.equal(printEls.inspectionSheetAutofillButton.disabled,false);
+  assert.equal(renders,1);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
         )

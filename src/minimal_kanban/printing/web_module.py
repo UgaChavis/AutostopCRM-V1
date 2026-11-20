@@ -1356,10 +1356,11 @@ _PRINTING_SCRIPT_PART2 = r"""
         }),
       });
       applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
-      await operation.wait(refreshRepairOrderPrintPreview({
-        selected_document_ids: ['inspection_sheet'],
-        active_document_id: 'inspection_sheet',
-      }));
+      const previewReady = await operation.wait(refreshInspectionSheetPreview());
+      if (!previewReady) {
+        showInspectionSheetPreviewFailure('Ведомость сохранена.');
+        return data;
+      }
       if (printEls.inspectionSheetFooterMeta) {
         printEls.inspectionSheetFooterMeta.textContent = 'Ведомость сохранена и применена к предпросмотру.';
       }
@@ -1380,10 +1381,11 @@ _PRINTING_SCRIPT_PART2 = r"""
           }),
         });
         applyInspectionSheetFormToInputs(data?.form || blankInspectionSheetForm());
-        await operation.wait(refreshRepairOrderPrintPreview({
-          selected_document_ids: ['inspection_sheet'],
-          active_document_id: 'inspection_sheet',
-        }));
+        const previewReady = await operation.wait(refreshInspectionSheetPreview());
+        if (!previewReady) {
+          showInspectionSheetPreviewFailure('Автозаполнение сохранено.');
+          return;
+        }
         const notes = Array.isArray(data?.autofill?.confidence_notes) ? data.autofill.confidence_notes : [];
         if (printEls.inspectionSheetFooterMeta) {
           printEls.inspectionSheetFooterMeta.textContent = notes.length
