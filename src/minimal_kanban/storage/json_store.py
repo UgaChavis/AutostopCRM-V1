@@ -106,7 +106,7 @@ def _serialized_state(
 ) -> tuple[dict[str, Any], bytes, str]:
     safe_state = state if already_safe else _json_safe_state(state)
     used_orjson = False
-    if fast_serializer and (trusted_safe or _supports_fast_state_serialization(safe_state)):
+    if fast_serializer and (trusted_safe or _has_only_finite_json_values(safe_state)):
         try:
             payload = orjson.dumps(safe_state)
             used_orjson = True
@@ -131,7 +131,7 @@ def _stdlib_state_payload(state: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def _supports_fast_state_serialization(value: Any) -> bool:
+def _has_only_finite_json_values(value: Any) -> bool:
     pending = [value]
     while pending:
         item = pending.pop()
@@ -470,12 +470,15 @@ class JsonStore:
         self._reconcile_change_feed_state_locked(state)
 
     def _reconcile_change_feed_state_locked(self, state: dict[str, Any]) -> None:
-        safe_state = _json_safe_state(state)
+        # Both disk reads and the cashbox handoff have already checked the
+        # depth of decoded JSON. Feed projection needs no copy of finite values.
+        if not _has_only_finite_json_values(state):
+            state = _json_safe_state(state)
         fingerprint = self._state_file_fingerprint()
         self._change_feed_store.reconcile_state(
             fingerprint,
-            safe_state.get("events"),
-            state=safe_state,
+            state.get("events"),
+            state=state,
         )
         self._change_feed_initialized = True
         self._change_feed_state_signature = self._state_signature()

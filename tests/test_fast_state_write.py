@@ -240,7 +240,7 @@ class FastStateWriteTests(unittest.TestCase):
             ) as fast_dumps,
             patch.object(
                 json_store_module,
-                "_supports_fast_state_serialization",
+                "_has_only_finite_json_values",
                 side_effect=AssertionError("trusted cached writes must skip the safety scan"),
             ) as safety_scan,
         ):

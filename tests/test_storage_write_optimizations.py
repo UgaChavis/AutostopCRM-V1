@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from minimal_kanban.logging_setup import close_logger
 from minimal_kanban.models import AuditEvent, Card, CardTag, parse_datetime
+from minimal_kanban.storage import json_store
 from minimal_kanban.storage.change_feed_projection import (
     cached_crm_source_signatures,
     project_crm_source_signatures,
@@ -184,6 +185,33 @@ class StorageWriteOptimizationTests(unittest.TestCase):
         replace.assert_called_once()
         self.assertNotEqual(self.state_file.read_bytes(), formatted)
         self.assertEqual(json.loads(self.state_file.read_bytes()), state)
+
+    def test_reconcile_reuses_finite_state_and_preserves_numeric_overflow_fallback(self):
+        self.seed_cards()
+        baseline_events = self.store.change_feed_store.raw_events_for_test()
+        reopened = JsonStore(self.state_file)
+        with patch.object(
+            json_store, "_json_safe_state", wraps=json_store._json_safe_state
+        ) as safe:
+            reopened.reconcile_change_feed()
+        safe.assert_not_called()
+        self.assertEqual(reopened.change_feed_store.raw_events_for_test(), baseline_events)
+
+        state = self.store._read_state()
+        state["settings"]["board_scale"] = "OVERFLOW"
+        external_bytes = json.dumps(state).replace('"OVERFLOW"', "1e999").encode()
+        self.state_file.write_bytes(external_bytes)
+        with patch.object(
+            json_store, "_json_safe_state", wraps=json_store._json_safe_state
+        ) as safe:
+            reopened.reconcile_change_feed()
+        safe.assert_called_once()
+        changes = reopened.change_feed_store.raw_events_for_test()[len(baseline_events) :]
+        self.assertEqual(
+            [(event["entity_type"], event["change_type"]) for event in changes],
+            [("board_settings", "update")],
+        )
+        self.assertEqual(self.state_file.read_bytes(), external_bytes)
 
     def test_missing_or_externally_changed_file_never_uses_unchanged_shortcut(self) -> None:
         for missing in (False, True):
