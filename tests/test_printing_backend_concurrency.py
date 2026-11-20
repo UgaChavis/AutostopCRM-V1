@@ -126,6 +126,61 @@ class PrintingBackendConcurrencyTests(unittest.TestCase):
                 self.assertEqual(status, 200, loaded)
                 self.assertEqual(loaded["data"]["form"], manual["data"]["form"])
 
+    def test_inspection_autofill_rejects_changed_order_source_and_allows_a_timer_edit(self):
+        for source_changed in (True, False):
+            with self.subTest(source_changed=source_changed):
+                query = {"card_id": self.create_printable_card()}
+                status, original = self.request(
+                    "/api/update_repair_order",
+                    {**query, "repair_order": {"reason": "Original reason"}},
+                )
+                self.assertEqual(status, 200, original)
+                entered, release = threading.Event(), threading.Event()
+
+                def delayed_model(**kwargs):
+                    entered.set()
+                    self.assertTrue(release.wait(10), "Synthetic model was not released")
+                    return {"findings": "Built from the supplied reason"}
+
+                with (
+                    patch("minimal_kanban.services.card_service.OpenAIJsonAgentClient") as factory,
+                    ThreadPoolExecutor(max_workers=1) as worker,
+                ):
+                    factory.return_value.complete_json.side_effect = delayed_model
+                    factory.return_value.model = "synthetic-model"
+                    pending = worker.submit(
+                        self.request,
+                        "/api/autofill_inspection_sheet_form",
+                        {**query, "repair_order": {"reason": "Editor reason"}},
+                    )
+                    try:
+                        self.assertTrue(entered.wait(5), "Model call not entered")
+                        if source_changed:
+                            status, changed = self.request(
+                                "/api/update_repair_order",
+                                {**query, "repair_order": {"reason": "New persisted reason"}},
+                            )
+                        else:
+                            status, changed = self.request(
+                                "/api/set_card_deadline", {**query, "deadline": {"minutes": 5}}
+                            )
+                        self.assertEqual(status, 200, changed)
+                    finally:
+                        release.set()
+                    status, result = pending.result(5)
+
+                if source_changed:
+                    self.assertEqual(status, 409, result)
+                    self.assertEqual(result["error"]["code"], "inspection_sheet_source_conflict")
+                    status, loaded = self.request("/api/get_inspection_sheet_form", query)
+                    self.assertEqual(status, 200, loaded)
+                    self.assertFalse(loaded["data"]["meta"]["has_saved_draft"])
+                else:
+                    self.assertEqual(status, 200, result)
+                    self.assertEqual(
+                        result["data"]["form"]["findings"], "Built from the supplied reason"
+                    )
+
     def test_pdf_snapshot_survives_concurrent_card_and_settings_edits(self):
         card_id = self.create_printable_card()
         payload = {"card_id": card_id, "selected_document_ids": ["invoice"]}

@@ -3244,9 +3244,28 @@ class PrintModuleService(CompletionActCalculationMixin):
     ) -> tuple[dict[str, Any], str]:
         order = repair_order or card.repair_order
         saved = self._read_inspection_sheet_form_map().get(self._inspection_sheet_form_key(card))
-        defaults = self._default_inspection_sheet_form(card, order).to_dict()
+        payload = self._inspection_sheet_autofill_source(card, order)
+        defaults = payload.pop("suggested_defaults")
+        payload["current_form"] = saved if saved is not None else defaults
+        payload["suggested_defaults"] = defaults
+        return payload, _request_payload_fingerprint(saved)
+
+    def inspection_sheet_source_revision(self, card: Card) -> str:
+        return _request_payload_fingerprint(
+            self._inspection_sheet_autofill_source(card, card.repair_order)
+        )
+
+    def _inspection_sheet_autofill_source(self, card: Card, order: RepairOrder) -> dict[str, Any]:
         vehicle_display = order.vehicle or card.vehicle_display()
-        payload = {
+        works = [
+            _repair_row_dict(row, section="works", index=index)
+            for index, row in enumerate(order.works)
+        ]
+        materials = [
+            _repair_row_dict(row, section="materials", index=index)
+            for index, row in enumerate(order.materials)
+        ]
+        return {
             "card": {
                 "id": card.id,
                 "heading": card.heading(),
@@ -3266,20 +3285,8 @@ class PrintModuleService(CompletionActCalculationMixin):
                 "reason": order.reason,
                 "comment": order.comment,
                 "note": order.note,
-                "works": [
-                    item["name"]
-                    for item in [
-                        _repair_row_dict(row, section="works", index=index)
-                        for index, row in enumerate(order.works)
-                    ]
-                ],
-                "materials": [
-                    item["name"]
-                    for item in [
-                        _repair_row_dict(row, section="materials", index=index)
-                        for index, row in enumerate(order.materials)
-                    ]
-                ],
+                "works": [item["name"] for item in works],
+                "materials": [item["name"] for item in materials],
                 "work_rows": [
                     {
                         "name": item["name"],
@@ -3287,10 +3294,7 @@ class PrintModuleService(CompletionActCalculationMixin):
                         if item["quantity_display"] == "—"
                         else item["quantity_display"],
                     }
-                    for item in [
-                        _repair_row_dict(row, section="works", index=index)
-                        for index, row in enumerate(order.works)
-                    ]
+                    for item in works
                 ],
                 "material_rows": [
                     {
@@ -3299,16 +3303,11 @@ class PrintModuleService(CompletionActCalculationMixin):
                         if item["quantity_display"] == "—"
                         else item["quantity_display"],
                     }
-                    for item in [
-                        _repair_row_dict(row, section="materials", index=index)
-                        for index, row in enumerate(order.materials)
-                    ]
+                    for item in materials
                 ],
             },
-            "current_form": saved if saved is not None else defaults,
-            "suggested_defaults": defaults,
+            "suggested_defaults": self._default_inspection_sheet_form(card, order).to_dict(),
         }
-        return payload, _request_payload_fingerprint(saved)
 
     def _inspection_sheet_form_key(self, card: Card) -> str:
         if card.id == "manual-document":

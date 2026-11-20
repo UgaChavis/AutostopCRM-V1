@@ -3681,6 +3681,7 @@ class CardService(
             with self._lock:
                 bundle = self._store.read_bundle()
                 card = self._find_card(bundle["cards"], payload.get("card_id"))
+                source_revision = self._print_module.inspection_sheet_source_revision(card)
                 preview_card = self._print_module_card(card, payload)
                 autofill_payload, draft_revision = (
                     self._print_module.prepare_inspection_sheet_autofill(
@@ -3735,6 +3736,14 @@ class CardService(
         }
         confidence_notes = self._inspection_sheet_lines(result.get("confidence_notes"))
         with self._lock:
+            current = self._find_card(self._store.read_bundle()["cards"], preview_card.id)
+            if self._print_module.inspection_sheet_source_revision(current) != source_revision:
+                self._fail(
+                    "inspection_sheet_source_conflict",
+                    "Данные карточки или заказ-наряда изменились во время автозаполнения. Обновите форму и повторите действие.",
+                    status_code=409,
+                    details={"card_id": preview_card.id},
+                )
             try:
                 saved = self._print_module.save_inspection_sheet_form(
                     preview_card,

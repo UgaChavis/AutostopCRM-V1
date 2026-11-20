@@ -657,6 +657,9 @@ They do not save a form or render/export a binary document.
 `/api/autofill_inspection_sheet_form` returns HTTP 409 with
 `inspection_sheet_update_conflict` if the saved inspection sheet changes during
 autofill. The newer draft stays saved.
+Changes to persisted card or repair-order inputs used by autofill return
+`inspection_sheet_source_conflict` with HTTP 409, including when the request
+carries an unsaved editor override.
 
 The completion-act editor uses `/api/get_completion_act_form`,
 `/api/save_completion_act_form`, and `/api/reset_completion_act_form`.
