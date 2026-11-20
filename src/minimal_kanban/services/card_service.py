@@ -448,7 +448,7 @@ class CardService(
         self._lock = MeasuredRLock("service_lock")
         self._agent_control: Any | None = None
         self._client_search_index_cache: (
-            tuple[tuple[Any, ...], dict[str, dict[str, Any]]] | None
+            tuple[tuple[tuple[Any, ...], ...], dict[str, dict[str, Any]]] | None
         ) = None
         self._client_related_vehicle_fields_index_signature: tuple[Any, ...] | None = None
         self._client_related_vehicle_fields_index_cache: dict[str, list[str]] = {}

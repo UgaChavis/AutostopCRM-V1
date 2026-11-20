@@ -100,6 +100,9 @@ class ClientSearchIndexingTests(CardServiceCase):
         client = self.service.create_client(
             {"client_type": "company", "short_name": "ALBATROSS", "legal_name": "SYNTHETIC LLC"}
         )["client"]
+        unchanged_id = self.service.create_client({"display_name": "SYNTHETIC OTHER PROFILE"})[
+            "client"
+        ]["id"]
         card = self.service.create_card({"title": "Synthetic history"})["card"]
         query = {"query": "ALBATROSS"}
         checked = self.service.search_clients(query)
@@ -122,17 +125,24 @@ class ClientSearchIndexingTests(CardServiceCase):
         self.assertIs(self.service._client_search_index_cache[1], index)
 
         state = json.loads(self.state_file.read_text(encoding="utf-8"))
-        state["clients"][0]["short_name"] = "JUNIPER"
+        row = next(row for row in state["clients"] if row["id"] == client["id"])
+        row["short_name"] = "JUNIPER"
         replacement = self.state_file.with_suffix(".new")
         replacement.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         replacement.replace(self.state_file)
 
         # A replacement may preserve updated_at. Search must still see the new name.
-        for search in (self.service.search_clients, self.service.search_clients_readonly):
-            with self.subTest(route=search.__name__):
-                self.assertEqual(search(query)["clients"], [])
-                self.assertEqual(search({"query": "JUNIPER"})["clients"][0]["id"], client["id"])
-        self.assertIsNot(self.service._client_search_index_cache[1], index)
+        with patch.object(
+            self.service, "_client_match_keys", wraps=self.service._client_match_keys
+        ) as keys:
+            for search in (self.service.search_clients, self.service.search_clients_readonly):
+                with self.subTest(route=search.__name__):
+                    self.assertEqual(search(query)["clients"], [])
+                    self.assertEqual(search({"query": "JUNIPER"})["clients"][0]["id"], client["id"])
+            self.assertEqual([call.args[0].id for call in keys.call_args_list], [client["id"]])
+        new_index = self.service._client_search_index_cache[1]
+        self.assertIsNot(new_index, index)
+        self.assertIs(new_index[unchanged_id], index[unchanged_id])
 
     def test_snapshot_reuses_profiles_but_reads_current_card_relations(self) -> None:
         client = self.service.create_client({"display_name": "SYNTHETIC PROFILE"})["client"]

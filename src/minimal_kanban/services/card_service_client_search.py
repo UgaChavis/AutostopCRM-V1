@@ -211,7 +211,10 @@ class CardServiceClientSearchMixin:
         )
 
     def _client_search_index_for(
-        self, clients: list[ClientProfile], *, signature: tuple[Any, ...] | None = None
+        self,
+        clients: list[ClientProfile],
+        *,
+        signature: tuple[tuple[Any, ...], ...] | None = None,
     ) -> dict[str, dict[str, Any]]:
         if signature is None:
             signature = tuple(self._client_search_index_key(client) for client in clients)
@@ -219,8 +222,13 @@ class CardServiceClientSearchMixin:
         if cached is not None and cached[0] == signature:
             return cached[1]
 
+        # The last key for an ID describes its entry in the previous index.
+        previous_keys = {key[0]: key for key in cached[0]} if cached is not None else {}
         index: dict[str, dict[str, Any]] = {}
-        for client in clients:
+        for client, key in zip(clients, signature, strict=True):
+            if cached is not None and previous_keys.get(client.id) == key:
+                index[client.id] = cached[1][client.id]
+                continue
             fields = [
                 client.name(),
                 client.full_name(),
