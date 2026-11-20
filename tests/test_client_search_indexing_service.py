@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 from tests.services_case import CardServiceCase
@@ -91,6 +92,40 @@ class ClientSearchIndexingTests(CardServiceCase):
         self.assertEqual(first["clients"][0]["id"], client["id"])
         self.assertEqual(second["clients"][0]["id"], client["id"])
         self.assertEqual(related_index.call_count, 1)
+
+    def test_profile_index_reuse_requires_unchanged_search_fields(self) -> None:
+        client = self.service.create_client(
+            {"client_type": "company", "short_name": "ALBATROSS", "legal_name": "SYNTHETIC LLC"}
+        )["client"]
+        card = self.service.create_card({"title": "Synthetic history"})["card"]
+        query = {"query": "ALBATROSS"}
+        checked = self.service.search_clients(query)
+        index = self.service._client_search_index_cache[1]
+        self.assertEqual(checked["clients"][0]["id"], client["id"])
+        self.assertTrue(
+            self.service.mark_card_seen({"card_id": card["id"], "actor_name": "TEST"})["meta"][
+                "changed"
+            ]
+        )
+
+        self.assertEqual(self.service.search_clients(query), checked)
+        self.assertEqual(
+            self.service.search_clients_readonly(query)["clients"][0]["id"], client["id"]
+        )
+        self.assertIs(self.service._client_search_index_cache[1], index)
+
+        state = json.loads(self.state_file.read_text(encoding="utf-8"))
+        state["clients"][0]["short_name"] = "JUNIPER"
+        replacement = self.state_file.with_suffix(".new")
+        replacement.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        replacement.replace(self.state_file)
+
+        # A replacement may preserve updated_at. Search must still see the new name.
+        for search in (self.service.search_clients, self.service.search_clients_readonly):
+            with self.subTest(route=search.__name__):
+                self.assertEqual(search(query)["clients"], [])
+                self.assertEqual(search({"query": "JUNIPER"})["clients"][0]["id"], client["id"])
+        self.assertIsNot(self.service._client_search_index_cache[1], index)
 
     def test_manager_client_link_query_prefers_one_strong_identifier(self) -> None:
         created = self.service.create_card(

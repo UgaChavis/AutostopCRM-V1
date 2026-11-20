@@ -72,23 +72,6 @@ def client_readonly_related_cards(service, bundle, clients, cards, *, matcher=No
     return related
 
 
-def prepare_card_context(service, payload):
-    include_text = service._validated_optional_bool(
-        payload, "include_repair_order_text", default=True
-    )
-    read_only = service._validated_optional_bool(payload, "read_only", default=False)
-    strict_links = service._validated_optional_bool(payload, "strict_client_links", default=False)
-    snapshot_read = read_only or strict_links or not include_text
-    bundle = (
-        service._store._read_context_bundle_snapshot(
-            domains=("clients", "stickies", "events", "settings")
-        )
-        if snapshot_read
-        else service._store.read_bundle()
-    )
-    return bundle, include_text, snapshot_read, strict_links
-
-
 def prepare_repair_order_text(service, payload):
     read_only = service._validated_optional_bool(payload, "read_only", default=False)
     bundle = (
@@ -178,15 +161,20 @@ def card_sample(cards, payload, validated_limit):
 def get_card_context(service, payload):
     payload = payload or {}
     event_limit = service._validated_limit(payload.get("event_limit"), default=20, maximum=200)
-    snapshot_read = (
-        service._validated_optional_bool(payload, "read_only", default=False)
-        or service._validated_optional_bool(payload, "strict_client_links", default=False)
-        or not service._validated_optional_bool(payload, "include_repair_order_text", default=True)
+    include_repair_order_text = service._validated_optional_bool(
+        payload, "include_repair_order_text", default=True
     )
+    read_only = service._validated_optional_bool(payload, "read_only", default=False)
+    strict_links = service._validated_optional_bool(payload, "strict_client_links", default=False)
+    snapshot_read = read_only or strict_links or not include_repair_order_text
     # The detached read path never materializes the repair order on disk.
     with nullcontext() if snapshot_read else service._lock:
-        bundle, include_repair_order_text, snapshot_read, strict_links = prepare_card_context(
-            service, payload
+        bundle = (
+            service._store._read_context_bundle_snapshot(
+                domains=("clients", "stickies", "events", "settings")
+            )
+            if snapshot_read
+            else service._store.read_bundle()
         )
         card = service._find_card(bundle["cards"], payload.get("card_id"))
         read_warnings = maybe_card_warnings(bundle, card, snapshot_read)

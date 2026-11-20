@@ -81,7 +81,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             if include_stats
             else self._store._read_context_bundle_snapshot(domains=("clients", "client_search"))
         )
-        clients = self._ordered_clients(bundle["clients"])
+        clients = bundle["clients"]
         for client in clients:
             bundle.require_client_sort_key(client)
         selected = clients[:limit]
@@ -132,12 +132,10 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
         with bundle.client_search_lock:
             prepared = bundle.client_search_indexes.get("checked")
             if prepared is None:
-                clients = self._ordered_clients(bundle["clients"])
+                clients = bundle["clients"]
                 for client in clients:
                     bundle.require_client_sort_key(client)
-                client_index = self._client_search_index_for(
-                    clients, signature=("client-search", bundle.client_search_generation)
-                )
+                client_index = self._client_search_index_for(clients)
                 related, warnings = self._client_checked_search_cards(bundle, clients)
                 related_fields = {
                     client.id: [
@@ -252,7 +250,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
             )
         )
         bundle = self._store._read_context_bundle_snapshot(domains=domains)
-        clients = self._ordered_clients(bundle["clients"])
+        clients = bundle["clients"]
         for client in clients:
             bundle.require_client_identity(client)
         selected = clients[:limit]
@@ -291,10 +289,8 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
         with bundle.client_search_lock:
             prepared = bundle.client_search_indexes.get("readonly")
             if prepared is None:
-                clients = self._ordered_clients(bundle["clients"])
-                client_index = self._client_search_index_for(
-                    clients, signature=("client-search", bundle.client_search_generation)
-                )
+                clients = bundle["clients"]
+                client_index = self._client_search_index_for(clients)
                 related = self._client_readonly_related_cards(bundle, clients, bundle["cards"])
                 related_fields = {
                     client.id: [

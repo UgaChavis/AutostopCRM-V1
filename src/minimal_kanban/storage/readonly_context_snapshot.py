@@ -144,9 +144,7 @@ class ReadonlyContextSnapshot(dict):
             self._cards, self._clients, self._events = source_indexes
         self._link_clients = {client.id: client for client in bundle["clients"]}
         self._profile_clients = profile_clients
-        # Search indexes belong to these detached models. The token also keeps
-        # legacy index cache keys distinct after a snapshot has been released.
-        self.client_search_generation = object()
+        # Prepared searches retain models and card relations from this snapshot.
         self.client_search_indexes = {}
         self.client_search_lock = Lock()
 

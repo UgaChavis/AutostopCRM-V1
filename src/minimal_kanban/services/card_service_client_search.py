@@ -197,6 +197,8 @@ class CardServiceClientSearchMixin:
             client.first_name,
             client.middle_name,
             client.display_name,
+            client.short_name,
+            client.legal_name,
             client.phone,
             tuple(client.phones),
             client.email,
