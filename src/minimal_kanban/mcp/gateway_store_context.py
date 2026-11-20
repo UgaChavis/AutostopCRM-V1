@@ -66,6 +66,18 @@ def runtime_status_payload(
     crm_ok = bool(crm_payload.get("ok"))
     store_ok = bool(store_payload.get("ok"))
     data = dict(crm_payload.get("data") or {}) if isinstance(crm_payload.get("data"), dict) else {}
+    runtime = data.get("runtime_status")
+    runtime = runtime if isinstance(runtime, Mapping) else {}
+    health = runtime.get("api_health")
+    board = runtime.get("board_context")
+    crm_ready = (
+        isinstance(health, Mapping)
+        and health.get("status") in ("ok", "healthy")
+        and health.get("maintenance_mode", False) is False
+        and isinstance(board, Mapping)
+        and isinstance(board.get("context"), Mapping)
+        and not (runtime.get("api_health_error") or runtime.get("board_context_error"))
+    )
     data["store"] = {
         "ok": store_ok if store_requested else None,
         "requested": store_requested,
@@ -75,6 +87,8 @@ def runtime_status_payload(
         "warnings": [str(item) for item in store_payload.get("warnings") or []][:10],
     }
     warnings = [str(item) for item in crm_payload.get("warnings") or []]
+    if crm_ok and not crm_ready:
+        warnings.append("crm_runtime_degraded")
     if store_requested and not store_ok:
         warnings.append("store_adapter_degraded")
     payload = dict(crm_payload)
@@ -82,7 +96,7 @@ def runtime_status_payload(
         {
             "ok": crm_ok,
             "status": "ready"
-            if crm_ok and (store_ok or not store_requested)
+            if crm_ok and crm_ready and (store_ok or not store_requested)
             else "degraded"
             if crm_ok
             else "failed",

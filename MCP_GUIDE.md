@@ -84,7 +84,9 @@ The legacy `null` value remains accepted and also keeps bootstrap CRM-only.
 `get_runtime_status` is also CRM-only by default. Its optional
 `include_store_context=true` performs a live Store check only after separate
 permission; an unavailable Store then degrades that explicit check without
-turning CRM health into failure. Optional bootstrap reads return structured
+turning CRM health into failure. The diagnostic response can have `ok: true`
+and `status: degraded` when CRM health or board context cannot be confirmed,
+or CRM is in maintenance mode. Optional bootstrap reads return structured
 `degraded` results on transport failures. Card samples are limited by the backend
 before serialization; a supplied query uses the existing bounded CRM search.
 

@@ -30,7 +30,7 @@ class AgentBootstrapStoreContextTests(unittest.IsolatedAsyncioTestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
-    def _create_store_server(self):
+    def _create_store_server(self, *, board_api: FakeBoardApi | None = None):
         state: dict = {}
         with patch(
             "minimal_kanban.mcp.server._try_register_autostop_manager_tools",
@@ -39,7 +39,7 @@ class AgentBootstrapStoreContextTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             server = create_mcp_server(
-                FakeBoardApi(),
+                board_api or FakeBoardApi(),
                 self.logger,
                 host="127.0.0.1",
                 port=41839,
@@ -47,6 +47,56 @@ class AgentBootstrapStoreContextTests(unittest.IsolatedAsyncioTestCase):
                 public_endpoint_url="https://crm.example/mcp",
             )
         return server, state
+
+    async def test_runtime_status_reports_degraded_crm_probes_without_losing_diagnostics(self):
+        failure = {"ok": False, "error": {"code": "synthetic_dependency_unavailable"}}
+        for condition in (
+            "ready",
+            "health_failed",
+            "context_failed",
+            "maintenance",
+            "invalid_health",
+            "invalid_context",
+        ):
+            with self.subTest(condition=condition):
+                board_api = FakeBoardApi()
+                if condition == "health_failed":
+                    board_api.health = Mock(return_value=failure)
+                elif condition == "context_failed":
+                    board_api.get_board_context = Mock(return_value=failure)
+                elif condition == "maintenance":
+                    board_api.health = Mock(
+                        return_value={
+                            "ok": True,
+                            "data": {"status": "ok", "maintenance_mode": True},
+                        }
+                    )
+                elif condition == "invalid_health":
+                    board_api.health = Mock(return_value={"ok": True, "data": {"status": []}})
+                elif condition == "invalid_context":
+                    board_api.get_board_context = Mock(return_value={"ok": True, "data": {}})
+                server, state = self._create_store_server(board_api=board_api)
+                include_store = condition == "context_failed"
+                result = await server._tool_manager.get_tool("get_runtime_status").run(
+                    {"include_store_context": include_store}, convert_result=False
+                )
+
+                self.assertFalse(result.isError)
+                payload = result.structuredContent
+                self.assertTrue(payload["ok"])
+                self.assertEqual("ready" if condition == "ready" else "degraded", payload["status"])
+                self.assertEqual(
+                    condition != "ready", "crm_runtime_degraded" in payload["warnings"]
+                )
+                runtime = payload["data"]["runtime_status"]
+                if condition == "health_failed":
+                    self.assertEqual(failure["error"], runtime["api_health_error"])
+                if condition == "context_failed":
+                    self.assertEqual(failure["error"], runtime["board_context_error"])
+                    self.assertTrue(payload["data"]["store"]["ok"])
+                else:
+                    self.assertEqual("not_requested", payload["data"]["store"]["status"])
+                    self.assertFalse(any(name.startswith("store_") for name, _ in state["calls"]))
 
     async def test_bootstrap_query_or_intent_defaults_to_crm_only(self) -> None:
         for context in ({"query": "article-123"}, {"intent": "parts_quote"}):
