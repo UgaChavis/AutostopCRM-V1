@@ -9253,14 +9253,14 @@ class CardService(
             (
                 card
                 for card in cards
-                if card.id not in excluded and self._card_has_repair_order(card)
+                if card.id not in excluded
+                and self._card_has_repair_order(card)
+                and not normalize_text(card.repair_order.number, limit=40)
             ),
             key=lambda item: (str(item.created_at or ""), str(item.id or "")),
         )
         changed = False
         for card in ordered_cards:
-            if normalize_text(card.repair_order.number, default="", limit=40):
-                continue
             expected = self._next_repair_order_number(cards, exclude_card_id=card.id)
             card = detach_card(cards, card)
             card.repair_order = RepairOrder.from_dict(
