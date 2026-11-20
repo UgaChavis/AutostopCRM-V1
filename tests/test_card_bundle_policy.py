@@ -111,7 +111,7 @@ class CardBundlePolicyTests(unittest.TestCase):
                 )
         self.assertEqual(self.service._read_bundle_for_update.call_count, 6)
 
-    def test_only_original_four_domain_callers_use_shared_policy(self):
+    def test_four_domain_policy_callers(self):
         expected = {
             "card_service.py": {
                 "set_card_board_summary",
@@ -120,7 +120,6 @@ class CardBundlePolicyTests(unittest.TestCase):
                 "run_full_card_enrichment",
                 "_set_card_ai_autofill_with_agent_control",
                 "_run_full_card_enrichment_with_agent_control",
-                "mark_card_seen",
                 "get_repair_order",
                 "update_repair_order",
                 "reopen_repair_order",

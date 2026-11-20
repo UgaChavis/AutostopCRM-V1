@@ -23,6 +23,12 @@ AFTER_SOURCE_PATH = (
     ROOT / "src" / "minimal_kanban" / "web_app_assets" / "source" / "app_main_after_printing.js"
 )
 NODE = shutil.which("node")
+VIEWER_RESET_DEPENDENCIES = (
+    "resetClientMutationControls",
+    "hideClientSuggestions",
+    "cancelObsoleteClientSuggestionRequests",
+    "clearClientSuggestionResults",
+)
 
 
 def _source_section(source: str, start_marker: str, end_marker: str) -> str:
@@ -599,7 +605,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
-        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
+        reset_helper += functions("app_main_before_printing.js", *VIEWER_RESET_DEPENDENCIES)
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
@@ -622,9 +628,10 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             (() => {{
             const clearedTimers = [];
             const closedModals = [];
+            const suggestionController = new AbortController();
             const CARD_JOURNAL_INITIAL_LIMIT = 50;
             global.window = {{
-              clearTimeout(timerId) {{ clearedTimers.push(timerId); }},
+              clearTimeout(timerId) {{ if (timerId != null) clearedTimers.push(timerId); }},
               setTimeout,
             }};
             const state = {{
@@ -633,6 +640,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
               operatorUsers: [{{ username: 'FIRST' }}],
               operatorSessionToken: 'first-session',
               clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
+              clientSuggestTimer: 15,
+              clientSuggestionGeneration: 0,
+              clientSuggestionRequests: new Map([['old-query', {{ controller: suggestionController }}]]),
               snapshot: {{ meta: {{ revision: 'viewer-first' }} }},
               lastSnapshotRevision: 'viewer-first',
               refreshInFlight: Promise.resolve(),
@@ -750,6 +760,9 @@ class WebAssetsRuntimeTests(unittest.TestCase):
 
             clearOperatorSession();
             assert.equal(state.clientProfileUncertainEffects.size, 0, 'logout must clear client effects');
+            assert.equal(state.clientSuggestTimer, null, 'logout must clear the suggestion timer');
+            assert.equal(state.clientSuggestionRequests.size, 0, 'logout must clear suggestion requests');
+            assert.equal(suggestionController.signal.aborted, true, 'logout must abort pending suggestions');
             assert.equal(state.snapshot, null, 'logout must discard the previous viewer snapshot');
             assert.equal(state.lastSnapshotRevision, '', 'logout must discard the viewer revision');
             assert.equal(state.refreshInFlight, null, 'logout must detach an old viewer refresh');
@@ -811,7 +824,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             assert.equal(state.activeEmployeeSalaryId, '');
             assert.equal(state.activeEmployeeSalaryReconciliationReportId, '');
             assert.equal(state.employeeSalarySheet, null);
-            assert.deepEqual(new Set(clearedTimers), new Set([11, 12, 13, 14]));
+            assert.deepEqual(new Set(clearedTimers), new Set([11, 12, 13, 14, 15]));
             }})();
 
             (async () => {{
@@ -873,7 +886,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
-        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
+        reset_helper += functions("app_main_before_printing.js", *VIEWER_RESET_DEPENDENCIES)
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
@@ -893,6 +906,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const state = {{
               viewerStateGeneration: 0,
               clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
+              clientSuggestionGeneration: 0,
+              clientSuggestionRequests: new Map(),
               snapshot: null,
               lastSnapshotRevision: '',
               refreshInFlight: null,
@@ -1149,7 +1164,7 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             "function resetViewerScopedState()",
             "function clearOperatorSession(",
         )
-        reset_helper += functions("app_main_before_printing.js", "resetClientMutationControls")
+        reset_helper += functions("app_main_before_printing.js", *VIEWER_RESET_DEPENDENCIES)
         clear_employees_cashboxes = _source_section(
             self.source,
             "function clearEmployeesCashboxesModuleState()",
@@ -1169,6 +1184,8 @@ class WebAssetsRuntimeTests(unittest.TestCase):
             const state = {{
               viewerStateGeneration: 0,
               clientProfileUncertainEffects: new Map([['old-client', {{ uncertain: true }}]]),
+              clientSuggestionGeneration: 0,
+              clientSuggestionRequests: new Map(),
               snapshot: null,
               lastSnapshotRevision: '',
               refreshInFlight: null,

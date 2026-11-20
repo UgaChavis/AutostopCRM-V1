@@ -690,7 +690,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
     def upsert_client_vehicle(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_bundle_for_update("cards", client_id=payload.get("client_id"))
+            bundle = self._read_bundle_for_update(client_id=payload.get("client_id"))
             clients = list(bundle["clients"])
             cards = bundle["cards"]
             events = bundle["events"]
@@ -829,13 +829,16 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
         synced_card_ids: list[str] = []
         if not vehicle.id:
             return synced_card_ids
-        for linked_card in cards:
-            if linked_card.client_id != client.id or linked_card.client_vehicle_id != vehicle.id:
+        for index, card in enumerate(cards):
+            if card.client_id != client.id or card.client_vehicle_id != vehicle.id:
                 continue
+            # Keep unrelated cards on the validated source for cached writes.
+            linked_card = deepcopy(card)
             before = linked_card.vehicle_profile.to_storage_dict()
             if not self._sync_card_vehicle_fields(linked_card, vehicle, overwrite=True):
                 continue
             self._touch_card(linked_card, actor_name)
+            cards[index] = linked_card
             synced_card_ids.append(linked_card.id)
             self._append_event(
                 events,

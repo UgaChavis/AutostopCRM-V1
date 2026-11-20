@@ -1231,7 +1231,7 @@ class CardService(
     def mark_card_seen(self, payload: dict | None = None) -> dict:
         with self._lock:
             payload = payload or {}
-            bundle = self._read_card_bundle_for_update(payload.get("card_id", ""))
+            bundle = self._read_bundle_for_update(card_id=payload.get("card_id", ""))
             cards = bundle["cards"]
             events = bundle["events"]
             columns = bundle["columns"]

@@ -112,6 +112,70 @@ class CardBadgesBrowserTests(UiBrowserTestCase):
             0,
         )
 
+    def test_deferred_open_deduplicates_only_a_confirmed_visible_revision(self) -> None:
+        pattern = "**/api/mark_card_seen"
+        for scenario, expected_requests in (
+            ("confirmed", 1),
+            ("committed_with_lost_response", 1),
+            ("failed_before_commit", 2),
+            ("newer_open_revision", 2),
+        ):
+            with self.subTest(scenario=scenario):
+                self.page.mouse.move(0, 0)
+                card_id = self.create_card(f"Synthetic seen overlap {scenario}", source="mcp")
+                self.load_board()
+                requests = []
+                held = []
+
+                def intercept(route):
+                    requests.append(route.request)
+                    if len(requests) == 1:
+                        held.append(route)
+                    else:
+                        route.continue_()
+
+                self.page.route(pattern, intercept)
+                try:
+                    card = self.page.locator(f'.card[data-card-id="{card_id}"]')
+                    card.hover()
+                    deadline = time.monotonic() + 5
+                    while not held and time.monotonic() < deadline:
+                        self.page.wait_for_timeout(20)
+                    self.assertEqual(len(held), 1)
+
+                    response = None
+                    if scenario in {"committed_with_lost_response", "newer_open_revision"}:
+                        response = held[0].fetch(timeout=5000)
+                        self.assertTrue(response.json()["data"]["meta"]["changed"])
+                    if scenario == "newer_open_revision":
+                        self.runtime.service.update_card(
+                            {"card_id": card_id, "title": "New external revision", "source": "mcp"}
+                        )
+
+                    card.click()
+                    self.page.wait_for_function(
+                        "id => state.activeCardIsFull && state.unreadSeenDeferredTimers.has(id)",
+                        arg=card_id,
+                    )
+                    route = held.pop()
+                    if scenario in {"committed_with_lost_response", "failed_before_commit"}:
+                        route.abort("failed")
+                    elif response is not None:
+                        route.fulfill(response=response)
+                    else:
+                        route.continue_()
+                    self.page.wait_for_function(
+                        "id => !state.unreadSeenInFlight.has(id) && !state.unreadSeenDeferredTimers.has(id)",
+                        arg=card_id,
+                    )
+                    self.assertEqual(len(requests), expected_requests)
+                    stored_card = self.stored_card(card_id)
+                    self.assertFalse(stored_card["is_unread"] or stored_card["has_unseen_update"])
+                finally:
+                    for route in held:
+                        route.abort("failed")
+                    self.page.unroute(pattern, intercept)
+
     def test_failed_mark_seen_restores_new_badge_from_server(self) -> None:
         card_id = self.create_card("Unread with failed acknowledgement", source="mcp")
         self.load_board()

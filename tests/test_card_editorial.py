@@ -286,3 +286,38 @@ class CardEditorialTests(CardServiceCase):
         )
         self.assertEqual(self.stored_card().vehicle_profile.tentative_fields, [])
         self.assertIn("engine_model", self.stored_card().vehicle_profile.manual_fields)
+
+    def test_vehicle_update_detaches_matching_cards_and_preserves_failed_draft(self):
+        other = self.service.create_card({"title": "Unrelated synthetic card"})["card"]
+        payload = {
+            "client_id": self.client["id"],
+            "client_vehicle_id": self.vehicle_id,
+            "vehicle": {"vehicle": "Synthetic car", "engine_model": "Updated synthetic engine"},
+        }
+        retained = self.store.read_bundle()
+        original = deepcopy(retained)
+        state_before = self.state_file.read_bytes()
+        with patch.object(self.store, "_write_state", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                self.service.upsert_client_vehicle(payload)
+        self.assertEqual(retained, original)
+        self.assertEqual(self.state_file.read_bytes(), state_before)
+
+        source_cards = {card.id: card for card in self.store.read_bundle()["cards"]}
+        with (
+            patch(
+                "minimal_kanban.services.card_service.get_fast_state_writes_enabled",
+                return_value=True,
+            ),
+            patch.object(
+                self.store, "write_cached_bundle", wraps=self.store.write_cached_bundle
+            ) as write,
+        ):
+            result = self.service.upsert_client_vehicle(payload)
+        saved_cards = {card.id: card for card in write.call_args.kwargs["cards"]}
+        self.assertEqual(result["meta"]["synced_card_ids"], [self.card["id"]])
+        self.assertIs(saved_cards[other["id"]], source_cards[other["id"]])
+        self.assertIsNot(saved_cards[self.card["id"]], source_cards[self.card["id"]])
+        self.assertEqual(
+            self.stored_card().vehicle_profile.engine_model, "Updated synthetic engine"
+        )
