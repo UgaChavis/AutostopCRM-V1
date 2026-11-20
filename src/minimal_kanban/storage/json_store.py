@@ -726,7 +726,7 @@ class JsonStore:
         )
         return clients
 
-    def _read_single_card_snapshot(self, card_id):
+    def _read_single_card_snapshot(self, card_id, *, committed_only: bool = False):
         """Use an independently verified local commit, or the normal safe snapshot."""
         if _SNAPSHOT_REQUIRES_FILE_LOCK and sys.platform == "win32":
             from .windows_state_verifier import verified_committed_file
@@ -747,7 +747,7 @@ class JsonStore:
             result = read_posix_committed_card_snapshot(self, card_id)
             if result is not None:
                 return result
-        return self._read_context_bundle_snapshot(domains=("events",))
+        return None if committed_only else self._read_context_bundle_snapshot(domains=("events",))
 
     def _prime_committed_card_source(self, payload):
         """Cache detached source data only when the committed bytes match the file."""

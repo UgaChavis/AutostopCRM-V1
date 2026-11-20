@@ -3391,28 +3391,22 @@ class CardService(
             }
 
     def get_repair_order_print_workspace(self, payload: dict | None = None) -> dict:
-        with self._lock:
-            payload = payload or {}
+        payload = payload or {}
+        try:
             if self._is_manual_print_payload(payload):
-                try:
-                    profile = self._manual_print_profile(payload)
-                    return self._print_module.workspace(
-                        profile.card, repair_order=profile.card.repair_order
-                    )
-                except PrintModuleError as exc:
-                    self._fail(
-                        exc.code, exc.message, status_code=exc.status_code, details=exc.details
-                    )
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            self._ensure_repair_order_state_supported(card)
-            preview_card = self._print_module_card(card, payload)
-            try:
-                return self._print_module.workspace(
-                    preview_card, repair_order=preview_card.repair_order
-                )
-            except PrintModuleError as exc:
-                self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+                preview_card = self._manual_print_profile(payload).card
+            else:
+                card_id = payload.get("card_id")
+                snapshot = self._store._read_single_card_snapshot(card_id, committed_only=True)
+                # Keep legacy state validation and detach the shared bundle card.
+                with self._lock if snapshot is None else nullcontext():
+                    bundle = self._store.read_bundle() if snapshot is None else snapshot
+                    card = self._find_card(bundle["cards"], card_id)
+                    self._ensure_repair_order_state_supported(card)
+                    preview_card = self._print_module_card(card, payload)
+            return self._print_module.workspace(preview_card)
+        except PrintModuleError as exc:
+            self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
     def get_inspection_sheet_form(self, payload: dict | None = None) -> dict:
         with self._lock:

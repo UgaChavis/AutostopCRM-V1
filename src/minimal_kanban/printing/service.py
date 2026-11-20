@@ -1491,8 +1491,9 @@ class PrintModuleService(CompletionActCalculationMixin):
         )
 
     def workspace(self, card: Card, *, repair_order: RepairOrder | None = None) -> dict[str, Any]:
-        settings = self._read_settings()
-        template_map = self._templates_by_document_type(settings=settings)
+        with print_state_mutation_boundary(self):
+            settings = self._read_settings()
+            template_map = self._templates_by_document_type(settings=settings)
         printers = list_printers(default_name=settings.default_printer)
         document_without_card = card.id == "manual-document"
         return {
@@ -1500,7 +1501,7 @@ class PrintModuleService(CompletionActCalculationMixin):
             "heading": card.heading(),
             "documents": [
                 self._document_workspace_payload(
-                    document, settings=settings, template_map=template_map
+                    document, settings=settings, templates=template_map[document.id]
                 )
                 for document in BUILTIN_PRINT_DOCUMENTS
             ],
@@ -1837,22 +1838,21 @@ class PrintModuleService(CompletionActCalculationMixin):
         document: PrintDocumentDefinition,
         *,
         settings: PrintModuleSettings,
-        template_map: dict[str, list[PrintTemplateRecord]],
+        templates: list[PrintTemplateRecord],
     ) -> dict[str, Any]:
-        selected_template = self._resolve_template(document_type=document.id, settings=settings)
+        selected_template = self._resolve_template(
+            document_type=document.id, settings=settings, templates=templates
+        )
+        locked = document_policy.is_template_locked(document.id)
         return {
             **document.to_dict(),
             "selected_template_id": selected_template.id,
             "selected_template_name": selected_template.name,
-            "template_count": (
-                1
-                if document_policy.is_template_locked(document.id)
-                else len(template_map.get(document.id, []))
-            ),
+            "template_count": 1 if locked else len(templates),
             "is_default_selected": document.id == "repair_order",
             "supports_form_fill": document.id == "inspection_sheet",
             "supports_completion_act_editor": document.id == "completion_act",
-            "template_locked": document_policy.is_template_locked(document.id),
+            "template_locked": locked,
         }
 
     def _render_document_batch(
@@ -2089,28 +2089,26 @@ class PrintModuleService(CompletionActCalculationMixin):
         document_type: str,
         template_id: str = "",
         settings: PrintModuleSettings,
+        templates: list[PrintTemplateRecord] | None = None,
     ) -> PrintTemplateRecord:
         if document_policy.is_template_locked(document_type):
             builtin_id = self._builtin_documents[document_type].default_template_id
             template = self._builtin_templates.get(builtin_id)
             if template is not None:
                 return template
-        grouped = self._templates_by_document_type(settings=settings)
-        requested_id = _normalize_text(template_id, limit=128)
-        if requested_id:
-            for record in grouped.get(document_type, []):
-                if record.id == requested_id:
-                    return record
-        default_id = settings.default_template_ids.get(document_type, "")
-        if default_id:
-            for record in grouped.get(document_type, []):
-                if record.id == default_id:
-                    return record
-        for record in grouped.get(document_type, []):
-            if record.id == self._builtin_documents[document_type].default_template_id:
-                return record
-        if grouped.get(document_type):
-            return grouped[document_type][0]
+        if templates is None:
+            templates = self._templates_by_document_type(settings=settings).get(document_type, [])
+        for candidate_id in (
+            _normalize_text(template_id, limit=128),
+            settings.default_template_ids.get(document_type),
+            self._builtin_documents[document_type].default_template_id,
+        ):
+            if candidate_id:
+                for record in templates:
+                    if record.id == candidate_id:
+                        return record
+        if templates:
+            return templates[0]
         raise PrintModuleError(
             "not_found",
             "Шаблоны для документа не найдены.",

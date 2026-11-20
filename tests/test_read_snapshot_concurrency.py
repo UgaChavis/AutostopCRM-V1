@@ -59,6 +59,17 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         )
         self.assertEqual(result["repair_orders"][0]["card_id"], self.card_id)
 
+    def test_print_workspace_uses_verified_card_while_service_is_busy(self):
+        original = self.state_file.read_bytes()
+        with patch("minimal_kanban.printing.service.list_printers", return_value=[]):
+            result = self.assert_read_ignores_service_lock(
+                lambda: self.service.get_repair_order_print_workspace({"card_id": self.card_id})
+            )
+        self.assertEqual(result["card_id"], self.card_id)
+        self.assertIn("BEFORE", result["heading"])
+        self.assertTrue(result["meta"]["has_repair_order_data"])
+        self.assertEqual(self.state_file.read_bytes(), original)
+
     def test_readonly_order_and_text_do_not_queue_behind_service_lock(self):
         original = self.state_file.read_bytes()
         views = (

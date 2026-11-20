@@ -46,6 +46,42 @@ class PrintingBackendConcurrencyTests(unittest.TestCase):
                 finally:
                     release.set()
 
+    def test_workspace_printer_discovery_does_not_block_card_updates(self):
+        card_id = self.create_printable_card()
+        self.store._committed_card_source = None  # Exercise the ordinary bundle fallback.
+        entered, release = threading.Event(), threading.Event()
+
+        def discover(**options):
+            entered.set()
+            self.assertTrue(release.wait(5), "Synthetic printer discovery was not released")
+            return []
+
+        with (
+            patch("minimal_kanban.printing.service.list_printers", side_effect=discover),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            workspace = executor.submit(
+                self.request, "/api/get_repair_order_print_workspace", {"card_id": card_id}
+            )
+            try:
+                self.assertTrue(entered.wait(3), "Printer discovery not entered")
+                status, changed = executor.submit(
+                    self.request, "/api/update_card", {"card_id": card_id, "title": "UPDATED TITLE"}
+                ).result(2)
+                self.assertEqual(status, 200, changed)
+            finally:
+                release.set()
+            status, old_workspace = workspace.result(2)
+
+        self.assertEqual(status, 200, old_workspace)
+        self.assertIn("Synthetic print audit", old_workspace["data"]["heading"])
+        with patch("minimal_kanban.printing.service.list_printers", return_value=[]):
+            status, new_workspace = self.request(
+                "/api/get_repair_order_print_workspace", {"card_id": card_id}
+            )
+        self.assertEqual(status, 200, new_workspace)
+        self.assertIn("UPDATED TITLE", new_workspace["data"]["heading"])
+
     def test_pdf_snapshot_survives_concurrent_card_and_settings_edits(self):
         card_id = self.create_printable_card()
         payload = {"card_id": card_id, "selected_document_ids": ["invoice"]}

@@ -266,6 +266,22 @@ class PrintingServiceTests(unittest.TestCase):
         )
         self.assertTrue(inspection_document["supports_form_fill"])
 
+    def test_workspace_selects_default_from_the_same_template_read(self) -> None:
+        template = self.service.save_template(
+            document_type="repair_order", name="Synthetic layout", content="<p>Fixture</p>"
+        )["template"]
+        self.service.set_default_template(document_type="repair_order", template_id=template["id"])
+
+        with patch.object(
+            self.service, "_read_custom_templates", wraps=self.service._read_custom_templates
+        ) as read:
+            workspace = self.service.workspace(self.card)
+
+        self.assertEqual(workspace["documents"][0]["selected_template_id"], template["id"])
+        self.assertEqual(workspace["templates"]["repair_order"][0]["id"], template["id"])
+        self.assertTrue(workspace["templates"]["repair_order"][0]["is_default"])
+        read.assert_called_once()
+
     def test_print_settings_copies_reject_bool_fractional_and_non_finite_values(self) -> None:
         bad_values = (True, False, 1.5, float("inf"))
 
