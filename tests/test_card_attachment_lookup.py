@@ -17,7 +17,7 @@ class CardAttachmentLookupTests(CardServiceCase):
     def legacy_serialize(
         self,
         card,
-        events,
+        events=(),
         *,
         column_labels=None,
         event_counts=None,
