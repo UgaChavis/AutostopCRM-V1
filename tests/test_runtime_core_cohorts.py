@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -57,6 +61,70 @@ class RuntimeCoreCohortTests(unittest.TestCase):
             "AUTOSTOP_REHEARSAL_RECEIPT_DIR": str(root / "receipts"),
             "COVERAGE_FILE": str(root / ".coverage"),
         }
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux SIGTERM check")
+    def test_termination_cleans_up_started_core_cohorts(self):
+        with tempfile.TemporaryDirectory(prefix="core-supervisor-cancel-") as name:
+            root = Path(name)
+            ready = root / "ready"
+            stopped = root / "stopped"
+            helper = f"""
+import os
+from pathlib import Path
+from unittest.mock import patch
+from tests.runtime_core_cohorts import run_core
+
+class Worker:
+    pid = os.getpid()
+    returncode = None
+
+    def __init__(self, _, *, env, **kwargs):
+        Path({str(ready)!r}).write_text(str(Path(env['TMPDIR']).parent))
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = 143
+        Path({str(stopped)!r}).touch()
+
+    def wait(self, **kwargs):
+        return self.returncode
+
+with patch('tests.runtime_core_cohorts.subprocess.Popen', Worker):
+    raise SystemExit(run_core(('test_synthetic.Case.test_wait',), root=Path.cwd(),
+        environment=os.environ.copy(), budget=20, workers=1))
+"""
+            with subprocess.Popen(
+                [sys.executable, "-c", helper], cwd=ROOT, env=self._environment(root)
+            ) as process:
+                try:
+                    deadline = time.monotonic() + 8
+                    while (
+                        not ready.exists()
+                        and process.poll() is None
+                        and time.monotonic() < deadline
+                    ):
+                        time.sleep(0.05)
+                    self.assertTrue(ready.exists(), "Core controller did not start its worker")
+                    process.terminate()
+                    self.assertEqual(process.wait(timeout=10), 128 + signal.SIGTERM)
+                    self.assertTrue(stopped.is_file())
+                    receipt = json.loads(
+                        next((root / "receipts").glob("core-result-*.json")).read_text()
+                    )
+                    self.assertEqual(receipt["exit_code"], 128 + signal.SIGTERM)
+                    self.assertFalse(receipt["successful"])
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    if ready.exists():
+                        fixture_root = Path(ready.read_text())
+                        if fixture_root.parent == Path("/tmp") and fixture_root.name.startswith(
+                            "ac-"
+                        ):
+                            shutil.rmtree(fixture_root, ignore_errors=True)
 
     def test_two_real_owned_cohorts_prove_exact_ids_distinct_processes_and_private_temp(self):
         ids = (

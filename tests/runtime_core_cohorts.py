@@ -12,6 +12,7 @@ import tempfile
 import time
 import uuid
 from collections import Counter, OrderedDict
+from contextlib import ExitStack
 from pathlib import Path
 
 
@@ -149,9 +150,27 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
         if os.name == "nt"
         else Path("/tmp")
     )
-    with tempfile.TemporaryDirectory(prefix="ac-", dir=temporary_parent) as temporary:
+    cancelled = None
+
+    def cancel(number, _frame):
+        nonlocal cancelled
+        if cancelled is None:
+            cancelled = number
+
+    signals = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGBREAK"):
+        signals.append(signal.SIGBREAK)
+    with (
+        ExitStack() as signal_handlers,
+        tempfile.TemporaryDirectory(prefix="ac-", dir=temporary_parent) as temporary,
+    ):
+        for number in signals:
+            previous = signal.signal(number, cancel)
+            signal_handlers.callback(signal.signal, number, previous)
         try:
             for index, group in enumerate(groups):
+                if cancelled is not None:
+                    break
                 private = Path(temporary, str(index)).resolve()
                 private.mkdir(mode=0o700)
                 child_environment = {
@@ -201,7 +220,7 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
                     )
                 )
-            while True:
+            while cancelled is None:
                 statuses = [process.poll() for process in controllers]
                 failed = next(
                     (value for value in statuses if value is not None and value != 0), None
@@ -224,6 +243,8 @@ def run_core(ids, *, root, environment, budget=1800, workers=None):
             exact_receipts = verify_receipts(output, digest, groups)
             if code == 0 and not exact_receipts:
                 code = 1
+            if cancelled is not None:
+                code = 128 + cancelled
             write_new(
                 output / f"core-result-{identity}.json",
                 {
