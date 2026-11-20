@@ -55,6 +55,19 @@ class ClientSearchPhoneNameTests(unittest.TestCase):
         self.assertEqual(search["clients"][0]["id"], client["id"])
         self.assertIn(competitor["id"], {item["id"] for item in search["clients"]})
 
+    def test_text_with_non_ascii_letters_does_not_become_a_numeric_query(self) -> None:
+        clients = {
+            name: self.service.create_client({"display_name": name})["client"]["id"]
+            for name in ("Ё 2024", "Ω 2024", "É 2024")
+        }
+        for search in (self.service.search_clients, self.service.search_clients_readonly):
+            for query, client_id in clients.items():
+                with self.subTest(route=search.__name__, query=query):
+                    result = search({"query": query, "limit": 10})
+                    self.assertEqual([client["id"] for client in result["clients"]], [client_id])
+            numeric = search({"query": "2024", "limit": 10})
+            self.assertEqual({client["id"] for client in numeric["clients"]}, set(clients.values()))
+
     def test_search_index_reused_and_invalidated_for_saves_and_external_reload(self) -> None:
         client = self.service.create_client({"display_name": "Первый клиент"})["client"]
         with patch.object(

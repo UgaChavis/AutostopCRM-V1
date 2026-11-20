@@ -318,7 +318,9 @@ class CardServiceClientSearchMixin:
         query_variants = self._search_text_variants(query)
         query_digits = re.sub(r"\D+", "", query)
         query_phone_variants = self._phone_search_variants(query)
-        phone_like_query = bool(query_digits) and not re.search(r"[A-Za-zА-Яа-я]", query)
+        phone_like_query = bool(query_digits) and not any(
+            character.isalpha() for character in query
+        )
         client_signature = (
             tuple(self._client_search_index_key(client) for client in clients)
             if client_search_index is None or related_fields_by_client_id is None
