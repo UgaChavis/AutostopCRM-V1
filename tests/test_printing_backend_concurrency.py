@@ -82,6 +82,50 @@ class PrintingBackendConcurrencyTests(unittest.TestCase):
         self.assertEqual(status, 200, new_workspace)
         self.assertIn("UPDATED TITLE", new_workspace["data"]["heading"])
 
+    def test_inspection_autofill_preserves_a_draft_saved_while_the_model_is_running(self):
+        for initially_saved in (False, True):
+            with self.subTest(initially_saved=initially_saved):
+                card_id = self.create_printable_card()
+                query = {"card_id": card_id}
+                if initially_saved:
+                    status, result = self.request(
+                        "/api/save_inspection_sheet_form",
+                        {**query, "form_data": {"findings": "First draft"}},
+                    )
+                    self.assertEqual(status, 200, result)
+                entered, release = threading.Event(), threading.Event()
+
+                def delayed_model(**kwargs):
+                    entered.set()
+                    self.assertTrue(release.wait(10), "Synthetic model was not released")
+                    return {"findings": "Late model result"}
+
+                with (
+                    patch("minimal_kanban.services.card_service.OpenAIJsonAgentClient") as factory,
+                    ThreadPoolExecutor(max_workers=1) as worker,
+                ):
+                    factory.return_value.complete_json.side_effect = delayed_model
+                    factory.return_value.model = "synthetic-model"
+                    pending = worker.submit(
+                        self.request, "/api/autofill_inspection_sheet_form", query
+                    )
+                    try:
+                        self.assertTrue(entered.wait(5), "Model call not entered")
+                        status, manual = self.request(
+                            "/api/save_inspection_sheet_form",
+                            {**query, "form_data": {"findings": "New operator draft"}},
+                        )
+                        self.assertEqual(status, 200, manual)
+                    finally:
+                        release.set()
+                    status, conflict = pending.result(5)
+
+                self.assertEqual(status, 409, conflict)
+                self.assertEqual(conflict["error"]["code"], "inspection_sheet_update_conflict")
+                status, loaded = self.request("/api/get_inspection_sheet_form", query)
+                self.assertEqual(status, 200, loaded)
+                self.assertEqual(loaded["data"]["form"], manual["data"]["form"])
+
     def test_pdf_snapshot_survives_concurrent_card_and_settings_edits(self):
         card_id = self.create_printable_card()
         payload = {"card_id": card_id, "selected_document_ids": ["invoice"]}

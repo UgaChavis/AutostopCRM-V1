@@ -3200,7 +3200,20 @@ class PrintModuleService(CompletionActCalculationMixin):
         form_data: dict[str, Any] | None = None,
         filled_by: str = "",
         source: str = "manual",
+        expected_draft_revision: str | None = None,
     ) -> dict[str, Any]:
+        forms = self._read_inspection_sheet_form_map()
+        key = self._inspection_sheet_form_key(card)
+        if (
+            expected_draft_revision is not None
+            and _request_payload_fingerprint(forms.get(key)) != expected_draft_revision
+        ):
+            raise PrintModuleError(
+                "inspection_sheet_update_conflict",
+                "Ведомость изменилась во время автозаполнения. Откройте последнюю версию.",
+                status_code=409,
+                details={"card_id": card.id},
+            )
         order = repair_order or card.repair_order
         base = self._default_inspection_sheet_form(card, order)
         payload = dict(base.to_dict())
@@ -3210,8 +3223,7 @@ class PrintModuleService(CompletionActCalculationMixin):
         payload["filled_by"] = _normalize_text(filled_by, limit=120)
         payload["source"] = _normalize_text(source, limit=24).lower() or "manual"
         form = InspectionSheetFormData.from_dict(payload)
-        forms = self._read_inspection_sheet_form_map()
-        forms[self._inspection_sheet_form_key(card)] = form.to_dict()
+        forms[key] = form.to_dict()
         self._write_inspection_sheet_form_map(forms)
         return {
             "card_id": card.id,
@@ -3224,16 +3236,17 @@ class PrintModuleService(CompletionActCalculationMixin):
             },
         }
 
-    def build_inspection_sheet_autofill_payload(
+    def prepare_inspection_sheet_autofill(
         self,
         card: Card,
         *,
         repair_order: RepairOrder | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], str]:
         order = repair_order or card.repair_order
-        form = self._load_inspection_sheet_form(card, order)
+        saved = self._read_inspection_sheet_form_map().get(self._inspection_sheet_form_key(card))
+        defaults = self._default_inspection_sheet_form(card, order).to_dict()
         vehicle_display = order.vehicle or card.vehicle_display()
-        return {
+        payload = {
             "card": {
                 "id": card.id,
                 "heading": card.heading(),
@@ -3292,9 +3305,10 @@ class PrintModuleService(CompletionActCalculationMixin):
                     ]
                 ],
             },
-            "current_form": form.to_dict(),
-            "suggested_defaults": self._default_inspection_sheet_form(card, order).to_dict(),
+            "current_form": saved if saved is not None else defaults,
+            "suggested_defaults": defaults,
         }
+        return payload, _request_payload_fingerprint(saved)
 
     def _inspection_sheet_form_key(self, card: Card) -> str:
         if card.id == "manual-document":

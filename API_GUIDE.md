@@ -654,6 +654,10 @@ workspace/preview/export routes accept
 `/api/get_inspection_sheet_form` are read-only JSON document-contract reads.
 They do not save a form or render/export a binary document.
 
+`/api/autofill_inspection_sheet_form` returns HTTP 409 with
+`inspection_sheet_update_conflict` if the saved inspection sheet changes during
+autofill. The newer draft stays saved.
+
 The completion-act editor uses `/api/get_completion_act_form`,
 `/api/save_completion_act_form`, and `/api/reset_completion_act_form`.
 Save requires `expected_version`, the `expected_source_fingerprint` returned by

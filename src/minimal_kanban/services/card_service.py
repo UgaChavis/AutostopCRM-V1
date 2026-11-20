@@ -3677,14 +3677,19 @@ class CardService(
         actor_name = normalize_actor_name(
             (session.get("username") if session else "") or payload.get("actor_name")
         )
-        with self._lock:
-            bundle = self._store.read_bundle()
-            card = self._find_card(bundle["cards"], payload.get("card_id"))
-            preview_card = self._print_module_card(card, payload)
-            autofill_payload = self._print_module.build_inspection_sheet_autofill_payload(
-                preview_card,
-                repair_order=preview_card.repair_order,
-            )
+        try:
+            with self._lock:
+                bundle = self._store.read_bundle()
+                card = self._find_card(bundle["cards"], payload.get("card_id"))
+                preview_card = self._print_module_card(card, payload)
+                autofill_payload, draft_revision = (
+                    self._print_module.prepare_inspection_sheet_autofill(
+                        preview_card,
+                        repair_order=preview_card.repair_order,
+                    )
+                )
+        except PrintModuleError as exc:
+            self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
         try:
             model_client = OpenAIJsonAgentClient()
             result = model_client.complete_json(
@@ -3737,6 +3742,7 @@ class CardService(
                     form_data=form_data,
                     filled_by=actor_name,
                     source="ai",
+                    expected_draft_revision=draft_revision,
                 )
             except PrintModuleError as exc:
                 self._fail(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
