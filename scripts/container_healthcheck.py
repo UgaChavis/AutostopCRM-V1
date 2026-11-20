@@ -64,10 +64,13 @@ def _load_api_health_json(raw: bytes) -> object:
 
 def _check_api() -> bool:
     with _urlopen_no_redirect(API_HEALTH_URL, timeout=HEALTHCHECK_TIMEOUT_SECONDS) as response:
-        payload = _load_api_health_json(_read_api_health_body(response))
-        if not isinstance(payload, dict):
+        if response.status != 200:
             return False
-        return bool(response.status == 200 and payload.get("ok"))
+        payload = _load_api_health_json(_read_api_health_body(response))
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            return False
+        data = payload.get("data")
+        return isinstance(data, dict) and data.get("status") == "ok"
 
 
 def _check_mcp() -> bool:
@@ -82,14 +85,12 @@ def _check_mcp() -> bool:
 def main() -> int:
     try:
         reject_retired_release_configuration()
-        api_ok = _check_api()
-        mcp_ok = _check_mcp()
+        return 0 if _check_api() and _check_mcp() else 1
     except DeploymentSecurityError as exc:
         print(f"FATAL: healthcheck configuration is invalid: {exc}", file=sys.stderr)
         return 1
     except Exception:
         return 1
-    return 0 if api_ok and mcp_ok else 1
 
 
 if __name__ == "__main__":

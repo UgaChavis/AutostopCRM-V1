@@ -37,7 +37,7 @@ and installed revisions using [Git parity](../../OPERATIONS_RUNBOOK.md#git-parit
 | `scripts/check_agent_runtime.py --help` | Embedded CRM agent readiness and heartbeat. Inspect the reported mode, including `api_only` when the embedded agent is unavailable. | R for help. The probe signs in as an operator. |
 | `scripts/check_automation_center_release.py` subcommands: `capture-feed`, `verify-feed`, `capture-telegram-effects`, `verify-telegram-effects`, `hold`, `manager`, `crm`, `telegram` | Automation Center, feed and Telegram release-state contract | R/T; private snapshots, exact release inputs and runbook only |
 | `scripts/probe_manager_crm_feed_auth.py --help` | Manager scheduler identity and CRM feed auth | R; requires `--manager-env` path, not its values |
-| `scripts/container_healthcheck.py` | Container readiness for Compose healthcheck | R; not public access proof |
+| `scripts/container_healthcheck.py` | Compose healthcheck requires an explicit healthy API response before probing the local MCP transport. | R. Check public access separately. |
 | `scripts/container_entrypoint.py` | Container process entrypoint; starts the configured API/MCP runtime | T; invoked by Docker, not an operator smoke |
 | `scripts/browser_smoke.py --profile core --attempts 1` | Required disposable browser profile | S; local, no production records |
 | `scripts/browser_smoke_review.py --help` | Review generated browser artifacts | R/S; artifacts may be private |

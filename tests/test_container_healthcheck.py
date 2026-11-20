@@ -42,12 +42,36 @@ class ContainerHealthcheckTests(unittest.TestCase):
             patch.object(
                 module,
                 "_urlopen_no_redirect",
-                side_effect=[FakeResponse(b'{"ok": true}'), FakeResponse(b"")],
+                side_effect=[
+                    FakeResponse(
+                        b'{"ok": true, "data": {"status": "ok", "maintenance_mode": true}}'
+                    ),
+                    FakeResponse(b""),
+                ],
             ) as opener,
         ):
             self.assertEqual(module.main(), 0)
         self.assertEqual(opener.call_args_list[0].args[0], module.API_HEALTH_URL)
         self.assertEqual(opener.call_args_list[1].args[0].full_url, module.MCP_URL)
+
+    def test_incomplete_or_nonready_api_health_stops_before_the_mcp_probe(self) -> None:
+        module = load_container_healthcheck_module()
+        for body in (
+            b'{"ok": "false", "data": {"status": "ok"}}',
+            b'{"ok": true, "data": {"status": "starting"}}',
+            b'{"ok": true, "data": null}',
+        ):
+            with (
+                self.subTest(body=body),
+                patch.dict(os.environ, {}, clear=True),
+                patch.object(
+                    module, "_urlopen_no_redirect", return_value=FakeResponse(body)
+                ) as opener,
+            ):
+                self.assertEqual(module.main(), 1)
+                opener.assert_called_once_with(
+                    module.API_HEALTH_URL, timeout=module.HEALTHCHECK_TIMEOUT_SECONDS
+                )
 
     def test_retired_configuration_refuses_healthcheck_before_connecting(self) -> None:
         module = load_container_healthcheck_module()
