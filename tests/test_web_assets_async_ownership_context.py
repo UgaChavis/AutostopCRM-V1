@@ -54,42 +54,61 @@ class AsyncOwnershipContextRegressionTests(unittest.TestCase):
                 "scheduleClientSuggestionsForCard",
                 "refreshClientSuggestionsForCard",
                 "hideClientSuggestions",
+                "clearClientSuggestionResults",
+                "cancelObsoleteClientSuggestionRequests",
+                "clientSuggestionContextSignature",
+                "requestClientSuggestionGroup",
             )
             + """
 const assert = require('node:assert/strict');
-const state = {clientSuggestionGeneration: 0, viewerStateGeneration: 1, cardHydrationSeq: 1};
+const state = {clientSuggestionGeneration: 0, viewerStateGeneration: 1, cardHydrationSeq: 1, clientSuggestionRequests: new Map()};
 const els = {};
 const CARD_CLIENT_SUGGESTION_LIMIT = 6;
 const pending = [];
 const rendered = [];
-let next, query;
-const window = {setTimeout(fn) { next = fn; return 1; }, clearTimeout() { next = null; }};
+let nextId = 0, query;
+const timers = new Map();
+const window = {setTimeout(fn) { timers.set(++nextId, fn); return nextId; }, clearTimeout(id) { timers.delete(id); }};
 function readVehicleProfileForm() { return query; }
 function clientSuggestionProfileSignature(value) { return value; }
-function clientSuggestionQueryCandidates(value) { return [{query: value}]; }
+function clientSuggestionQueryCandidates(value) { return [{query: value}, {query: 'Shared'}]; }
 function mergeClientSuggestionResults(groups) { return groups.flat(); }
 function renderClientSuggestions(clients) { rendered.push(...clients.map(c => c.id)); }
-function api() { return new Promise(resolve => pending.push(resolve)); }
+function apiReadTimeoutMs() { return 10000; }
+function api(path, {signal, retryRead}) {
+  assert.equal(retryRead, false);
+  const query = new URL(path, 'https://local.test').searchParams.get('query');
+  return new Promise(resolve => pending.push({query, signal, resolve}));
+}
 function type(value) { query = value; scheduleClientSuggestionsForCard(); }
+function flush() { const id = state.clientSuggestTimer; const fn = timers.get(id); timers.delete(id); return fn(); }
 (async () => {
   type('Alpha');
-  const old = next();
+  const old = flush();
   type('Beta');
-  type('Alpha');
-  const current = next();
-  pending[1]({clients: [{id: 'current'}]});
+  const debounce = state.clientSuggestTimer;
+  type('Beta');
+  assert.equal(state.clientSuggestTimer, debounce);
+  const current = flush();
+  assert.deepEqual(pending.map(item => item.query), ['Alpha', 'Shared', 'Beta']);
+  assert.equal(pending[0].signal.aborted, true);
+  assert.equal(pending[1].signal.aborted, false);
+  pending[2].resolve({clients: [{id: 'current'}]});
+  pending[1].resolve({clients: [{id: 'shared'}]});
   await current;
-  pending[0]({clients: [{id: 'old'}]});
+  pending[0].resolve({clients: [{id: 'old'}]});
   await old;
   type('Delta');
-  const closed = next();
+  const closed = flush();
   hideClientSuggestions();
-  pending[2]({clients: [{id: 'closed'}]});
+  assert.ok(pending.slice(3).every(item => item.signal.aborted));
+  for (const item of pending.slice(3)) item.resolve({clients: [{id: 'closed'}]});
   await closed;
-  assert.deepEqual(rendered, ['current']);
+  assert.deepEqual(rendered, ['current', 'shared']);
   type('Gamma');
   hideClientSuggestions();
-  assert.equal(next, null);
+  assert.equal(state.clientSuggestTimer, null);
+  assert.equal(timers.size, 0);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
         )

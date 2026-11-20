@@ -1,5 +1,6 @@
 """Small helpers for detached, checked context responses."""
 
+from contextlib import nullcontext
 from copy import deepcopy
 
 from ..models import normalize_actor_name, parse_datetime
@@ -182,11 +183,10 @@ def get_card_context(service, payload):
         or service._validated_optional_bool(payload, "strict_client_links", default=False)
         or not service._validated_optional_bool(payload, "include_repair_order_text", default=True)
     )
-    # Independent, immutable snapshots need no writer service lock to load.
-    prepared = prepare_card_context(service, payload) if snapshot_read else None
-    with service._lock:
-        bundle, include_repair_order_text, snapshot_read, strict_links = (
-            prepared if prepared is not None else prepare_card_context(service, payload)
+    # The detached read path never materializes the repair order on disk.
+    with nullcontext() if snapshot_read else service._lock:
+        bundle, include_repair_order_text, snapshot_read, strict_links = prepare_card_context(
+            service, payload
         )
         card = service._find_card(bundle["cards"], payload.get("card_id"))
         read_warnings = maybe_card_warnings(bundle, card, snapshot_read)

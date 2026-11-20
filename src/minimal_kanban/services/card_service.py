@@ -447,8 +447,9 @@ class CardService(
         self._logger = logger
         self._lock = MeasuredRLock("service_lock")
         self._agent_control: Any | None = None
-        self._client_search_index_signature: tuple[Any, ...] | None = None
-        self._client_search_index: dict[str, dict[str, Any]] = {}
+        self._client_search_index_cache: (
+            tuple[tuple[Any, ...], dict[str, dict[str, Any]]] | None
+        ) = None
         self._client_related_vehicle_fields_index_signature: tuple[Any, ...] | None = None
         self._client_related_vehicle_fields_index_cache: dict[str, list[str]] = {}
         self._attachments_dir = attachments_dir or (self._store.base_dir / ATTACHMENTS_DIR_NAME)

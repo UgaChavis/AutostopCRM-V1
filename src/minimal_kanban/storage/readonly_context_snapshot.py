@@ -2,6 +2,7 @@
 
 import sys
 from copy import deepcopy
+from threading import Lock
 
 import orjson
 
@@ -147,6 +148,7 @@ class ReadonlyContextSnapshot(dict):
         # legacy index cache keys distinct after a snapshot has been released.
         self.client_search_generation = object()
         self.client_search_indexes = {}
+        self.client_search_lock = Lock()
 
     def normalized_events(self, store):
         if not isinstance(self._raw_events, list):

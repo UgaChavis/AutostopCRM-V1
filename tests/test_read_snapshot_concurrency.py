@@ -175,11 +175,35 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
         self.assertEqual(old["card"]["title"], "BEFORE")
         self.assertEqual(read()["card"]["title"], "AFTER")
 
-    def test_client_search_leaves_cashbox_and_writer_free_during_load_and_ranking(self):
+    def test_client_reads_and_readonly_card_context_ignore_service_lock(self):
+        client = self.service.create_client({"display_name": "SYNTHETIC CLIENT"})["client"]
+        for list_clients in (self.service.list_clients, self.service.list_clients_readonly):
+            for include_stats in (False, True):
+                with self.subTest(route=list_clients.__name__, include_stats=include_stats):
+                    result = self.assert_read_ignores_service_lock(
+                        lambda: list_clients({"include_stats": include_stats})
+                    )
+                    self.assertIn(client["id"], {item["id"] for item in result["clients"]})
+        for get_client in (self.service.get_client, self.service.get_client_stats):
+            with self.subTest(route=get_client.__name__):
+                result = self.assert_read_ignores_service_lock(
+                    lambda: get_client({"client_id": client["id"]})
+                )
+                self.assertEqual(result["client"]["id"], client["id"])
+        result = self.assert_read_ignores_service_lock(
+            lambda: self.service.get_card_context({"card_id": self.card_id, "read_only": True})
+        )
+        self.assertEqual(result["card"]["title"], "BEFORE")
+
+    def test_client_search_leaves_cashbox_and_writer_free_throughout_search(self):
         cashbox = self.service.create_cashbox({"name": "SYNTHETIC CASHBOX"})["cashbox"]
-        for search in (self.service.search_clients, self.service.search_clients_readonly):
+        for search, prepare in (
+            (self.service.search_clients, "_client_checked_search_cards"),
+            (self.service.search_clients_readonly, "_client_readonly_related_cards"),
+        ):
             for owner, method in (
                 (self.store, "_read_context_bundle_snapshot"),
+                (self.service, prepare),
                 (self.service, "_rank_client_matches"),
             ):
                 with self.subTest(route=search.__name__, phase=method):
@@ -187,7 +211,6 @@ class ReadSnapshotConcurrencyTests(CardServiceCase):
                         "client"
                     ]
                     payload = {"query": "SYNTHETIC"}
-                    self.assertTrue(search(payload)["clients"])
                     paused, release = threading.Event(), threading.Event()
                     original = getattr(owner, method)
 

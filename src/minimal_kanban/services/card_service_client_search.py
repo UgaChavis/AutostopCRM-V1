@@ -212,8 +212,9 @@ class CardServiceClientSearchMixin:
     ) -> dict[str, dict[str, Any]]:
         if signature is None:
             signature = tuple(self._client_search_index_key(client) for client in clients)
-        if signature == self._client_search_index_signature:
-            return self._client_search_index
+        cached = self._client_search_index_cache
+        if cached is not None and cached[0] == signature:
+            return cached[1]
 
         index: dict[str, dict[str, Any]] = {}
         for client in clients:
@@ -272,8 +273,7 @@ class CardServiceClientSearchMixin:
                 "phone_variants": phone_variants,
             }
 
-        self._client_search_index_signature = signature
-        self._client_search_index = index
+        self._client_search_index_cache = (signature, index)
         return index
 
     def _search_value_counts(self, values: list[str]) -> dict[str, int]:

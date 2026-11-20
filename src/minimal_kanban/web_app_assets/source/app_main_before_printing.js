@@ -286,6 +286,8 @@
       sharedFilesMutationRequest: null,
       clientSuggestTimer: null,
       clientSuggestionGeneration: 0,
+      clientSuggestionSignature: null,
+      clientSuggestionRequests: new Map(),
       clientSuggestions: [],
       clientSuggestionProfiles: {},
       cashboxes: [],
@@ -2750,10 +2752,8 @@
       state.clientsProfileSelectionRequest = null;
       if (state.clientsSearchTimer) window.clearTimeout(state.clientsSearchTimer);
       if (state.mobileClientsSearchTimer) window.clearTimeout(state.mobileClientsSearchTimer);
-      if (state.clientSuggestTimer) window.clearTimeout(state.clientSuggestTimer);
       state.clientsSearchTimer = null;
       state.mobileClientsSearchTimer = null;
-      state.clientSuggestTimer = null;
       state.clients = [];
       state.clientsLoaded = false;
       state.clientsLoadError = false;
@@ -2766,8 +2766,7 @@
       state.clientVehicleEditor = null;
       state.mobileClientsLoading = false;
       state.mobileClientProfileLoading = false;
-      state.clientSuggestions = [];
-      state.clientSuggestionProfiles = {};
+      hideClientSuggestions();
       if (els.clientsSearchInput) els.clientsSearchInput.value = '';
       if (els.mobileClientsSearchInput) els.mobileClientsSearchInput.value = '';
       if (typeof renderClientProfileEmptyState === 'function') renderClientProfileEmptyState();
@@ -4798,16 +4797,31 @@
       state.clientsUiBound = true;
     }
 
-    function hideClientSuggestions() {
-      state.clientSuggestionGeneration++;
-      window.clearTimeout(state.clientSuggestTimer);
-      state.clientSuggestTimer = null;
+    function clearClientSuggestionResults() {
       state.clientSuggestions = [];
-      state.clientSuggestionProfiles = {};
       state.clientSuggestionFocusIndex = -1;
       state.clientSuggestionQuery = '';
       if (els.clientMatchPanel) els.clientMatchPanel.classList.remove('is-visible');
       if (els.clientMatchList) els.clientMatchList.innerHTML = '';
+    }
+
+    function cancelObsoleteClientSuggestionRequests(candidates = []) {
+      const queries = new Set(candidates.map(candidate => candidate.query));
+      for (const [query, request] of state.clientSuggestionRequests) {
+        if (queries.has(query)) continue;
+        state.clientSuggestionRequests.delete(query);
+        request.controller.abort();
+      }
+    }
+
+    function hideClientSuggestions() {
+      state.clientSuggestionGeneration++;
+      state.clientSuggestionSignature = null;
+      window.clearTimeout(state.clientSuggestTimer);
+      state.clientSuggestTimer = null;
+      cancelObsoleteClientSuggestionRequests();
+      state.clientSuggestionProfiles = {};
+      clearClientSuggestionResults();
     }
 
     function clientSuggestionVehicleText(client) {
@@ -4910,6 +4924,13 @@
         profile.body_number,
         profile.chassis_number,
       ].map((value) => String(value || '').trim()));
+    }
+
+    function clientSuggestionContextSignature(profile) {
+      return JSON.stringify([
+        state.viewerStateGeneration, state.cardHydrationSeq, state.cardEditingGeneration,
+        clientSuggestionProfileSignature(profile),
+      ]);
     }
 
     function clientSuggestionQueryCandidates(profile) {
@@ -5090,20 +5111,25 @@
       return escapeHtml(text.slice(0, index)) + '<mark>' + escapeHtml(text.slice(index, index + token.length)) + '</mark>' + escapeHtml(text.slice(index + token.length));
     }
 
-    function renderClientSuggestions(clients, { query = '', showEmpty = false } = {}) {
+    function renderClientSuggestions(clients, { query = '', showEmpty = false, searchFailed = false } = {}) {
       state.clientSuggestions = Array.isArray(clients) ? clients : [];
       state.clientSuggestionQuery = String(query || '').trim();
       if (state.clientSuggestionFocusIndex >= state.clientSuggestions.length) {
         state.clientSuggestionFocusIndex = state.clientSuggestions.length ? 0 : -1;
       }
       if (!els.clientMatchPanel || !els.clientMatchList) return;
-      if (!state.clientSuggestions.length && !showEmpty) {
+      if (!state.clientSuggestions.length && !showEmpty && !searchFailed) {
         hideClientSuggestions();
         return;
       }
       els.clientMatchPanel.classList.add('is-visible');
       if (!state.clientSuggestions.length) {
-        els.clientMatchList.innerHTML = '<div class="client-match-empty">КЛИЕНТ НЕ НАЙДЕН.<button class="btn btn--ghost client-match-create" type="button" data-client-suggest-create="true">СОЗДАТЬ НОВОГО</button></div>';
+        els.clientMatchList.innerHTML = searchFailed
+          ? '<div class="client-match-empty" role="status">НЕ УДАЛОСЬ ПРОВЕРИТЬ КЛИЕНТА.<button class="btn btn--ghost client-match-create" type="button" data-retry-client-suggestions="true">ПОВТОРИТЬ ПОИСК</button></div>'
+          : '<div class="client-match-empty">КЛИЕНТ НЕ НАЙДЕН.<button class="btn btn--ghost client-match-create" type="button" data-client-suggest-create="true">СОЗДАТЬ НОВОГО</button></div>';
+        els.clientMatchList.querySelector('[data-retry-client-suggestions]')?.addEventListener('click', () => {
+          scheduleClientSuggestionsForCard({ retry: true });
+        });
         return;
       }
       els.clientMatchList.innerHTML = state.clientSuggestions.map((client, index) => {
@@ -5127,13 +5153,34 @@
       }).join('');
     }
 
+    function requestClientSuggestionGroup(query) {
+      const existing = state.clientSuggestionRequests.get(query);
+      if (existing) return existing.promise;
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), apiReadTimeoutMs());
+      const request = { controller, promise: null };
+      request.promise = api('/api/search_clients?query=' + encodeURIComponent(query) + '&limit=' + CARD_CLIENT_SUGGESTION_LIMIT, {
+        signal: controller.signal, retryRead: false,
+      }).then(data => {
+        if (!Array.isArray(data?.clients)) throw new Error('СПИСОК КЛИЕНТОВ НЕ ПОДТВЕРЖДЁН.');
+        return data.clients;
+      }).finally(() => {
+        window.clearTimeout(timer);
+        if (state.clientSuggestionRequests.get(query) === request) state.clientSuggestionRequests.delete(query);
+      });
+      state.clientSuggestionRequests.set(query, request);
+      return request.promise;
+    }
+
     async function refreshClientSuggestionsForCard() {
       state.clientSuggestTimer = null;
       const generation = state.clientSuggestionGeneration;
       const viewerStateGeneration = state.viewerStateGeneration;
       const hydrationSeq = state.cardHydrationSeq;
+      const editingGeneration = state.cardEditingGeneration;
       const isCurrent = () => state.clientSuggestionGeneration === generation
-        && state.viewerStateGeneration === viewerStateGeneration && state.cardHydrationSeq === hydrationSeq;
+        && state.viewerStateGeneration === viewerStateGeneration && state.cardHydrationSeq === hydrationSeq
+        && state.cardEditingGeneration === editingGeneration;
       const profile = readVehicleProfileForm();
       const queryCandidates = clientSuggestionQueryCandidates(profile);
       if (!queryCandidates.length) {
@@ -5143,34 +5190,30 @@
       const profileSignature = clientSuggestionProfileSignature(profile);
       const displayQuery = queryCandidates[0]?.query || '';
       state.clientSuggestionQuery = displayQuery;
-      try {
-        const suggestionGroups = await Promise.all(queryCandidates.map(async (candidate) => {
-          try {
-            const data = await api('/api/search_clients?query=' + encodeURIComponent(candidate.query) + '&limit=' + CARD_CLIENT_SUGGESTION_LIMIT);
-            return data?.clients || [];
-          } catch (_) {
-            return [];
-          }
-        }));
-        const currentProfile = readVehicleProfileForm();
-        if (!isCurrent() || clientSuggestionProfileSignature(currentProfile) !== profileSignature) return;
-        const clients = mergeClientSuggestionResults(suggestionGroups);
-        state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
-        const loadedProfiles = state.clientSuggestionProfiles || {};
-        state.clientSuggestionProfiles = clients.reduce((profiles, client) => {
-          const clientId = String(client?.id || '').trim();
-          if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];
-          return profiles;
-        }, {});
-        renderClientSuggestions(clients, { query: displayQuery, showEmpty: true });
-      } catch (_) {
-        if (isCurrent()) hideClientSuggestions();
-      }
+      const groups = await Promise.allSettled(queryCandidates.map(candidate => requestClientSuggestionGroup(candidate.query)));
+      if (!isCurrent() || clientSuggestionProfileSignature(readVehicleProfileForm()) !== profileSignature) return;
+      const successful = groups.filter(group => group.status === 'fulfilled');
+      const clients = mergeClientSuggestionResults(successful.map(group => group.value));
+      state.clientSuggestionFocusIndex = clients.length ? 0 : -1;
+      const loadedProfiles = state.clientSuggestionProfiles || {};
+      state.clientSuggestionProfiles = clients.reduce((profiles, client) => {
+        const clientId = String(client?.id || '').trim();
+        if (clientId && loadedProfiles[clientId]) profiles[clientId] = loadedProfiles[clientId];
+        return profiles;
+      }, {});
+      const searchFailed = successful.length !== groups.length;
+      renderClientSuggestions(clients, { query: displayQuery, showEmpty: !searchFailed, searchFailed });
     }
 
-    function scheduleClientSuggestionsForCard() {
+    function scheduleClientSuggestionsForCard({ retry = false } = {}) {
+      const profile = readVehicleProfileForm();
+      const signature = clientSuggestionContextSignature(profile);
+      if (!retry && state.clientSuggestionSignature === signature) return;
+      state.clientSuggestionSignature = signature;
       state.clientSuggestionGeneration++;
       window.clearTimeout(state.clientSuggestTimer);
+      cancelObsoleteClientSuggestionRequests(clientSuggestionQueryCandidates(profile));
+      clearClientSuggestionResults();
       state.clientSuggestTimer = window.setTimeout(refreshClientSuggestionsForCard, 450);
     }
 
@@ -10620,9 +10663,11 @@
           state.pendingCreateClientVehicleFromCard = false;
         }
         scheduleClientSuggestionsForCard();
-      } else if (['display_name', 'make_display', 'model_display', 'production_year', 'chassis_number'].includes(fieldName)) {
+      } else if (['display_name', 'make_display', 'model_display', 'production_year', 'chassis_number'].includes(fieldName)
+          && state.clientSuggestionSignature !== null
+          && state.clientSuggestionSignature !== clientSuggestionContextSignature(readVehicleProfileForm())) {
         // These fields contribute to the query without starting their own search.
-        state.clientSuggestionGeneration++;
+        hideClientSuggestions();
       }
     }
 
@@ -13232,6 +13277,7 @@
       state.vehicleSelectedNameBaseline = null;
       const currentCard = card || null;
       const nextCardId = String(currentCard?.id || '').trim();
+      const previousCardId = String(state.activeCard?.id || '').trim();
       state.activeCard = currentCard;
       state.activeCardIsFull = Boolean(cardIsFull || !nextCardId);
       state.editingId = currentCard?.id || null;
@@ -13259,8 +13305,8 @@
       syncCardArchiveAction(currentCard);
       els.restoreAction.classList.toggle('hidden', !currentCard?.id || !currentCard.archived);
       applyVehicleProfileToForm(currentCard?.vehicle_profile || emptyVehicleProfile());
-      hideClientSuggestions();
-      if (currentCard?.id && !currentCard?.client_id) scheduleClientSuggestionsForCard();
+      if (!nextCardId || nextCardId !== previousCardId || currentCard?.client_id) hideClientSuggestions();
+      if (nextCardId && !currentCard?.client_id) scheduleClientSuggestionsForCard();
       refreshRepairOrderEntry(currentCard);
       renderColorTags();
       renderLogs([]);

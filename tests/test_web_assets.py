@@ -3038,7 +3038,7 @@ class WebAssetsTests(unittest.TestCase):
         self.assertIn("profile.display_name,", BOARD_WEB_APP_HTML)
         self.assertIn("function mergeClientSuggestionResults(groups)", BOARD_WEB_APP_HTML)
         self.assertIn(
-            "const suggestionGroups = await Promise.all(queryCandidates.map(async (candidate) => {",
+            "const groups = await Promise.allSettled(queryCandidates.map(candidate => requestClientSuggestionGroup(candidate.query)));",
             BOARD_WEB_APP_HTML,
         )
         self.assertIn('class="client-match-panel__head"', BOARD_WEB_APP_HTML)
