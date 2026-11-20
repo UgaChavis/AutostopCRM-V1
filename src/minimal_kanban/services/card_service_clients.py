@@ -1590,13 +1590,15 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
         self, fields_by_client_id: dict[str, list[str]]
     ) -> dict[str, dict[str, Any]]:
         signature = tuple(
-            (client_id, tuple(fields)) for client_id, fields in fields_by_client_id.items()
+            (client_id, tuple(fields))
+            for client_id, fields in fields_by_client_id.items()
+            if fields
         )
         cached = getattr(self, "_client_related_search_index_cache", None)
         if cached is not None and cached[0] == signature:
             return cached[1]
         index: dict[str, dict[str, Any]] = {}
-        for client_id, fields in fields_by_client_id.items():
+        for client_id, fields in signature:
             searchable = [self._normalize_search_text(value) for value in fields if value]
             compact_searchable = [re.sub(r"[\W_]+", "", value) for value in searchable if value]
             phone_keys: set[str] = set()
@@ -1662,7 +1664,7 @@ class CardServiceClientsMixin(CardServiceClientSearchMixin):
                 score += 7 * count
             elif variant in value:
                 score += 5 * count
-            elif all(part in value for part in parts):
+            elif parts is not None and all(part in value for part in parts):
                 score += 3 * count
         if compact_variant and any(
             compact_variant in value for value in related_compact_searchable

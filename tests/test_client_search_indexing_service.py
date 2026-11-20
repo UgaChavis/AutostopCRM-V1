@@ -70,6 +70,7 @@ class ClientSearchIndexingTests(CardServiceCase):
 
     def test_client_search_reuses_related_vehicle_index_between_queries(self) -> None:
         client = self.service.create_client({"display_name": "Клиент с кэшем поиска"})["client"]
+        self.service.create_client({"display_name": "Клиент без связанных машин"})
         self.service.create_card(
             {
                 "title": "История для кэша поиска",
@@ -95,6 +96,7 @@ class ClientSearchIndexingTests(CardServiceCase):
         self.assertEqual(first["clients"][0]["id"], client["id"])
         self.assertEqual(second["clients"][0]["id"], client["id"])
         self.assertEqual(related_index.call_count, 1)
+        self.assertEqual(set(self.service._client_related_search_index_cache[1]), {client["id"]})
 
     def test_profile_index_reuse_requires_unchanged_search_fields(self) -> None:
         client = self.service.create_client(

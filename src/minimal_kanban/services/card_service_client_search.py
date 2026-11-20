@@ -15,8 +15,10 @@ _PHONE_PATTERN = re.compile(
 
 
 @lru_cache(maxsize=128)
-def _prepared_search_variant(variant: str) -> tuple[tuple[str, ...], str]:
-    return tuple(variant.split()), re.sub(r"[\W_]+", "", variant)
+def _prepared_search_variant(variant: str) -> tuple[tuple[str, ...] | None, str]:
+    parts = tuple(variant.split())
+    # A single unchanged term is already covered by the substring match.
+    return (None if parts == (variant,) else parts), re.sub(r"[\W_]+", "", variant)
 
 
 class CardServiceClientSearchMixin:
@@ -533,7 +535,7 @@ class CardServiceClientSearchMixin:
                 score += 8 * count
             elif variant in value:
                 score += 4 * count
-            elif all(part in value for part in parts):
+            elif parts is not None and all(part in value for part in parts):
                 score += 2 * count
         vehicle_values = (
             vehicle_searchable_counts.items()
@@ -545,7 +547,7 @@ class CardServiceClientSearchMixin:
                 score += 7 * count
             elif variant in value:
                 score += 5 * count
-            elif all(part in value for part in parts):
+            elif parts is not None and all(part in value for part in parts):
                 score += 3 * count
         if compact_variant and any(compact_variant in value for value in compact_searchable):
             score += 5
