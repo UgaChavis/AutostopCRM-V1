@@ -777,6 +777,53 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertFalse(self.page.locator("#automationDrawer").is_visible())
         self.assertEqual(self.errors, [])
 
+    def test_automation_center_shows_timer_failures_during_drift(self) -> None:
+        from minimal_kanban.services.automation_center_service import AutomationCenterService
+
+        self.login()
+        timer = {
+            "timer_id": "managed-health",
+            "name": "Проверка рабочих компьютеров",
+            "control_mode": "managed",
+            "desired_state": "on",
+            "actual_state": "active",
+            "reconcile_state": "drift",
+            "error_code": "system_timer_failed",
+            "period_minutes": 15,
+            "actual_period_minutes": 10,
+        }
+
+        def automation_route(route, _request) -> None:
+            status = AutomationCenterService._status_projection(
+                {"controller": {"state": "ready"}, "system_timers": [timer]},
+                can_manage=True,
+            )
+            route.fulfill(json={"ok": True, "data": status})
+
+        self.page.route("**/api/automation_center/status", automation_route)
+        self.select_node("G1")
+        banner = self.page.locator("#automationStateTitle")
+        banner.get_by_text("Есть ошибка").wait_for(timeout=3000)
+        timer_card = self.page.locator('.timer-card[data-timer-id="managed-health"]')
+        lamp = timer_card.locator(".actual-lamp").first
+        self.assertEqual(lamp.get_attribute("data-state"), "error")
+        map_lamp = self.page.locator('[data-id="G1"] .status-indicator title')
+        self.assertEqual(map_lamp.text_content(), "Есть ошибка")
+
+        self.page.locator("#systemTimersGroup > summary").click(timeout=3000)
+        timer.update(actual_state="error", error_code="system_timer_elapsed")
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        timer_card.get_by_text("system_timer_elapsed").wait_for(timeout=3000)
+        self.assertEqual(banner.text_content(), "Есть ошибка")
+        self.assertEqual(lamp.get_attribute("data-state"), "error")
+
+        timer.update(actual_state="active", error_code="system_timer_drift")
+        self.page.evaluate("window.dispatchEvent(new Event('focus'))")
+        banner.get_by_text("Изменение применяется").wait_for(timeout=3000)
+        self.assertEqual(lamp.get_attribute("data-state"), "applying")
+        self.assertEqual(map_lamp.text_content(), "Применение изменений")
+        self.assertEqual(self.errors, [])
+
     def test_automation_center_unknown_runtime_is_yellow_and_inactive_timer_is_off(self) -> None:
         self.login()
         status = {

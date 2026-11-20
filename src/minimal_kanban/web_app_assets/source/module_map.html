@@ -540,9 +540,11 @@
         const id=String(timer.id||timer.timer_id||`system-${index+1}`);
         const desiredRaw=timer.desired_state??timer.desired??timer.enabled;
         const reconcile=lower(timer.reconcile_state||''),timerError=String(timer.error||timer.error_message||timer.error_code||'');
+        const actual=lower(timer.actual_state||timer.state||(timer.active===true?'on':timer.active===false?'off':'unknown'))||'unknown';
+        const failed=actualMeta(actual).lamp==='error'||(timerError!==''&&timerError!=='system_timer_drift');
         return {
           id,name:String(timer.name||timer.display_name||timer.unit||timer.id||'Системный таймер'),
-          desired:boolState(desiredRaw)?'on':'off',actual:timer.applying===true||reconcile==='drift'?'applying':timerError&&timerError!=='system_timer_drift'?'error':lower(timer.actual_state||timer.state||(timer.active===true?'on':timer.active===false?'off':'unknown'))||'unknown',
+          desired:boolState(desiredRaw)?'on':'off',actual:failed?'error':timer.applying===true||reconcile==='drift'?'applying':actual,
           schedule:normalizeSchedule(timer.schedule??timer.schedule_text??{kind:'interval',every_minutes:timer.period_minutes}),
           lastRun:String(timer.last_run_at||''),nextRun:String(timer.next_run_at||''),detail:String(timer.detail||timer.description||''),
           error:timerError,revision:timer.revision??timer.version??null,
