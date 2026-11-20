@@ -5,6 +5,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
+from ..models import parse_datetime
 from ..repair_order import RepairOrder
 from ..services.document_money import (
     DocumentMoneyError,
@@ -99,6 +100,39 @@ _MONEY_SCALES = (
     ("миллиард", "миллиарда", "миллиардов", False),
     ("триллион", "триллиона", "триллионов", False),
 )
+
+
+def _date_display(value: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(value, limit=64)
+    if not text:
+        return fallback
+    parsed = parse_datetime(text)
+    if parsed is None:
+        return text
+    return parsed.strftime("%d.%m.%Y %H:%M")
+
+
+def _date_only_display(value: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(value, limit=64)
+    if not text:
+        return fallback
+    parsed = parse_datetime(text)
+    if parsed is None:
+        return text.split()[0] if text.split() else fallback
+    return parsed.strftime("%d.%m.%Y")
+
+
+def _date_long_ru_display(value: Any, *, fallback: str = "—") -> str:
+    text = _normalize_text(value, limit=64)
+    if not text:
+        return fallback
+    parsed = parse_datetime(text)
+    if parsed is None:
+        return text
+    month = _RU_MONTHS_GENITIVE[parsed.month] if 1 <= parsed.month <= 12 else ""
+    if not month:
+        return parsed.strftime("%d.%m.%Y")
+    return f"{parsed.day:02d} {month} {parsed.year} г."
 
 
 def _parse_decimal(value: Any) -> Decimal | None:

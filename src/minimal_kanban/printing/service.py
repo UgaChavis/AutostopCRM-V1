@@ -16,7 +16,7 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
-from ..models import Card, ClientProfile, parse_datetime, utc_now_iso
+from ..models import Card, ClientProfile, utc_now_iso
 from ..repair_order import (
     REPAIR_ORDER_PAYMENT_METHOD_CASHLESS,
     REPAIR_ORDER_PAYMENT_NET_RATE,
@@ -43,7 +43,9 @@ from .document_rendering import (
 )
 from .errors import PrintModuleError
 from .formatting import (
-    _RU_MONTHS_GENITIVE,
+    _date_display,
+    _date_long_ru_display,
+    _date_only_display,
     _invoice_tax_payload,
     _line_breaks_html,
     _money_display,
@@ -484,39 +486,6 @@ def _normalize_template_content(value: Any) -> str:
 def _display(value: Any, *, fallback: str = "—", limit: int = 4000) -> str:
     text = _normalize_text(value, limit=limit)
     return text or fallback
-
-
-def _date_display(value: Any, *, fallback: str = "—") -> str:
-    text = _normalize_text(value, limit=64)
-    if not text:
-        return fallback
-    parsed = parse_datetime(text)
-    if parsed is None:
-        return text
-    return parsed.strftime("%d.%m.%Y %H:%M")
-
-
-def _date_only_display(value: Any, *, fallback: str = "—") -> str:
-    text = _normalize_text(value, limit=64)
-    if not text:
-        return fallback
-    parsed = parse_datetime(text)
-    if parsed is None:
-        return text.split()[0] if text.split() else fallback
-    return parsed.strftime("%d.%m.%Y")
-
-
-def _date_long_ru_display(value: Any, *, fallback: str = "—") -> str:
-    text = _normalize_text(value, limit=64)
-    if not text:
-        return fallback
-    parsed = parse_datetime(text)
-    if parsed is None:
-        return text
-    month = _RU_MONTHS_GENITIVE[parsed.month] if 1 <= parsed.month <= 12 else ""
-    if not month:
-        return parsed.strftime("%d.%m.%Y")
-    return f"{parsed.day:02d} {month} {parsed.year} г."
 
 
 def _inn_kpp_display(inn: Any, kpp: Any) -> str:
