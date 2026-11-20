@@ -473,6 +473,9 @@ tasks[5].resolve({text:'old'});await staleDownload;assert.equal(downloads,0);
                 "app_main_before_printing.js",
                 "clearEmployeesCashboxesModuleState",
                 "resetClientMutationControls",
+                "clearClientSuggestionResults",
+                "cancelObsoleteClientSuggestionRequests",
+                "hideClientSuggestions",
                 "resetViewerScopedState",
             ),
             """
@@ -484,6 +487,18 @@ function resetOperatorAdminViewerState(){}
 const CARD_JOURNAL_INITIAL_LIMIT=50;
 for(const key of ['clientProfileUncertainEffects','fullCardCache','cardFetchInFlight','cardSeenSuppressions','unreadHoverTimers','unreadSeenDeferredTimers','unreadSeenInFlight'])state[key]=new Map();
 state.inventorySearchTimer=10;state.mobileInventorySearchTimer=11;
+const suggestionController = new AbortController();
+const removedSuggestionClasses = [];
+state.clientSuggestTimer = 12;
+state.clientSuggestionGeneration = 2;
+state.clientSuggestionSignature = 'old signature';
+state.clientSuggestionRequests = new Map([['old query', {controller:suggestionController}]]);
+state.clientSuggestionProfiles = {old:{id:'old'}};
+state.clientSuggestions = [{id:'old'}];
+state.clientSuggestionFocusIndex = 0;
+state.clientSuggestionQuery = 'old query';
+els.clientMatchPanel = {classList:{remove(name){removedSuggestionClasses.push(name);}}};
+els.clientMatchList = {innerHTML:'old suggestions'};
 state.inventoryItems=[{id:'old'}];state.inventoryMovements=[{id:'old'}];
 state.inventoryRequests={save:{}};state.inventorySaving=true;state.inventoryMaterialSaving=true;
 state.inventoryMovementsLoading=true;state.cashboxJournalData={text:'old'};
@@ -491,7 +506,21 @@ els.inventorySearchInput={value:'private search'};els.mobileInventoryNameInput={
 els.cashboxJournalText={textContent:'private journal'};
 els.employeeSalaryActionConfirmButton={disabled:true};els.employeeSalaryAdvanceConfirmButton={disabled:true};
 els.employeeShiftAccrualConfirmButton={disabled:true};
-resetViewerScopedState();assert.deepEqual(cleared,[10,11]);assert.equal(state.inventoryRequests,null);
+resetViewerScopedState();
+assert.deepEqual(cleared,[10,11,12]);
+assert.equal(state.viewerStateGeneration,1);
+assert.equal(state.clientSuggestTimer,null);
+assert.equal(state.clientSuggestionGeneration,3);
+assert.equal(state.clientSuggestionSignature,null);
+assert.equal(state.clientSuggestionRequests.size,0);
+assert.equal(suggestionController.signal.aborted,true);
+assert.deepEqual(state.clientSuggestionProfiles,{});
+assert.deepEqual(state.clientSuggestions,[]);
+assert.equal(state.clientSuggestionFocusIndex,-1);
+assert.equal(state.clientSuggestionQuery,'');
+assert.deepEqual(removedSuggestionClasses,['is-visible']);
+assert.equal(els.clientMatchList.innerHTML,'');
+assert.equal(state.inventoryRequests,null);
 assert.deepEqual(state.inventoryItems,[]);assert.deepEqual(state.inventoryMovements,[]);
 assert.equal(state.inventorySaving,false);assert.equal(state.inventoryMaterialSaving,false);
 assert.equal(state.inventoryMovementsLoading,false);assert.equal(state.cashboxJournalData,null);
