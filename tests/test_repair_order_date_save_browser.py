@@ -5,6 +5,8 @@ from tests.browser_ui_support import UiBrowserTestCase
 
 class RepairOrderDateSaveBrowserTests(UiBrowserTestCase):
     def test_open_and_save_legacy_dates_without_editing(self):
+        from playwright.sync_api import expect
+
         service = self.runtime.service
         cases = []
         for index, (original, expected, displayed) in enumerate(
@@ -40,8 +42,10 @@ class RepairOrderDateSaveBrowserTests(UiBrowserTestCase):
                 self.load_board()
                 self.page.locator("#repairOrdersButton").click()
                 row = self.page.locator(f'#repairOrdersList [data-open-repair-order-card="{card}"]')
-                row.wait_for()
-                self.assertEqual(row.locator(".repair-orders-row__opened").inner_text(), displayed)
+                row.scroll_into_view_if_needed()
+                expect(row.locator(".repair-orders-row__opened")).to_have_text(
+                    displayed, use_inner_text=True
+                )
                 row.click()
                 self.page.wait_for_function(
                     "state.repairOrderWriteReady && !state.repairOrderLoading"
