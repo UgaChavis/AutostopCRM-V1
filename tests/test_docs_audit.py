@@ -294,7 +294,11 @@ class DocsAuditTests(unittest.TestCase):
             skill = source / "tools/codex/skills/autostopcrm-maintain/SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("# Source-only skill\n", encoding="utf-8")
-            reports = ("docs/reports/review.md", "docs/reports/2026/10/review.md")
+            reports = (
+                "docs/reports/review.md",
+                "docs/reports/2026/10/review.md",
+                "tech_debt/CONTINUOUS_REVIEW.md",
+            )
             for relative in reports:
                 path = source / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +334,7 @@ class DocsAuditTests(unittest.TestCase):
             self.assertFalse((packaged / "tools/codex").exists())
             self.assertEqual([], module._check_canonical_local_links(packaged))
             self.assertFalse((packaged / "docs/reports").exists())
+            self.assertFalse((packaged / "tech_debt/CONTINUOUS_REVIEW.md").exists())
 
     def test_docs_audit_detects_missing_dockerignore_canonical_markdown_keep_rule(self) -> None:
         module = load_docs_audit_module()
