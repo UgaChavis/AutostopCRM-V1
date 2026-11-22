@@ -192,7 +192,7 @@ def retained_graph_shape(graph: dict) -> bool:
         *(f"B{i}" for i in range(1, 5)),
         *(f"C{i}" for i in range(2, 8)),
         *(f"D{i}" for i in range(1, 6)),
-        *(f"E{i}" for i in range(1, 16)),
+        *(f"E{i}" for i in range(1, 15)),
         *(f"F{i}" for i in range(1, 6)),
         "G1",
         "H1",
@@ -211,7 +211,7 @@ def retained_graph_shape(graph: dict) -> bool:
         and len(elements) == len(expected_ids)
         and len(relations) == 37 + len(website)
         and {node["id"] for node in elements if node.get("parent") == "E1"}
-        == {f"E{i}" for i in range(2, 16)}
+        == {f"E{i}" for i in range(2, 15)}
         and (
             not website
             or (
@@ -248,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     graph = json.loads(args.graph.read_text(encoding="utf-8"))
     children = {n["id"] for n in graph["elements"] if n.get("parent") == "E1"}
     if not retained_graph_shape(graph):
-        parser.error("Expected retained core, E2–E15 children and optional M2→K1 website module")
+        parser.error("Expected retained core, E2–E14 children and optional M2→K1 website module")
     bundle = json.loads(args.bundle.read_text(encoding="utf-8")) if args.bundle else None
     instructions = canonical_instructions(graph, args.manager_root, bundle)
     previous = json.loads(args.blueprint.read_text(encoding="utf-8"))

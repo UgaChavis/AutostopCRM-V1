@@ -1242,14 +1242,14 @@ class DocsAuditTests(unittest.TestCase):
         required = module.MANAGER_REQUIRED_INSTRUCTION_PATHS
 
         self.assertEqual(len(required), len(set(required)))
-        self.assertEqual(47, len(module.MANAGER_REQUIRED_MODULE_CODES))
+        self.assertEqual(46, len(module.MANAGER_REQUIRED_MODULE_CODES))
         self.assertEqual(13, len(module.MANAGER_REQUIRED_REFERENCE_NAMES))
         self.assertIn("AGENTS.md", required)
         self.assertIn("docs/agent/modules/A4.md", required)
         self.assertIn("docs/agent/modules/A5.md", required)
         self.assertIn("docs/agent/modules/M1.md", required)
         self.assertIn("docs/agent/modules/M2.md", required)
-        for code in ("E12", "E13", "E14", "E15"):
+        for code in ("E12", "E13", "E14", "J1"):
             self.assertIn(f"docs/agent/modules/{code}.md", required)
         self.assertEqual(
             {

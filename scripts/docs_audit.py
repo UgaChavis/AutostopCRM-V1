@@ -171,7 +171,6 @@ MANAGER_REQUIRED_MODULE_CODES = (
     "E12",
     "E13",
     "E14",
-    "E15",
     "F1",
     "F2",
     "F3",

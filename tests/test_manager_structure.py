@@ -566,7 +566,7 @@ class ManagerStructureTests(unittest.TestCase):
                 Path(__file__).resolve().parents[1] / "templates" / "manager_structure.json"
             ).read_text(encoding="utf-8")
         )
-        self.assertEqual(len(reference["elements"]), 49)
+        self.assertEqual(len(reference["elements"]), 48)
         self.assertEqual(len(reference["relations"]), 38)
         # The instruction refresh preserves this existing owner's layout defect.
         self.assertEqual(route_conflicts(reference), [("L30", "L36")])
@@ -574,7 +574,7 @@ class ManagerStructureTests(unittest.TestCase):
         self.assertEqual(len({tuple(r["path"].split()[:2]) for r in reference["relations"]}), 38)
         self.assertEqual(
             [n["id"] for n in reference["elements"] if n.get("parent") == "E1"],
-            [f"E{i}" for i in range(2, 16)],
+            [f"E{i}" for i in range(2, 15)],
         )
         self.assertNotIn("tool_statuses", reference)
         self.apply(0, "portable-retained-001", "replace", diagram=reference)

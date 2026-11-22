@@ -77,7 +77,7 @@ The retained reference map at `/module-map` is separate from the new diagram.
 The public HTML is a shell; `GET /api/get_module_map_infrastructure` still requires
 an operator session and returns `autostopmanager.infrastructure-map.v1`.
 The source dataset is `web_app_assets/source/manager_infrastructure.json`: 48
-element IDs and 37 connection IDs, with retained coordinates, nesting, full
+element IDs and 38 connection IDs, with retained coordinates, nesting, full
 canonical instructions and protocols. The former
 application/IT maps and their snapshots are retired. Removed IDs `N1`, `N2`, `C1`,
 `L8`, and `L9` are not reused. The Codex-to-CRM route is `A2` → `L10` → `C2` →
@@ -87,10 +87,9 @@ The main instruction and note reading route is `A2` → `A3` → `D2` → `D3`:
 Codex reads local files through CLI. `D1` → `D2` represents only specific
 Manager functions that use saved technical experience, not general knowledge search.
 `L6` connects the work account to the compact wake node without a visible label.
-`E1` has fourteen children, `E2`–`E15`: vehicle identity, part identification,
+The thirteen children of `E1` (`E2`–`E14`) cover vehicle identity, part identification,
 catalogs, crosses, fitment, maintenance, fluids, new and used parts, market prices,
-labor times/prices, diagnostics and public research. `E8` covers fluids and
-`E15` covers public search. Provider instructions and readiness live in the
+labor times/prices and diagnostics. `E8` covers fluids. `J1` covers public and VIN research. Provider instructions and readiness live in the
 pinned tool cards; source definitions do not prove live provider availability.
 
 Static node `indicator` values are manually maintained display states: `on`
@@ -120,9 +119,9 @@ is saved on mouse release; text is saved with the form button. The diagram
 shows larger and nested module codes, status indicators, and only relation IDs.
 Full relation labels remain in hover hints and the properties panel. G1 reads
 automation status; other modules can use manual green, yellow, or red states.
-E1–E15 use the canonical Manager Markdown exported in the pinned automotive
+E1–E14 and J1 use the canonical Manager Markdown exported in the pinned automotive
 bundle. In clean view, click a module or press Enter/Space to read its instruction;
-E1–E15 also show their operation cards. Source references and Markdown links open
+These modules also show their operation cards. Source references and Markdown links open
 the matching Manager document at the catalog's exact GitHub revision; relative
 links resolve from their source document and code examples remain plain text.
 Other modules display the instruction saved in CRM, with a separate canonical
@@ -163,6 +162,15 @@ ignored `output/manager-structure-demo`. Export and restore a template with
 session in `AUTOSTOP_MANAGER_STRUCTURE_SESSION`. Restore refuses to overwrite a
 nonempty diagram unless `--replace-existing` is explicit. The reference can be
 rebuilt on an empty stand with `--build-reference`.
+
+To merge a saved E15 node into J1, pass a fresh full graph snapshot to
+`scripts/migrate_e1_structure.py --snapshot GRAPH --bundle CATALOG --previous-template OLD_TEMPLATE --output PREVIEW --receipt RECEIPT --idempotency-key KEY`.
+Use the template from the previously installed CRM revision. Its matching stock
+instructions are refreshed and owner-edited text is preserved. When the receipt
+reports `changed=true`, preview the generated replacement through the owner API,
+then apply that diagram with the same expected version and a fresh apply key.
+Read the graph back and verify the redirected links and tool statuses. An
+already migrated graph returns `changed=false` and needs no write.
 
 For focused edits, `scripts/manager_structure_edit.py` changes a module,
 relation, or UTF-8 instruction through the versioned API and verifies readback.

@@ -129,6 +129,15 @@ class ManagerStructureBrowserTests(unittest.TestCase):
                     "width": 270,
                     "height": 55,
                 },
+                {
+                    "id": "J1",
+                    "title": "Исследования",
+                    "kind": "module",
+                    "x": 420,
+                    "y": 30,
+                    "width": 300,
+                    "height": 100,
+                },
             ],
             "relations": [],
         }
@@ -148,6 +157,17 @@ class ManagerStructureBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.url, self.runtime.base_url + "/manager-structure")
         self.assertEqual(self.page.title(), "Конструктор структуры менеджера · AutoStop")
         return bundle
+
+    def test_j1_dialog_shows_public_source_and_vin_operations_from_one_catalog(self):
+        bundle = self.automotive_fixture()
+        self.page.locator('.node[data-id="J1"]').click()
+        self.page.locator('.tool-card[data-tool-id="manager.j1_research_sources"]').wait_for()
+        self.page.locator('.tool-card[data-tool-id="manager.j1_research_vin"]').wait_for()
+        module = next(item for item in bundle["modules"] if item["element_id"] == "J1")
+        self.assertEqual(self.page.locator(".tool-card").count(), len(module["tool_ids"]))
+        self.assertEqual(
+            self.page.locator("#toolDialogTitle").inner_text(), f"J1 · {module['title']}"
+        )
 
     def test_automotive_view_dialog_keyboard_owner_status_poll_conflict_and_mobile(self):
         bundle = self.automotive_fixture()

@@ -10,7 +10,8 @@ toolCatalogRetry.addEventListener('click',retryToolDialog);
 function sessionIdentity(){try{return localStorage.getItem('kanban-operator-session')||''}catch(_error){return ''}}
 function textElement(tag,text,className=''){const element=document.createElement(tag);element.textContent=text;if(className)element.className=className;return element}
     // @include manager_documentation.js
-function moduleDocumentRef(id){return id==='A2'?'AGENTS.md':/^(?:A[1-5]|B[1-4]|C[2-7]|D[1-5]|E(?:[1-9]|1[0-5])|F[1-5]|G1|H[12]|I[12]|J1|K1|M[12])$/.test(id)?`docs/agent/modules/${id}.md`:''}
+function isAutomotiveModule(id){return id==='J1'||/^E(?:[1-9]|1[0-4])$/.test(id)}
+function moduleDocumentRef(id){return id==='A2'?'AGENTS.md':/^(?:A[1-5]|B[1-4]|C[2-7]|D[1-5]|E(?:[1-9]|1[0-4])|F[1-5]|G1|H[12]|I[12]|J1|K1|M[12])$/.test(id)?`docs/agent/modules/${id}.md`:''}
 function instructionMetadata(target,reference,bundle){target.replaceChildren(documentLink(reference,reference,bundle.source_revision),document.createTextNode(` · Manager ${bundle.source_revision.slice(0,12)} · каталог ${bundle.content_hash.slice(0,12)}`));target.title=`Manager ${bundle.source_revision} · ${bundle.content_hash}`}
 function cardMessage(card,message,error=false){card.error.textContent=message;card.error.classList.toggle('is-error',error)}
 function toolDialogMessage(message){$('toolCatalogMessage').textContent=message;$('toolCatalogMessage').hidden=!message}
@@ -133,7 +134,7 @@ async function openToolDialog(node,focusClose=true){
   $('toolDialogInstruction').textContent='';
   $('toolCards').replaceChildren();
   toolCards.clear();
-  const automotive=/^E(?:[1-9]|1[0-5])$/.test(node.id);
+  const automotive=isAutomotiveModule(node.id);
   $('toolStatusHelp').hidden=!automotive;
   $('toolDialogScroll').setAttribute('aria-busy',String(automotive));
   if(!$('toolDialog').open)$('toolDialog').showModal();
@@ -175,7 +176,7 @@ function refreshToolStatuses(){
     toolCatalogRetry.disabled=true;
     return;
   }
-  if(toolDialogSession!==sessionIdentity()||toolDialogCatalogKey!==catalogKey(diagram.catalog_metadata)||(!/^E(?:[1-9]|1[0-5])$/.test(toolDialogModule)&&toolDialogNodeKey!==moduleInstructionKey(node))){
+  if(toolDialogSession!==sessionIdentity()||toolDialogCatalogKey!==catalogKey(diagram.catalog_metadata)||(!isAutomotiveModule(toolDialogModule)&&toolDialogNodeKey!==moduleInstructionKey(node))){
     const scroll=$('toolDialogScroll').scrollTop,token=sessionIdentity(),moduleId=node.id,sameSession=toolDialogSession===token,view=captureToolDialogView();
     const opening=openToolDialog(node,!sameSession),intent=toolDialogIntent,focusRevision=toolDialogFocusRevision;
     opening.then(()=>{

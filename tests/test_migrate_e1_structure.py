@@ -260,6 +260,84 @@ class E1MigrationTests(unittest.TestCase):
             self.assertTrue(service.apply(apply_payload)["deduplicated"])
             self.assertEqual(path.read_bytes(), saved_bytes)
 
+    def test_retained_graph_merge_preserves_custom_nodes_edges_and_idempotency(self):
+        root = Path(__file__).resolve().parents[1]
+        bundle = json.loads(
+            (
+                root / "src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json"
+            ).read_text()
+        )
+        old = snapshot_fixture()
+        source, dest, research = copy.deepcopy(old["elements"][:3])
+        source.update(id="J1", instruction="Owner-edited research instructions.")
+        research.update(id="E15")
+        edge = copy.deepcopy(old["relations"][0])
+        edge.update(
+            id="OWNER",
+            **{"from": "E15", "to": dest["id"]},
+            path="M220 385 H310 V75 H400",
+            label_x=372,
+            label_y=307,
+        )
+        graph = {**old, "elements": [source, dest, research], "relations": [edge]}
+        template = {"elements": [{"id": "J1", "instruction": "Old stock instructions."}]}
+        merged, receipt = prepare_migration(graph, bundle, previous_template=template)
+        self.assertEqual(merged["elements"], [source, dest])
+        moved = merged["relations"][0]
+        for field in (
+            "label",
+            "label_mode",
+            "label_x",
+            "label_y",
+            "route_mode",
+            "color",
+            "id",
+            "protocol",
+            "description",
+            "direction",
+        ):
+            self.assertEqual(moved[field], edge[field])
+        self.assertEqual((moved["from"], moved["to"]), ("J1", dest["id"]))
+        self.assertTrue(receipt["changed"])
+        self.assertEqual(receipt["instructions_refreshed"], [])
+        rerun, second = prepare_migration({**old, **merged}, bundle, previous_template=template)
+        self.assertEqual(rerun, merged)
+        self.assertFalse(second["changed"])
+        source["instruction"] = template["elements"][0]["instruction"]
+        refreshed, receipt = prepare_migration(graph, bundle, previous_template=template)
+        self.assertEqual(receipt["instructions_refreshed"], ["J1"])
+        self.assertEqual(
+            refreshed["elements"][0]["instruction"],
+            next(n["instruction_text"] for n in bundle["modules"] if n["element_id"] == "J1"),
+        )
+        edge.update(to="J1", route_mode="auto")
+        with self.assertRaisesRegex(ValueError, "semantic_relation_collision:OWNER"):
+            prepare_migration(graph, bundle)
+
+    def test_historical_catalog_keeps_existing_j1_and_handles_missing_j1(self):
+        root = Path(__file__).resolve().parents[1]
+        bundle = json.loads(
+            (
+                root / "src/minimal_kanban/web_app_assets/source/automotive_tool_catalog.json"
+            ).read_text()
+        )
+        snapshot = snapshot_fixture()
+        graph, _ = prepare_migration(snapshot, bundle)
+        self.assertEqual([n["id"] for n in graph["elements"]].count("J1"), 1)
+        self.assertNotIn("E15", [n["id"] for n in graph["elements"]])
+        self.assertEqual(next(e for e in graph["relations"] if e["id"] == "L22")["to"], "J1")
+        custom = {
+            **snapshot["elements"][0],
+            "id": "J1",
+            "x": 2000,
+            "y": 2400,
+            "instruction": "Custom J1",
+        }
+        snapshot["elements"].append(custom)
+        with patch("migrate_e1_structure._reroute_changed"):
+            existing, _ = prepare_migration(snapshot, bundle)
+        self.assertEqual([n for n in existing["elements"] if n["id"] == "J1"], [custom])
+
     def test_only_the_explicit_legacy_L21_self_loop_is_resolved(self) -> None:
         snapshot = snapshot_fixture()
         next(edge for edge in snapshot["relations"] if edge["id"] == "L21")["id"] = "UNEXPECTED"

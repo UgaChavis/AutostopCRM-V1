@@ -67,8 +67,8 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
     def assert_full_catalog(self, actual):
         expected = load_bundle()
         self.assertEqual(len(expected["modules"]), 15)
-        self.assertEqual(len(expected["tools"]), 124)
-        self.assertEqual(len(expected["native_schemas"]), 72)
+        self.assertEqual(len(expected["tools"]), 125)
+        self.assertEqual(len(expected["native_schemas"]), 73)
         self.assertEqual(actual, expected)
         self.assertEqual(content_hash(actual), expected["content_hash"])
         role_action = actual["native_schemas"]["manager_role_action"]
@@ -127,9 +127,12 @@ class ManagerToolCatalogWireTests(unittest.TestCase):
                 )
                 cards = {card["tool_id"]: card for card in catalog["tools"]}
                 public_research = next(
-                    module for module in catalog["modules"] if module["element_id"] == "E15"
+                    module for module in catalog["modules"] if module["element_id"] == "J1"
                 )
-                for name in ("j1_research_vin", "j1_research_record_facts"):
+                sources = catalog["native_schemas"]["j1_research_sources"]
+                self.assertEqual(sources["required"], ["source_urls"])
+                self.assertEqual(sources["properties"]["source_urls"]["type"], "array")
+                for name in ("j1_research_sources", "j1_research_vin", "j1_research_record_facts"):
                     ident = f"manager.{name}"
                     self.assertEqual(cards[ident]["input_schema_ref"], name)
                     self.assertEqual(cards[ident]["invocation"]["tool_name"], name)

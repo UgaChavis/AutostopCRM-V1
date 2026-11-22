@@ -32,7 +32,7 @@ class ModuleMapTests(unittest.TestCase):
                 "B": 4,
                 "C": 7,
                 "D": 5,
-                "E": 15,
+                "E": 14,
                 "F": 5,
                 "G": 1,
                 "H": 2,
@@ -45,7 +45,7 @@ class ModuleMapTests(unittest.TestCase):
         } - {"C1"}
         self.assertEqual(self.data["schema_version"], "autostopmanager.infrastructure-map.v1")
         self.assertEqual(set(self.nodes), expected)
-        self.assertEqual(len(self.nodes), 49)
+        self.assertEqual(len(self.nodes), 48)
         edges = {item["id"]: item for item in self.data["relations"]}
         self.assertEqual(
             set(edges),
@@ -59,6 +59,7 @@ class ModuleMapTests(unittest.TestCase):
             self.assertIn(edge["kind"], {"event", "exchange"})
         self.assertEqual((edges["L10"]["from"], edges["L10"]["to"]), ("A2", "C2"))
         self.assertIn("OAuth 2.1", edges["L10"]["protocol"])
+        self.assertEqual((edges["L22"]["to"], edges["L24"]["to"]), ("J1", "J1"))
         self.assertEqual(self.nodes["G1"].get("control_surface"), "automation_center")
         self.assertIn("manage-owner-instagram/SKILL.md", self.nodes["A1"]["links"][2]["url"])
         template = json.loads(
@@ -93,10 +94,11 @@ class ModuleMapTests(unittest.TestCase):
                 parent = self.nodes[parent].get("parent")
         self.assertEqual(
             [n["id"] for n in self.data["elements"] if n.get("parent") == "E1"],
-            [f"E{i}" for i in range(2, 16)],
+            [f"E{i}" for i in range(2, 15)],
         )
         self.assertEqual(self.nodes["E8"]["title"], "Масла, жидкости и объёмы")
-        self.assertEqual(self.nodes["E15"]["title"], "Публичный поиск и исследования")
+        self.assertEqual(self.nodes["J1"]["title"], "Интернет-исследования")
+        self.assertNotIn("E15", self.nodes)
         self.assertNotIn("tool_statuses", self.data)
         self.assertNotIn("receipts", self.data)
         for edge in self.data["relations"]:

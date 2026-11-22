@@ -233,9 +233,9 @@ class ManagerMapBrowserTests(unittest.TestCase):
         identifiers = self.page.locator("[data-id]").evaluate_all(
             "elements => elements.map(el => el.dataset.id)"
         )
-        self.assertEqual(len(identifiers), 87)
-        self.assertEqual(len(set(identifiers)), 87)
-        self.assertEqual(self.page.locator(".node").count(), 49)
+        self.assertEqual(len(identifiers), 86)
+        self.assertEqual(len(set(identifiers)), 86)
+        self.assertEqual(self.page.locator(".node").count(), 48)
         self.assertEqual(self.page.locator(".edge").count(), 38)
         self.assertEqual(
             self.page.locator("[data-edge-owner][data-id],[data-edge-owner][tabindex]").count(), 0
@@ -327,7 +327,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         stages = diagram.locator("[data-step-id]").evaluate_all(
             "elements => elements.map(element => element.dataset.stepId)"
         )
-        self.assertEqual(stages, [f"E{i}" for i in range(2, 16)])
+        self.assertEqual(stages, [f"E{i}" for i in range(2, 15)])
         self.assertTrue(self.page.locator(".detail-backdrop").is_visible())
         self.page.keyboard.press("Escape")
         self.assertFalse(dialog.is_visible())
@@ -912,7 +912,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
             for item in MODULE_MAP_INFRASTRUCTURE["elements"]
             if item.get("parent") == "E1"
         }
-        self.assertEqual(set(purposes), {f"E{i}" for i in range(2, 16)})
+        self.assertEqual(set(purposes), {f"E{i}" for i in range(2, 15)})
         for code, purpose in purposes.items():
             with self.subTest(code=code):
                 self.select_node(code)
@@ -1040,8 +1040,8 @@ class ManagerMapBrowserTests(unittest.TestCase):
                     return obscured;
                 }""")
                 self.assertEqual(obscured_labels, [])
-                # Retained E2–E15 layout replaces the old external provider satellites.
-                for code in ["E1", *[f"E{i}" for i in range(2, 16)], "F1", "F2"]:
+                # Retained E2–E14 layout replaces the old external provider satellites.
+                for code in ["E1", *[f"E{i}" for i in range(2, 15)], "F1", "F2"]:
                     box = self.page.locator(f'[data-id="{code}"]').bounding_box()
                     self.assertIsNotNone(box)
                     self.assertGreater(box["width"], 0)
@@ -1091,7 +1091,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
     def test_removed_hashes_open_current_map(self) -> None:
         self.page.goto(self.runtime.base_url + "/module-map#C1")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 87)
+        self.assertEqual(self.page.locator("[data-id]").count(), 86)
         self.assertFalse(self.page.locator("#detail").is_visible())
         self.assertEqual(self.page.evaluate("location.hash"), "")
         for code in ("L8", "L9"):
@@ -1100,7 +1100,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
                 self.page.wait_for_function(
                     "location.hash==='' && document.querySelector('#detail').hidden"
                 )
-                self.assertEqual(self.page.locator("[data-id]").count(), 87)
+                self.assertEqual(self.page.locator("[data-id]").count(), 86)
         self.assertEqual(self.errors, [])
 
     def test_failed_load_can_retry_without_exposing_partial_map(self) -> None:
@@ -1115,7 +1115,7 @@ class ManagerMapBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("[data-id]").count(), 0)
         self.page.unroute("**/api/get_module_map_infrastructure")
         self.login()
-        self.assertEqual(self.page.locator("[data-id]").count(), 87)
+        self.assertEqual(self.page.locator("[data-id]").count(), 86)
         self.assertEqual(self.errors, [])
 
 

@@ -6,7 +6,7 @@ Open `/manager-structure` from the board button **Конструктор стр�
 менеджера**. Any operator with a session can open a module and read its
 instruction. Only the configured owner can save, create or remove modules and
 relations. In clean view, clicking a module (or pressing Enter/Space) opens its
-instruction. E1–E15 also show their central automotive instruction and operation
+instruction. E1–E14 and J1 also show their central automotive instruction and operation
 cards from the pinned catalog; other modules show the instruction saved in CRM.
 Escape closes
 the dialog and returns focus to the original module without moving the viewport.
@@ -218,8 +218,8 @@ restores it and performs an exact readback. Use
 refuses to replace a nonempty diagram without `--replace-existing`.
 
 `scripts/sync_manager_structure_instructions.py` is an offline preparation and
-checking route. It copies the retained technical graph (48 nodes, 37 relations,
-fourteen E1 children E2–E15), replaces instruction text from canonical Manager
+checking route. It copies the retained technical graph (48 nodes, 38 relations,
+thirteen E1 children E2–E14), replaces instruction text from canonical Manager
 docs and keeps geometry/styles exactly. A2 reads `AGENTS.md`; A5 uses a stable
 canonical pointer if its full catalog exceeds the instruction limit. Portable
 artifacts exclude owner receipts and commissioning records. Pass `--bundle`

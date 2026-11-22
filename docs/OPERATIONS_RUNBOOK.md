@@ -788,8 +788,8 @@ separate root-only `/opt/AutostopManager/.crm-mcp.env`, with
 `AUTOSTOP_CRM_MCP_BEARER_TOKEN` matching the configured CRM bearer. This file
 belongs in the single configuration backup when the maintenance changes it.
 
-The legacy CRM E8 Web Research Gateway contract serves Manager's E15 public
-research module. Read `docs/agent/modules/E15.md` from the Manager root selected
+The legacy CRM E8 Web Research Gateway contract serves Manager's J1 public
+research module. Read `docs/agent/modules/J1.md` from the Manager root selected
 by [Manager instruction roots](#manager-instruction-roots).
 The Automation Center also uses this credential for feed readiness.
 
