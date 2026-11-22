@@ -17,6 +17,11 @@ class ManagerCanvasNavigationBrowserTests(unittest.TestCase):
     def stage(self):
         return self.page.locator("#stage").get_attribute("transform")
 
+    def stage_matrix(self):
+        return self.page.locator("#stage").evaluate(
+            "el => { const {a,b,c,d,e,f} = el.getCTM(); return [a,b,c,d,e,f]; }"
+        )
+
     def background(self):
         box = self.page.locator("#diagram").bounding_box()
         return box["x"] + 15, box["y"] + 15
@@ -124,13 +129,15 @@ class ManagerCanvasNavigationBrowserTests(unittest.TestCase):
         self.automotive_fixture()
         before = self.read()
         fitted = self.stage()
+        fitted_matrix = self.stage_matrix()
         self.assertTrue(self.page.locator("#mapNavigation").is_visible())
         self.page.get_by_role("button", name="Увеличить масштаб", exact=True).click()
         larger = self.stage()
         self.assertNotEqual(larger, fitted)
         self.assertIn("%", self.page.locator("#mapScale").inner_text())
         self.page.get_by_role("button", name="Уменьшить масштаб", exact=True).click()
-        self.assertEqual(self.stage(), fitted)
+        for actual, expected in zip(self.stage_matrix(), fitted_matrix, strict=True):
+            self.assertAlmostEqual(actual, expected, delta=1e-9)
         self.page.locator("#diagram").focus()
         self.page.keyboard.press("+")
         self.assertNotEqual(self.stage(), fitted)
